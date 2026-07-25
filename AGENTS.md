@@ -70,7 +70,7 @@ LiveViews that require login should **always be placed inside the __existing__ `
       pipe_through [:browser, :require_authenticated_account]
 
       live_session :require_authenticated_account,
-        on_mount: [{DifyWeb.AccountAuth, :require_authenticated}] do
+        on_mount: [{FluxWeb.AccountAuth, :require_authenticated}] do
         # phx.gen.auth generated routes
         live "/accounts/settings", AccountLive.Settings, :edit
         live "/accounts/settings/confirm-email/:token", AccountLive.Settings, :confirm_email
@@ -95,7 +95,7 @@ LiveViews that can work with or without authentication, **always use the __exist
       pipe_through [:browser]
 
       live_session :current_account,
-        on_mount: [{DifyWeb.AccountAuth, :mount_current_scope}] do
+        on_mount: [{FluxWeb.AccountAuth, :mount_current_scope}] do
         # our own routes that work with or without authentication
         live "/", PublicLive
       end

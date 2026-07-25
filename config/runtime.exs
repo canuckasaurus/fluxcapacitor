@@ -7,24 +7,24 @@ import Config
 # any compile-time configuration in here, as it won't be applied.
 # The block below contains prod specific runtime configuration.
 
-config :dify_web, DifyWeb.Endpoint,
+config :flux_web, FluxWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
-# DIFY_ROLE gates what this node runs: "all" (default) serves web and works
+# FLUX_ROLE gates what this node runs: "all" (default) serves web and works
 # jobs, "web" serves HTTP only (no Oban queues), "worker" works jobs only.
 if config_env() != :test do
-  case System.get_env("DIFY_ROLE", "all") do
+  case System.get_env("FLUX_ROLE", "all") do
     "web" ->
-      config :dify, Oban, queues: false, plugins: false
+      config :flux, Oban, queues: false, plugins: false
 
     "worker" ->
-      config :dify_web, DifyWeb.Endpoint, server: false
+      config :flux_web, FluxWeb.Endpoint, server: false
 
     "all" ->
       :ok
 
     other ->
-      raise "invalid DIFY_ROLE=#{inspect(other)}; expected all | web | worker"
+      raise "invalid FLUX_ROLE=#{inspect(other)}; expected all | web | worker"
   end
 end
 
@@ -38,7 +38,7 @@ if config_env() == :prod do
 
   maybe_ipv6 = if System.get_env("ECTO_IPV6") in ~w(true 1), do: [:inet6], else: []
 
-  config :dify, Dify.Repo,
+  config :flux, Flux.Repo,
     # ssl: true,
     url: database_url,
     pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
@@ -58,7 +58,7 @@ if config_env() == :prod do
       You can generate one by calling: mix phx.gen.secret
       """
 
-  config :dify_web, DifyWeb.Endpoint,
+  config :flux_web, FluxWeb.Endpoint,
     http: [
       # Enable IPv6 and bind on all interfaces.
       # Set it to  {0, 0, 0, 0, 0, 0, 0, 1} for local network only access.
@@ -71,7 +71,7 @@ if config_env() == :prod do
   # If you are doing OTP releases, you need to instruct Phoenix
   # to start each relevant endpoint:
   #
-  #     config :dify_web, DifyWeb.Endpoint, server: true
+  #     config :flux_web, FluxWeb.Endpoint, server: true
   #
   # Then you can assemble a release by calling `mix release`.
   # See `mix help release` for more information.
@@ -81,7 +81,7 @@ if config_env() == :prod do
   # To get SSL working, you will need to add the `https` key
   # to your endpoint configuration:
   #
-  #     config :dify_web, DifyWeb.Endpoint,
+  #     config :flux_web, FluxWeb.Endpoint,
   #       https: [
   #         ...,
   #         port: 443,
@@ -103,7 +103,7 @@ if config_env() == :prod do
   # We also recommend setting `force_ssl` in your config/prod.exs,
   # ensuring no data is ever sent via http, always redirecting to https:
   #
-  #     config :dify_web, DifyWeb.Endpoint,
+  #     config :flux_web, FluxWeb.Endpoint,
   #       force_ssl: [hsts: true]
   #
   # Check `Plug.SSL` for all available options in `force_ssl`.
@@ -113,7 +113,7 @@ if config_env() == :prod do
   # In production you need to configure the mailer to use a different adapter.
   # Here is an example configuration for Mailgun:
   #
-  #     config :dify, Dify.Mailer,
+  #     config :flux, Flux.Mailer,
   #       adapter: Swoosh.Adapters.Mailgun,
   #       api_key: System.get_env("MAILGUN_API_KEY"),
   #       domain: System.get_env("MAILGUN_DOMAIN")
@@ -126,5 +126,5 @@ if config_env() == :prod do
   #
   # See https://hexdocs.pm/swoosh/Swoosh.html#module-installation for details.
 
-  config :dify, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
+  config :flux, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 end

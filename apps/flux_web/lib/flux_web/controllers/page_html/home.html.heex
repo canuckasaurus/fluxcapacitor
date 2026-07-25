@@ -1,0 +1,136 @@
+<Layouts.flash_group flash={@flash} />
+<div class="min-h-screen bg-base-100">
+  <header class="navbar px-4 sm:px-6 lg:px-8 border-b border-base-200">
+    <div class="flex-1">
+      <a href="/" class="flex w-fit items-center gap-2">
+        <.icon name="hero-bolt-solid" class="size-7 text-primary" />
+        <span class="text-lg font-bold">FluxCapacitor</span>
+      </a>
+    </div>
+    <div class="flex-none">
+      <ul class="flex px-1 space-x-2 items-center">
+        <li><.link navigate={~p"/accounts/log-in"} class="btn btn-ghost">Log in</.link></li>
+        <li>
+          <.link navigate={~p"/accounts/register"} class="btn btn-primary">
+            Get started <span aria-hidden="true">&rarr;</span>
+          </.link>
+        </li>
+      </ul>
+    </div>
+  </header>
+
+  <main>
+    <section class="px-4 py-20 sm:px-6 lg:px-8 text-center">
+      <div class="mx-auto max-w-3xl space-y-6">
+        <h1 class="text-4xl sm:text-5xl font-bold leading-tight">
+          Build AI-powered workflows<br />your whole team can run
+        </h1>
+        <p class="text-lg opacity-80">
+          FluxCapacitor is your enterprise platform for creating <b>Fluxes</b> — AI workflows
+          that connect language models, your knowledge bases, and your tools — then publishing
+          them as apps and APIs your organization can use safely.
+        </p>
+        <div class="flex justify-center gap-3">
+          <.link navigate={~p"/accounts/register"} class="btn btn-primary btn-lg">
+            Create your account
+          </.link>
+          <.link navigate={~p"/accounts/log-in"} class="btn btn-outline btn-lg">Log in</.link>
+        </div>
+      </div>
+    </section>
+
+    <section class="px-4 py-16 sm:px-6 lg:px-8 bg-base-200">
+      <div class="mx-auto max-w-5xl">
+        <h2 class="text-2xl font-bold text-center mb-10">How it works</h2>
+        <ol class="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+          <li class="card bg-base-100 p-6 space-y-2">
+            <span class="badge badge-primary">1</span>
+            <h3 class="font-semibold">Create your workspace</h3>
+            <p class="text-sm opacity-75">
+              Register, then create a workspace for your team. Invite teammates as admins,
+              editors, or viewers — everyone works in the same place with the right permissions.
+            </p>
+          </li>
+          <li class="card bg-base-100 p-6 space-y-2">
+            <span class="badge badge-primary">2</span>
+            <h3 class="font-semibold">Connect models &amp; knowledge</h3>
+            <p class="text-sm opacity-75">
+              Add credentials for your AI model providers and upload documents into knowledge
+              bases so Fluxes can ground their answers in your organization's content.
+            </p>
+          </li>
+          <li class="card bg-base-100 p-6 space-y-2">
+            <span class="badge badge-primary">3</span>
+            <h3 class="font-semibold">Build Fluxes visually</h3>
+            <p class="text-sm opacity-75">
+              Open the Flux Creator and compose workflows on a visual canvas: prompts, branching
+              logic, knowledge retrieval, tools, and human-in-the-loop steps — no glue code.
+            </p>
+          </li>
+          <li class="card bg-base-100 p-6 space-y-2">
+            <span class="badge badge-primary">4</span>
+            <h3 class="font-semibold">Publish &amp; share</h3>
+            <p class="text-sm opacity-75">
+              Publish a Flux as a chat app for your team or call it through the API. Versioning
+              keeps drafts separate from what's live.
+            </p>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="px-4 py-16 sm:px-6 lg:px-8">
+      <div class="mx-auto max-w-5xl">
+        <h2 class="text-2xl font-bold text-center mb-10">What's inside</h2>
+        <div class="grid gap-6 sm:grid-cols-2">
+          <div class="card border border-base-200 p-6 space-y-2">
+            <.icon name="hero-squares-2x2" class="size-6 text-primary" />
+            <h3 class="font-semibold">Flux Creator</h3>
+            <p class="text-sm opacity-75">
+              The visual workflow studio. Drag nodes onto the canvas, wire them together, debug
+              runs step by step, and publish when ready.
+            </p>
+          </div>
+          <div class="card border border-base-200 p-6 space-y-2">
+            <.icon name="hero-book-open" class="size-6 text-primary" />
+            <h3 class="font-semibold">Knowledge</h3>
+            <p class="text-sm opacity-75">
+              Upload documents, index them automatically, and let Fluxes retrieve the most
+              relevant passages with citations.
+            </p>
+          </div>
+          <div class="card border border-base-200 p-6 space-y-2">
+            <.icon name="hero-puzzle-piece" class="size-6 text-primary" />
+            <h3 class="font-semibold">Plugins</h3>
+            <p class="text-sm opacity-75">
+              Model providers and tools are plugins your admins install per workspace — with
+              capability grants controlling exactly what each plugin may do.
+            </p>
+          </div>
+          <div class="card border border-base-200 p-6 space-y-2">
+            <.icon name="hero-user-group" class="size-6 text-primary" />
+            <h3 class="font-semibold">Teams &amp; workspaces</h3>
+            <p class="text-sm opacity-75">
+              Every resource lives in a workspace. Role-based access control decides who can
+              build, who can publish, and who can administer.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="px-4 py-16 sm:px-6 lg:px-8 bg-base-200 text-center">
+      <div class="mx-auto max-w-2xl space-y-4">
+        <h2 class="text-2xl font-bold">Ready to build your first Flux?</h2>
+        <p class="opacity-75">Create an account, set up your workspace, and invite your team.</p>
+        <.link navigate={~p"/accounts/register"} class="btn btn-primary btn-lg">
+          Get started free
+        </.link>
+      </div>
+    </section>
+  </main>
+
+  <footer class="px-4 py-8 text-center text-sm opacity-60">
+    FluxCapacitor — internal AI workflow platform
+  </footer>
+</div>

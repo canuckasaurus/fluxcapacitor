@@ -1,4 +1,4 @@
-defmodule Dify.Umbrella.MixProject do
+defmodule Flux.Umbrella.MixProject do
   use Mix.Project
 
   def project do
