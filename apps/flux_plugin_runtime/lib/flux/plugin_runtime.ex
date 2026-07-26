@@ -1,18 +1,72 @@
 defmodule Flux.PluginRuntime do
   @moduledoc """
-  Documentation for `Flux.PluginRuntime`.
+  The plugin host facade. Phase A hosts plugins in-node; callers never know
+  where a plugin executes, so the Phase-B split to a dedicated BEAM node
+  changes nothing outside this module.
+
+  Every invocation runs in a supervised task with a deadline.
   """
+
+  @builtin_plugins [
+    Flux.Plugins.OpenAI,
+    Flux.Plugins.Anthropic,
+    Flux.Plugins.Echo
+  ]
+
+  @invoke_timeout :timer.minutes(5)
+  @validate_timeout :timer.seconds(30)
+
+  @doc "All registered plugin manifests."
+  def list_plugins do
+    Enum.map(plugin_modules(), & &1.manifest())
+  end
+
+  def list_model_providers do
+    Enum.filter(list_plugins(), &(&1.category == :model))
+  end
+
+  @doc "Resolves a plugin module by manifest id."
+  def fetch_plugin(plugin_id) do
+    case Enum.find(plugin_modules(), &(&1.manifest().id == plugin_id)) do
+      nil -> {:error, :unknown_plugin}
+      module -> {:ok, module}
+    end
+  end
+
+  def models(plugin_id, credentials) do
+    with {:ok, module} <- fetch_plugin(plugin_id) do
+      {:ok, module.models(credentials)}
+    end
+  end
+
+  def validate_credentials(plugin_id, credentials) do
+    with {:ok, module} <- fetch_plugin(plugin_id) do
+      run_supervised(fn -> module.validate_credentials(credentials) end, @validate_timeout)
+    end
+  end
 
   @doc """
-  Hello world.
-
-  ## Examples
-
-      iex> Flux.PluginRuntime.hello()
-      :world
-
+  Invokes an LLM through the plugin. `emit` receives streamed chunks in the
+  task's process — it should be a cheap side-effect (send/broadcast), not
+  heavy work.
   """
-  def hello do
-    :world
+  def invoke_llm(plugin_id, credentials, request, emit) do
+    with {:ok, module} <- fetch_plugin(plugin_id) do
+      run_supervised(fn -> module.invoke_llm(credentials, request, emit) end, @invoke_timeout)
+    end
+  end
+
+  defp run_supervised(fun, timeout) do
+    task = Task.Supervisor.async_nolink(Flux.PluginRuntime.TaskSupervisor, fun)
+
+    case Task.yield(task, timeout) || Task.shutdown(task, :brutal_kill) do
+      {:ok, result} -> result
+      {:exit, reason} -> {:error, {:plugin_crashed, reason}}
+      nil -> {:error, :timeout}
+    end
+  end
+
+  defp plugin_modules do
+    Application.get_env(:flux_plugin_runtime, :plugins, @builtin_plugins)
   end
 end

@@ -1,0 +1,135 @@
+defmodule FluxWeb.V1.ChatMessageController do
+  @moduledoc """
+  Dify-compatible `/v1/chat-messages`: streaming SSE by default
+  (`event: message` deltas, then `message_end` with usage), or a single
+  JSON document with `response_mode: "blocking"`.
+  """
+  use FluxWeb, :controller
+
+  alias Flux.Chat
+  alias Flux.Chat.Conversation
+
+  @stream_timeout :timer.minutes(5)
+
+  def create(conn, %{"query" => query} = params) when is_binary(query) and query != "" do
+    app = conn.assigns.service_app
+    scope = conn.assigns.service_scope
+
+    with {:ok, conversation} <- resolve_conversation(scope, app, params) do
+      {:ok, _user_message, assistant_message} =
+        Chat.send_message(scope, app, conversation, query)
+
+      case Map.get(params, "response_mode", "streaming") do
+        "blocking" -> respond_blocking(conn, conversation, assistant_message)
+        _ -> respond_streaming(conn, conversation, assistant_message)
+      end
+    else
+      {:error, :not_found} ->
+        error(conn, 404, "not_found", "Conversation not found")
+    end
+  end
+
+  def create(conn, _params) do
+    error(conn, 400, "invalid_param", "query is required")
+  end
+
+  defp resolve_conversation(scope, app, %{"conversation_id" => id})
+       when is_binary(id) and id != "" do
+    case Chat.get_conversation(scope, id) do
+      %Conversation{app_id: app_id} = conversation when app_id == app.id -> {:ok, conversation}
+      _ -> {:error, :not_found}
+    end
+  end
+
+  defp resolve_conversation(scope, app, params) do
+    {:ok, Chat.create_conversation(scope, app, %{end_user_ref: params["user"]})}
+  end
+
+  ## Streaming
+
+  defp respond_streaming(conn, conversation, assistant_message) do
+    conn =
+      conn
+      |> put_resp_content_type("text/event-stream")
+      |> put_resp_header("cache-control", "no-cache")
+      |> send_chunked(200)
+
+    stream_loop(conn, conversation, assistant_message)
+  end
+
+  defp stream_loop(conn, conversation, assistant_message) do
+    receive do
+      {:chunk, delta} ->
+        case sse(conn, %{
+               event: "message",
+               message_id: assistant_message.id,
+               conversation_id: conversation.id,
+               answer: delta
+             }) do
+          {:ok, conn} -> stream_loop(conn, conversation, assistant_message)
+          {:error, _closed} -> conn
+        end
+
+      {:done, message} ->
+        {_, conn} =
+          sse(conn, %{
+            event: "message_end",
+            message_id: message.id,
+            conversation_id: conversation.id,
+            metadata: %{usage: message.usage}
+          })
+
+        conn
+
+      {:error, message} ->
+        {_, conn} =
+          sse(conn, %{
+            event: "error",
+            message_id: message.id,
+            conversation_id: conversation.id,
+            code: "generation_failed",
+            message: message.error
+          })
+
+        conn
+    after
+      @stream_timeout ->
+        {_, conn} = sse(conn, %{event: "error", code: "timeout", message: "Stream timed out"})
+        conn
+    end
+  end
+
+  defp sse(conn, payload), do: chunk(conn, "data: " <> Jason.encode!(payload) <> "\n\n")
+
+  ## Blocking
+
+  defp respond_blocking(conn, conversation, assistant_message) do
+    receive do
+      {:chunk, _delta} ->
+        respond_blocking(conn, conversation, assistant_message)
+
+      {:done, message} ->
+        json(conn, %{
+          event: "message",
+          message_id: message.id,
+          conversation_id: conversation.id,
+          mode: "chat",
+          answer: message.content,
+          metadata: %{usage: message.usage},
+          created_at: DateTime.to_unix(message.inserted_at)
+        })
+
+      {:error, message} ->
+        error(conn, 500, "generation_failed", message.error || "Generation failed")
+    after
+      @stream_timeout ->
+        error(conn, 504, "timeout", "Generation timed out")
+    end
+  end
+
+  defp error(conn, status, code, message) do
+    conn
+    |> put_status(status)
+    |> json(%{code: code, message: message, status: status})
+  end
+end

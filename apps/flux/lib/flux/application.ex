@@ -13,6 +13,8 @@ defmodule Flux.Application do
       {Cachex, [:flux_cache]},
       {DNSCluster, query: Application.get_env(:flux, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Flux.PubSub},
+      {Registry, keys: :unique, name: Flux.GenerationRegistry},
+      {Task.Supervisor, name: Flux.GenerationSupervisor},
       {Oban, Application.fetch_env!(:flux, Oban)}
     ]
 

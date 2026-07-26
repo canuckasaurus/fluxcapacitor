@@ -17,6 +17,19 @@ defmodule FluxWeb.Router do
     plug :accepts, ["json"]
   end
 
+  pipeline :service_api do
+    plug :accepts, ["json"]
+    plug FluxWeb.Plugs.ServiceAuth
+  end
+
+  ## Service API (Dify-compatible, Bearer app-… tokens)
+
+  scope "/v1", FluxWeb.V1 do
+    pipe_through :service_api
+
+    post "/chat-messages", ChatMessageController, :create
+  end
+
   scope "/", FluxWeb do
     pipe_through :browser
 
@@ -58,6 +71,8 @@ defmodule FluxWeb.Router do
         {FluxWeb.ConsoleHooks, :require_workspace}
       ] do
       live "/", ConsoleLive.Dashboard, :index
+      live "/apps", ConsoleLive.Apps, :index
+      live "/apps/:id", ConsoleLive.AppChat, :show
       live "/fluxes", ConsoleLive.Fluxes, :index
       live "/knowledge", ConsoleLive.Knowledge, :index
       live "/plugins", ConsoleLive.Plugins, :index

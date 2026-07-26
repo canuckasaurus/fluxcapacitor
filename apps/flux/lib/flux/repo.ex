@@ -12,8 +12,10 @@ defmodule Flux.Repo do
   # `skip_workspace_guard: true` — reserved for platform-admin and bulk-ops
   # code paths and token-based lookups that resolve tenancy from the row.
   #
-  # Grows as domain tables land (apps, datasets, workflows, providers, ...).
-  @tenant_tables MapSet.new(~w(invitations))
+  # Grows as domain tables land (datasets, workflows, ...).
+  @tenant_tables MapSet.new(
+                   ~w(invitations provider_credentials apps conversations messages api_tokens)
+                 )
 
   @doc """
   Narrows a queryable to the scope's workspace.

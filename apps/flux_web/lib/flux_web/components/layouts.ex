@@ -111,6 +111,12 @@ defmodule FluxWeb.Layouts do
             active={@active == :dashboard}
           />
           <.sidebar_link
+            navigate={~p"/console/apps"}
+            icon="hero-chat-bubble-left-right"
+            label="Apps"
+            active={@active == :apps}
+          />
+          <.sidebar_link
             navigate={~p"/console/fluxes"}
             icon="hero-squares-2x2"
             label="Flux Creator"
