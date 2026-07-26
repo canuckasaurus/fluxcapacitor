@@ -15,15 +15,16 @@ defmodule FluxWeb.V1.ChatMessageController do
     app = conn.assigns.service_app
     scope = conn.assigns.service_scope
 
-    with {:ok, conversation} <- resolve_conversation(scope, app, params) do
-      {:ok, _user_message, assistant_message} =
-        Chat.send_message(scope, app, conversation, query)
+    case resolve_conversation(scope, app, params) do
+      {:ok, conversation} ->
+        {:ok, _user_message, assistant_message} =
+          Chat.send_message(scope, app, conversation, query)
 
-      case Map.get(params, "response_mode", "streaming") do
-        "blocking" -> respond_blocking(conn, conversation, assistant_message)
-        _ -> respond_streaming(conn, conversation, assistant_message)
-      end
-    else
+        case Map.get(params, "response_mode", "streaming") do
+          "blocking" -> respond_blocking(conn, conversation, assistant_message)
+          _ -> respond_streaming(conn, conversation, assistant_message)
+        end
+
       {:error, :not_found} ->
         error(conn, 404, "not_found", "Conversation not found")
     end
