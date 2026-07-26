@@ -19,6 +19,18 @@ config :flux, Flux.Repo,
 # Inline testing mode: jobs execute synchronously in the calling process.
 config :flux, Oban, testing: :manual
 
+config :flux, Flux.Storage,
+  backend: :local,
+  local_path: "tmp/storage_test#{System.get_env("MIX_TEST_PARTITION")}"
+
+# Static test-only master key for the vault (never use outside test).
+config :flux, Flux.Vault,
+  ciphers: [
+    default:
+      {Cloak.Ciphers.AES.GCM,
+       tag: "AES.GCM.V1", key: Base.decode64!("2vURG4dNJvXYi9YsdSF4bTOezOM3wpjJol3Ee+A+rFA=")}
+  ]
+
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
 config :flux_web, FluxWeb.Endpoint,

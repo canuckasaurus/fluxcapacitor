@@ -9,6 +9,8 @@ defmodule Flux.Application do
   def start(_type, _args) do
     children = [
       Flux.Repo,
+      Flux.Vault,
+      {Cachex, [:flux_cache]},
       {DNSCluster, query: Application.get_env(:flux, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Flux.PubSub},
       {Oban, Application.fetch_env!(:flux, Oban)}

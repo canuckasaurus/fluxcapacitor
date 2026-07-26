@@ -48,6 +48,17 @@ config :flux, Oban,
     run_persist: 10
   ]
 
+# Object storage: :local for dev/test; production (or MinIO-backed dev)
+# switches to :s3 via STORAGE_BACKEND in runtime.exs.
+config :flux, Flux.Storage,
+  backend: :local,
+  bucket: nil,
+  local_path: "tmp/storage"
+
+config :ex_aws,
+  json_codec: Jason,
+  http_client: Flux.ExAwsHttpClient
+
 # Configure the mailer
 #
 # By default it uses the "Local" adapter which stores the emails

@@ -10,7 +10,12 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.console flash={@flash} current_scope={@current_scope} active={:knowledge}>
+    <Layouts.console
+      flash={@flash}
+      current_scope={@current_scope}
+      workspaces={@workspaces}
+      active={:knowledge}
+    >
       <div class="flex items-center justify-between">
         <div>
           <h1 class="text-2xl font-bold">Knowledge</h1>

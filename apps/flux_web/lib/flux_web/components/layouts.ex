@@ -86,6 +86,10 @@ defmodule FluxWeb.Layouts do
   attr :current_scope, :map, required: true
   attr :active, :atom, required: true, doc: "which sidebar section is active"
 
+  attr :workspaces, :list,
+    default: [],
+    doc: "all {workspace, membership} pairs for the switcher"
+
   slot :inner_block, required: true
 
   def console(assigns) do
@@ -135,7 +139,31 @@ defmodule FluxWeb.Layouts do
         <div class="px-4 py-4 border-t border-base-200 space-y-3">
           <div :if={@current_scope.workspace} class="text-xs">
             <div class="opacity-60">Workspace</div>
-            <div class="font-semibold truncate">{@current_scope.workspace.name}</div>
+            <details class="dropdown dropdown-top w-full">
+              <summary class="font-semibold truncate cursor-pointer list-none flex items-center gap-1">
+                {@current_scope.workspace.name}
+                <.icon name="hero-chevron-up-down-micro" class="size-3 opacity-60 shrink-0" />
+              </summary>
+              <ul class="dropdown-content menu bg-base-100 rounded-box z-20 w-52 p-2 shadow border border-base-200">
+                <li :for={{workspace, _membership} <- @workspaces}>
+                  <span :if={workspace.id == @current_scope.workspace.id} class="font-semibold">
+                    {workspace.name} ✓
+                  </span>
+                  <.link
+                    :if={workspace.id != @current_scope.workspace.id}
+                    href={~p"/console/workspaces/switch/#{workspace.id}"}
+                    method="post"
+                  >
+                    {workspace.name}
+                  </.link>
+                </li>
+                <li class="border-t border-base-200 mt-1 pt-1">
+                  <.link navigate={~p"/console/workspaces/new"}>
+                    <.icon name="hero-plus-micro" class="size-3" /> New workspace
+                  </.link>
+                </li>
+              </ul>
+            </details>
           </div>
           <div class="text-xs">
             <div class="opacity-60">Signed in as</div>

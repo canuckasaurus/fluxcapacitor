@@ -10,7 +10,12 @@ defmodule FluxWeb.ConsoleLive.Plugins do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.console flash={@flash} current_scope={@current_scope} active={:plugins}>
+    <Layouts.console
+      flash={@flash}
+      current_scope={@current_scope}
+      workspaces={@workspaces}
+      active={:plugins}
+    >
       <div class="flex items-center justify-between">
         <div>
           <h1 class="text-2xl font-bold">Plugins</h1>

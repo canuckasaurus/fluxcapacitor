@@ -10,7 +10,12 @@ defmodule FluxWeb.ConsoleLive.Fluxes do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.console flash={@flash} current_scope={@current_scope} active={:fluxes}>
+    <Layouts.console
+      flash={@flash}
+      current_scope={@current_scope}
+      workspaces={@workspaces}
+      active={:fluxes}
+    >
       <div class="flex items-center justify-between">
         <div>
           <h1 class="text-2xl font-bold">Flux Creator</h1>

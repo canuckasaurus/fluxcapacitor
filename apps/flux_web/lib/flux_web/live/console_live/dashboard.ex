@@ -10,7 +10,12 @@ defmodule FluxWeb.ConsoleLive.Dashboard do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.console flash={@flash} current_scope={@current_scope} active={:dashboard}>
+    <Layouts.console
+      flash={@flash}
+      current_scope={@current_scope}
+      workspaces={@workspaces}
+      active={:dashboard}
+    >
       <div>
         <h1 class="text-2xl font-bold">
           Welcome to {@current_scope.workspace.name}

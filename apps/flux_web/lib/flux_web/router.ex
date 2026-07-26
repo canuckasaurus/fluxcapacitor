@@ -50,6 +50,8 @@ defmodule FluxWeb.Router do
   scope "/console", FluxWeb do
     pipe_through [:browser, :require_authenticated_account]
 
+    post "/workspaces/switch/:id", WorkspaceController, :switch
+
     live_session :console,
       on_mount: [
         {FluxWeb.AccountAuth, :require_authenticated},

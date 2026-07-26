@@ -10,6 +10,18 @@ config :flux, Flux.Repo,
   show_sensitive_data_on_connection_error: true,
   pool_size: 10
 
+config :flux, Flux.Storage,
+  backend: :local,
+  local_path: "tmp/storage_dev"
+
+# Static dev-only master key for the vault (rotate for anything real).
+config :flux, Flux.Vault,
+  ciphers: [
+    default:
+      {Cloak.Ciphers.AES.GCM,
+       tag: "AES.GCM.V1", key: Base.decode64!("3Jr0hbFhY7v2GWSpwCVDpfHXcuGqbnHwWUFCTKcNZ8g=")}
+  ]
+
 # For development, we disable any cache and enable
 # debugging and code reloading.
 #

@@ -7,11 +7,16 @@ defmodule FluxWeb.ConsoleHooks do
   """
   use FluxWeb, :verified_routes
 
+  import Phoenix.Component, only: [assign: 3]
   import Phoenix.LiveView
 
+  alias Flux.Accounts
+
   def on_mount(:require_workspace, _params, _session, socket) do
-    if socket.assigns.current_scope.workspace do
-      {:cont, socket}
+    scope = socket.assigns.current_scope
+
+    if scope.workspace do
+      {:cont, assign(socket, :workspaces, Accounts.list_workspaces(scope.account))}
     else
       {:halt, redirect(socket, to: ~p"/console/workspaces/new")}
     end

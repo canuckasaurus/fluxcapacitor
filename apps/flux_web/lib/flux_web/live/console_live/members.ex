@@ -123,7 +123,12 @@ defmodule FluxWeb.ConsoleLive.Members do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.console flash={@flash} current_scope={@current_scope} active={:members}>
+    <Layouts.console
+      flash={@flash}
+      current_scope={@current_scope}
+      workspaces={@workspaces}
+      active={:members}
+    >
       <div>
         <h1 class="text-2xl font-bold">Members</h1>
         <p class="opacity-70 mt-1">

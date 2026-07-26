@@ -75,6 +75,40 @@ defmodule FluxWeb.ConsoleLiveTest do
       assert html =~ "Pending invitations"
     end
 
+    test "sidebar switcher lists workspaces and switching works", %{
+      conn: conn,
+      account: account,
+      workspace: workspace
+    } do
+      {:ok, {second, _}} = Accounts.create_workspace(account, %{name: "Second Base"})
+
+      {:ok, _lv, html} = live(conn, ~p"/console")
+      assert html =~ workspace.name
+      assert html =~ "Second Base"
+      assert html =~ "New workspace"
+
+      conn = post(conn, ~p"/console/workspaces/switch/#{workspace.id}")
+      assert redirected_to(conn) == ~p"/console"
+
+      {current, _} = Accounts.get_current_workspace(account)
+      assert current.id == workspace.id
+
+      conn = build_conn() |> log_in_account(account)
+      conn = post(conn, ~p"/console/workspaces/switch/#{second.id}")
+      assert redirected_to(conn) == ~p"/console"
+      {current, _} = Accounts.get_current_workspace(account)
+      assert current.id == second.id
+    end
+
+    test "switching to a non-member workspace is rejected", %{conn: conn} do
+      outsider = account_fixture()
+      {:ok, {foreign, _}} = Accounts.create_workspace(outsider, %{name: "Foreign"})
+
+      conn = post(conn, ~p"/console/workspaces/switch/#{foreign.id}")
+      assert redirected_to(conn) == ~p"/console"
+      assert Phoenix.Flash.get(conn.assigns.flash, :error) =~ "not a member"
+    end
+
     test "invited account can accept and lands in the workspace", %{
       account: account,
       workspace: workspace

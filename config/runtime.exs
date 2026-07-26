@@ -10,6 +10,47 @@ import Config
 config :flux_web, FluxWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
+# Storage backend toggle: STORAGE_BACKEND=s3 points at any S3-compatible
+# endpoint (MinIO or AWS). Unset keeps the per-env default (:local in dev).
+if System.get_env("STORAGE_BACKEND") == "s3" do
+  bucket =
+    System.get_env("S3_BUCKET") ||
+      raise "STORAGE_BACKEND=s3 requires S3_BUCKET"
+
+  config :flux, Flux.Storage, backend: :s3, bucket: bucket
+
+  config :ex_aws,
+    access_key_id: System.fetch_env!("S3_ACCESS_KEY_ID"),
+    secret_access_key: System.fetch_env!("S3_SECRET_ACCESS_KEY"),
+    region: System.get_env("S3_REGION", "us-east-1")
+
+  # S3_ENDPOINT (e.g. http://localhost:9000 for MinIO) switches off AWS.
+  if endpoint = System.get_env("S3_ENDPOINT") do
+    uri = URI.parse(endpoint)
+
+    config :ex_aws, :s3,
+      scheme: "#{uri.scheme}://",
+      host: uri.host,
+      port: uri.port
+  end
+end
+
+# The vault master key encrypts per-workspace data-encryption keys. Dev and
+# test ship static keys in their config files; prod requires the env var.
+if config_env() == :prod do
+  master_key =
+    System.get_env("FLUX_MASTER_KEY") ||
+      raise """
+      environment variable FLUX_MASTER_KEY is missing.
+      Generate one with: openssl rand -base64 32
+      """
+
+  config :flux, Flux.Vault,
+    ciphers: [
+      default: {Cloak.Ciphers.AES.GCM, tag: "AES.GCM.V1", key: Base.decode64!(master_key)}
+    ]
+end
+
 # FLUX_ROLE gates what this node runs: "all" (default) serves web and works
 # jobs, "web" serves HTTP only (no Oban queues), "worker" works jobs only.
 if config_env() != :test do

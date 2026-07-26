@@ -69,6 +69,12 @@ defmodule FluxWeb.ConsoleLive.WorkspaceNew do
           />
           <button class="btn btn-primary w-full">Create workspace</button>
         </.form>
+
+        <p :if={@current_scope.workspace} class="text-center text-sm">
+          <.link navigate={~p"/console"} class="link opacity-70">
+            &larr; Back to {@current_scope.workspace.name}
+          </.link>
+        </p>
       </div>
     </div>
     """
