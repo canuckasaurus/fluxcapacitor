@@ -15,6 +15,7 @@ defmodule FluxWeb.ConsoleLive.Fluxes do
      |> assign(
        page_title: "Fluxes",
        creating: false,
+       importing: false,
        form: to_form(Workflow.changeset(%Workflow{}, %{})),
        can_create: RBAC.can?(scope, :app_create_and_management)
      )
@@ -35,11 +36,40 @@ defmodule FluxWeb.ConsoleLive.Fluxes do
 
   @impl true
   def handle_event("new", _params, socket) do
-    {:noreply, assign(socket, creating: true)}
+    {:noreply, assign(socket, creating: true, importing: false)}
+  end
+
+  def handle_event("import_form", _params, socket) do
+    {:noreply, assign(socket, importing: true, creating: false)}
   end
 
   def handle_event("cancel", _params, socket) do
-    {:noreply, assign(socket, creating: false)}
+    {:noreply, assign(socket, creating: false, importing: false)}
+  end
+
+  def handle_event("import", %{"dsl" => dsl}, socket) do
+    case Workflows.import_dsl(socket.assigns.current_scope, dsl) do
+      {:ok, workflow, warnings} ->
+        flash =
+          case warnings do
+            [] -> "Imported \"#{workflow.name}\"."
+            warnings -> "Imported \"#{workflow.name}\" with #{length(warnings)} warning(s)."
+          end
+
+        {:noreply,
+         socket
+         |> put_flash(:info, flash)
+         |> push_navigate(to: ~p"/console/fluxes/#{workflow.id}")}
+
+      {:error, message} when is_binary(message) ->
+        {:noreply, put_flash(socket, :error, message)}
+
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "You don't have permission to create fluxes.")}
+
+      {:error, %Ecto.Changeset{}} ->
+        {:noreply, put_flash(socket, :error, "Could not save the imported flux.")}
+    end
   end
 
   def handle_event("save", %{"workflow" => params}, socket) do
@@ -83,9 +113,38 @@ defmodule FluxWeb.ConsoleLive.Fluxes do
           <h1 class="text-2xl font-bold">Fluxes</h1>
           <p class="opacity-70 mt-1">Design, debug, and publish AI workflows.</p>
         </div>
-        <button :if={@can_create and not @creating} class="btn btn-primary" phx-click="new">
-          <.icon name="hero-plus" class="size-4" /> New Flux
-        </button>
+        <div class="flex gap-2">
+          <button
+            :if={@can_create and not @importing}
+            class="btn btn-outline"
+            phx-click="import_form"
+          >
+            <.icon name="hero-arrow-down-tray" class="size-4" /> Import DSL
+          </button>
+          <button :if={@can_create and not @creating} class="btn btn-primary" phx-click="new">
+            <.icon name="hero-plus" class="size-4" /> New Flux
+          </button>
+        </div>
+      </div>
+
+      <div :if={@importing} class="card border border-base-200 p-6 space-y-4">
+        <h2 class="font-semibold">Import a Dify DSL export</h2>
+        <p class="text-sm opacity-70">
+          Paste a Dify workflow/advanced-chat YAML export. Unsupported nodes are
+          dropped with warnings; model bindings may need rebinding after import.
+        </p>
+        <form phx-submit="import" class="space-y-3">
+          <textarea
+            name="dsl"
+            rows="12"
+            class="textarea w-full font-mono text-xs"
+            placeholder="app:&#10;  mode: workflow&#10;kind: app&#10;workflow:&#10;  graph: ..."
+          ></textarea>
+          <div class="flex gap-2">
+            <button class="btn btn-primary">Import</button>
+            <button type="button" class="btn btn-ghost" phx-click="cancel">Cancel</button>
+          </div>
+        </form>
       </div>
 
       <div :if={@creating} class="card border border-base-200 p-6 space-y-4">

@@ -94,6 +94,27 @@ defmodule Flux.Workflows do
     end
   end
 
+  @doc """
+  Imports a Dify DSL YAML export as a new flux. Returns
+  `{:ok, workflow, warnings}` — warnings list dropped/approximated pieces.
+  """
+  def import_dsl(%Scope{} = scope, yaml) do
+    with :ok <- RBAC.authorize(scope, :app_create_and_management),
+         {:ok, parsed} <- Flux.Workflows.DSL.parse(yaml) do
+      %Workflow{
+        workspace_id: Scope.workspace_id(scope),
+        created_by_id: Scope.account_id(scope),
+        graph: parsed.graph
+      }
+      |> Workflow.changeset(%{"name" => parsed.name, "description" => parsed.description})
+      |> Repo.insert()
+      |> case do
+        {:ok, workflow} -> {:ok, workflow, parsed.warnings}
+        {:error, changeset} -> {:error, changeset}
+      end
+    end
+  end
+
   def update_workflow(%Scope{} = scope, %Workflow{} = workflow, attrs) do
     with :ok <- RBAC.authorize(scope, :app_edit),
          :ok <- owned(scope, workflow) do

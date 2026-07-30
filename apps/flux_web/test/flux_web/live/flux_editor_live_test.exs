@@ -34,6 +34,23 @@ defmodule FluxWeb.FluxEditorLiveTest do
     workflow
   end
 
+  test "importing a Dify DSL creates a flux and opens the editor", %{conn: conn, scope: scope} do
+    dsl =
+      Path.expand("../../../../flux/test/support/fixtures/dsl", __DIR__)
+      |> Path.join("conditional_hello_branching_workflow.yml")
+      |> File.read!()
+
+    {:ok, lv, _html} = live(conn, ~p"/console/fluxes")
+    lv |> element("button", "Import DSL") |> render_click()
+
+    assert {:error, {:live_redirect, %{to: "/console/fluxes/" <> _id}}} =
+             lv |> form("form[phx-submit=import]", %{"dsl" => dsl}) |> render_submit()
+
+    imported = Enum.find(Workflows.list_workflows(scope), &(&1.name == "if-else"))
+    assert imported != nil
+    assert Enum.count(imported.graph["nodes"]) == 4
+  end
+
   test "fluxes index lists workflows and creates new ones", %{conn: conn, workflow: workflow} do
     {:ok, lv, html} = live(conn, ~p"/console/fluxes")
     assert html =~ workflow.name
