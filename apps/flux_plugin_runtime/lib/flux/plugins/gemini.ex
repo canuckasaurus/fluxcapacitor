@@ -45,7 +45,7 @@ defmodule Flux.Plugins.Gemini do
 
   @impl Flux.Plugin.ModelProvider
   def validate_credentials(credentials) do
-    case Req.get(url: @base_url <> "/models", headers: auth(credentials)) do
+    case Req.get(SSE.req_options(url: @base_url <> "/models", headers: auth(credentials))) do
       {:ok, %{status: 200}} -> :ok
       {:ok, %{status: status}} when status in [400, 401, 403] -> {:error, "Invalid API key."}
       {:ok, %{status: status}} -> {:error, "Google returned HTTP #{status}."}

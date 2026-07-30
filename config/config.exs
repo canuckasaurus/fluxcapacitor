@@ -68,6 +68,9 @@ config :ex_aws,
 # at the `config/runtime.exs`.
 config :flux, Flux.Mailer, adapter: Swoosh.Adapters.Local
 
+# Outbound HTTP guard for user-directed URLs (providers, tools).
+config :flux, Flux.SSRF, enabled: true, allow: []
+
 config :flux_web,
   ecto_repos: [Flux.Repo],
   generators: [context_app: :flux, binary_id: true]

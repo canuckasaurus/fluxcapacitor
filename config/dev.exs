@@ -83,6 +83,9 @@ config :flux_web, FluxWeb.Endpoint,
 config :flux_web, dev_routes: true
 config :flux_web, mailbox_enabled: true
 
+# Local APIs and providers are fair game in dev.
+config :flux, Flux.SSRF, enabled: true, allow: ["localhost", "127.0.0.1"]
+
 # Do not include metadata nor timestamps in development logs
 config :logger, :default_formatter, format: "[$level] $message\n"
 

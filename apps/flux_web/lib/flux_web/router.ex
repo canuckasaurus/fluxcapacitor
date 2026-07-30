@@ -20,6 +20,16 @@ defmodule FluxWeb.Router do
   pipeline :service_api do
     plug :accepts, ["json"]
     plug FluxWeb.Plugs.ServiceAuth
+    plug FluxWeb.Plugs.RateLimit, name: "v1", by: :service, limit: 120, scale_ms: 60_000
+  end
+
+  pipeline :auth_rate_limit do
+    plug FluxWeb.Plugs.RateLimit,
+      name: "auth",
+      by: :ip,
+      limit: 10,
+      scale_ms: 60_000,
+      methods: ["POST"]
   end
 
   ## Service API (Dify-compatible, Bearer app-… tokens)
@@ -123,7 +133,7 @@ defmodule FluxWeb.Router do
   end
 
   scope "/", FluxWeb do
-    pipe_through [:browser]
+    pipe_through [:browser, :auth_rate_limit]
 
     live_session :current_account,
       on_mount: [{FluxWeb.AccountAuth, :mount_current_scope}] do

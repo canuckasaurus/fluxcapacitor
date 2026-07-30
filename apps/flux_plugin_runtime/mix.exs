@@ -28,7 +28,8 @@ defmodule Flux.PluginRuntime.MixProject do
     [
       {:flux, in_umbrella: true},
       {:flux_plugin, path: "../../packages/flux_plugin"},
-      {:req, "~> 0.5"}
+      {:req, "~> 0.5"},
+      {:plug, "~> 1.15", only: :test}
     ]
   end
 end

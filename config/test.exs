@@ -57,3 +57,9 @@ config :phoenix_live_view,
 # Sort query params output of verified routes for robust url comparisons
 config :phoenix,
   sort_verified_routes_query_params: true
+
+# Keep tests hermetic: no DNS resolution in the SSRF guard.
+config :flux, Flux.SSRF, enabled: false
+
+# No rate limiting in tests.
+config :flux_web, rate_limit_enabled: false

@@ -155,6 +155,12 @@ defmodule Flux.Tools do
     {url, query, headers, body} = build_request(toolset, operation, args)
     {query, headers} = apply_auth(auth, query, headers)
 
+    with :ok <- Flux.SSRF.verify_url(url) do
+      dispatch(operation, url, query, headers, body)
+    end
+  end
+
+  defp dispatch(operation, url, query, headers, body) do
     options =
       [
         method: String.to_existing_atom(operation["method"]),
@@ -199,12 +205,35 @@ defmodule Flux.Tools do
       end
 
     body =
-      for %{"name" => name} <- grouped["body"] || [], args[name] not in [nil, ""], into: %{} do
-        {name, args[name]}
+      for %{"name" => name} = param <- grouped["body"] || [],
+          args[name] not in [nil, ""],
+          into: %{} do
+        {name, coerce_arg(param["type"], args[name])}
       end
 
     {String.trim_trailing(toolset.base_url, "/") <> path, query, headers, body}
   end
+
+  # JSON body values follow the spec's declared type; strings that don't
+  # parse are passed through as-is (let the API report the type error).
+  defp coerce_arg("integer", value) when is_binary(value) do
+    case Integer.parse(value) do
+      {integer, ""} -> integer
+      _not_integer -> value
+    end
+  end
+
+  defp coerce_arg("number", value) when is_binary(value) do
+    case Float.parse(value) do
+      {number, ""} -> number
+      _not_number -> value
+    end
+  end
+
+  defp coerce_arg("boolean", value) when is_binary(value),
+    do: String.downcase(value) in ["true", "1", "yes"]
+
+  defp coerce_arg(_type, value), do: value
 
   defp apply_auth(%{"type" => "api_key"} = auth, query, headers) do
     name = presence(auth["name"]) || "X-API-Key"

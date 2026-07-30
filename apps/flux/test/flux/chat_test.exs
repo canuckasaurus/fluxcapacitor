@@ -115,6 +115,26 @@ defmodule Flux.ChatTest do
     assert {:error, :invalid_token} = Chat.fetch_app_by_token(raw)
   end
 
+  test "stopping mid-stream persists the streamed prefix", %{scope: scope} do
+    {:ok, app} =
+      Chat.create_app(scope, %{
+        "name" => "Drip App",
+        "provider_plugin_id" => "drip",
+        "model" => "echo-1"
+      })
+
+    conversation = Chat.create_conversation(scope, app)
+    {:ok, _user, assistant} = Chat.send_message(scope, app, conversation, "go")
+
+    # Wait until the prefix has streamed, then stop while the provider hangs.
+    assert_receive {:chunk, "Dripped "}, 2_000
+    assert_receive {:chunk, "prefix"}, 2_000
+
+    assert {:ok, stopped} = Chat.stop_generation(scope, assistant.id)
+    assert stopped.status == :stopped
+    assert stopped.content == "Dripped prefix"
+  end
+
   test "available_models includes keyless echo without credentials", %{scope: scope} do
     models = Providers.available_models(scope)
     assert Enum.any?(models, &(&1.plugin_id == "echo" and &1.model.name == "echo-1"))

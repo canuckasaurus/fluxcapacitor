@@ -185,6 +185,7 @@ defmodule Flux.Chat do
     }
 
     emit = fn %{delta: delta} ->
+      Flux.StreamBuffers.append(assistant_message.id, delta)
       Phoenix.PubSub.broadcast(Flux.PubSub, topic(assistant_message.id), {:chunk, delta})
     end
 
@@ -202,6 +203,8 @@ defmodule Flux.Chat do
         })
 
       {:error, reason} ->
+        Flux.StreamBuffers.delete(assistant_message.id)
+
         message =
           assistant_message
           |> Ecto.Changeset.change(status: :error, error: format_error(reason))
@@ -213,6 +216,8 @@ defmodule Flux.Chat do
   end
 
   defp finalize(message, status, content, usage) do
+    Flux.StreamBuffers.delete(message.id)
+
     message =
       message
       |> Ecto.Changeset.change(status: status, content: content, usage: usage)
@@ -237,9 +242,9 @@ defmodule Flux.Chat do
     system ++ turns
   end
 
-  # Stop killed the task mid-stream; the DB row still holds "" — the UI has
-  # the streamed prefix, but we persist what we know.
-  defp current_broadcast_content(message), do: message.content
+  # Stop killed the task mid-stream; the stream buffer holds every delta
+  # emitted so far, so the persisted message keeps the streamed prefix.
+  defp current_broadcast_content(message), do: Flux.StreamBuffers.get(message.id)
 
   defp atomize_params(params) do
     for {key, value} <- params, key in ~w(temperature max_tokens top_p), into: %{} do

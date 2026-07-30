@@ -15,6 +15,14 @@ if System.get_env("PHX_SERVER") do
   config :flux_web, FluxWeb.Endpoint, server: true
 end
 
+# FLUX_SSRF_ALLOW: comma-separated hostnames exempt from the outbound
+# HTTP guard (e.g. "localhost" for a local deploy calling local APIs).
+if allow = System.get_env("FLUX_SSRF_ALLOW") do
+  config :flux, Flux.SSRF,
+    enabled: true,
+    allow: allow |> String.split(",", trim: true) |> Enum.map(&String.trim/1)
+end
+
 # FLUX_MAILBOX=1 keeps delivered email in memory and serves the
 # authenticated /dev/mailbox preview — for local deploys without a real
 # mail adapter. Leave unset in any real production environment.

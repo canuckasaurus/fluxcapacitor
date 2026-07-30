@@ -9,8 +9,7 @@ defmodule FluxWeb.Application do
   def start(_type, _args) do
     children = [
       FluxWeb.Telemetry,
-      # Start a worker by calling: FluxWeb.Worker.start_link(arg)
-      # {FluxWeb.Worker, arg},
+      {FluxWeb.RateLimit, clean_period: :timer.minutes(1)},
       # Start to serve requests, typically the last entry
       FluxWeb.Endpoint
     ]

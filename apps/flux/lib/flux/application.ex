@@ -15,6 +15,7 @@ defmodule Flux.Application do
       {Phoenix.PubSub, name: Flux.PubSub},
       {Registry, keys: :unique, name: Flux.GenerationRegistry},
       {Task.Supervisor, name: Flux.GenerationSupervisor},
+      Flux.StreamBuffers,
       {Oban, Application.fetch_env!(:flux, Oban)}
     ]
 

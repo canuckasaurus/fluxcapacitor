@@ -18,12 +18,28 @@ defmodule Flux.Plugins.SSE do
   `{:ok, final_acc}` or `{:error, reason}`.
   """
   def stream_request(req_opts, acc, handle_data) do
+    with :ok <- Flux.SSRF.verify_url(req_opts[:url]) do
+      do_stream_request(req_opts, acc, handle_data)
+    end
+  end
+
+  @doc """
+  Request options with the environment's extra Req options merged in
+  (`config :flux_plugin_runtime, :req_options` — used by tests to stub HTTP).
+  Callers making non-streaming calls (credential validation) should build
+  their options through this and guard with `Flux.SSRF.verify_url/1`.
+  """
+  def req_options(opts) do
+    Keyword.merge(opts, Application.get_env(:flux_plugin_runtime, :req_options, []))
+  end
+
+  defp do_stream_request(req_opts, acc, handle_data) do
     Process.put(@acc_key, acc)
     Process.put(@buf_key, "")
 
     result =
       Req.post(
-        req_opts ++
+        req_options(req_opts) ++
           [
             receive_timeout: :timer.minutes(5),
             retry: false,

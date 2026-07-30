@@ -43,10 +43,16 @@ defmodule Flux.Plugins.OpenAI do
 
   @impl Flux.Plugin.ModelProvider
   def validate_credentials(credentials) do
-    case Req.get(url: base_url(credentials) <> "/models", headers: auth(credentials)) do
+    url = base_url(credentials) <> "/models"
+
+    with :ok <- Flux.SSRF.verify_url(url) do
+      Req.get(SSE.req_options(url: url, headers: auth(credentials)))
+    end
+    |> case do
       {:ok, %{status: 200}} -> :ok
       {:ok, %{status: 401}} -> {:error, "Invalid API key."}
       {:ok, %{status: status}} -> {:error, "OpenAI returned HTTP #{status}."}
+      {:error, message} when is_binary(message) -> {:error, message}
       {:error, reason} -> {:error, "Could not reach OpenAI: #{inspect(reason)}"}
     end
   end

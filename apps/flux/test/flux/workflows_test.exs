@@ -173,8 +173,11 @@ defmodule Flux.WorkflowsTest do
     {:ok, workflow} = Workflows.update_draft(scope, workflow, slow)
     {:ok, run} = Workflows.start_run(scope, workflow, %{"query" => "hi"})
 
-    # Wait until the run is inside the (slow) LLM node before stopping.
+    # Wait until the run is inside the (slow) LLM node before stopping —
+    # past the credentials DB read that follows node_started, so the kill
+    # lands during the provider sleep, not mid-query in the sandbox.
     assert_receive {:engine_event, {:node_started, %{node_id: "llm_1"}}}, 2_000
+    Process.sleep(200)
 
     assert {:ok, stopped} = Workflows.stop_run(scope, run.id)
     assert stopped.status == :stopped

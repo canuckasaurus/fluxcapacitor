@@ -429,6 +429,7 @@ defmodule Flux.Accounts do
   def update_member_role(%Scope{} = scope, %Membership{} = membership, new_role)
       when new_role in [:admin, :editor, :normal, :dataset_operator] do
     cond do
+      not Flux.RBAC.can?(scope, :workspace_member_manage) -> {:error, :unauthorized}
       membership.workspace_id != Scope.workspace_id(scope) -> {:error, :not_found}
       membership.role == :owner -> {:error, :cannot_change_owner_role}
       true -> membership |> Ecto.Changeset.change(role: new_role) |> Repo.update()
@@ -440,6 +441,7 @@ defmodule Flux.Accounts do
   @doc "Removes a member from the workspace. The owner cannot be removed."
   def remove_member(%Scope{} = scope, %Membership{} = membership) do
     cond do
+      not Flux.RBAC.can?(scope, :workspace_member_manage) -> {:error, :unauthorized}
       membership.workspace_id != Scope.workspace_id(scope) -> {:error, :not_found}
       membership.role == :owner -> {:error, :cannot_remove_owner}
       membership.account_id == Scope.account_id(scope) -> {:error, :cannot_remove_self}
@@ -482,6 +484,12 @@ defmodule Flux.Accounts do
   is never stored.
   """
   def create_invitation(%Scope{} = scope, attrs) do
+    with :ok <- Flux.RBAC.authorize(scope, :workspace_member_manage) do
+      do_create_invitation(scope, attrs)
+    end
+  end
+
+  defp do_create_invitation(scope, attrs) do
     {raw_token, changeset} =
       Invitation.build(Scope.workspace_id(scope), Scope.account_id(scope), attrs)
 
@@ -512,6 +520,12 @@ defmodule Flux.Accounts do
 
   @doc "Revokes a pending invitation."
   def revoke_invitation(%Scope{} = scope, invitation_id) do
+    with :ok <- Flux.RBAC.authorize(scope, :workspace_member_manage) do
+      do_revoke_invitation(scope, invitation_id)
+    end
+  end
+
+  defp do_revoke_invitation(scope, invitation_id) do
     case Repo.get_by(Invitation, id: invitation_id, workspace_id: Scope.workspace_id(scope)) do
       nil -> {:error, :not_found}
       %Invitation{accepted_at: nil} = invitation -> Repo.delete(invitation)
