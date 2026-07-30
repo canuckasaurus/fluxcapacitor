@@ -81,6 +81,7 @@ config :flux_web, FluxWeb.Endpoint,
 
 # Enable dev routes for dashboard and mailbox
 config :flux_web, dev_routes: true
+config :flux_web, mailbox_enabled: true
 
 # Do not include metadata nor timestamps in development logs
 config :logger, :default_formatter, format: "[$level] $message\n"

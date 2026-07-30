@@ -10,6 +10,19 @@ import Config
 config :flux_web, FluxWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
+# Releases don't run `mix phx.server`; PHX_SERVER=true starts the endpoint.
+if System.get_env("PHX_SERVER") do
+  config :flux_web, FluxWeb.Endpoint, server: true
+end
+
+# FLUX_MAILBOX=1 keeps delivered email in memory and serves the
+# authenticated /dev/mailbox preview — for local deploys without a real
+# mail adapter. Leave unset in any real production environment.
+if config_env() == :prod and System.get_env("FLUX_MAILBOX") == "1" do
+  config :flux_web, mailbox_enabled: true
+  config :swoosh, local: true
+end
+
 # Storage backend toggle: STORAGE_BACKEND=s3 points at any S3-compatible
 # endpoint (MinIO or AWS). Unset keeps the per-env default (:local in dev).
 if System.get_env("STORAGE_BACKEND") == "s3" do
@@ -100,6 +113,10 @@ if config_env() == :prod do
       """
 
   config :flux_web, FluxWeb.Endpoint,
+    url: [
+      host: System.get_env("PHX_HOST", "localhost"),
+      port: String.to_integer(System.get_env("PORT", "4000"))
+    ],
     http: [
       # Enable IPv6 and bind on all interfaces.
       # Set it to  {0, 0, 0, 0, 0, 0, 0, 1} for local network only access.

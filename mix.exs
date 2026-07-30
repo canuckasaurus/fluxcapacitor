@@ -8,7 +8,22 @@ defmodule Flux.Umbrella.MixProject do
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       aliases: aliases(),
+      releases: releases(),
       listeners: [Phoenix.CodeReloader]
+    ]
+  end
+
+  defp releases do
+    [
+      flux: [
+        applications: [
+          flux: :permanent,
+          flux_engine: :permanent,
+          flux_plugin_runtime: :permanent,
+          flux_rag: :permanent,
+          flux_web: :permanent
+        ]
+      ]
     ]
   end
 
