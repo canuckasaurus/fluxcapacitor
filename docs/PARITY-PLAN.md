@@ -1,15 +1,15 @@
 # FluxCapacitor → Dify Parity: Analysis & Execution Plan
 
-Date: 2026-07-27 (rev 2 — post WS0/WS1/WS2 phase 1) · Companion: `PARITY-GAP-ANALYSIS.md` · Reference: Dify v1.16.0+197 commits
+Date: 2026-07-30 (rev 3 — post parity trio: http-request node, /v1 resources, DSL export) · Companion: `PARITY-GAP-ANALYSIS.md` · Reference: Dify v1.16.0+197 commits
 
 ## 1. Where we actually are
 
-Verified against code (commit cae451d, clean tree, 8 logical commits on `main`):
+Verified against code (commit 8f2231c, clean tree, 12 commits on `main`):
 
 | Metric | Value |
 |---|---|
-| Lib code | ~11,571 LOC |
-| Test code | ~4,821 LOC, 278 tests, 0 failures |
+| Lib code | ~12,156 LOC |
+| Test code | ~4,956 LOC, 285 tests, 0 failures |
 | Dify reference | ~368k LOC Python API + ~218k LOC TS canvas + graphon engine pkg |
 | Volume parity | ~3% — but the built slices are complete verticals, not scaffolds |
 
@@ -27,11 +27,11 @@ with hashed tokens → local production release (OTP release + migrations + seed
 | Identity/tenancy/teams | 75% | auth, workspaces, roles, invites, switcher, tenant guard | SSO/SAML/SCIM, custom roles, resource-level perms |
 | Model runtime | 35% | 3 real providers, streaming LLM, encrypted creds, validation | embeddings/rerank, **tool calling**, structured output, default models, load balancing, azure/bedrock |
 | Apps & conversations | 30% | chat mode end-to-end, API tokens | completion/advanced-chat/workflow modes, **site publishing/embed**, feedback, file input, prompt variables |
-| Workflow engine | 30% | 7/20 nodes, branch exec, publish/versions, runs+traces, draft debug | iteration/loop, code, http-request, classifiers/extractors, aggregators, human-input, pause/resume, retries/error branches, **DSL import/export**, conversation vars |
+| Workflow engine | 40% | 8/20 nodes (incl. http-request), branch exec, publish/versions, runs+traces, draft debug, **DSL import + export (round-trip tested)** | iteration/loop, code, classifiers/extractors, aggregators, human-input, pause/resume, retries/error branches, conversation vars |
 | Canvas | 40% | drag/connect, multi-select+marquee, group move, undo/redo, zoom/pan, history | minimap, copy/paste, node search palette, per-node debug run, variable picker UI, autolayout |
 | Tools | 55% | **OpenAPI import → callable ops, encrypted auth + private vars, tool node** | built-in tool catalog, tool plugins, agent tool-calling |
 | RAG / Knowledge | **0%** | — | everything: datasets, ingestion, pgvector, retrieval, UI, API, knowledge node |
-| API surfaces | 15% | `/v1` chat-messages + workflows/run (SSE+blocking) | ~13 more `/v1` routes, files, web/embed API, datasets API, OpenAPI contract tests |
+| API surfaces | 40% | 7 `/v1` routes: chat-messages, workflows/run, parameters, conversations, messages, stop, feedbacks | files upload, completion-messages, web/embed API, datasets API, OpenAPI contract tests |
 | Plugin system | 20% | SDK ModelProvider behaviour, supervised invocation | Tool/Datasource/Trigger/Endpoint behaviours, install flow, registry |
 | Agents | 0% | — | agent node, strategies; upstream moved to `dify-agent` + Go runtime — re-scope before building |
 | Enterprise | 5% | RBAC catalog, vault | audit log, SSO, licensing/features, bulk ops, importer |
@@ -85,12 +85,12 @@ Order inside the workstream:
   touches the validator and runner; biggest structural risk in the engine.
 - code node via dify-sandbox container (compose already present from WS3).
 - Retries + error branches; env/conversation variables; human-input + pause/resume snapshots.
-- DSL import hardening (harness fixtures) + export.
+- DSL import hardening (harness fixtures); export ✅ (2026-07-30, JSON-as-YAML, round-trip tested, editor Export button).
 - advanced-chat (chatflow) app mode: conversations backed by the engine.
 
 ### WS5 — Product surface (~4–6 weeks, parallelizable with WS4)
-- `/v1` completion: conversations list/rename/delete, messages, feedback, stop,
-  files upload, parameters, meta, completion-messages + `open_api_spex` contract tests.
+- `/v1` completion: ✅ conversations list, messages, feedback, stop, parameters (2026-07-30).
+  Remaining: conversation rename/delete, files upload, meta, completion-messages, `open_api_spex` contract tests.
 - **Site publishing**: public chat page + workflow form page per app/flux, EndUser identity, JS embed snippet.
 - Completion app mode; app-of-mode-workflow binding (app ↔ flux).
 - Default/system model config; azure_openai + bedrock providers.

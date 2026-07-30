@@ -1,12 +1,12 @@
 # FluxCapacitor ↔ Dify Parity Gap Analysis
 
-Date: 2026-07-27 rev 2 (verified against code, commit cae451d) · Reference: Dify v1.16.0 (`C:\Users\jpcre\GitHub\dify`) · Execution plan: `PARITY-PLAN.md`
+Date: 2026-07-30 rev 3 (verified against code, commit 8f2231c) · Reference: Dify v1.16.0 (`C:\Users\jpcre\GitHub\dify`) · Execution plan: `PARITY-PLAN.md`
 
 Scale context: Dify's production backend is ~368k LOC of Python (~840 HTTP routes,
 ~80 background tasks over ~25 queues), its workflow canvas alone is ~218k LOC of
 TypeScript, and its workflow engine + model runtime live in the external `graphon`
-PyPI package. FluxCapacitor today is ~11.6k LOC of lib code + ~4.8k LOC of tests
-(278 passing). By plan phases: **P0 done**, **P1 ~60%** (chat apps, 3 providers,
+PyPI package. FluxCapacitor today is ~12.2k LOC of lib code + ~5.0k LOC of tests
+(285 passing). By plan phases: **P0 done**, **P1 ~60%** (chat apps, 3 providers,
 2 `/v1` routes, OTP release + local deploy), **P3 ~30% pulled forward** (engine
 with 7 node types incl. tool, canvas editor, publish/versions/runs), **P4 ~15%
 pulled forward** (OpenAPI custom tools with encrypted auth/variables), P2 RAG and
@@ -75,7 +75,7 @@ Legend: ✅ done · 🟡 partial · ❌ missing · 🚫 deliberately not mirrore
 | AppModelConfig / prompt templates + variables | ❌ | prompt assembly = system_prompt + history only |
 | Conversations/Messages | ✅ | with status lifecycle (streaming/completed/stopped/error) and usage capture |
 | Generation pipeline: supervised task, PubSub streaming, stop, blocking mode | ✅ | subscribe-before-spawn (no lost chunks); Registry-tracked pids; stop persists the streamed prefix via ETS stream buffers (fixed 07-27) |
-| Feedback, annotations, saved/pinned messages | ❌ | (🚫 annotation-reply ML) |
+| Message feedback (like/dislike via /v1) | ✅ | annotations, saved/pinned still ❌ (🚫 annotation-reply ML) |
 | Console chat UI | ✅ | streaming, stop button, new-conversation, API-key panel (raw token shown once) |
 | ApiToken issuance/hashing | ✅ | `app-` prefix, SHA-256 hash at rest, display prefix, last_used_at |
 | Per-app rate limits | 🟡 | /v1 limited per token principal (120/min, hammer); per-app configurable limits still ❌ |
@@ -101,14 +101,14 @@ or blocking mode.
 
 Still missing (unchanged from prior analysis):
 - gen_statem run coordinator + per-run Task.Supervisor (today: one task under the shared GenerationSupervisor)
-- The other ~14 node types (code via dify-sandbox, http-request+SSRF guard, tool, agent, iteration, loop, question-classifier, parameter-extractor, variable aggregator/assigner, document-extractor, list-operator, knowledge-retrieval, human-input)
+- The other ~12 node types (code via dify-sandbox, agent, iteration, loop, question-classifier, parameter-extractor, variable aggregator/assigner, document-extractor, list-operator, knowledge-retrieval, human-input) — http-request ✅ 07-30, tool ✅ (toolsets)
 - Variable pool >256KB object-storage offload; env/conversation variables (today: in-memory pool, `{{node.field}}` templates)
 - Full Dify SSE schema (~45 events; today: 5 core events)
 - Pause/resume via versioned JSON snapshots; human-in-the-loop forms; timeout jobs
 - Retries/error branches; per-workspace concurrency limits (stop via kill exists)
 - Run history/log UI, node-execution offload (runs+traces persist; no browsing UI yet)
 - Single-node draft debugging (full-draft run exists)
-- DSL export (import ✅ v0: `Flux.Workflows.DSL` + Fluxes-page Import button; conformance-tested against verbatim Dify fixtures; publish/versioning exists)
+- DSL import ✅ + export ✅ (round-trip tested; editor Export button, Fluxes-page Import; Dify-importable JSON-as-YAML). Remaining bar: import coverage grows with node types
 - **Golden test harness — phase 1 running**: DSL importer executes verbatim Dify fixtures with behavioral assertions in CI. Phase 2 (recorded run traces + SSE transcripts) needs a live Dify via Docker
 - Canvas decision RESOLVED: LiveView-native (SVG + JS hook), not a ReactFlow island. Still missing vs Dify's editor: zoom/minimap, multi-select, undo/redo, auto-layout, copy/paste
 - Collaboration: Presence soft-lock first; y_ex CRDT P5 (🚫 loro)
@@ -133,7 +133,7 @@ Note: Oban is configured with 10 queues but **zero `Oban.Worker` modules exist**
 
 | Dify surface | Status | Plan |
 |---|---|---|
-| service API `/v1` | 🟡 | **2 routes live: `POST /v1/chat-messages` and `POST /v1/workflows/run`** — real SSE + blocking modes, hashed bearer auth (`app-…` app tokens, `flux-…` workflow tokens), cross-workspace rejection tested. Missing: conversations list/rename/delete, messages, feedback, stop, completion-messages, files upload, parameters, meta, audio; P2 datasets |
+| service API `/v1` | 🟡 | **7 routes live**: chat-messages + workflows/run (SSE + blocking), parameters, conversations, messages, stop, feedbacks — hashed bearer auth, rate-limited, cross-workspace rejection tested. Missing: conversation rename/delete, completion-messages, files upload, meta, audio; P2 datasets |
 | `open_api_spex` contract tests | ❌ | no OpenAPI spec exists yet — add before the route count grows |
 | web API slice (passport JWT for embed widget) | ❌ | P1 |
 | files (signed URLs) | ❌ | P1 (S3 presign already implemented in storage adapter) |
