@@ -1,15 +1,15 @@
 # FluxCapacitor → Dify Parity: Analysis & Execution Plan
 
-Date: 2026-07-30 (rev 3 — post parity trio: http-request node, /v1 resources, DSL export) · Companion: `PARITY-GAP-ANALYSIS.md` · Reference: Dify v1.16.0+197 commits
+Date: 2026-07-30 (rev 4 — tool calling, completion+files, triggers; WS3 backend decision; Agent-v2 re-scope) · Companion: `PARITY-GAP-ANALYSIS.md` · Reference: Dify v1.16.0+197 commits
 
 ## 1. Where we actually are
 
-Verified against code (commit 8f2231c, clean tree, 12 commits on `main`):
+Verified against code (commit 544e50a, clean tree, 16 commits on `main`):
 
 | Metric | Value |
 |---|---|
 | Lib code | ~12,156 LOC |
-| Test code | ~4,956 LOC, 285 tests, 0 failures |
+| Test code | ~5,300 LOC, 293 tests, 0 failures |
 | Dify reference | ~368k LOC Python API + ~218k LOC TS canvas + graphon engine pkg |
 | Volume parity | ~3% — but the built slices are complete verticals, not scaffolds |
 
@@ -25,17 +25,17 @@ with hashed tokens → local production release (OTP release + migrations + seed
 | Area | ~% | Have | Biggest absences |
 |---|---|---|---|
 | Identity/tenancy/teams | 75% | auth, workspaces, roles, invites, switcher, tenant guard | SSO/SAML/SCIM, custom roles, resource-level perms |
-| Model runtime | 35% | 3 real providers, streaming LLM, encrypted creds, validation | embeddings/rerank, **tool calling**, structured output, default models, load balancing, azure/bedrock |
-| Apps & conversations | 35% | chat mode end-to-end, API tokens, message feedback | completion/advanced-chat/workflow modes, **site publishing/embed**, file input, prompt variables |
+| Model runtime | 45% | 3 real providers, streaming LLM, **tool calling (all 3 providers, streamed accumulation)**, encrypted creds, validation | embeddings/rerank, structured output, default models, load balancing, azure/bedrock |
+| Apps & conversations | 45% | chat + completion modes, prompt templates + input_form, file upload, API tokens, feedback | advanced-chat/workflow modes, **site publishing/embed**, multimodal input |
 | Workflow engine | 40% | 8/20 nodes (incl. http-request), branch exec, publish/versions, runs+traces, draft debug, **DSL import + export (round-trip tested)** | iteration/loop, code, classifiers/extractors, aggregators, human-input, pause/resume, retries/error branches, conversation vars |
 | Canvas | 40% | drag/connect, multi-select+marquee, group move, undo/redo, zoom/pan, history | minimap, copy/paste, node search palette, per-node debug run, variable picker UI, autolayout |
 | Tools | 55% | **OpenAPI import → callable ops, encrypted auth + private vars, tool node** | built-in tool catalog, tool plugins, agent tool-calling |
 | RAG / Knowledge | **0%** | — | everything: datasets, ingestion, pgvector, retrieval, UI, API, knowledge node |
-| API surfaces | 40% | 7 `/v1` routes: chat-messages, workflows/run, parameters, conversations, messages, stop, feedbacks | files upload, completion-messages, web/embed API, datasets API, OpenAPI contract tests |
+| API surfaces | 50% | 9 `/v1` routes (+completion-messages, files/upload) + public webhook triggers | conversation rename/delete, meta, web/embed API, datasets API, OpenAPI contract tests |
 | Plugin system | 20% | SDK ModelProvider behaviour, supervised invocation | Tool/Datasource/Trigger/Endpoint behaviours, install flow, registry |
 | Agents | 0% | — | agent node, strategies; upstream moved to `dify-agent` + Go runtime — re-scope before building |
 | Enterprise | 5% | RBAC catalog, vault | audit log, SSO, licensing/features, bulk ops, importer |
-| Infra/ops | 55% | CI, quality gates, OTP release + local deploy, storage, vault, Oban config, rate limiting, SSRF guard | **Dockerfile/compose**, PromEx/OTEL, zero Oban workers |
+| Infra/ops | 60% | CI, gates, OTP release + local deploy, storage (now consumed), vault, rate limiting, SSRF guard, **first Oban worker (schedule triggers)** | **Dockerfile/compose**, PromEx/OTEL |
 
 ### Standing debt — status after the WS0/WS1 sprint (2026-07-27)
 
@@ -68,12 +68,25 @@ Eight workstreams. WS0/WS1/WS2 are immediate; WS3–WS7 sequence after.
 - ⏳ Phase 2: run live Dify via Docker; record run traces + SSE transcripts for 15–20 workflows; extend the runner to compare traces, not just outputs. Gate stands: every WS4 engine feature lands with harness fixtures.
 
 ### WS3 — RAG / Knowledge, the missing pillar (~8–12 weeks)
+
+**Backend decision (2026-07-30): ArangoDB-first behind a `Flux.RAG.VectorStore`
+behaviour.** Postgres stays the system of record (datasets/documents/segments,
+tenancy-guarded) — the vector store is a replaceable index, exactly Dify's own
+pattern for its ~28 backends. Arango (≥3.12.4) supplies vectors (FAISS index,
+APPROX_NEAR_COSINE), BM25 full-text (ArangoSearch), and — the differentiator —
+graphs for a later GraphRAG phase (entity/relation edges + traversal-augmented
+retrieval, which Dify lacks). Client = thin Req HTTP layer (~200 LOC; no
+official Elixir driver — arangox is aging). A `Naive` backend (exact cosine in
+Postgres) keeps CI hermetic. Open items before build: BUSL-1.1 license
+acceptability; Arango is Docker-only on Windows (same blocker as pgvector);
+pgvector remains a cheap second backend if Arango disappoints.
+
 Order inside the workstream:
-1. **docker-compose** (app, postgres+pgvector, minio, tika) — pulled forward from infra because pgvector needs it.
+1. **docker-compose** (app, postgres, arangodb, minio, tika) — Docker Desktop is the unblock.
 2. Embeddings invocation kind in the plugin SDK + OpenAI/Gemini embedding models.
 3. Dataset→Document→Segment schemas; upload wired to `Flux.Storage` (first real consumer).
 4. Ingestion pipeline as the **first real Oban workers**: extract (native text/md/csv + floki HTML; Tika for office docs) → clean → split → embed (cached) → index.
-5. `VectorStore` behaviour → pgvector (HNSW) + tsvector/GIN; semantic/full-text/hybrid + RRF; rerank hook.
+5. `VectorStore` behaviour → Arango backend (vector index + ArangoSearch view) + Naive test backend; semantic/full-text/hybrid via app-side RRF; rerank hook.
 6. Knowledge UI: upload, indexing progress, segment editor, hit testing.
 7. `knowledge-retrieval` engine node + citations into chat; `/v1/datasets` subset.
 
@@ -95,12 +108,17 @@ Order inside the workstream:
 - Completion app mode; app-of-mode-workflow binding (app ↔ flux).
 - Default/system model config; azure_openai + bedrock providers.
 
-### WS6 — Agents & plugin GA (~8–10 weeks, after tool calling)
-- **Tool calling in the ModelProvider SDK** + provider implementations (prerequisite for everything agentic).
-- Agent node: function-calling strategy first; ReAct later.
-  ⚠ Re-scope against upstream first — Dify's Agent v2 now lives in `dify-agent` (Python SDK) + `dify-agent-runtime` (Go); copying the v1.16 in-process design may be building yesterday's architecture.
+### WS6 — Agents & plugin GA (~8–10 weeks)
+- ✅ **Tool calling in the ModelProvider SDK** (2026-07-30): ToolDef/ToolCall, tool-result message encoding, streamed tool-call parsing in OpenAI/Anthropic/Gemini, finish_reason :tool_calls.
+- ✅ **Triggers** (2026-07-30): webhook `POST /triggers/webhook/:token` (202 + run id) and interval schedules via `Flux.Workflows.ScheduleWorker` on an Oban minute-cron. Console trigger UI still pending.
+- **Agent node — re-scope DONE (2026-07-30), key findings from reading `dify-agent`/`dify-agent-runtime`:**
+  - There are **no strategies and no hand-rolled loop to port**: Agent v2 delegates the loop to pydantic-ai; termination is a `final_output` tool + structured output, HITL is a run that *ends* with `deferred_tool_call` and resumes as a new run with `deferred_tool_results` + an opaque `session_snapshot` (no server-side session, no pause state). Notably there is **no max-iteration guard upstream** — we should add one.
+  - `dify-agent-runtime` (Go) is not an agent runtime; it's a Landlock/tmux **shell-sandbox job server** for the agent's shell tool. The tiny gRPC proto is only the sandbox→host file-transfer callback. Skip unless/until we ship a shell tool.
+  - Worth mirroring: composition-as-data (layers with type-id allowlist ≈ our host capabilities, made declarative), snapshot-out resumability, deferred-tool-call HITL, terminal-event-carries-everything, and the event vocabulary (`run_started/…/run_succeeded`; inner `part_start/part_delta/function_tool_call/function_tool_result`, `part_kind: thinking`) if we want frontend wire compat.
+  - Collapse into OTP: the whole HTTP+SSE+Redis-stream transport and the service split exist to escape Python's process model — our supervised runs + PubSub already provide it; keep the cursor/replay property.
+  - Scope warning: v2 "agent parity" also includes shell/drive/config-asset ("Agent Soul") capabilities with no v1 analogue — far beyond the loop. Phase those separately.
+  - **Our v1 agent node** therefore: tool-calling loop over toolsets (have), max-iteration cap, final_output tool for structured output, deferred-tool HITL reusing our pause-less run model. Buildable now that SDK tool calling landed.
 - Plugin SDK: Tool/Datasource/Trigger/Endpoint behaviours; per-workspace installations.
-- Triggers: webhook (`/triggers/webhook/:id`) + schedules on Oban.
 
 ### WS7 — Ops & enterprise (ongoing → P5)
 - Near-term: PromEx + OpenTelemetry + logger_json; audit-log context (`Flux.Audit`) so
@@ -117,7 +135,7 @@ Order inside the workstream:
 | M2 | +9 weeks | RAG MVP: upload → index → hybrid retrieve → knowledge node in a flux → cited answer; compose stack |
 | M3 | +14 weeks | Engine core parity (http/code/classifier/extractor/aggregator/loop), DSL import green on full fixture set |
 | M4 | +18 weeks | `/v1` subset complete + contract tests; site publishing + embed live |
-| M5 | +26 weeks | Tool calling, agent node, plugin behaviours, webhook/schedule triggers |
+| M5 | +26 weeks | Agent node, plugin behaviours — **tool calling ✅ and triggers ✅ pulled forward to 07-30** |
 | M6 | — | Enterprise: SSO/SCIM, audit UI, custom roles, licensing, bulk ops |
 
 Effort remaining vs the approved plan: roughly **46–58 engineer-months** of the
