@@ -1,12 +1,12 @@
 # FluxCapacitor ↔ Dify Parity Gap Analysis
 
-Date: 2026-07-27 (verified against code) · Reference: Dify v1.16.0 (`C:\Users\jpcre\GitHub\dify`) · Execution plan: `PARITY-PLAN.md`
+Date: 2026-07-27 rev 2 (verified against code, commit cae451d) · Reference: Dify v1.16.0 (`C:\Users\jpcre\GitHub\dify`) · Execution plan: `PARITY-PLAN.md`
 
 Scale context: Dify's production backend is ~368k LOC of Python (~840 HTTP routes,
 ~80 background tasks over ~25 queues), its workflow canvas alone is ~218k LOC of
 TypeScript, and its workflow engine + model runtime live in the external `graphon`
-PyPI package. FluxCapacitor today is ~10.8k LOC of lib code + ~4.4k LOC of tests
-(258 passing). By plan phases: **P0 done**, **P1 ~60%** (chat apps, 3 providers,
+PyPI package. FluxCapacitor today is ~11.6k LOC of lib code + ~4.8k LOC of tests
+(278 passing). By plan phases: **P0 done**, **P1 ~60%** (chat apps, 3 providers,
 2 `/v1` routes, OTP release + local deploy), **P3 ~30% pulled forward** (engine
 with 7 node types incl. tool, canvas editor, publish/versions/runs), **P4 ~15%
 pulled forward** (OpenAPI custom tools with encrypted auth/variables), P2 RAG and
@@ -29,7 +29,7 @@ Legend: ✅ done · 🟡 partial · ❌ missing · 🚫 deliberately not mirrore
 | Membership mgmt: invite (multi-email), role change, remove, owner transfer | ✅ | UI live at /console/members; owner-transfer has context fn but no UI |
 | Scope threading + Repo tenant guard | ✅ | `UnscopedQueryError` tripwire covers invitations, provider_credentials, apps, conversations, messages, api_tokens; RLS hardening deferred to P5 |
 | RBAC permission catalog (45 points from `api/core/rbac/entities.py`) | ✅ | built-in role sets; `can?/3` |
-| RBAC enforcement wired everywhere | 🟡 | **9 call sites, only 3 of 45 permission atoms checked.** Context-level: Providers (upsert/delete credential), Chat (create/delete app, create token). UI-only gating: Apps, AppChat, Members, Plugins LiveViews. **Gap: `Flux.Accounts` member functions (role change, remove, invite, transfer) have no context-level RBAC — only the LiveView guards them; any future caller bypasses authz.** No router plug / on_mount hook despite the moduledoc describing both |
+| RBAC enforcement wired everywhere | 🟡 | Context-level: Providers, Chat, Workflows, Tools, **and Accounts member mutations (role change/remove/invite — fixed 07-27 with bypass tests)**. Still no router plug / on_mount hook; most of the 45 permission atoms unused until their features exist |
 | Workspace switcher UI | ✅ | sidebar dropdown → `WorkspaceController.switch/2`; non-member rejection tested |
 | Custom roles (per-workspace role/permission rows + UI) | ❌ | P5 |
 | Resource-level permissions (dataset partial access, credential permissions, app access modes) | ❌ | P2/P5 |
@@ -44,7 +44,7 @@ Legend: ✅ done · 🟡 partial · ❌ missing · 🚫 deliberately not mirrore
 | Credential vault (cloak KEK→workspace-DEK envelope) | ✅ | AES-256-GCM per-workspace DEKs in `workspace_keys`, Cachex-cached (10 min TTL), `rotate_dek/2`; tests prove cross-workspace ciphertext fails to decrypt |
 | Per-workspace encrypted provider credentials | ✅ | `Providers.upsert_credential/3` validates live against the provider before persisting; unique on (workspace, plugin, name) |
 | Credentials UI on Plugins screen | ✅ | dynamic form generated from each plugin's `credential_schema` |
-| First-party providers: openai, anthropic, gemini | ✅ | real HTTP + SSE streaming with usage parsing; supervised invocation (timeout + crash isolation). **Model catalogs hardcoded**, no retries/backoff, no HTTP-mocked tests |
+| First-party providers: openai, anthropic, gemini | ✅ | real HTTP + SSE streaming with usage parsing; supervised invocation (timeout + crash isolation). **Model catalogs hardcoded**, no retries/backoff; SSE parsing covered by Req.Test HTTP-mock suites |
 | First-party providers: azure_openai, bedrock | ❌ | P1 remainder |
 | Invocation kinds beyond streaming LLM | ❌ | no embeddings, rerank, structured output, tool calling, vision; no moderation hook |
 | Default/system models (TenantDefaultModel, per-type defaults) | ❌ | P1 remainder |
@@ -59,7 +59,7 @@ Legend: ✅ done · 🟡 partial · ❌ missing · 🚫 deliberately not mirrore
 | SDK: ModelProvider capability (`models/1`, `validate_credentials/1`, `invoke_llm/3` push-based) | ✅ | Spec/Request/Chunk/Result structs; **SDK package has zero tests** |
 | SDK: Tool, Datasource, Trigger, AgentStrategy, Endpoint behaviours | ❌ | P4 |
 | Runtime: catalog + supervised invocations | 🟡 | static `@builtin_plugins` list (config-overridable); `Task.Supervisor.async_nolink` with yield/brutal-kill timeouts. No max_heap, no telemetry, no capability broker |
-| Capability grants; network allowlist via SSRF-guarded Req | ❌ | **live exposure: OpenAI plugin requests arbitrary user-supplied `base_url` unfiltered** |
+| Network guard (SSRF) for plugin/toolset HTTP | ✅ | `Flux.SSRF` on provider base URLs, toolset calls, credential validation; `FLUX_SSRF_ALLOW` exemptions. Capability grants still ❌ |
 | Host capability struct (replaces Dify's 17 inner-API reverse-invocation endpoints) | ❌ | P1/P4 |
 | Per-workspace `plugin_installations`, install permissions, auto-upgrade | ❌ | P4 |
 | Split plugin-runtime BEAM node + `:erpc` streaming (Phase B) | ❌ | P4 |
@@ -74,11 +74,11 @@ Legend: ✅ done · 🟡 partial · ❌ missing · 🚫 deliberately not mirrore
 | App modes: completion, advanced-chat, workflow (🚫 legacy agent-chat) | ❌ | mode enum currently `[:chat]` |
 | AppModelConfig / prompt templates + variables | ❌ | prompt assembly = system_prompt + history only |
 | Conversations/Messages | ✅ | with status lifecycle (streaming/completed/stopped/error) and usage capture |
-| Generation pipeline: supervised task, PubSub streaming, stop, blocking mode | ✅ | subscribe-before-spawn (no lost chunks); Registry-tracked pids. **Known defect: stop mid-stream loses the streamed prefix (finalize reads the empty DB row, not accumulated chunks)** |
+| Generation pipeline: supervised task, PubSub streaming, stop, blocking mode | ✅ | subscribe-before-spawn (no lost chunks); Registry-tracked pids; stop persists the streamed prefix via ETS stream buffers (fixed 07-27) |
 | Feedback, annotations, saved/pinned messages | ❌ | (🚫 annotation-reply ML) |
 | Console chat UI | ✅ | streaming, stop button, new-conversation, API-key panel (raw token shown once) |
 | ApiToken issuance/hashing | ✅ | `app-` prefix, SHA-256 hash at rest, display prefix, last_used_at |
-| Per-app rate limits | ❌ | **no rate limiting anywhere** |
+| Per-app rate limits | 🟡 | /v1 limited per token principal (120/min, hammer); per-app configurable limits still ❌ |
 | Site (published LiveView webapp) + JS embed; EndUser identity | ❌ | P1 remainder (`end_user_ref` field exists on conversations) |
 | File upload wired to storage; multimodal input | ❌ | storage behaviour exists but has zero callers |
 | Tags, app duplicate/export, operation log | ❌ | |
@@ -108,8 +108,8 @@ Still missing (unchanged from prior analysis):
 - Retries/error branches; per-workspace concurrency limits (stop via kill exists)
 - Run history/log UI, node-execution offload (runs+traces persist; no browsing UI yet)
 - Single-node draft debugging (full-draft run exists)
-- DSL YAML import/export (Dify-compatible import is the bar; publish/versioning exists)
-- **Golden test harness — STILL NOT STARTED and on the critical path**: needs 15–20 real DSL exports + recorded run traces from a live Dify instance; now urgent since engine semantics are being invented without fixtures
+- DSL export (import ✅ v0: `Flux.Workflows.DSL` + Fluxes-page Import button; conformance-tested against verbatim Dify fixtures; publish/versioning exists)
+- **Golden test harness — phase 1 running**: DSL importer executes verbatim Dify fixtures with behavioral assertions in CI. Phase 2 (recorded run traces + SSE transcripts) needs a live Dify via Docker
 - Canvas decision RESOLVED: LiveView-native (SVG + JS hook), not a ReactFlow island. Still missing vs Dify's editor: zoom/minimap, multi-select, undo/redo, auto-layout, copy/paste
 - Collaboration: Presence soft-lock first; y_ex CRDT P5 (🚫 loro)
 - Triggers: webhook/schedule/plugin trigger tables + dispatch (P4); Agent v2 (config revisions, runtime sessions, ReAct/function-calling strategies) (P4) — **note upstream Agent v2 now lives in `dify-agent`/`dify-agent-runtime`; re-validate scope**
@@ -166,8 +166,8 @@ All ❌: `Flux.Bulk.Operation` behaviour + tables (P2 core, first consumers = ba
 | `Flux.Storage` behaviour (S3/MinIO + local) | ✅ env-toggled; local rejects path traversal; S3 presigned URLs; **zero callers so far** |
 | Cloak vault + workspace DEKs | ✅ see §2 |
 | Cachex | ✅ started; sole consumer is DEK cache |
-| hammer rate limiting | ❌ **no dep, no plug — /v1 is unthrottled** |
-| SSRF-guard Req step | ❌ **live exposure via provider `base_url`** — do before more plugins/http nodes land |
+| hammer rate limiting | ✅ /v1 per token principal (120/min), auth POSTs per IP (10/min) |
+| SSRF-guard step | ✅ `Flux.SSRF` (see §3) |
 | PromEx + OpenTelemetry + logger_json (replaces Dify's OTEL + langfuse/langsmith seam) | ❌ stock Phoenix telemetry only, no reporter started |
 | mix release + local deploy (migrate/seed release tasks, FLUX_MAILBOX mailbox) | ✅ runs at localhost:4001 |
 | Dockerfile + 4-container compose (app, postgres+pgvector, minio, tika) | ❌ pulled into RAG workstream (pgvector) |
@@ -177,14 +177,17 @@ All ❌: `Flux.Bulk.Operation` behaviour + tables (P2 core, first consumers = ba
 | Auth pages still wear generated Phoenix chrome | 🟡 cosmetic |
 | Repo folder still `dify-elixir` | 🟡 rename blocked by external file handle |
 
-## 11. Known defects & hardening debt (fix while the surface is small)
+## 11. Known defects & hardening debt
 
-1. Stop-generation loses the streamed prefix (finalize reads empty DB `content` instead of accumulated chunks) — `Flux.Chat`.
-2. `Flux.Accounts` member management has no context-level RBAC (UI-only guard) — push `authorize/3` into the context.
-3. No rate limiting on `/v1` or auth endpoints.
-4. SSRF: unfiltered user-supplied `base_url` in provider plugins.
-5. Provider plugins have no HTTP-mocked tests (Req.Test/Bypass) — SSE frame parsing is untested against malformed input.
-6. Only stock telemetry; no metrics exporter — flying blind in any deployment.
+WS1 security sprint (2026-07-27) closed the original list: ~~stop-generation
+prefix loss~~, ~~Accounts context RBAC~~, ~~/v1 + auth rate limiting~~,
+~~provider SSRF~~, ~~untested provider SSE parsing~~ — all fixed with tests.
+
+Still open:
+1. Only stock telemetry; no metrics exporter — flying blind in any deployment (WS7).
+2. No router-level RBAC plug / on_mount hook (fold into WS5).
+3. Code still not pushed to a remote — `gh auth login` pending (WS0 tail).
+4. Tool/toolset calls have no per-call timeout budget distinct from the 60s Req default; fine for now.
 
 ## 12. Critical path & recommended order
 

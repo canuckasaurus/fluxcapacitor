@@ -1,15 +1,15 @@
 # FluxCapacitor → Dify Parity: Analysis & Execution Plan
 
-Date: 2026-07-27 · Companion to `PARITY-GAP-ANALYSIS.md` (status detail) · Reference: Dify v1.16.0+197 commits
+Date: 2026-07-27 (rev 2 — post WS0/WS1/WS2 phase 1) · Companion: `PARITY-GAP-ANALYSIS.md` · Reference: Dify v1.16.0+197 commits
 
 ## 1. Where we actually are
 
-Verified against code (commit f1bf749 + 44 uncommitted files):
+Verified against code (commit cae451d, clean tree, 8 logical commits on `main`):
 
 | Metric | Value |
 |---|---|
-| Lib code | ~10,829 LOC (was 6,328 at last analysis — +71%) |
-| Test code | ~4,400 LOC, 258 tests, 0 failures |
+| Lib code | ~11,571 LOC |
+| Test code | ~4,821 LOC, 278 tests, 0 failures |
 | Dify reference | ~368k LOC Python API + ~218k LOC TS canvas + graphon engine pkg |
 | Volume parity | ~3% — but the built slices are complete verticals, not scaffolds |
 
@@ -37,38 +37,35 @@ with hashed tokens → local production release (OTP release + migrations + seed
 | Enterprise | 5% | RBAC catalog, vault | audit log, SSO, licensing/features, bulk ops, importer |
 | Infra/ops | 50% | CI, quality gates, OTP release + local deploy, storage, vault, Oban config | **Dockerfile/compose**, PromEx/OTEL, rate limiting, SSRF guard, zero Oban workers |
 
-### Standing debt (gets more expensive every week it waits)
+### Standing debt — status after the WS0/WS1 sprint (2026-07-27)
 
-1. **Not pushed anywhere** — no git remote; 44 files uncommitted; CI has never run. One disk failure loses the project.
-2. **SSRF** — three features now make arbitrary user-directed HTTP calls (provider `base_url`, tool base URLs, future http-request node) with no private-IP guard.
-3. **No rate limiting** on `/v1` or auth.
-4. `Flux.Accounts` member mutations lack context-level RBAC (UI-only guard).
-5. **Golden test harness still not started** — engine semantics are now being invented feature-by-feature with nothing to check them against Dify. This risk *compounds*: every node type added pre-harness may need re-work.
-6. Stop-generation loses streamed prefix; providers have no HTTP-mocked tests; no metrics exporter.
+1. ~~Uncommitted~~ → **committed as 8 logical commits on `main`**; push still blocked on `gh auth login` (no remote yet — the one remaining WS0 item).
+2. ~~SSRF~~ → **fixed**: `Flux.SSRF` guards provider + toolset + validation calls; `FLUX_SSRF_ALLOW` for exemptions.
+3. ~~No rate limiting~~ → **fixed**: hammer on `/v1` (120/min per token principal) and auth POSTs (10/min per IP).
+4. ~~Accounts RBAC~~ → **fixed** at the context level, with bypass tests.
+5. **Golden harness: phase 1 done** — DSL importer runs verbatim Dify fixtures (from `dify/api/tests/fixtures/workflow`) through the engine with behavioral assertions. Phase 2 (recorded run traces + SSE transcripts from a live Dify) needs Docker Desktop installed.
+6. ~~Stop prefix loss / untested providers~~ → **fixed** (ETS stream buffers; 10 Req.Test provider suites). Remaining from this list: no metrics exporter (WS7).
 
 ## 2. The plan
 
 Eight workstreams. WS0/WS1/WS2 are immediate; WS3–WS7 sequence after.
 
-### WS0 — Ship hygiene (days) ← do first
-- Commit the session's work as logical commits; create GitHub repo; push; make CI green remotely.
-- Keep the local release deploy as the smoke environment.
+### WS0 — Ship hygiene ✅ (2026-07-27, push pending)
+- ✅ 8 logical commits on `main` (renamed from master to match CI trigger); digest artifacts cleaned + gitignored.
+- ⏳ Remaining: `gh auth login` (user), then create GitHub repo, push, confirm CI green.
 
-### WS1 — Security & correctness sprint (~1–2 weeks)
-- Shared **SSRF-guarded Req step** (deny private/link-local IPs + metadata endpoints, per-workspace allowlist) applied to providers, tools, and every future outbound call.
-- **hammer** rate limiting: `/v1` per-token, auth endpoints per-IP.
-- Push RBAC into `Flux.Accounts` member functions; add the router-level RBAC plug the moduledoc promises.
-- Fix stop-generation prefix loss (accumulate in-process, persist on kill).
-- `Req.Test` HTTP-mock suites for OpenAI/Anthropic/Gemini SSE parsing (incl. malformed frames).
-- Typed coercion for tool body args from spec schemas.
+### WS1 — Security & correctness sprint ✅ (2026-07-27)
+- ✅ `Flux.SSRF` guard on providers, toolsets, credential validation (private/loopback/link-local/CGNAT/metadata blocked both IP families; per-env config + `FLUX_SSRF_ALLOW`).
+- ✅ hammer rate limiting (`/v1` 120/min per principal; auth POSTs 10/min per IP; 429 + Retry-After).
+- ✅ Context-level RBAC in `Flux.Accounts` member mutations (+ bypass tests). Router-level RBAC plug still open (small, fold into WS5).
+- ✅ Stop-generation prefix preserved via ETS stream buffers.
+- ✅ Req.Test HTTP-mock suites for all three providers (SSE parsing, malformed frames, error paths).
+- ✅ Tool body args coerce to spec-declared JSON types.
 
-### WS2 — Golden test harness (~2–3 weeks, start in parallel with WS1)
-- Run a live Dify via docker locally. Author 15–20 workflows covering node semantics
-  (branching, variable scoping, error paths, streaming order); export DSL YAML;
-  record run traces + SSE transcripts as fixtures.
-- Build the conformance runner: DSL import → `Flux.Engine` run → compare outputs/trace shape.
-- This *is* the DSL importer v0 — the mapping table grows fixture by fixture.
-- Gate: every WS4 engine feature lands with harness fixtures, not hand-written expectations.
+### WS2 — Golden test harness (phase 1 ✅; phase 2 needs Docker)
+- ✅ **DSL importer v0** (`Flux.Workflows.DSL`): workflow/advanced-chat exports → flux graphs; selector/Jinja conversion; unsupported nodes dropped with warnings; Import DSL UI on the Fluxes page.
+- ✅ Conformance tests over **verbatim Dify fixtures** (copied from `dify/api/tests/fixtures/workflow`) including behavioral runs (if-else routing matches the fixture's documented semantics).
+- ⏳ Phase 2: run live Dify via Docker; record run traces + SSE transcripts for 15–20 workflows; extend the runner to compare traces, not just outputs. Gate stands: every WS4 engine feature lands with harness fixtures.
 
 ### WS3 — RAG / Knowledge, the missing pillar (~8–12 weeks)
 Order inside the workstream:
@@ -115,8 +112,8 @@ Order inside the workstream:
 
 | Milestone | Target | Definition of done |
 |---|---|---|
-| M0 | +1 week | Pushed to GitHub, CI green, WS1 hardening merged |
-| M1 | +3 weeks | Harness runs ≥10 Dify fixtures; DSL import v0 passes them |
+| M0 | +1 week | Pushed to GitHub, CI green, WS1 hardening merged — **hardening ✅, commits ✅; push pending gh auth** |
+| M1 | +3 weeks | Harness runs ≥10 Dify fixtures incl. recorded traces; DSL import passes them — **4 fixtures + importer ✅; traces need Docker** |
 | M2 | +9 weeks | RAG MVP: upload → index → hybrid retrieve → knowledge node in a flux → cited answer; compose stack |
 | M3 | +14 weeks | Engine core parity (http/code/classifier/extractor/aggregator/loop), DSL import green on full fixture set |
 | M4 | +18 weeks | `/v1` subset complete + contract tests; site publishing + embed live |
@@ -129,7 +126,7 @@ Timeline above assumes ~2–3 engineers; single-engineer pace ≈ 2.5× the dura
 
 ## 4. Top risks & mitigations
 
-1. **Engine semantic drift** (high, compounding) — no fixtures yet. Mitigation: WS2 immediately; freeze new node types until the harness runs.
+1. **Engine semantic drift** (high → medium) — structural/behavioral fixtures now run in CI; trace-level comparison still missing until a live Dify records them (Docker). Keep the freeze on new node types until phase 2 lands.
 2. **Iteration/loop graph-model change** (medium) — cycles-in-scope may force validator/runner refactor. Mitigation: design spike at WS4 start, before more nodes stack on the current walker.
 3. **RAG scale unknowns** (medium) — Tika throughput, embedding costs, pgvector at enterprise corpus size. Mitigation: load-test spike with a real corpus in WS3 step 5.
 4. **Upstream drift** (medium) — Agent v2 externalized upstream. Mitigation: WS6 starts with a re-scoping read of `dify-agent`/`dify-agent-runtime`.
