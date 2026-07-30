@@ -15,7 +15,7 @@ Verified against code (commit 8f2231c, clean tree, 12 commits on `main`):
 
 **Works end-to-end today:** auth/workspaces/members/RBAC → provider credentials
 (OpenAI, Anthropic, Gemini; encrypted per-workspace) → chat apps with streaming +
-stop → visual workflow builder (7 node types, multi-select canvas, undo/redo,
+stop → visual workflow builder (8 node types incl. http-request, multi-select canvas, undo/redo,
 zoom/pan, run drawer, run history, publish/versioning) → OpenAPI custom tools with
 encrypted auth/private variables → Dify-compatible `/v1` chat + workflow-run APIs
 with hashed tokens → local production release (OTP release + migrations + seeds).
@@ -26,7 +26,7 @@ with hashed tokens → local production release (OTP release + migrations + seed
 |---|---|---|---|
 | Identity/tenancy/teams | 75% | auth, workspaces, roles, invites, switcher, tenant guard | SSO/SAML/SCIM, custom roles, resource-level perms |
 | Model runtime | 35% | 3 real providers, streaming LLM, encrypted creds, validation | embeddings/rerank, **tool calling**, structured output, default models, load balancing, azure/bedrock |
-| Apps & conversations | 30% | chat mode end-to-end, API tokens | completion/advanced-chat/workflow modes, **site publishing/embed**, feedback, file input, prompt variables |
+| Apps & conversations | 35% | chat mode end-to-end, API tokens, message feedback | completion/advanced-chat/workflow modes, **site publishing/embed**, file input, prompt variables |
 | Workflow engine | 40% | 8/20 nodes (incl. http-request), branch exec, publish/versions, runs+traces, draft debug, **DSL import + export (round-trip tested)** | iteration/loop, code, classifiers/extractors, aggregators, human-input, pause/resume, retries/error branches, conversation vars |
 | Canvas | 40% | drag/connect, multi-select+marquee, group move, undo/redo, zoom/pan, history | minimap, copy/paste, node search palette, per-node debug run, variable picker UI, autolayout |
 | Tools | 55% | **OpenAPI import → callable ops, encrypted auth + private vars, tool node** | built-in tool catalog, tool plugins, agent tool-calling |
@@ -35,7 +35,7 @@ with hashed tokens → local production release (OTP release + migrations + seed
 | Plugin system | 20% | SDK ModelProvider behaviour, supervised invocation | Tool/Datasource/Trigger/Endpoint behaviours, install flow, registry |
 | Agents | 0% | — | agent node, strategies; upstream moved to `dify-agent` + Go runtime — re-scope before building |
 | Enterprise | 5% | RBAC catalog, vault | audit log, SSO, licensing/features, bulk ops, importer |
-| Infra/ops | 50% | CI, quality gates, OTP release + local deploy, storage, vault, Oban config | **Dockerfile/compose**, PromEx/OTEL, rate limiting, SSRF guard, zero Oban workers |
+| Infra/ops | 55% | CI, quality gates, OTP release + local deploy, storage, vault, Oban config, rate limiting, SSRF guard | **Dockerfile/compose**, PromEx/OTEL, zero Oban workers |
 
 ### Standing debt — status after the WS0/WS1 sprint (2026-07-27)
 
@@ -78,7 +78,7 @@ Order inside the workstream:
 7. `knowledge-retrieval` engine node + citations into chat; `/v1/datasets` subset.
 
 ### WS4 — Engine depth to parity (~6–10 weeks, fixture-driven)
-- http-request node (WS1's SSRF guard is the prerequisite).
+- ✅ http-request node (2026-07-30): host-injected + SSRF-guarded; editor panel; DSL import maps Dify http-request cleanly.
 - question-classifier + parameter-extractor (needs structured-output support in providers).
 - variable aggregator/assigner; list-operator; document-extractor.
 - **iteration/loop** — do a design spike first: allowing cycles inside loop scopes
