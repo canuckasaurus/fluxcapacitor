@@ -12,10 +12,12 @@ defmodule Flux.Chat.App do
 
     field :name, :string
     field :description, :string
-    field :mode, Ecto.Enum, values: [:chat], default: :chat
+    field :mode, Ecto.Enum, values: [:chat, :completion], default: :chat
     field :provider_plugin_id, :string
     field :model, :string
     field :system_prompt, :string
+    field :prompt_template, :string
+    field :input_form, {:array, :map}, default: []
     field :params, :map, default: %{}
 
     timestamps(type: :utc_datetime)
@@ -23,7 +25,17 @@ defmodule Flux.Chat.App do
 
   def changeset(app, attrs) do
     app
-    |> cast(attrs, [:name, :description, :provider_plugin_id, :model, :system_prompt, :params])
+    |> cast(attrs, [
+      :name,
+      :description,
+      :mode,
+      :provider_plugin_id,
+      :model,
+      :system_prompt,
+      :prompt_template,
+      :input_form,
+      :params
+    ])
     |> validate_required([:name, :provider_plugin_id, :model])
     |> validate_length(:name, min: 1, max: 255)
   end
@@ -90,6 +102,27 @@ defmodule Flux.Chat.ApiToken do
     field :token_hash, :binary, redact: true
     field :prefix, :string
     field :last_used_at, :utc_datetime
+
+    timestamps(type: :utc_datetime)
+  end
+end
+
+defmodule Flux.Chat.UploadedFile do
+  @moduledoc "A file stored via Flux.Storage, uploaded through /v1/files/upload."
+  use Ecto.Schema
+
+  @primary_key {:id, UUIDv7, autogenerate: true}
+  @foreign_key_type :binary_id
+
+  schema "uploaded_files" do
+    belongs_to :workspace, Flux.Accounts.Workspace
+    belongs_to :app, Flux.Chat.App
+
+    field :name, :string
+    field :key, :string
+    field :size, :integer
+    field :content_type, :string
+    field :end_user_ref, :string
 
     timestamps(type: :utc_datetime)
   end

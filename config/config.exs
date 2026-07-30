@@ -32,6 +32,7 @@ config :flux, Oban,
   engine: Oban.Engines.Basic,
   repo: Flux.Repo,
   plugins: [
+    {Oban.Plugins.Cron, crontab: [{"* * * * *", Flux.Workflows.ScheduleWorker}]},
     {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7},
     {Oban.Plugins.Lifeline, rescue_after: :timer.minutes(30)}
   ],

@@ -9,7 +9,7 @@ defmodule Flux.Plugins.Gemini do
   @behaviour Flux.Plugin.ModelProvider
 
   alias Flux.Plugin.{CredentialField, Manifest}
-  alias Flux.Plugin.ModelProvider.{Chunk, Result, Spec}
+  alias Flux.Plugin.ModelProvider.{Chunk, Result, Spec, ToolCall}
   alias Flux.Plugins.SSE
 
   @base_url "https://generativelanguage.googleapis.com/v1beta"
@@ -60,9 +60,10 @@ defmodule Flux.Plugins.Gemini do
     body =
       %{contents: Enum.map(messages, &content_for/1)}
       |> maybe_put_system(system)
+      |> maybe_put_tools(request.tools)
       |> maybe_put_generation_config(request.params)
 
-    acc = %{content: "", usage: %{input_tokens: 0, output_tokens: 0}, finish: :stop}
+    acc = %{content: "", usage: %{input_tokens: 0, output_tokens: 0}, finish: :stop, calls: []}
 
     SSE.stream_request(
       [
@@ -80,7 +81,24 @@ defmodule Flux.Plugins.Gemini do
     )
     |> case do
       {:ok, acc} ->
-        {:ok, %Result{content: acc.content, finish_reason: acc.finish, usage: acc.usage}}
+        tool_calls =
+          for {call, index} <- Enum.with_index(Enum.reverse(acc.calls)) do
+            %ToolCall{
+              id: "gemini_call_#{index}",
+              name: call["name"],
+              arguments: call["args"] || %{}
+            }
+          end
+
+        finish = if tool_calls == [], do: acc.finish, else: :tool_calls
+
+        {:ok,
+         %Result{
+           content: acc.content,
+           finish_reason: finish,
+           usage: acc.usage,
+           tool_calls: tool_calls
+         }}
 
       {:error, reason} ->
         {:error, reason}
@@ -88,11 +106,18 @@ defmodule Flux.Plugins.Gemini do
   end
 
   defp handle_frame(payload, acc, emit) do
-    delta =
+    parts =
       payload
       |> get_in(["candidates", Access.at(0), "content", "parts"])
       |> List.wrap()
-      |> Enum.map_join("", &(&1["text"] || ""))
+
+    delta = Enum.map_join(parts, "", &(&1["text"] || ""))
+
+    # Gemini delivers function calls as whole parts, not fragments.
+    acc =
+      parts
+      |> Enum.filter(& &1["functionCall"])
+      |> Enum.reduce(acc, fn part, acc -> %{acc | calls: [part["functionCall"] | acc.calls]} end)
 
     acc =
       if delta == "" do
@@ -118,8 +143,41 @@ defmodule Flux.Plugins.Gemini do
     end
   end
 
+  defp content_for(%{role: :tool} = message) do
+    %{
+      role: "function",
+      parts: [
+        %{functionResponse: %{name: message.name, response: %{result: message.content || ""}}}
+      ]
+    }
+  end
+
+  defp content_for(%{tool_calls: [_call | _] = calls} = message) do
+    text_parts =
+      case message.content do
+        content when is_binary(content) and content != "" -> [%{text: content}]
+        _empty -> []
+      end
+
+    call_parts =
+      for call <- calls, do: %{functionCall: %{name: call.name, args: call.arguments}}
+
+    %{role: "model", parts: text_parts ++ call_parts}
+  end
+
   defp content_for(%{role: role, content: content}) do
     %{role: (role == :assistant && "model") || "user", parts: [%{text: content}]}
+  end
+
+  defp maybe_put_tools(body, []), do: body
+
+  defp maybe_put_tools(body, tools) do
+    declarations =
+      for tool <- tools do
+        %{name: tool.name, description: tool.description, parameters: tool.parameters}
+      end
+
+    Map.put(body, :tools, [%{functionDeclarations: declarations}])
   end
 
   defp split_system(messages) do

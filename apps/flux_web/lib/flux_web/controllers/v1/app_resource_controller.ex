@@ -96,6 +96,37 @@ defmodule FluxWeb.V1.AppResourceController do
     end
   end
 
+  def upload_file(conn, %{"file" => %Plug.Upload{} = upload} = params) do
+    attrs = %{
+      path: upload.path,
+      filename: upload.filename,
+      content_type: upload.content_type,
+      end_user_ref: params["user"]
+    }
+
+    case Chat.create_upload(conn.assigns.service_scope, conn.assigns.service_app, attrs) do
+      {:ok, file} ->
+        json(conn, %{
+          id: file.id,
+          name: file.name,
+          size: file.size,
+          extension: file.name |> Path.extname() |> String.trim_leading("."),
+          mime_type: file.content_type,
+          created_at: DateTime.to_unix(file.inserted_at)
+        })
+
+      {:error, :too_large} ->
+        error(conn, 413, "file_too_large", "Files are limited to 15 MB")
+
+      {:error, reason} ->
+        error(conn, 500, "upload_failed", "Could not store the file: #{inspect(reason)}")
+    end
+  end
+
+  def upload_file(conn, _params) do
+    error(conn, 400, "invalid_param", "multipart field \"file\" is required")
+  end
+
   defp require_app_token(conn, _opts) do
     if conn.assigns[:service_app] do
       conn

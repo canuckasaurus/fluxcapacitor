@@ -4,7 +4,7 @@ defmodule Flux.Plugins.OpenAI do
   @behaviour Flux.Plugin.ModelProvider
 
   alias Flux.Plugin.{CredentialField, Manifest}
-  alias Flux.Plugin.ModelProvider.{Chunk, Result, Spec}
+  alias Flux.Plugin.ModelProvider.{Chunk, Result, Spec, ToolCall}
   alias Flux.Plugins.SSE
 
   @base_url "https://api.openai.com/v1"
@@ -61,42 +61,146 @@ defmodule Flux.Plugins.OpenAI do
   def invoke_llm(credentials, request, emit) do
     body = %{
       model: request.model,
-      messages: Enum.map(request.messages, &%{role: &1.role, content: &1.content}),
+      messages: Enum.map(request.messages, &encode_message/1),
       stream: true,
       stream_options: %{include_usage: true}
     }
 
+    body =
+      if request.tools == [] do
+        body
+      else
+        Map.put(body, :tools, Enum.map(request.tools, &encode_tool/1))
+      end
+
     body = Map.merge(body, Map.take(request.params, [:temperature, :max_tokens, :top_p]))
 
-    acc = %{content: "", usage: %{input_tokens: 0, output_tokens: 0}, finish: :stop}
+    acc = %{content: "", usage: %{input_tokens: 0, output_tokens: 0}, finish: :stop, calls: %{}}
 
     SSE.stream_request(
       [url: base_url(credentials) <> "/chat/completions", json: body, headers: auth(credentials)],
       acc,
-      fn data, acc ->
-        case Jason.decode(data) do
-          {:ok, %{"choices" => [%{"delta" => %{"content" => delta}} | _]}}
-          when is_binary(delta) and delta != "" ->
-            emit.(%Chunk{delta: delta})
-            %{acc | content: acc.content <> delta}
-
-          {:ok, %{"usage" => %{"prompt_tokens" => input, "completion_tokens" => output}}}
-          when is_integer(input) ->
-            %{acc | usage: %{input_tokens: input, output_tokens: output}}
-
-          _ ->
-            acc
-        end
-      end
+      fn data, acc -> handle_frame(data, acc, emit) end
     )
     |> case do
       {:ok, acc} ->
-        {:ok, %Result{content: acc.content, finish_reason: acc.finish, usage: acc.usage}}
+        {:ok,
+         %Result{
+           content: acc.content,
+           finish_reason: acc.finish,
+           usage: acc.usage,
+           tool_calls: finalize_calls(acc.calls)
+         }}
 
       {:error, reason} ->
         {:error, reason}
     end
   end
+
+  defp handle_frame(data, acc, emit) do
+    case Jason.decode(data) do
+      {:ok, %{"choices" => [%{"delta" => delta} = choice | _]} = frame} ->
+        acc
+        |> handle_content(delta, emit)
+        |> handle_tool_deltas(delta)
+        |> handle_finish(choice)
+        |> handle_usage(frame)
+
+      {:ok, %{"usage" => _usage} = frame} ->
+        handle_usage(acc, frame)
+
+      _other ->
+        acc
+    end
+  end
+
+  defp handle_content(acc, %{"content" => delta}, emit)
+       when is_binary(delta) and delta != "" do
+    emit.(%Chunk{delta: delta})
+    %{acc | content: acc.content <> delta}
+  end
+
+  defp handle_content(acc, _delta, _emit), do: acc
+
+  # Streamed tool calls arrive as fragments keyed by index: id/name once,
+  # then argument-JSON pieces to concatenate.
+  defp handle_tool_deltas(acc, %{"tool_calls" => deltas}) when is_list(deltas) do
+    calls =
+      Enum.reduce(deltas, acc.calls, fn delta, calls ->
+        index = delta["index"] || 0
+        call = Map.get(calls, index, %{id: nil, name: "", args: ""})
+
+        call = %{
+          id: call.id || delta["id"],
+          name: call.name <> (get_in(delta, ["function", "name"]) || ""),
+          args: call.args <> (get_in(delta, ["function", "arguments"]) || "")
+        }
+
+        Map.put(calls, index, call)
+      end)
+
+    %{acc | calls: calls}
+  end
+
+  defp handle_tool_deltas(acc, _delta), do: acc
+
+  defp handle_finish(acc, %{"finish_reason" => "tool_calls"}), do: %{acc | finish: :tool_calls}
+  defp handle_finish(acc, %{"finish_reason" => "length"}), do: %{acc | finish: :length}
+  defp handle_finish(acc, _choice), do: acc
+
+  defp handle_usage(acc, %{"usage" => %{"prompt_tokens" => input, "completion_tokens" => output}})
+       when is_integer(input) do
+    %{acc | usage: %{input_tokens: input, output_tokens: output}}
+  end
+
+  defp handle_usage(acc, _frame), do: acc
+
+  defp finalize_calls(calls) do
+    calls
+    |> Enum.sort_by(fn {index, _call} -> index end)
+    |> Enum.map(fn {index, call} ->
+      %ToolCall{
+        id: call.id || "call_#{index}",
+        name: call.name,
+        arguments: decode_args(call.args)
+      }
+    end)
+  end
+
+  defp decode_args(json) do
+    case Jason.decode(json) do
+      {:ok, %{} = args} -> args
+      _invalid -> %{}
+    end
+  end
+
+  defp encode_tool(tool) do
+    %{
+      type: "function",
+      function: %{name: tool.name, description: tool.description, parameters: tool.parameters}
+    }
+  end
+
+  defp encode_message(%{role: :tool} = message) do
+    %{role: "tool", tool_call_id: message.tool_call_id, content: message.content || ""}
+  end
+
+  defp encode_message(%{tool_calls: [_call | _] = calls} = message) do
+    %{
+      role: "assistant",
+      content: message.content,
+      tool_calls:
+        for call <- calls do
+          %{
+            id: call.id,
+            type: "function",
+            function: %{name: call.name, arguments: Jason.encode!(call.arguments)}
+          }
+        end
+    }
+  end
+
+  defp encode_message(message), do: %{role: message.role, content: message.content}
 
   defp base_url(credentials) do
     case credentials["base_url"] do

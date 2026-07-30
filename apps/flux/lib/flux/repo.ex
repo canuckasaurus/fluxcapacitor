@@ -15,7 +15,7 @@ defmodule Flux.Repo do
   # Grows as domain tables land (datasets, workflows, ...).
   @tenant_tables MapSet.new(
                    ~w(invitations provider_credentials apps conversations messages api_tokens
-                      workflows workflow_versions workflow_runs api_toolsets)
+                      workflows workflow_versions workflow_runs api_toolsets uploaded_files workflow_triggers)
                  )
 
   @doc """

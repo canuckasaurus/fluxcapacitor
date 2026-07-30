@@ -110,6 +110,68 @@ defmodule Flux.ProvidersHTTPTest do
     assert chunks == ["ok"]
   end
 
+  test "openai accumulates streamed tool-call fragments" do
+    Req.Test.stub(Flux.ProviderStub, fn conn ->
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+      decoded = Jason.decode!(body)
+      assert [%{"function" => %{"name" => "get_weather"}}] = decoded["tools"]
+
+      sse_response(conn, [
+        ~s({"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"get_weather","arguments":""}}]}}]}),
+        ~s({"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\\"city\\":"}}]}}]}),
+        ~s({"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\\"Paris\\"}"}}]},"finish_reason":"tool_calls"}]}),
+        "[DONE]"
+      ])
+    end)
+
+    request = %Request{
+      model: "m",
+      messages: [%{role: :user, content: "weather?"}],
+      tools: [
+        %Flux.Plugin.ModelProvider.ToolDef{
+          name: "get_weather",
+          description: "d",
+          parameters: %{"type" => "object"}
+        }
+      ]
+    }
+
+    assert {:ok, final} = OpenAI.invoke_llm(%{"api_key" => "sk"}, request, fn _c -> :ok end)
+    assert final.finish_reason == :tool_calls
+
+    assert [%{id: "call_1", name: "get_weather", arguments: %{"city" => "Paris"}}] =
+             final.tool_calls
+  end
+
+  test "anthropic accumulates input_json_delta tool calls" do
+    Req.Test.stub(Flux.ProviderStub, fn conn ->
+      sse_response(conn, [
+        ~s({"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_9","name":"lookup"}}),
+        ~s({"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\\"q\\":"}}),
+        ~s({"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"\\"x\\"}"}}),
+        ~s({"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":5}})
+      ])
+    end)
+
+    assert {:ok, final} =
+             Anthropic.invoke_llm(%{"api_key" => "k"}, request(), fn _c -> :ok end)
+
+    assert final.finish_reason == :tool_calls
+    assert [%{id: "toolu_9", name: "lookup", arguments: %{"q" => "x"}}] = final.tool_calls
+  end
+
+  test "gemini collects whole functionCall parts" do
+    Req.Test.stub(Flux.ProviderStub, fn conn ->
+      sse_response(conn, [
+        ~s({"candidates":[{"content":{"parts":[{"functionCall":{"name":"search","args":{"q":"y"}}}]}}]})
+      ])
+    end)
+
+    assert {:ok, final} = Gemini.invoke_llm(%{"api_key" => "k"}, request(), fn _c -> :ok end)
+    assert final.finish_reason == :tool_calls
+    assert [%{name: "search", arguments: %{"q" => "y"}}] = final.tool_calls
+  end
+
   test "non-200 responses become http_error tuples" do
     Req.Test.stub(Flux.ProviderStub, fn conn ->
       Plug.Conn.send_resp(conn, 401, ~s({"error":"bad key"}))

@@ -122,6 +122,53 @@ defmodule Flux.Chat do
     {:ok, user_message, assistant_message}
   end
 
+  @doc """
+  Runs a completion app: renders the prompt template with `inputs`
+  (referenced as `{{inputs.name}}`), then streams through the normal
+  generation pipeline in a fresh conversation.
+  """
+  def send_completion(scope, app, inputs, attrs \\ %{})
+
+  def send_completion(%Scope{} = scope, %App{mode: :completion} = app, inputs, attrs)
+      when is_map(inputs) do
+    rendered = Flux.Engine.Template.render(app.prompt_template || "", %{"inputs" => inputs})
+    conversation = create_conversation(scope, app, attrs)
+
+    with {:ok, user_message, assistant_message} <-
+           send_message(scope, app, conversation, rendered) do
+      {:ok, conversation, user_message, assistant_message}
+    end
+  end
+
+  def send_completion(%Scope{}, %App{}, _inputs, _attrs), do: {:error, :not_completion_app}
+
+  @max_upload_bytes 15 * 1024 * 1024
+
+  @doc "Stores an uploaded file via Flux.Storage and records it."
+  def create_upload(%Scope{} = scope, %App{} = app, %{path: path, filename: filename} = upload) do
+    with {:ok, binary} <- File.read(path),
+         :ok <- check_size(byte_size(binary)) do
+      safe_name = filename |> Path.basename() |> String.replace(~r/[^\w\.\-]/, "_")
+      key = "uploads/#{Scope.workspace_id(scope)}/#{Ecto.UUID.generate()}-#{safe_name}"
+
+      with :ok <- Flux.Storage.put(key, binary) do
+        {:ok,
+         Repo.insert!(%Flux.Chat.UploadedFile{
+           workspace_id: Scope.workspace_id(scope),
+           app_id: app.id,
+           name: filename,
+           key: key,
+           size: byte_size(binary),
+           content_type: Map.get(upload, :content_type),
+           end_user_ref: Map.get(upload, :end_user_ref)
+         })}
+      end
+    end
+  end
+
+  defp check_size(bytes) when bytes <= @max_upload_bytes, do: :ok
+  defp check_size(_bytes), do: {:error, :too_large}
+
   @doc "PubSub topic carrying a message's generation events."
   def topic(message_id), do: "message:#{message_id}"
 

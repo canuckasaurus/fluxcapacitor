@@ -22,6 +22,29 @@ defmodule FluxWeb.V1.ChatMessageController do
     error(conn, 400, "invalid_param", "query is required")
   end
 
+  @doc "Dify-compatible `/v1/completion-messages` for completion-mode apps."
+  def completion(conn, params) do
+    case conn.assigns[:service_app] do
+      nil ->
+        error(conn, 403, "invalid_token_kind", "This endpoint requires an app- token")
+
+      app ->
+        scope = conn.assigns.service_scope
+        inputs = if is_map(params["inputs"]), do: params["inputs"], else: %{}
+
+        case Chat.send_completion(scope, app, inputs, %{end_user_ref: params["user"]}) do
+          {:ok, conversation, _user_message, assistant_message} ->
+            case Map.get(params, "response_mode", "streaming") do
+              "blocking" -> respond_blocking(conn, conversation, assistant_message)
+              _streaming -> respond_streaming(conn, conversation, assistant_message)
+            end
+
+          {:error, :not_completion_app} ->
+            error(conn, 400, "invalid_app_mode", "This app is not a completion app")
+        end
+    end
+  end
+
   defp create_message(conn, app, %{"query" => query} = params) do
     scope = conn.assigns.service_scope
 

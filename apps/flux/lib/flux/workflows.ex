@@ -254,6 +254,79 @@ defmodule Flux.Workflows do
     |> Repo.all()
   end
 
+  ## Triggers
+
+  def create_trigger(%Scope{} = scope, %Workflow{} = workflow, attrs) do
+    with :ok <- RBAC.authorize(scope, :app_edit),
+         :ok <- owned(scope, workflow) do
+      token =
+        if attrs["type"] in [:webhook, "webhook"] do
+          "wht_" <> Base.url_encode64(:crypto.strong_rand_bytes(18), padding: false)
+        end
+
+      %Flux.Workflows.Trigger{
+        workspace_id: workflow.workspace_id,
+        workflow_id: workflow.id,
+        token: token
+      }
+      |> Flux.Workflows.Trigger.changeset(attrs)
+      |> Repo.insert()
+    end
+  end
+
+  def list_triggers(%Scope{} = scope, workflow_id) do
+    Flux.Workflows.Trigger
+    |> Repo.scoped(scope)
+    |> where([t], t.workflow_id == ^workflow_id)
+    |> Repo.all()
+  end
+
+  def delete_trigger(%Scope{} = scope, trigger_id) do
+    with :ok <- RBAC.authorize(scope, :app_edit) do
+      case Repo.one(Repo.scoped(where(Flux.Workflows.Trigger, id: ^trigger_id), scope)) do
+        nil -> {:error, :not_found}
+        trigger -> Repo.delete(trigger)
+      end
+    end
+  end
+
+  def fetch_trigger_by_token("wht_" <> _rest = token) do
+    case Repo.get_by(Flux.Workflows.Trigger, [token: token], skip_workspace_guard: true) do
+      %Flux.Workflows.Trigger{enabled: true} = trigger -> {:ok, trigger}
+      _disabled_or_missing -> {:error, :not_found}
+    end
+  end
+
+  def fetch_trigger_by_token(_other), do: {:error, :not_found}
+
+  @doc """
+  Starts a published run for a trigger (webhook payload merges over the
+  trigger's static inputs) and stamps `last_run_at`.
+  """
+  def run_from_trigger(%Flux.Workflows.Trigger{} = trigger, input_override \\ %{}) do
+    scope = %Scope{
+      account: nil,
+      membership: nil,
+      workspace: %Flux.Accounts.Workspace{id: trigger.workspace_id}
+    }
+
+    with %Workflow{} = workflow <-
+           Repo.get_by(Workflow, [id: trigger.workflow_id], skip_workspace_guard: true) ||
+             {:error, :not_found},
+         %WorkflowVersion{} = version <-
+           latest_version(scope, workflow.id) || {:error, :not_published} do
+      trigger
+      |> Ecto.Changeset.change(last_run_at: DateTime.utc_now(:second))
+      |> Repo.update()
+
+      start_run(scope, workflow, Map.merge(trigger.inputs, input_override),
+        source: :api,
+        graph: version.graph,
+        version: version.version
+      )
+    end
+  end
+
   ## API tokens
 
   def create_api_token(%Scope{} = scope, %Workflow{} = workflow) do

@@ -40,6 +40,8 @@ defmodule FluxWeb.Router do
     post "/chat-messages", ChatMessageController, :create
     post "/workflows/run", WorkflowRunController, :create
 
+    post "/completion-messages", ChatMessageController, :completion
+    post "/files/upload", AppResourceController, :upload_file
     get "/parameters", AppResourceController, :parameters
     get "/conversations", AppResourceController, :conversations
     get "/messages", AppResourceController, :messages
@@ -51,6 +53,14 @@ defmodule FluxWeb.Router do
     pipe_through :browser
 
     get "/", PageController, :home
+  end
+
+  ## Public workflow triggers (token in path is the authorization)
+
+  scope "/triggers", FluxWeb do
+    pipe_through :api
+
+    post "/webhook/:token", TriggerController, :webhook
   end
 
   # Other scopes may use custom stacks.
