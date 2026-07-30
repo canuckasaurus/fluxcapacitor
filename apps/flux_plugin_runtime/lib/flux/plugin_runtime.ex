@@ -10,6 +10,7 @@ defmodule Flux.PluginRuntime do
   @builtin_plugins [
     Flux.Plugins.OpenAI,
     Flux.Plugins.Anthropic,
+    Flux.Plugins.Gemini,
     Flux.Plugins.Echo
   ]
 
