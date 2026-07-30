@@ -28,6 +28,7 @@ defmodule FluxWeb.Router do
     pipe_through :service_api
 
     post "/chat-messages", ChatMessageController, :create
+    post "/workflows/run", WorkflowRunController, :create
   end
 
   scope "/", FluxWeb do
@@ -41,7 +42,7 @@ defmodule FluxWeb.Router do
   #   pipe_through :api
   # end
 
-  # Enable LiveDashboard and Swoosh mailbox preview in development
+  # Enable LiveDashboard in development
   if Application.compile_env(:flux_web, :dev_routes) do
     # If you want to use the LiveDashboard in production, you should put
     # it behind authentication and allow only admins to access it.
@@ -54,7 +55,24 @@ defmodule FluxWeb.Router do
       pipe_through :browser
 
       live_dashboard "/dashboard", metrics: FluxWeb.Telemetry
-      forward "/mailbox", Plug.Swoosh.MailboxPreview
+    end
+  end
+
+  # The Swoosh mailbox preview is compiled in for every environment but only
+  # answers when :mailbox_enabled is set (dev always; releases opt in with
+  # FLUX_MAILBOX=1 — the local-deploy substitute for a real mail adapter).
+  # It sits behind authentication since it exposes every delivered email.
+  scope "/dev" do
+    pipe_through [:browser, :require_authenticated_account, :require_mailbox_enabled]
+
+    forward "/mailbox", Plug.Swoosh.MailboxPreview
+  end
+
+  defp require_mailbox_enabled(conn, _opts) do
+    if Application.get_env(:flux_web, :mailbox_enabled, false) do
+      conn
+    else
+      conn |> send_resp(404, "Not Found") |> halt()
     end
   end
 
@@ -74,8 +92,10 @@ defmodule FluxWeb.Router do
       live "/apps", ConsoleLive.Apps, :index
       live "/apps/:id", ConsoleLive.AppChat, :show
       live "/fluxes", ConsoleLive.Fluxes, :index
+      live "/fluxes/:id", ConsoleLive.FluxEditor, :edit
       live "/knowledge", ConsoleLive.Knowledge, :index
       live "/plugins", ConsoleLive.Plugins, :index
+      live "/tools", ConsoleLive.Tools, :index
       live "/members", ConsoleLive.Members, :index
     end
 

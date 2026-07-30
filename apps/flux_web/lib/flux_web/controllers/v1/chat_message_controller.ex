@@ -12,7 +12,17 @@ defmodule FluxWeb.V1.ChatMessageController do
   @stream_timeout :timer.minutes(5)
 
   def create(conn, %{"query" => query} = params) when is_binary(query) and query != "" do
-    app = conn.assigns.service_app
+    case conn.assigns[:service_app] do
+      nil -> error(conn, 403, "invalid_token_kind", "This endpoint requires an app- token")
+      app -> create_message(conn, app, params)
+    end
+  end
+
+  def create(conn, _params) do
+    error(conn, 400, "invalid_param", "query is required")
+  end
+
+  defp create_message(conn, app, %{"query" => query} = params) do
     scope = conn.assigns.service_scope
 
     case resolve_conversation(scope, app, params) do
@@ -28,10 +38,6 @@ defmodule FluxWeb.V1.ChatMessageController do
       {:error, :not_found} ->
         error(conn, 404, "not_found", "Conversation not found")
     end
-  end
-
-  def create(conn, _params) do
-    error(conn, 400, "invalid_param", "query is required")
   end
 
   defp resolve_conversation(scope, app, %{"conversation_id" => id})

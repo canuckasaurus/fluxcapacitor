@@ -90,6 +90,10 @@ defmodule FluxWeb.Layouts do
     default: [],
     doc: "all {workspace, membership} pairs for the switcher"
 
+  attr :full_bleed, :boolean,
+    default: false,
+    doc: "let the content use the full width and height (canvas pages)"
+
   slot :inner_block, required: true
 
   def console(assigns) do
@@ -133,6 +137,12 @@ defmodule FluxWeb.Layouts do
             icon="hero-puzzle-piece"
             label="Plugins"
             active={@active == :plugins}
+          />
+          <.sidebar_link
+            navigate={~p"/console/tools"}
+            icon="hero-wrench-screwdriver"
+            label="Tools"
+            active={@active == :tools}
           />
           <.sidebar_link
             navigate={~p"/console/members"}
@@ -185,8 +195,11 @@ defmodule FluxWeb.Layouts do
         </div>
       </aside>
 
-      <main class="flex-1 px-6 py-8 overflow-x-auto">
-        <div class="mx-auto max-w-5xl space-y-6">
+      <main class={[
+        "flex-1 min-w-0 overflow-x-auto",
+        (@full_bleed && "p-4") || "px-6 py-8"
+      ]}>
+        <div class={(@full_bleed && "h-full") || "mx-auto max-w-5xl space-y-6"}>
           {render_slot(@inner_block)}
         </div>
       </main>
@@ -268,28 +281,22 @@ defmodule FluxWeb.Layouts do
   def theme_toggle(assigns) do
     ~H"""
     <div class="card relative flex flex-row items-center border-2 border-base-300 bg-base-300 rounded-full">
-      <div class="absolute w-1/3 h-full rounded-full border-1 border-base-200 bg-base-100 brightness-200 left-0 [[data-theme=light]_&]:left-1/3 [[data-theme=dark]_&]:left-2/3 transition-[left]" />
+      <div class="absolute w-1/2 h-full rounded-full border-1 border-base-200 bg-base-100 brightness-200 left-0 [[data-theme=dark]_&]:left-1/2 transition-[left]" />
 
       <button
-        class="flex p-2 cursor-pointer w-1/3"
-        phx-click={JS.dispatch("phx:set-theme")}
-        data-phx-theme="system"
-      >
-        <.icon name="hero-computer-desktop-micro" class="size-4 opacity-75 hover:opacity-100" />
-      </button>
-
-      <button
-        class="flex p-2 cursor-pointer w-1/3"
+        class="flex p-2 cursor-pointer w-1/2 justify-center"
         phx-click={JS.dispatch("phx:set-theme")}
         data-phx-theme="light"
+        title="Light theme"
       >
         <.icon name="hero-sun-micro" class="size-4 opacity-75 hover:opacity-100" />
       </button>
 
       <button
-        class="flex p-2 cursor-pointer w-1/3"
+        class="flex p-2 cursor-pointer w-1/2 justify-center"
         phx-click={JS.dispatch("phx:set-theme")}
         data-phx-theme="dark"
+        title="Dark theme"
       >
         <.icon name="hero-moon-micro" class="size-4 opacity-75 hover:opacity-100" />
       </button>

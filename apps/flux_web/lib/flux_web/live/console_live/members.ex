@@ -120,6 +120,71 @@ defmodule FluxWeb.ConsoleLive.Members do
     put_flash(socket, :error, "Could not invite: #{failed}")
   end
 
+  # Owner and admins sit above the divider; everyone else below it.
+  defp leaders(members) do
+    members
+    |> Enum.filter(fn {_account, membership} -> membership.role in [:owner, :admin] end)
+    |> Enum.sort_by(fn {account, membership} -> {membership.role != :owner, account.email} end)
+  end
+
+  defp regulars(members) do
+    members
+    |> Enum.filter(fn {_account, membership} -> membership.role not in [:owner, :admin] end)
+    |> Enum.sort_by(fn {account, _membership} -> account.email end)
+  end
+
+  attr :account, :map, required: true
+  attr :membership, :map, required: true
+  attr :can_manage, :boolean, required: true
+  attr :current_account_id, :string, required: true
+
+  defp member_row(assigns) do
+    ~H"""
+    <tr id={"member-#{@membership.id}"}>
+      <td>{@account.email}</td>
+      <td>
+        <span :if={@membership.role == :owner} class="badge badge-primary">owner</span>
+        <form :if={@membership.role != :owner and @can_manage} phx-change="change-role">
+          <input type="hidden" name="membership-id" value={@membership.id} />
+          <select name="role" class="select select-sm select-bordered">
+            <option
+              :for={
+                {label, value} <- [
+                  {"admin", "admin"},
+                  {"editor", "editor"},
+                  {"member", "normal"},
+                  {"knowledge operator", "dataset_operator"}
+                ]
+              }
+              value={value}
+              selected={to_string(@membership.role) == value}
+            >
+              {label}
+            </option>
+          </select>
+        </form>
+        <span :if={@membership.role != :owner and not @can_manage} class="badge">
+          {@membership.role}
+        </span>
+      </td>
+      <td class="text-sm opacity-70">
+        {Calendar.strftime(@membership.inserted_at, "%b %d, %Y")}
+      </td>
+      <td :if={@can_manage} class="text-right">
+        <button
+          :if={@membership.role != :owner and @membership.account_id != @current_account_id}
+          class="btn btn-ghost btn-xs text-error"
+          phx-click="remove-member"
+          phx-value-membership-id={@membership.id}
+          data-confirm={"Remove #{@account.email} from this workspace?"}
+        >
+          Remove
+        </button>
+      </td>
+    </tr>
+    """
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -181,54 +246,31 @@ defmodule FluxWeb.ConsoleLive.Members do
             </tr>
           </thead>
           <tbody>
-            <tr :for={{account, membership} <- @members} id={"member-#{membership.id}"}>
-              <td>{account.email}</td>
-              <td>
-                <span :if={membership.role == :owner} class="badge badge-primary">owner</span>
-                <form
-                  :if={membership.role != :owner and @can_manage}
-                  phx-change="change-role"
-                >
-                  <input type="hidden" name="membership-id" value={membership.id} />
-                  <select name="role" class="select select-sm select-bordered">
-                    <option
-                      :for={
-                        {label, value} <- [
-                          {"admin", "admin"},
-                          {"editor", "editor"},
-                          {"member", "normal"},
-                          {"knowledge operator", "dataset_operator"}
-                        ]
-                      }
-                      value={value}
-                      selected={to_string(membership.role) == value}
-                    >
-                      {label}
-                    </option>
-                  </select>
-                </form>
-                <span :if={membership.role != :owner and not @can_manage} class="badge">
-                  {membership.role}
-                </span>
-              </td>
-              <td class="text-sm opacity-70">
-                {Calendar.strftime(membership.inserted_at, "%b %d, %Y")}
-              </td>
-              <td :if={@can_manage} class="text-right">
-                <button
-                  :if={
-                    membership.role != :owner and
-                      membership.account_id != @current_scope.account.id
-                  }
-                  class="btn btn-ghost btn-xs text-error"
-                  phx-click="remove-member"
-                  phx-value-membership-id={membership.id}
-                  data-confirm={"Remove #{account.email} from this workspace?"}
-                >
-                  Remove
-                </button>
+            <tr :if={leaders(@members) != []} class="bg-base-200/40">
+              <td colspan="4" class="text-xs uppercase tracking-wide opacity-60 py-1.5">
+                <.icon name="hero-shield-check-micro" class="size-3 inline-block mr-1" />
+                Owner &amp; admins
               </td>
             </tr>
+            <.member_row
+              :for={{account, membership} <- leaders(@members)}
+              account={account}
+              membership={membership}
+              can_manage={@can_manage}
+              current_account_id={@current_scope.account.id}
+            />
+            <tr :if={regulars(@members) != []} class="bg-base-200/40 border-t-2 border-base-300">
+              <td colspan="4" class="text-xs uppercase tracking-wide opacity-60 py-1.5">
+                Members
+              </td>
+            </tr>
+            <.member_row
+              :for={{account, membership} <- regulars(@members)}
+              account={account}
+              membership={membership}
+              can_manage={@can_manage}
+              current_account_id={@current_scope.account.id}
+            />
           </tbody>
         </table>
       </div>
