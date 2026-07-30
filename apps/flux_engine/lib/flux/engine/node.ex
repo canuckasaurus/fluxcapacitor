@@ -21,7 +21,8 @@ defmodule Flux.Engine.Node do
     "template" => Flux.Engine.Nodes.TemplateTransform,
     "answer" => Flux.Engine.Nodes.Answer,
     "end" => Flux.Engine.Nodes.EndNode,
-    "tool" => Flux.Engine.Nodes.Tool
+    "tool" => Flux.Engine.Nodes.Tool,
+    "http_request" => Flux.Engine.Nodes.HttpRequest
   }
 
   @doc "The module implementing a node type."

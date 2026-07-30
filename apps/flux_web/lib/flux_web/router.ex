@@ -39,6 +39,12 @@ defmodule FluxWeb.Router do
 
     post "/chat-messages", ChatMessageController, :create
     post "/workflows/run", WorkflowRunController, :create
+
+    get "/parameters", AppResourceController, :parameters
+    get "/conversations", AppResourceController, :conversations
+    get "/messages", AppResourceController, :messages
+    post "/chat-messages/:id/stop", AppResourceController, :stop
+    post "/messages/:id/feedbacks", AppResourceController, :feedback
   end
 
   scope "/", FluxWeb do
@@ -92,6 +98,7 @@ defmodule FluxWeb.Router do
     pipe_through [:browser, :require_authenticated_account]
 
     post "/workspaces/switch/:id", WorkspaceController, :switch
+    get "/fluxes/:id/export", FluxDslController, :export
 
     live_session :console,
       on_mount: [

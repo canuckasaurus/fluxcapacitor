@@ -16,7 +16,8 @@ defmodule Flux.Workflows.DSL do
     "if-else" => "if_else",
     "answer" => "answer",
     "end" => "end",
-    "template-transform" => "template"
+    "template-transform" => "template",
+    "http-request" => "http_request"
   }
 
   @operator_map %{
@@ -60,6 +61,216 @@ defmodule Flux.Workflows.DSL do
          warnings: Enum.reverse(warnings)
        }}
     end
+  end
+
+  @doc """
+  Exports a workflow as Dify-importable DSL. Emitted as JSON — a strict
+  subset of YAML, so Dify's `yaml.safe_load` reads it unchanged.
+  """
+  def export(workflow) do
+    %{
+      "version" => "0.3.1",
+      "kind" => "app",
+      "app" => %{
+        "name" => workflow.name,
+        "mode" => "workflow",
+        "description" => workflow.description || "",
+        "icon" => "🤖",
+        "icon_background" => "#FFEAD5",
+        "use_icon_as_answer_icon" => false
+      },
+      "dependencies" => [],
+      "workflow" => %{
+        "conversation_variables" => [],
+        "environment_variables" => [],
+        "features" => %{},
+        "graph" => %{
+          "nodes" => Enum.map(workflow.graph["nodes"] || [], &export_node/1),
+          "edges" => Enum.map(workflow.graph["edges"] || [], &export_edge/1),
+          "viewport" => %{"x" => 0, "y" => 0, "zoom" => 1}
+        }
+      }
+    }
+    |> Jason.encode!(pretty: true)
+  end
+
+  @dify_types Map.new(@supported, fn {dify, ours} -> {ours, dify} end)
+  @reverse_operators %{
+    "contains" => "contains",
+    "not_contains" => "not contains",
+    "starts_with" => "start with",
+    "ends_with" => "end with",
+    "equals" => "is",
+    "not_equals" => "is not",
+    "is_empty" => "empty",
+    "is_not_empty" => "not empty",
+    "gt" => ">",
+    "lt" => "<",
+    "gte" => "≥",
+    "lte" => "≤"
+  }
+
+  defp export_node(node) do
+    %{
+      "id" => node["id"],
+      "type" => "custom",
+      "position" => node["position"] || %{"x" => 0, "y" => 0},
+      "sourcePosition" => "right",
+      "targetPosition" => "left",
+      "width" => 244,
+      "height" => 90,
+      "data" =>
+        Map.merge(
+          %{
+            "type" => Map.get(@dify_types, node["type"], node["type"]),
+            "title" => node["title"] || node["type"],
+            "desc" => ""
+          },
+          export_data(node["type"], node["config"] || %{})
+        )
+    }
+  end
+
+  defp export_data("start", config) do
+    %{
+      "variables" =>
+        for variable <- List.wrap(config["variables"]) do
+          %{
+            "variable" => variable["name"],
+            "label" => variable["label"] || variable["name"],
+            "type" => (variable["type"] == "text" && "text-input") || variable["type"],
+            "required" => variable["required"] == true,
+            "options" => []
+          }
+        end
+    }
+  end
+
+  defp export_data("llm", config) do
+    prompts =
+      if config["system_prompt"] in [nil, ""] do
+        []
+      else
+        [%{"role" => "system", "text" => dify_selectors(config["system_prompt"])}]
+      end ++ [%{"role" => "user", "text" => dify_selectors(config["prompt"] || "")}]
+
+    %{
+      "model" => %{
+        "provider" => config["provider_plugin_id"] || "",
+        "name" => config["model"] || "",
+        "mode" => "chat",
+        "completion_params" => config["params"] || %{}
+      },
+      "prompt_template" => prompts
+    }
+  end
+
+  defp export_data("if_else", config) do
+    %{
+      "cases" => [
+        %{
+          "case_id" => "true",
+          "id" => "true",
+          "logical_operator" => config["logical_operator"] || "and",
+          "conditions" =>
+            for condition <- List.wrap(config["conditions"]) do
+              %{
+                "variable_selector" => ref_selector(condition["left"]),
+                "comparison_operator" => Map.get(@reverse_operators, condition["operator"], "is"),
+                "value" => condition["right"] || "",
+                "varType" => "string"
+              }
+            end
+        }
+      ]
+    }
+  end
+
+  defp export_data("answer", config), do: %{"answer" => dify_selectors(config["answer"] || "")}
+
+  defp export_data("end", config) do
+    %{
+      "outputs" =>
+        for output <- List.wrap(config["outputs"]) do
+          %{
+            "variable" => output["key"],
+            "value_selector" => ref_selector(output["value"]),
+            "value_type" => "string"
+          }
+        end
+    }
+  end
+
+  defp export_data("template", config) do
+    {template, variables} = jinja_template(config["template"] || "")
+    %{"template" => template, "variables" => variables}
+  end
+
+  defp export_data("http_request", config) do
+    %{
+      "method" => config["method"] || "get",
+      "url" => dify_selectors(config["url"] || ""),
+      "headers" =>
+        Enum.map_join(List.wrap(config["headers"]), "\n", fn header ->
+          "#{header["key"]}: #{dify_selectors(header["value"] || "")}"
+        end),
+      "params" => "",
+      "body" => %{"type" => "raw-text", "data" => dify_selectors(config["body"] || "")}
+    }
+  end
+
+  # Tool nodes have no Dify equivalent (ours bind to imported toolsets);
+  # exported under a vendor key so reimport can round-trip later.
+  defp export_data("tool", config), do: %{"flux_toolset" => config}
+  defp export_data(_type, config), do: config
+
+  defp export_edge(edge) do
+    %{
+      "id" => edge["id"],
+      "source" => edge["source"],
+      "sourceHandle" => (edge["source_handle"] == "default" && "source") || edge["source_handle"],
+      "target" => edge["target"],
+      "targetHandle" => "target",
+      "type" => "custom"
+    }
+  end
+
+  defp dify_selectors(text) when is_binary(text),
+    do: Regex.replace(~r/\{\{\s*([\w\.\-]+)\s*\}\}/, text, "{{#\\1#}}")
+
+  defp dify_selectors(_text), do: ""
+
+  defp ref_selector(text) do
+    case Regex.run(~r/^\{\{\s*([\w\.\-]+)\s*\}\}$/, to_string(text)) do
+      [_whole, path] -> String.split(path, ".")
+      nil -> []
+    end
+  end
+
+  # Rewrite {{a.b}} references as Jinja args with a variables mapping.
+  defp jinja_template(template) do
+    references =
+      ~r/\{\{\s*([\w\.\-]+)\s*\}\}/
+      |> Regex.scan(template)
+      |> Enum.map(fn [_whole, path] -> path end)
+      |> Enum.uniq()
+      |> Enum.with_index(1)
+
+    template =
+      Enum.reduce(references, template, fn {path, index}, template ->
+        Regex.replace(
+          ~r/\{\{\s*#{Regex.escape(path)}\s*\}\}/,
+          template,
+          "{{ arg#{index} }}"
+        )
+      end)
+
+    variables =
+      for {path, index} <- references do
+        %{"variable" => "arg#{index}", "value_selector" => String.split(path, ".")}
+      end
+
+    {template, variables}
   end
 
   defp decode(yaml) do
@@ -176,6 +387,34 @@ defmodule Flux.Workflows.DSL do
 
         {build_conditions(first), warnings}
     end
+  end
+
+  defp convert_config("http_request", data) do
+    headers =
+      (data["headers"] || "")
+      |> String.split("\n", trim: true)
+      |> Enum.flat_map(fn line ->
+        case String.split(line, ":", parts: 2) do
+          [key, value] ->
+            [%{"key" => String.trim(key), "value" => convert_selectors(String.trim(value))}]
+
+          _malformed ->
+            []
+        end
+      end)
+
+    body =
+      case data["body"] do
+        %{"data" => body} when is_binary(body) -> convert_selectors(body)
+        _other -> ""
+      end
+
+    {%{
+       "method" => String.downcase(data["method"] || "get"),
+       "url" => convert_selectors(data["url"] || ""),
+       "headers" => headers,
+       "body" => body
+     }, []}
   end
 
   defp convert_config("answer", data) do

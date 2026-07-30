@@ -257,6 +257,60 @@ defmodule Flux.Engine.Nodes.Tool do
   defp fetch_invoker(_host), do: {:error, "this run's host cannot call tools"}
 end
 
+defmodule Flux.Engine.Nodes.HttpRequest do
+  @moduledoc """
+  Makes an HTTP call through the host (which owns SSRF guarding and the
+  client). Config: `method`, `url` (template), `headers` ([{key, value}]
+  with template values), `body` (template, sent raw; JSON content-type when
+  it parses as JSON). Outputs `%{"status_code", "body", "text"}`.
+  """
+  @behaviour Flux.Engine.Node
+
+  alias Flux.Engine.{Host, Template}
+
+  @impl true
+  def run(node, pool, host) do
+    url = Template.render(node.config["url"], pool)
+
+    with :ok <- require_config(url != ""),
+         {:ok, request} <- fetch_requester(host) do
+      headers =
+        node.config["headers"]
+        |> List.wrap()
+        |> Enum.map(fn header ->
+          {to_string(header["key"] || ""), Template.render(header["value"], pool)}
+        end)
+        |> Enum.reject(fn {key, _value} -> key == "" end)
+
+      spec = %{
+        method: String.downcase(to_string(node.config["method"] || "get")),
+        url: url,
+        headers: headers,
+        body: Template.render(node.config["body"], pool)
+      }
+
+      case request.(spec) do
+        {:ok, %{status: status} = result} ->
+          {:ok,
+           %{
+             "status_code" => status,
+             "body" => Map.get(result, :body),
+             "text" => Map.get(result, :text, "")
+           }}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  defp require_config(true), do: :ok
+  defp require_config(false), do: {:error, "the HTTP request node needs a URL"}
+
+  defp fetch_requester(%Host{http_request: fun}) when is_function(fun, 1), do: {:ok, fun}
+  defp fetch_requester(_host), do: {:error, "this run's host cannot make HTTP requests"}
+end
+
 defmodule Flux.Engine.Nodes.EndNode do
   @moduledoc """
   Collects the run's final outputs. Config:

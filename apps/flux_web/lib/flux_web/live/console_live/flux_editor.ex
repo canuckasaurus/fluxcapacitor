@@ -41,10 +41,15 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
       label: "Tool",
       icon: "hero-wrench-screwdriver",
       accent: "bg-info/10 text-info"
+    },
+    "http_request" => %{
+      label: "HTTP Request",
+      icon: "hero-globe-alt",
+      accent: "bg-info/10 text-info"
     }
   }
 
-  @addable_types ~w(llm if_else template tool answer end)
+  @addable_types ~w(llm if_else template tool http_request answer end)
   @zoom_levels [50, 65, 80, 100, 125, 150]
   @history_cap 50
 
@@ -613,17 +618,22 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
   defp default_config("tool"),
     do: %{"toolset_id" => "", "operation_id" => "", "args" => %{}}
 
+  defp default_config("http_request"),
+    do: %{"method" => "get", "url" => "", "headers" => [], "body" => ""}
+
   defp default_config("answer"), do: %{"answer" => ""}
   defp default_config("end"), do: %{"outputs" => [%{"key" => "result", "value" => ""}]}
   defp default_config(_type), do: %{}
 
   defp row_key("variable"), do: "variables"
+  defp row_key("header"), do: "headers"
   defp row_key("condition"), do: "conditions"
   defp row_key("output"), do: "outputs"
 
   defp empty_row("variable"),
     do: %{"name" => "", "label" => "", "type" => "text", "required" => false}
 
+  defp empty_row("header"), do: %{"key" => "", "value" => ""}
   defp empty_row("condition"), do: %{"left" => "", "operator" => "contains", "right" => ""}
   defp empty_row("output"), do: %{"key" => "", "value" => ""}
 
@@ -658,6 +668,14 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
 
   defp build_config("template", config, params) do
     Map.put(config, "template", Map.get(params, "template", ""))
+  end
+
+  defp build_config("http_request", config, params) do
+    config
+    |> Map.put("method", Map.get(params, "method", config["method"] || "get"))
+    |> Map.put("url", Map.get(params, "url", ""))
+    |> Map.put("body", Map.get(params, "body", ""))
+    |> Map.put("headers", indexed_rows(params["hdrs"], ~w(key value), %{}))
   end
 
   defp build_config("tool", config, params) do
@@ -754,6 +772,11 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
 
   defp node_summary(%{"type" => "template"} = node), do: truncate(node["config"]["template"])
 
+  defp node_summary(%{"type" => "http_request"} = node) do
+    method = String.upcase(to_string(node["config"]["method"] || "get"))
+    "#{method} #{truncate(node["config"]["url"])}"
+  end
+
   defp node_summary(%{"type" => "tool"} = node) do
     case node["config"]["operation_id"] do
       operation when is_binary(operation) and operation != "" -> operation
@@ -774,6 +797,14 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
   defp truncate(text), do: String.slice(to_string(text), 0, 40)
 
   # Upstream references the panel offers as {{...}} hints.
+  @hint_fields %{
+    "llm" => ~w(text),
+    "template" => ~w(output),
+    "answer" => ~w(answer),
+    "tool" => ~w(text status body),
+    "http_request" => ~w(text status_code body)
+  }
+
   defp variable_hints(graph, selected_id) do
     graph["nodes"]
     |> List.wrap()
@@ -785,26 +816,8 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
           |> List.wrap()
           |> Enum.map(&"{{#{node["id"]}.#{&1["name"]}}}")
 
-        "llm" ->
-          ["{{#{node["id"]}.text}}"]
-
-        "template" ->
-          ["{{#{node["id"]}.output}}"]
-
-        "tool" ->
-          ["{{#{node["id"]}.text}}", "{{#{node["id"]}.status}}", "{{#{node["id"]}.body}}"]
-
-        "if_else" ->
-          []
-
-        "answer" ->
-          ["{{#{node["id"]}.answer}}"]
-
-        "end" ->
-          []
-
-        _other ->
-          []
+        type ->
+          for field <- Map.get(@hint_fields, type, []), do: "{{#{node["id"]}.#{field}}}"
       end
     end)
   end
@@ -902,13 +915,20 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                 tabindex="0"
                 class="dropdown-content menu bg-base-100 rounded-box z-20 w-44 p-2 shadow border border-base-200"
               >
-                <li :for={type <- ~w(llm if_else template tool answer end)}>
+                <li :for={type <- ~w(llm if_else template tool http_request answer end)}>
                   <button phx-click="add_node" phx-value-type={type}>
                     <.icon name={meta(type).icon} class="size-4" /> {meta(type).label}
                   </button>
                 </li>
               </ul>
             </div>
+            <.link
+              href={~p"/console/fluxes/#{@workflow.id}/export"}
+              class="btn btn-sm btn-ghost"
+              title="Download Dify-importable DSL"
+            >
+              <.icon name="hero-arrow-up-tray" class="size-4" /> Export
+            </.link>
             <button class="btn btn-sm btn-ghost" phx-click="toggle_history">
               <.icon name="hero-clock" class="size-4" /> History
             </button>
@@ -1312,6 +1332,78 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                       class="textarea textarea-sm w-full font-mono"
                       disabled={not @can_edit}
                     >{node["config"]["template"]}</textarea>
+                  </label>
+                <% "http_request" -> %>
+                  <div class="flex gap-2">
+                    <select name="method" class="select select-sm w-28" disabled={not @can_edit}>
+                      <option
+                        :for={method <- ~w(get post put patch delete head)}
+                        value={method}
+                        selected={node["config"]["method"] == method}
+                      >
+                        {String.upcase(method)}
+                      </option>
+                    </select>
+                    <input
+                      type="text"
+                      name="url"
+                      value={node["config"]["url"]}
+                      placeholder="https://api.example.com/{{start.id}}"
+                      class="input input-sm flex-1 font-mono"
+                      disabled={not @can_edit}
+                    />
+                  </div>
+                  <div class="space-y-2">
+                    <p class="text-xs font-semibold opacity-70">Headers</p>
+                    <div
+                      :for={{header, index} <- Enum.with_index(List.wrap(node["config"]["headers"]))}
+                      class="flex gap-2"
+                    >
+                      <input
+                        type="text"
+                        name={"hdrs[#{index}][key]"}
+                        value={header["key"]}
+                        placeholder="Authorization"
+                        class="input input-xs w-28"
+                        disabled={not @can_edit}
+                      />
+                      <input
+                        type="text"
+                        name={"hdrs[#{index}][value]"}
+                        value={header["value"]}
+                        placeholder="Bearer {{start.token}}"
+                        class="input input-xs flex-1 font-mono"
+                        disabled={not @can_edit}
+                      />
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-xs text-error"
+                        phx-click="remove_row"
+                        phx-value-kind="header"
+                        phx-value-index={index}
+                        disabled={not @can_edit}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      class="btn btn-outline btn-xs"
+                      phx-click="add_row"
+                      phx-value-kind="header"
+                      disabled={not @can_edit}
+                    >
+                      <.icon name="hero-plus" class="size-3" /> Add header
+                    </button>
+                  </div>
+                  <label class="floating-label">
+                    <span>Body (optional)</span>
+                    <textarea
+                      name="body"
+                      rows="4"
+                      class="textarea textarea-sm w-full font-mono"
+                      disabled={not @can_edit}
+                    >{node["config"]["body"]}</textarea>
                   </label>
                 <% "tool" -> %>
                   <label class="floating-label">

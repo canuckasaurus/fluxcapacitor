@@ -93,10 +93,11 @@ defmodule Flux.Workflows.DSLTest do
     assert {:ok, _graph} = Engine.build(parsed.graph)
   end
 
-  test "http_request fixture: unsupported nodes drop with warnings, edges pruned" do
+  test "http_request fixture: http-request imports, tool still drops with warning" do
     assert {:ok, parsed} = DSL.parse(fixture!("http_request_with_json_tool_workflow.yml"))
 
-    assert Enum.any?(parsed.warnings, &(&1 =~ "http-request"))
+    refute Enum.any?(parsed.warnings, &(&1 =~ "http-request"))
+    assert Enum.any?(parsed.graph["nodes"], &(&1["type"] == "http_request"))
     assert Enum.any?(parsed.warnings, &(&1 =~ "\"tool\"" or &1 =~ "type \"tool\""))
 
     kept = MapSet.new(parsed.graph["nodes"], & &1["id"])
@@ -105,6 +106,23 @@ defmodule Flux.Workflows.DSLTest do
       assert MapSet.member?(kept, edge["source"])
       assert MapSet.member?(kept, edge["target"])
     end
+  end
+
+  test "export emits Dify-importable DSL that round-trips" do
+    {:ok, parsed} = DSL.parse(fixture!("conditional_hello_branching_workflow.yml"))
+    workflow = %{name: "roundtrip", description: "d", graph: parsed.graph}
+
+    exported = DSL.export(workflow)
+    assert {:ok, reparsed} = DSL.parse(exported)
+    assert reparsed.warnings == []
+
+    types = fn graph -> graph["nodes"] |> Enum.map(&{&1["id"], &1["type"]}) |> Enum.sort() end
+    assert types.(reparsed.graph) == types.(parsed.graph)
+
+    assert {:ok, _built} = Engine.build(reparsed.graph)
+
+    if_else = Enum.find(reparsed.graph["nodes"], &(&1["type"] == "if_else"))
+    assert [%{"operator" => "contains", "right" => "hello"}] = if_else["config"]["conditions"]
   end
 
   test "rejects non-DSL and unsupported app modes" do

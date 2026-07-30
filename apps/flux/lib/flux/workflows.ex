@@ -314,7 +314,8 @@ defmodule Flux.Workflows do
       invoke_llm: build_llm_invoker(workspace_id),
       invoke_tool: fn %{toolset_id: toolset_id, operation_id: operation_id, args: args} ->
         Flux.Tools.invoke_for_workspace(workspace_id, toolset_id, operation_id, args)
-      end
+      end,
+      http_request: &node_http_request/1
     }
 
     case Engine.run(graph, inputs, host) do
@@ -374,6 +375,31 @@ defmodule Flux.Workflows do
       end
     end
   end
+
+  # Host capability for the http_request node: SSRF-guarded raw request.
+  defp node_http_request(%{method: method, url: url, headers: headers, body: body}) do
+    with :ok <- Flux.SSRF.verify_url(url),
+         {:ok, method} <- cast_method(method) do
+      options =
+        [method: method, url: url, headers: headers, receive_timeout: :timer.seconds(60)]
+        |> then(fn options -> if body == "", do: options, else: options ++ [body: body] end)
+        |> Keyword.merge(Application.get_env(:flux, :tools_req_options, []))
+
+      case Req.request(options) do
+        {:ok, %{status: status, body: response}} ->
+          text = if is_binary(response), do: response, else: Jason.encode!(response)
+          {:ok, %{status: status, body: response, text: text}}
+
+        {:error, reason} ->
+          {:error, "HTTP request failed: #{inspect(reason)}"}
+      end
+    end
+  end
+
+  defp cast_method(method) when method in ~w(get post put patch delete head),
+    do: {:ok, String.to_existing_atom(method)}
+
+  defp cast_method(method), do: {:error, "unsupported HTTP method #{method}"}
 
   defp atomize_params(params) when is_map(params) do
     for {key, value} <- params, key in ~w(temperature max_tokens top_p), into: %{} do

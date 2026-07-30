@@ -58,6 +58,23 @@ defmodule Flux.Chat do
     Repo.one(Repo.scoped(where(Conversation, id: ^id), scope)) || {:error, :not_found}
   end
 
+  def list_conversations(%Scope{} = scope, app_id, limit \\ 20) do
+    Conversation
+    |> Repo.scoped(scope)
+    |> where([c], c.app_id == ^app_id)
+    |> order_by([c], desc: c.inserted_at)
+    |> limit(^limit)
+    |> Repo.all()
+  end
+
+  @doc "Records end-user feedback (like/dislike/nil to clear) on a message."
+  def set_feedback(%Scope{} = scope, message_id, rating) when rating in [:like, :dislike, nil] do
+    case Repo.one(Repo.scoped(where(Message, id: ^message_id), scope)) do
+      nil -> {:error, :not_found}
+      message -> message |> Ecto.Changeset.change(feedback: rating) |> Repo.update()
+    end
+  end
+
   def list_messages(%Scope{} = scope, conversation_id) do
     Message
     |> Repo.scoped(scope)

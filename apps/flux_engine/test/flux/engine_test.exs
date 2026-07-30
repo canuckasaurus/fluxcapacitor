@@ -259,6 +259,38 @@ defmodule Flux.EngineTest do
       assert failure.error =~ "cannot call tools"
     end
 
+    test "http_request node renders templates and calls the host" do
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("http_1", "http_request", %{
+            "method" => "post",
+            "url" => "https://api.example.com/{{start.query}}",
+            "headers" => [%{"key" => "X-T", "value" => "{{start.query}}"}],
+            "body" => "q={{start.query}}"
+          }),
+          node!("end_1", "end", %{
+            "outputs" => [%{"key" => "code", "value" => "{{http_1.status_code}}"}]
+          })
+        ],
+        "edges" => [edge!("start", "http_1"), edge!("http_1", "end_1")]
+      }
+
+      host = %Host{
+        emit: fn _e -> :ok end,
+        http_request: fn spec ->
+          assert spec.method == "post"
+          assert spec.url == "https://api.example.com/abc"
+          assert spec.headers == [{"X-T", "abc"}]
+          assert spec.body == "q=abc"
+          {:ok, %{status: 201, body: %{"ok" => true}, text: "created"}}
+        end
+      }
+
+      {:ok, built} = Engine.build(graph)
+      assert {:ok, %{outputs: %{"code" => "201"}}} = Engine.run(built, %{"query" => "abc"}, host)
+    end
+
     test "unresolved template references render blank" do
       graph = %{
         "nodes" => [

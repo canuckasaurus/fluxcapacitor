@@ -1,0 +1,123 @@
+defmodule FluxWeb.V1.AppResourceController do
+  @moduledoc """
+  Dify-compatible app-token resources: `GET /parameters`,
+  `GET /conversations`, `GET /messages`, `POST /chat-messages/:id/stop`,
+  `POST /messages/:id/feedbacks`. All require an `app-…` token.
+  """
+  use FluxWeb, :controller
+
+  alias Flux.Chat
+
+  plug :require_app_token
+
+  def parameters(conn, _params) do
+    app = conn.assigns.service_app
+
+    json(conn, %{
+      opening_statement: nil,
+      suggested_questions: [],
+      user_input_form: [],
+      model: %{provider: app.provider_plugin_id, name: app.model}
+    })
+  end
+
+  def conversations(conn, params) do
+    limit = parse_limit(params["limit"])
+    scope = conn.assigns.service_scope
+    conversations = Chat.list_conversations(scope, conn.assigns.service_app.id, limit)
+
+    json(conn, %{
+      limit: limit,
+      has_more: length(conversations) == limit,
+      data:
+        for conversation <- conversations do
+          %{
+            id: conversation.id,
+            name: conversation.title,
+            created_at: DateTime.to_unix(conversation.inserted_at)
+          }
+        end
+    })
+  end
+
+  def messages(conn, %{"conversation_id" => conversation_id}) do
+    scope = conn.assigns.service_scope
+
+    case Chat.get_conversation(scope, conversation_id) do
+      {:error, :not_found} ->
+        error(conn, 404, "not_found", "Conversation not found")
+
+      conversation ->
+        if conversation.app_id == conn.assigns.service_app.id do
+          messages = Chat.list_messages(scope, conversation.id)
+
+          json(conn, %{
+            data:
+              for message <- messages do
+                %{
+                  id: message.id,
+                  conversation_id: conversation.id,
+                  role: message.role,
+                  content: message.content,
+                  status: message.status,
+                  feedback: message.feedback,
+                  created_at: DateTime.to_unix(message.inserted_at)
+                }
+              end
+          })
+        else
+          error(conn, 404, "not_found", "Conversation not found")
+        end
+    end
+  end
+
+  def messages(conn, _params) do
+    error(conn, 400, "invalid_param", "conversation_id is required")
+  end
+
+  def stop(conn, %{"id" => message_id}) do
+    case Chat.stop_generation(conn.assigns.service_scope, message_id) do
+      {:ok, _message} -> json(conn, %{result: "success"})
+      {:error, :not_streaming} -> error(conn, 400, "not_streaming", "Nothing to stop")
+    end
+  end
+
+  def feedback(conn, %{"id" => message_id} = params) do
+    rating =
+      case params["rating"] do
+        "like" -> :like
+        "dislike" -> :dislike
+        _clear -> nil
+      end
+
+    case Chat.set_feedback(conn.assigns.service_scope, message_id, rating) do
+      {:ok, _message} -> json(conn, %{result: "success"})
+      {:error, :not_found} -> error(conn, 404, "not_found", "Message not found")
+    end
+  end
+
+  defp require_app_token(conn, _opts) do
+    if conn.assigns[:service_app] do
+      conn
+    else
+      conn
+      |> error(403, "invalid_token_kind", "This endpoint requires an app- token")
+      |> halt()
+    end
+  end
+
+  defp parse_limit(limit) when is_binary(limit) do
+    case Integer.parse(limit) do
+      {parsed, ""} when parsed in 1..100 -> parsed
+      _invalid -> 20
+    end
+  end
+
+  defp parse_limit(_limit), do: 20
+
+  defp error(conn, status, code, message) do
+    conn
+    |> put_status(status)
+    |> json(%{code: code, message: message, status: status})
+  end
+end
