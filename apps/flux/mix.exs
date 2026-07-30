@@ -52,7 +52,10 @@ defmodule Flux.MixProject do
       {:jason, "~> 1.2"},
       {:swoosh, "~> 1.16"},
       {:req, "~> 0.5"},
-      {:flux_plugin, path: "../../packages/flux_plugin"}
+      {:yaml_elixir, "~> 2.9"},
+      {:plug, "~> 1.15", only: :test},
+      {:flux_plugin, path: "../../packages/flux_plugin"},
+      {:flux_engine, in_umbrella: true}
     ]
   end
 

@@ -26,14 +26,24 @@ defmodule Flux.FakeRuntime do
     ]
   }
 
-  def list_plugins, do: [@echo, @openai]
-  def list_model_providers, do: [@echo, @openai]
+  @slow_echo %Manifest{
+    id: "slow_echo",
+    name: "Slow Echo (dev)",
+    version: "0.1.0",
+    category: :model,
+    credential_schema: []
+  }
+
+  def list_plugins, do: [@echo, @openai, @slow_echo]
+  def list_model_providers, do: [@echo, @openai, @slow_echo]
 
   def models("echo", _credentials), do: {:ok, [%Spec{name: "echo-1", label: "Echo v1"}]}
+  def models("slow_echo", _credentials), do: {:ok, [%Spec{name: "echo-1", label: "Echo v1"}]}
   def models("openai", _credentials), do: {:ok, [%Spec{name: "gpt-4o", label: "GPT-4o"}]}
   def models(_other, _credentials), do: {:error, :unknown_plugin}
 
   def validate_credentials("echo", _), do: :ok
+  def validate_credentials("slow_echo", _), do: :ok
   def validate_credentials("openai", %{"api_key" => "sk-valid"}), do: :ok
   def validate_credentials("openai", _), do: {:error, "Invalid API key."}
   def validate_credentials(_other, _), do: {:error, :unknown_plugin}
@@ -54,6 +64,12 @@ defmodule Flux.FakeRuntime do
     end
 
     {:ok, %Result{content: reply <> " ", usage: %{input_tokens: 3, output_tokens: 12}}}
+  end
+
+  # Sleeps mid-invocation so tests can exercise stopping an in-flight run.
+  def invoke_llm("slow_echo", credentials, request, emit) do
+    Process.sleep(:timer.seconds(5))
+    invoke_llm("echo", credentials, request, emit)
   end
 
   def invoke_llm(_other, _credentials, _request, _emit), do: {:error, :unknown_plugin}

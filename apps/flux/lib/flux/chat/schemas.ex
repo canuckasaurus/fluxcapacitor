@@ -72,7 +72,10 @@ defmodule Flux.Chat.Message do
 end
 
 defmodule Flux.Chat.ApiToken do
-  @moduledoc "A hashed service-API token (`app-…`) bound to one app."
+  @moduledoc """
+  A hashed service-API token bound to one app (`app-…`) or one workflow
+  (`flux-…`); the prefix names the binding.
+  """
   use Ecto.Schema
 
   @primary_key {:id, UUIDv7, autogenerate: true}
@@ -81,6 +84,7 @@ defmodule Flux.Chat.ApiToken do
   schema "api_tokens" do
     belongs_to :workspace, Flux.Accounts.Workspace
     belongs_to :app, Flux.Chat.App
+    belongs_to :workflow, Flux.Workflows.Workflow
 
     field :token_hash, :binary, redact: true
     field :prefix, :string
