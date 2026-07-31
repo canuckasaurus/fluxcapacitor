@@ -125,6 +125,114 @@ defmodule Flux.Workflows.DSLTest do
     assert [%{"operator" => "contains", "right" => "hello"}] = if_else["config"]["conditions"]
   end
 
+  # Binds stub models on every LLM-backed node type (llm/classifier/extractor).
+  defp bind_all_stub_models(graph) do
+    update_in(graph, ["nodes"], fn nodes ->
+      Enum.map(nodes, fn
+        %{"type" => type} = node
+        when type in ["llm", "question_classifier", "parameter_extractor"] ->
+          node
+          |> put_in(["config", "provider_plugin_id"], "stub")
+          |> put_in(["config", "model"], "stub-1")
+
+        node ->
+          node
+      end)
+    end)
+  end
+
+  test "classifier_routing: classifier branches route and the aggregator joins" do
+    assert {:ok, parsed} = DSL.parse(fixture!("classifier_routing_with_aggregator_workflow.yml"))
+    assert parsed.warnings == []
+
+    classifier = Enum.find(parsed.graph["nodes"], &(&1["type"] == "question_classifier"))
+    assert [%{"id" => "billing"}, %{"id" => "support"}] = classifier["config"]["classes"]
+
+    # Class-id edge handles survived the import.
+    handles = parsed.graph["edges"] |> Enum.map(& &1["source_handle"]) |> Enum.sort()
+    assert "billing" in handles and "support" in handles
+
+    aggregator = Enum.find(parsed.graph["nodes"], &(&1["type"] == "variable_aggregator"))
+    assert length(aggregator["config"]["variables"]) == 2
+
+    assert {:ok, graph} = parsed.graph |> bind_all_stub_models() |> Engine.build()
+
+    host = %Host{
+      emit: fn _event -> :ok end,
+      invoke_llm: fn request, chunk_emit ->
+        cond do
+          Enum.any?(Map.get(request, :tools, []), &(&1["name"] == "classify")) ->
+            [_system, %{content: query}] = request.messages
+            class = if query =~ "invoice", do: "billing", else: "support"
+
+            {:ok,
+             %{
+               content: "",
+               usage: %{},
+               tool_calls: [%{id: "c1", name: "classify", arguments: %{"class_id" => class}}]
+             }}
+
+          true ->
+            [%{content: system} | _rest] = request.messages
+            reply = if system =~ "billing", do: "BILLING-ANSWER", else: "SUPPORT-ANSWER"
+            chunk_emit.(reply)
+            {:ok, %{content: reply, usage: %{}, tool_calls: []}}
+        end
+      end
+    }
+
+    assert {:ok, result} = Engine.run(graph, %{"query" => "where is my invoice?"}, host)
+    assert result.outputs["answer"] == "BILLING-ANSWER"
+
+    assert {:ok, result} = Engine.run(graph, %{"query" => "the app crashes"}, host)
+    assert result.outputs["answer"] == "SUPPORT-ANSWER"
+  end
+
+  test "extractor_list_ops: extractor + list-operator + env import and run" do
+    assert {:ok, parsed} = DSL.parse(fixture!("extractor_with_list_operator_workflow.yml"))
+    assert parsed.warnings == []
+
+    # environment_variables became graph env.
+    assert parsed.graph["env"] == %{"REGION" => "eu-west"}
+
+    extractor = Enum.find(parsed.graph["nodes"], &(&1["type"] == "parameter_extractor"))
+
+    assert [%{"name" => "city", "required" => true}, %{"name" => "days", "type" => "number"}] =
+             extractor["config"]["parameters"]
+
+    list_operator = Enum.find(parsed.graph["nodes"], &(&1["type"] == "list_operator"))
+    assert list_operator["config"]["filter"] == %{"operator" => "contains", "value" => "a"}
+    assert list_operator["config"]["sort"] == "asc"
+    assert list_operator["config"]["limit"] == 2
+
+    assert {:ok, graph} = parsed.graph |> bind_all_stub_models() |> Engine.build()
+
+    host = %Host{
+      emit: fn _event -> :ok end,
+      invoke_llm: fn _request, _chunk ->
+        {:ok,
+         %{
+           content: "",
+           usage: %{},
+           tool_calls: [
+             %{id: "e1", name: "extract", arguments: %{"city" => "Lisbon", "days" => 4}}
+           ]
+         }}
+      end
+    }
+
+    inputs = %{
+      "query" => "4 days in Lisbon",
+      "items" => ~s(["banana", "cherry", "apple", "avocado"])
+    }
+
+    assert {:ok, result} = Engine.run(graph, inputs, host)
+    assert result.outputs["city"] == "Lisbon"
+    # End-node templates render values to text, so the list arrives as JSON.
+    assert result.outputs["picked"] == ~s(["apple","avocado"])
+    assert result.outputs["region"] == "eu-west"
+  end
+
   test "rejects non-DSL and unsupported app modes" do
     assert {:error, message} = DSL.parse("just: yaml")
     assert message =~ "Missing app section"

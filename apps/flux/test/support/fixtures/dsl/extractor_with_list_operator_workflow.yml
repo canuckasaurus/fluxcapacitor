@@ -1,0 +1,142 @@
+app:
+  description: 'Extracts a city from the question and filters/sorts a JSON list input.'
+  icon: 🤖
+  icon_background: '#FFEAD5'
+  mode: workflow
+  name: extractor_list_ops
+kind: app
+version: 0.3.1
+workflow:
+  conversation_variables: []
+  environment_variables:
+  - name: REGION
+    value: eu-west
+    value_type: string
+  features: {}
+  graph:
+    edges:
+    - id: edge-start-px
+      source: '1754000000101'
+      sourceHandle: source
+      target: '1754000000102'
+      targetHandle: target
+      type: custom
+    - id: edge-px-lo
+      source: '1754000000102'
+      sourceHandle: source
+      target: '1754000000103'
+      targetHandle: target
+      type: custom
+    - id: edge-lo-end
+      source: '1754000000103'
+      sourceHandle: source
+      target: '1754000000104'
+      targetHandle: target
+      type: custom
+    nodes:
+    - data:
+        desc: ''
+        title: Start
+        type: start
+        variables:
+        - label: Query
+          options: []
+          required: true
+          type: text-input
+          variable: query
+        - label: Items
+          options: []
+          required: false
+          type: paragraph
+          variable: items
+      height: 116
+      id: '1754000000101'
+      position:
+        x: 60
+        y: 220
+      type: custom
+    - data:
+        desc: ''
+        instruction: ''
+        model:
+          completion_params: {}
+          mode: chat
+          name: ''
+          provider: ''
+        parameters:
+        - description: The destination city
+          name: city
+          required: true
+          type: string
+        - description: Trip length in days
+          name: days
+          required: false
+          type: number
+        query:
+        - '1754000000101'
+        - query
+        reasoning_mode: function_call
+        title: Extract Trip
+        type: parameter-extractor
+      height: 130
+      id: '1754000000102'
+      position:
+        x: 360
+        y: 200
+      type: custom
+    - data:
+        desc: ''
+        filter_by:
+          conditions:
+          - comparison_operator: contains
+            key: ''
+            value: a
+          enabled: true
+        limit:
+          enabled: true
+          size: 2
+        order_by:
+          enabled: true
+          key: ''
+          value: asc
+        title: Pick Items
+        type: list-operator
+        variable:
+        - '1754000000101'
+        - items
+      height: 118
+      id: '1754000000103'
+      position:
+        x: 660
+        y: 220
+      type: custom
+    - data:
+        desc: ''
+        outputs:
+        - value_selector:
+          - '1754000000102'
+          - city
+          value_type: string
+          variable: city
+        - value_selector:
+          - '1754000000103'
+          - output
+          value_type: string
+          variable: picked
+        - value_selector:
+          - env
+          - REGION
+          value_type: string
+          variable: region
+        title: End
+        type: end
+      height: 116
+      id: '1754000000104'
+      position:
+        x: 960
+        y: 220
+      type: custom
+    viewport:
+      x: 0
+      y: 0
+      zoom: 1

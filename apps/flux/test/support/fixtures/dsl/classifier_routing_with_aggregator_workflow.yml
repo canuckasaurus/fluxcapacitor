@@ -1,0 +1,162 @@
+app:
+  description: 'Classifies the question, answers on the matching branch, joins via aggregator.'
+  icon: 🤖
+  icon_background: '#FFEAD5'
+  mode: workflow
+  name: classifier_routing
+kind: app
+version: 0.3.1
+workflow:
+  conversation_variables: []
+  environment_variables: []
+  features: {}
+  graph:
+    edges:
+    - id: edge-start-qc
+      source: '1754000000001'
+      sourceHandle: source
+      target: '1754000000002'
+      targetHandle: target
+      type: custom
+    - id: edge-qc-billing
+      source: '1754000000002'
+      sourceHandle: billing
+      target: '1754000000003'
+      targetHandle: target
+      type: custom
+    - id: edge-qc-support
+      source: '1754000000002'
+      sourceHandle: support
+      target: '1754000000004'
+      targetHandle: target
+      type: custom
+    - id: edge-billing-agg
+      source: '1754000000003'
+      sourceHandle: source
+      target: '1754000000005'
+      targetHandle: target
+      type: custom
+    - id: edge-support-agg
+      source: '1754000000004'
+      sourceHandle: source
+      target: '1754000000005'
+      targetHandle: target
+      type: custom
+    - id: edge-agg-answer
+      source: '1754000000005'
+      sourceHandle: source
+      target: '1754000000006'
+      targetHandle: target
+      type: custom
+    nodes:
+    - data:
+        desc: ''
+        title: Start
+        type: start
+        variables:
+        - label: Query
+          options: []
+          required: true
+          type: text-input
+          variable: query
+      height: 90
+      id: '1754000000001'
+      position:
+        x: 60
+        y: 220
+      type: custom
+    - data:
+        classes:
+        - id: billing
+          name: Billing and payment questions
+        - id: support
+          name: Technical support questions
+        desc: ''
+        instruction: ''
+        model:
+          completion_params: {}
+          mode: chat
+          name: ''
+          provider: ''
+        query_variable_selector:
+        - '1754000000001'
+        - query
+        title: Question Classifier
+        type: question-classifier
+      height: 130
+      id: '1754000000002'
+      position:
+        x: 340
+        y: 200
+      type: custom
+    - data:
+        desc: ''
+        model:
+          completion_params: {}
+          mode: chat
+          name: ''
+          provider: ''
+        prompt_template:
+        - role: system
+          text: You are a billing specialist.
+        - role: user
+          text: '{{#1754000000001.query#}}'
+        title: Billing LLM
+        type: llm
+      height: 90
+      id: '1754000000003'
+      position:
+        x: 640
+        y: 120
+      type: custom
+    - data:
+        desc: ''
+        model:
+          completion_params: {}
+          mode: chat
+          name: ''
+          provider: ''
+        prompt_template:
+        - role: system
+          text: You are a support engineer.
+        - role: user
+          text: '{{#1754000000001.query#}}'
+        title: Support LLM
+        type: llm
+      height: 90
+      id: '1754000000004'
+      position:
+        x: 640
+        y: 300
+      type: custom
+    - data:
+        desc: ''
+        output_type: string
+        title: Join
+        type: variable-aggregator
+        variables:
+        - - '1754000000003'
+          - text
+        - - '1754000000004'
+          - text
+      height: 90
+      id: '1754000000005'
+      position:
+        x: 940
+        y: 220
+      type: custom
+    - data:
+        answer: '{{#1754000000005.output#}}'
+        desc: ''
+        title: Answer
+        type: answer
+      height: 90
+      id: '1754000000006'
+      position:
+        x: 1240
+        y: 220
+      type: custom
+    viewport:
+      x: 0
+      y: 0
+      zoom: 1
