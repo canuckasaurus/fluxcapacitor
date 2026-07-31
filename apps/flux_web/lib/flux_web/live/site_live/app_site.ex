@@ -20,7 +20,8 @@ defmodule FluxWeb.SiteLive.AppSite do
            app: app,
            visitor_ip: FluxWeb.SiteRateLimit.visitor_ip(socket),
            site_scope: Chat.site_scope(app),
-           end_user_ref: "web_" <> Base.url_encode64(:crypto.strong_rand_bytes(9), padding: false),
+           end_user_ref:
+             "web_" <> Base.url_encode64(:crypto.strong_rand_bytes(9), padding: false),
            conversation: nil,
            messages: [],
            streaming_id: nil,

@@ -59,7 +59,9 @@ defmodule Flux.Chat do
   def enable_site(%Scope{} = scope, %App{} = app) do
     with :ok <- RBAC.authorize(scope, :app_create_and_management),
          true <- app.workspace_id == Scope.workspace_id(scope) || {:error, :not_found} do
-      token = app.site_token || "site_" <> Base.url_encode64(:crypto.strong_rand_bytes(18), padding: false)
+      token =
+        app.site_token ||
+          "site_" <> Base.url_encode64(:crypto.strong_rand_bytes(18), padding: false)
 
       app
       |> Ecto.Changeset.change(site_token: token, site_enabled: true)

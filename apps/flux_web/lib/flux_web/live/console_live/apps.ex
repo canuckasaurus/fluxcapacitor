@@ -111,8 +111,10 @@ defmodule FluxWeb.ConsoleLive.Apps do
             field={@form[:mode]}
             type="select"
             label="Mode"
-            options={[{"Chat — back-and-forth conversation", "chat"},
-                      {"Completion — one-shot text generation from a form", "completion"}]}
+            options={[
+              {"Chat — back-and-forth conversation", "chat"},
+              {"Completion — one-shot text generation from a form", "completion"}
+            ]}
           />
           <.input
             field={@form[:model_choice]}

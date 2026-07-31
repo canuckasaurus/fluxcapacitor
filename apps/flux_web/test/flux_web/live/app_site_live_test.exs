@@ -22,7 +22,11 @@ defmodule FluxWeb.AppSiteLiveTest do
     %{scope: scope, app: app, account: account}
   end
 
-  test "unknown or disabled tokens render the unavailable page", %{conn: conn, scope: scope, app: app} do
+  test "unknown or disabled tokens render the unavailable page", %{
+    conn: conn,
+    scope: scope,
+    app: app
+  } do
     {:ok, _lv, html} = live(conn, ~p"/site/site_nope")
     assert html =~ "This app is not available."
 
@@ -76,7 +80,9 @@ defmodule FluxWeb.AppSiteLiveTest do
     assert html =~ "site-completion-form"
     assert html =~ "Text"
 
-    lv |> form("#site-completion-form", %{"inputs" => %{"text" => "public ping"}}) |> render_submit()
+    lv
+    |> form("#site-completion-form", %{"inputs" => %{"text" => "public ping"}})
+    |> render_submit()
 
     html = poll_until(lv, "You said: Sum: public ping", 50)
     assert html =~ "You said: Sum: public ping"

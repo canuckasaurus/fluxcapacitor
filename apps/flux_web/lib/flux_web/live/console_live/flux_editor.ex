@@ -2226,7 +2226,11 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
             The public page always runs the latest <span class="font-semibold">published</span>
             version, so publish a version first.
           </p>
-          <button :if={not @workflow.site_enabled} class="btn btn-primary btn-sm" phx-click="enable_site">
+          <button
+            :if={not @workflow.site_enabled}
+            class="btn btn-primary btn-sm"
+            phx-click="enable_site"
+          >
             <.icon name="hero-globe-alt" class="size-4" /> Publish site
           </button>
           <div :if={@workflow.site_enabled} class="space-y-2">
@@ -2290,7 +2294,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
               <span :if={not trigger.enabled} class="badge badge-ghost badge-sm">disabled</span>
               <span class="ml-auto text-xs opacity-60">
                 last run: {(trigger.last_run_at &&
-                             Calendar.strftime(trigger.last_run_at, "%Y-%m-%d %H:%M")) || "never"}
+                              Calendar.strftime(trigger.last_run_at, "%Y-%m-%d %H:%M")) || "never"}
               </span>
             </div>
             <pre

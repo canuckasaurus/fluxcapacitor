@@ -63,7 +63,8 @@ defmodule FluxWeb.MixProject do
       {:flux_plugin_runtime, in_umbrella: true},
       {:jason, "~> 1.2"},
       {:bandit, "~> 1.5"},
-      {:hammer, "~> 7.0"}
+      {:hammer, "~> 7.0"},
+      {:open_api_spex, "~> 3.21"}
     ]
   end
 
