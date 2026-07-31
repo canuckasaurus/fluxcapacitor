@@ -89,6 +89,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
            toolsets: Flux.Tools.list_toolsets(scope),
            latest_version: Workflows.latest_version(scope, workflow.id),
            can_edit: RBAC.can?(scope, :app_edit),
+           can_export: RBAC.can?(scope, :app_import_export_dsl),
            can_run: RBAC.can?(scope, :app_test_and_run),
            can_publish: RBAC.can?(scope, :app_release_and_version),
            can_manage_tokens: RBAC.can?(scope, :app_create_and_management),
@@ -1185,6 +1186,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
               </ul>
             </div>
             <.link
+              :if={@can_export}
               href={~p"/console/fluxes/#{@workflow.id}/export"}
               class="btn btn-sm btn-ghost"
               title="Download portable DSL"

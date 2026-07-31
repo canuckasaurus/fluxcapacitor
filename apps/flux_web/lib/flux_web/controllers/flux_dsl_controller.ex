@@ -5,6 +5,8 @@ defmodule FluxWeb.FluxDslController do
   alias Flux.Workflows
   alias Flux.Workflows.Workflow
 
+  plug FluxWeb.Plugs.RequirePermission, :app_import_export_dsl
+
   def export(conn, %{"id" => id}) do
     scope = conn.assigns.current_scope
 
