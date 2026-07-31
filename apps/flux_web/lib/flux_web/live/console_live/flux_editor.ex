@@ -91,12 +91,17 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
       label: "Iteration",
       icon: "hero-arrow-path-rounded-square",
       accent: "bg-primary/10 text-primary"
+    },
+    "human_input" => %{
+      label: "Human Input",
+      icon: "hero-hand-raised",
+      accent: "bg-warning/10 text-warning"
     }
   }
 
   @addable_types ~w(llm if_else question_classifier parameter_extractor document_extractor
-                    iteration template tool http_request code agent variable_aggregator
-                    variable_assigner list_operator answer end)
+                    iteration human_input template tool http_request code agent
+                    variable_aggregator variable_assigner list_operator answer end)
   @zoom_levels [50, 65, 80, 100, 125, 150]
   @failable_types ~w(llm tool http_request code agent question_classifier parameter_extractor
                      document_extractor iteration)
@@ -526,6 +531,17 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
             |> Map.put("config", config)
           end)
         end)
+    end
+  end
+
+  def handle_event("resume_run", %{"input" => input}, socket) do
+    with %{status: :paused} = run <- socket.assigns.run,
+         {:ok, resumed} <-
+           Workflows.resume_run(socket.assigns.current_scope, run.id, input) do
+      {:noreply, assign(socket, run: resumed)}
+    else
+      _not_paused_or_error ->
+        {:noreply, put_flash(socket, :error, "Could not resume the run.")}
     end
   end
 
@@ -1040,6 +1056,9 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
   defp default_config("iteration"),
     do: %{"variable" => "", "workflow_id" => "", "max_items" => 50}
 
+  defp default_config("human_input"),
+    do: %{"prompt" => "Please review and reply:", "options" => []}
+
   defp default_config("variable_aggregator"), do: %{"variables" => []}
 
   defp default_config("variable_assigner"),
@@ -1204,6 +1223,19 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
 
   defp build_config("document_extractor", config, params) do
     Map.put(config, "variable", Map.get(params, "variable", config["variable"] || ""))
+  end
+
+  defp build_config("human_input", config, params) do
+    options =
+      params
+      |> Map.get("options_text", "")
+      |> String.split(",", trim: true)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+
+    config
+    |> Map.put("prompt", Map.get(params, "prompt", config["prompt"] || ""))
+    |> Map.put("options", options)
   end
 
   defp build_config("iteration", config, params) do
@@ -1436,7 +1468,8 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     "question_classifier" => ~w(class_id class_name),
     "parameter_extractor" => ~w(is_success reason),
     "document_extractor" => ~w(text name size),
-    "iteration" => ~w(output count)
+    "iteration" => ~w(output count),
+    "human_input" => ~w(output)
   }
 
   defp variable_hints(graph, selected_id) do
@@ -2666,6 +2699,30 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                       <.icon name="hero-plus" class="size-3" /> Add parameter
                     </button>
                   </div>
+                <% "human_input" -> %>
+                  <label class="floating-label">
+                    <span>Prompt shown to the human</span>
+                    <textarea
+                      name="prompt"
+                      rows="2"
+                      class="textarea textarea-sm w-full"
+                      disabled={not @can_edit}
+                    >{node["config"]["prompt"]}</textarea>
+                  </label>
+                  <label class="floating-label">
+                    <span>Suggested answers (comma-separated, optional)</span>
+                    <input
+                      type="text"
+                      name="options_text"
+                      value={Enum.join(List.wrap(node["config"]["options"]), ", ")}
+                      placeholder="approve, reject"
+                      class="input input-sm w-full"
+                      disabled={not @can_edit}
+                    />
+                  </label>
+                  <p class="text-xs opacity-60">
+                    The run pauses here; the reply continues it as <code>{"{{#{node["id"]}.output}}"}</code>.
+                  </p>
                 <% "iteration" -> %>
                   <label class="floating-label">
                     <span>List variable (one sub-flux run per item)</span>
@@ -2991,13 +3048,44 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
               <div class="rounded-box bg-base-200 p-3 text-sm whitespace-pre-wrap">{@run_text}</div>
             </div>
 
+            <div
+              :if={@run != nil and @run.status == :paused and @run.snapshot != nil}
+              class="rounded-box border border-warning/40 bg-warning/5 p-3 space-y-2"
+            >
+              <p class="text-sm font-semibold">
+                <.icon name="hero-hand-raised" class="size-4 inline" /> Waiting for input
+              </p>
+              <p class="text-sm">{@run.snapshot["prompt"]["prompt"]}</p>
+              <div
+                :if={List.wrap(@run.snapshot["prompt"]["options"]) != []}
+                class="flex flex-wrap gap-1"
+              >
+                <span
+                  :for={option <- @run.snapshot["prompt"]["options"]}
+                  class="badge badge-ghost badge-sm"
+                >
+                  {option}
+                </span>
+              </div>
+              <form phx-submit="resume_run" class="flex gap-2">
+                <input
+                  type="text"
+                  name="input"
+                  placeholder="Your reply…"
+                  class="input input-sm flex-1"
+                />
+                <button class="btn btn-primary btn-sm">Resume</button>
+              </form>
+            </div>
+
             <div :if={@run != nil and @run.status != :running} class="space-y-2">
               <div class="flex items-center gap-2">
                 <span class={[
                   "badge badge-sm",
                   @run.status == :succeeded && "badge-success",
                   @run.status == :failed && "badge-error",
-                  @run.status == :stopped && "badge-warning"
+                  @run.status == :stopped && "badge-warning",
+                  @run.status == :paused && "badge-info"
                 ]}>
                   {@run.status}
                 </span>

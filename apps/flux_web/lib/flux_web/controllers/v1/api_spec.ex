@@ -71,9 +71,13 @@ defmodule FluxWeb.V1.ApiSpec do
             properties: %{
               id: %Schema{type: :string, format: :uuid},
               workflow_id: %Schema{type: :string, format: :uuid},
-              status: %Schema{type: :string, enum: ["succeeded", "failed", "stopped", "running"]},
+              status: %Schema{
+                type: :string,
+                enum: ["succeeded", "failed", "stopped", "running", "paused"]
+              },
               outputs: %Schema{type: :object, nullable: true},
               error: %Schema{type: :string, nullable: true},
+              paused_prompt: %Schema{type: :object, nullable: true},
               elapsed_time: %Schema{type: :number, nullable: true},
               created_at: %Schema{type: :integer}
             },

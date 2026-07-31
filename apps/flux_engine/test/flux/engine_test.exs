@@ -1088,6 +1088,34 @@ defmodule Flux.EngineTest do
       assert failure.error =~ "item 1: boom"
     end
 
+    test "human_input pauses the run and resume continues from its output" do
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("ask", "human_input", %{
+            "prompt" => "Approve {{start.query}}?",
+            "options" => ["yes", "no"]
+          }),
+          node!("t", "template", %{"template" => "human said: {{ask.output}}"})
+        ],
+        "edges" => [edge!("start", "ask"), edge!("ask", "t")]
+      }
+
+      {:ok, built} = Engine.build(graph)
+
+      assert {:paused, paused} = Engine.run(built, %{"query" => "the deploy"}, echo_host())
+      assert paused.node_id == "ask"
+      assert paused.prompt["prompt"] == "Approve the deploy?"
+      assert paused.prompt["options"] == ["yes", "no"]
+
+      assert {:ok, result} =
+               Engine.run(built, %{}, echo_host(),
+                 resume: %{pool: paused.pool, node_id: "ask", input: "yes"}
+               )
+
+      assert result.outputs["output"] == "human said: yes"
+    end
+
     test "unresolved template references render blank" do
       graph = %{
         "nodes" => [

@@ -48,6 +48,34 @@ defmodule FluxWeb.V1.WorkflowRunController do
     end
   end
 
+  @doc "Resumes a paused run (`human_input` node) with the caller's input."
+  def resume(conn, %{"id" => run_id} = params) do
+    case conn.assigns[:service_workflow] do
+      nil ->
+        error(conn, 403, "invalid_token_kind", "This endpoint requires a flux- workflow token")
+
+      _workflow ->
+        scope = conn.assigns.service_scope
+
+        case Workflows.resume_run(scope, run_id, to_string(params["input"] || "")) do
+          {:ok, run} ->
+            case Map.get(params, "response_mode", "streaming") do
+              "blocking" -> respond_blocking(conn, run)
+              _streaming -> respond_streaming(conn, run)
+            end
+
+          {:error, :not_paused} ->
+            error(conn, 400, "not_paused", "This run is not waiting for input")
+
+          {:error, :not_found} ->
+            error(conn, 404, "not_found", "Run not found")
+
+          {:error, {:invalid_graph, errors}} ->
+            error(conn, 400, "invalid_graph", Enum.join(errors, "; "))
+        end
+    end
+  end
+
   defp as_map(inputs) when is_map(inputs), do: inputs
   defp as_map(_inputs), do: %{}
 
@@ -163,6 +191,7 @@ defmodule FluxWeb.V1.WorkflowRunController do
             status: finished.status,
             outputs: finished.outputs,
             error: finished.error,
+            paused_prompt: finished.snapshot && finished.snapshot["prompt"],
             elapsed_time: ms_to_seconds(finished.elapsed_ms),
             created_at: DateTime.to_unix(finished.inserted_at)
           }

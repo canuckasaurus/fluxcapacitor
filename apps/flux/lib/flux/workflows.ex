@@ -474,17 +474,84 @@ defmodule Flux.Workflows do
         finalize(run, %{
           status: :succeeded,
           outputs: result.outputs,
-          node_executions: result.node_executions,
+          node_executions: run.node_executions ++ result.node_executions,
           elapsed_ms: result.elapsed_ms
+        })
+
+      {:paused, paused} ->
+        finalize(run, %{
+          status: :paused,
+          node_executions: run.node_executions ++ paused.node_executions,
+          elapsed_ms: paused.elapsed_ms,
+          snapshot: %{
+            "node_id" => paused.node_id,
+            "prompt" => paused.prompt,
+            "pool" => paused.pool
+          }
         })
 
       {:error, failure} ->
         finalize(run, %{
           status: :failed,
           error: failure.error,
-          node_executions: failure.node_executions,
+          node_executions: run.node_executions ++ failure.node_executions,
           elapsed_ms: failure.elapsed_ms
         })
+    end
+  end
+
+  @doc """
+  Resumes a paused run with the human's input: flips the run back to
+  `:running`, subscribes the caller to its topic, and continues the
+  published/draft graph from the paused node in a supervised task.
+  """
+  def resume_run(%Scope{} = scope, run_id, input) do
+    with %WorkflowRun{status: :paused, snapshot: %{} = snapshot} = run <-
+           Repo.one(Repo.scoped(where(WorkflowRun, id: ^run_id), scope)) ||
+             {:error, :not_found},
+         %Workflow{} = workflow <-
+           Repo.get_by(Workflow, [id: run.workflow_id], skip_workspace_guard: true) ||
+             {:error, :not_found},
+         {:ok, graph} <- Engine.build(run_graph(scope, workflow, run)) do
+      run =
+        run
+        |> Ecto.Changeset.change(status: :running, snapshot: nil)
+        |> Repo.update!()
+
+      :ok = subscribe(run.id)
+
+      resume = %{
+        pool: snapshot["pool"] || %{},
+        node_id: snapshot["node_id"],
+        input: input
+      }
+
+      {:ok, _pid} =
+        Task.Supervisor.start_child(Flux.GenerationSupervisor, fn ->
+          Registry.register(Flux.GenerationRegistry, run.id, nil)
+          do_execute(run, graph, %{}, run.workspace_id, resume: resume)
+        end)
+
+      {:ok, run}
+    else
+      %WorkflowRun{} -> {:error, :not_paused}
+      {:error, errors} when is_list(errors) -> {:error, {:invalid_graph, errors}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # A paused draft run resumes against the current draft; a versioned run
+  # resumes against its recorded version.
+  defp run_graph(_scope, workflow, %WorkflowRun{version: nil}), do: workflow.graph
+
+  defp run_graph(scope, workflow, %WorkflowRun{version: version}) do
+    case Repo.one(
+           WorkflowVersion
+           |> Repo.scoped(scope)
+           |> where([v], v.workflow_id == ^workflow.id and v.version == ^version)
+         ) do
+      %WorkflowVersion{graph: graph} -> graph
+      nil -> workflow.graph
     end
   end
 
@@ -529,6 +596,7 @@ defmodule Flux.Workflows do
                sys: %{"item" => item, "index" => index}
              ) do
           {:ok, result} -> {:ok, result.outputs}
+          {:paused, _paused} -> {:error, "sub-fluxes cannot pause for human input"}
           {:error, failure} -> {:error, failure.error}
         end
       else

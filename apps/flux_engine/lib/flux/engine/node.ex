@@ -12,6 +12,7 @@ defmodule Flux.Engine.Node do
   @callback run(Graph.Node.t(), pool :: map(), Host.t()) ::
               {:ok, outputs :: map()}
               | {:ok, outputs :: map(), branch :: String.t()}
+              | {:pause, prompt :: map()}
               | {:error, term()}
 
   @implementations %{
@@ -31,7 +32,8 @@ defmodule Flux.Engine.Node do
     "question_classifier" => Flux.Engine.Nodes.QuestionClassifier,
     "parameter_extractor" => Flux.Engine.Nodes.ParameterExtractor,
     "document_extractor" => Flux.Engine.Nodes.DocumentExtractor,
-    "iteration" => Flux.Engine.Nodes.Iteration
+    "iteration" => Flux.Engine.Nodes.Iteration,
+    "human_input" => Flux.Engine.Nodes.HumanInput
   }
 
   @doc "The module implementing a node type."

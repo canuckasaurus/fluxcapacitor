@@ -183,4 +183,59 @@ defmodule Flux.WorkflowsTest do
     assert stopped.status == :stopped
     assert_receive {:run_finished, %{status: :stopped}}, 2_000
   end
+
+  test "human_input pauses a run and resume_run completes it", %{scope: scope} do
+    {:ok, workflow} = Workflows.create_workflow(scope, %{"name" => "HITL Flux"})
+
+    graph = %{
+      "nodes" => [
+        %{
+          "id" => "start",
+          "type" => "start",
+          "title" => "Start",
+          "position" => %{"x" => 0, "y" => 0},
+          "config" => %{
+            "variables" => [
+              %{"name" => "query", "label" => "Query", "type" => "text", "required" => true}
+            ]
+          }
+        },
+        %{
+          "id" => "ask",
+          "type" => "human_input",
+          "title" => "Approve",
+          "position" => %{"x" => 300, "y" => 0},
+          "config" => %{"prompt" => "Approve {{start.query}}?", "options" => ["yes", "no"]}
+        },
+        %{
+          "id" => "t",
+          "type" => "template",
+          "title" => "Result",
+          "position" => %{"x" => 600, "y" => 0},
+          "config" => %{"template" => "approved: {{ask.output}}"}
+        }
+      ],
+      "edges" => [
+        %{"id" => "e1", "source" => "start", "source_handle" => "default", "target" => "ask"},
+        %{"id" => "e2", "source" => "ask", "source_handle" => "default", "target" => "t"}
+      ]
+    }
+
+    {:ok, workflow} = Workflows.update_draft(scope, workflow, graph)
+    {:ok, run} = Workflows.start_run(scope, workflow, %{"query" => "the release"})
+
+    assert_receive {:run_finished, %{status: :paused} = paused}, 2_000
+    assert paused.id == run.id
+    assert paused.snapshot["prompt"]["prompt"] == "Approve the release?"
+
+    assert {:ok, _resumed} = Workflows.resume_run(scope, run.id, "yes")
+    assert_receive {:run_finished, %{status: :succeeded} = finished}, 2_000
+    assert finished.outputs["output"] == "approved: yes"
+
+    # The trace keeps both phases: the paused node and the resumed tail.
+    statuses = Enum.map(finished.node_executions, & &1["status"])
+    assert "paused" in statuses
+
+    assert {:error, :not_paused} = Workflows.resume_run(scope, run.id, "again")
+  end
 end

@@ -39,6 +39,7 @@ defmodule FluxWeb.Router do
 
     post "/chat-messages", ChatMessageController, :create
     post "/workflows/run", WorkflowRunController, :create
+    post "/workflows/runs/:id/resume", WorkflowRunController, :resume
 
     post "/completion-messages", ChatMessageController, :completion
     post "/files/upload", AppResourceController, :upload_file

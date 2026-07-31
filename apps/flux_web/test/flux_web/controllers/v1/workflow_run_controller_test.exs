@@ -39,6 +39,79 @@ defmodule FluxWeb.V1.WorkflowRunControllerTest do
 
   defp publish!(scope, workflow), do: {:ok, _version} = Workflows.publish(scope, workflow)
 
+  test "paused runs report their prompt and resume over the API", %{
+    conn: conn,
+    scope: scope,
+    workflow: workflow
+  } do
+    graph =
+      Map.update!(workflow.graph, "nodes", fn nodes ->
+        nodes ++
+          [
+            %{
+              "id" => "ask",
+              "type" => "human_input",
+              "title" => "Approve",
+              "position" => %{"x" => 900, "y" => 100},
+              "config" => %{"prompt" => "Continue?", "options" => []}
+            },
+            %{
+              "id" => "t",
+              "type" => "template",
+              "title" => "Done",
+              "position" => %{"x" => 1200, "y" => 100},
+              "config" => %{"template" => "resumed with {{ask.output}}"}
+            }
+          ]
+      end)
+
+    # Rewire: answer → ask → template.
+    graph =
+      Map.update!(graph, "edges", fn edges ->
+        edges ++
+          [
+            %{
+              "id" => "ea",
+              "source" => "answer_1",
+              "source_handle" => "default",
+              "target" => "ask"
+            },
+            %{"id" => "et", "source" => "ask", "source_handle" => "default", "target" => "t"}
+          ]
+      end)
+
+    {:ok, workflow} = Workflows.update_draft(scope, workflow, graph)
+    publish!(scope, workflow)
+
+    body =
+      conn
+      |> post(~p"/v1/workflows/run", %{
+        "inputs" => %{"query" => "ship it"},
+        "response_mode" => "blocking"
+      })
+      |> json_response(200)
+
+    assert body["data"]["status"] == "paused"
+    assert body["data"]["paused_prompt"]["prompt"] == "Continue?"
+    run_id = body["data"]["id"]
+
+    body =
+      conn
+      |> post(~p"/v1/workflows/runs/#{run_id}/resume", %{
+        "input" => "yes",
+        "response_mode" => "blocking"
+      })
+      |> json_response(200)
+
+    assert body["data"]["status"] == "succeeded"
+    assert body["data"]["outputs"]["output"] == "resumed with yes"
+
+    assert conn
+           |> post(~p"/v1/workflows/runs/#{run_id}/resume", %{"input" => "again"})
+           |> json_response(400)
+           |> Map.fetch!("code") == "not_paused"
+  end
+
   test "rejects missing or invalid tokens" do
     conn = build_conn() |> post(~p"/v1/workflows/run", %{"inputs" => %{}})
     assert conn.status == 401

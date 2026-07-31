@@ -19,31 +19,73 @@ defmodule Flux.Engine.Runner do
           node_executions: [map()],
           elapsed_ms: non_neg_integer()
         }
+  @type paused :: %{
+          node_id: String.t(),
+          prompt: map(),
+          pool: map(),
+          node_executions: [map()],
+          elapsed_ms: non_neg_integer()
+        }
 
-  @spec run(Graph.t(), map(), Host.t(), keyword()) :: {:ok, success()} | {:error, failure()}
+  @spec run(Graph.t(), map(), Host.t(), keyword()) ::
+          {:ok, success()} | {:error, failure()} | {:paused, paused()}
   def run(%Graph{} = graph, inputs, %Host{} = host, opts \\ []) when is_map(inputs) do
     started_at = System.monotonic_time(:millisecond)
-    Host.emit(host, {:workflow_started, %{inputs: inputs}})
 
-    start = Map.fetch!(graph.nodes, graph.start_id)
-    start = %{start | config: Map.put(start.config, "__inputs__", inputs)}
+    walk_result =
+      case Keyword.get(opts, :resume) do
+        nil ->
+          Host.emit(host, {:workflow_started, %{inputs: inputs}})
 
-    conversation_defaults =
-      Map.new(graph.conversation_variables, fn variable ->
-        {variable["name"], variable["default"]}
-      end)
+          start = Map.fetch!(graph.nodes, graph.start_id)
+          start = %{start | config: Map.put(start.config, "__inputs__", inputs)}
 
-    pool = %{
-      "env" => graph.env,
-      "sys" => Keyword.get(opts, :sys, %{}),
-      "conversation" => Map.merge(conversation_defaults, Keyword.get(opts, :conversation, %{}))
-    }
+          conversation_defaults =
+            Map.new(graph.conversation_variables, fn variable ->
+              {variable["name"], variable["default"]}
+            end)
 
-    case walk(graph, start, pool, host, [], @max_steps) do
+          pool = %{
+            "env" => graph.env,
+            "sys" => Keyword.get(opts, :sys, %{}),
+            "conversation" =>
+              Map.merge(conversation_defaults, Keyword.get(opts, :conversation, %{}))
+          }
+
+          walk(graph, start, pool, host, [], @max_steps)
+
+        # Continue a paused run: the human's input becomes the paused
+        # node's outputs, and the walk restarts on its outgoing edge.
+        %{pool: pool, node_id: node_id, input: input} ->
+          Host.emit(host, {:workflow_resumed, %{node_id: node_id}})
+          outputs = %{"output" => input}
+          pool = Map.put(pool, node_id, outputs)
+
+          case Graph.next_edge(graph, node_id, "default") do
+            nil ->
+              {:ok, outputs, []}
+
+            edge ->
+              next = Map.fetch!(graph.nodes, edge.target)
+              walk(graph, next, pool, host, [], @max_steps)
+          end
+      end
+
+    case walk_result do
       {:ok, outputs, executions} ->
         {:ok,
          %{
            outputs: outputs,
+           node_executions: Enum.reverse(executions),
+           elapsed_ms: elapsed(started_at)
+         }}
+
+      {:paused, node_id, prompt, pool, executions} ->
+        {:paused,
+         %{
+           node_id: node_id,
+           prompt: prompt,
+           pool: pool,
            node_executions: Enum.reverse(executions),
            elapsed_ms: elapsed(started_at)
          }}
@@ -67,6 +109,11 @@ defmodule Flux.Engine.Runner do
     node_started_at = System.monotonic_time(:millisecond)
 
     case run_with_retries(node, pool, host, retries_for(node)) do
+      {:pause, prompt} ->
+        Host.emit(host, {:run_paused, %{node_id: node.id, prompt: prompt}})
+        executions = [execution(node, "paused", %{}, nil, elapsed(node_started_at)) | executions]
+        {:paused, node.id, prompt, pool, executions}
+
       {:ok, outputs, branch} ->
         node_elapsed = elapsed(node_started_at)
         pool = Map.put(pool, node.id, outputs)
@@ -155,6 +202,7 @@ defmodule Flux.Engine.Runner do
     case Node.implementation(node.type).run(node, pool, host) do
       {:ok, outputs} -> {:ok, outputs, "default"}
       {:ok, outputs, branch} -> {:ok, outputs, branch}
+      {:pause, prompt} -> {:pause, prompt}
       {:error, reason} -> {:error, reason}
     end
   rescue

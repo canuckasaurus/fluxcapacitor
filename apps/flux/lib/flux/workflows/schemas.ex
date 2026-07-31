@@ -67,7 +67,7 @@ defmodule Flux.Workflows.WorkflowRun do
     field :version, :integer
 
     field :status, Ecto.Enum,
-      values: [:running, :succeeded, :failed, :stopped],
+      values: [:running, :succeeded, :failed, :stopped, :paused],
       default: :running
 
     field :source, Ecto.Enum, values: [:draft, :api], default: :draft
@@ -76,6 +76,7 @@ defmodule Flux.Workflows.WorkflowRun do
     field :error, :string
     field :node_executions, {:array, :map}, default: []
     field :elapsed_ms, :integer
+    field :snapshot, :map
 
     timestamps(type: :utc_datetime)
   end

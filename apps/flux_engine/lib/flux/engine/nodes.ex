@@ -758,6 +758,29 @@ defmodule Flux.Engine.Nodes.Agent do
   end
 end
 
+defmodule Flux.Engine.Nodes.HumanInput do
+  @moduledoc """
+  Pauses the run for a human: returns `{:pause, prompt}` — the runner
+  surfaces a paused outcome whose snapshot the embedding app persists.
+  On resume, the human's answer becomes this node's `"output"`.
+
+  Config: `prompt` (template), `options` (optional list of suggested
+  answers, informational).
+  """
+  @behaviour Flux.Engine.Node
+
+  alias Flux.Engine.Template
+
+  @impl true
+  def run(node, pool, _host) do
+    {:pause,
+     %{
+       "prompt" => Template.render(node.config["prompt"], pool),
+       "options" => node.config["options"] |> List.wrap() |> Enum.map(&to_string/1)
+     }}
+  end
+end
+
 defmodule Flux.Engine.Nodes.Iteration do
   @moduledoc """
   Runs another published flux once per item of a list (see
