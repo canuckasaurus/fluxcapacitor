@@ -516,17 +516,6 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     end
   end
 
-  # Retry settings apply to every failable node type, so they merge in
-  # after the type-specific config is built.
-  defp put_retry(config, %{"max_retries" => max_retries}) do
-    case Integer.parse(to_string(max_retries)) do
-      {n, ""} when n > 0 -> Map.put(config, "retry", %{"max_retries" => min(n, 5)})
-      _off -> Map.delete(config, "retry")
-    end
-  end
-
-  defp put_retry(config, _params), do: config
-
   def handle_event("add_row", %{"kind" => kind}, socket) do
     update_selected_rows(socket, kind, &(&1 ++ [empty_row(kind)]))
   end
@@ -899,6 +888,17 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
       end)
     end)
   end
+
+  # Retry settings apply to every failable node type, so they merge in
+  # after the type-specific config is built.
+  defp put_retry(config, %{"max_retries" => max_retries}) do
+    case Integer.parse(to_string(max_retries)) do
+      {n, ""} when n > 0 -> Map.put(config, "retry", %{"max_retries" => min(n, 5)})
+      _off -> Map.delete(config, "retry")
+    end
+  end
+
+  defp put_retry(config, _params), do: config
 
   defp filtered_palette(""), do: @addable_types
 

@@ -54,6 +54,7 @@ defmodule Flux.MixProject do
       {:req, "~> 0.5"},
       {:yaml_elixir, "~> 2.9"},
       {:logger_json, "~> 7.0"},
+      {:opentelemetry_api, "~> 1.4"},
       {:plug, "~> 1.15", only: :test},
       {:flux_plugin, path: "../../packages/flux_plugin"},
       {:flux_engine, in_umbrella: true}

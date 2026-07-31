@@ -448,7 +448,22 @@ defmodule Flux.Workflows do
 
   ## Run internals
 
-  defp execute(run, graph, inputs, workspace_id, run_opts \\ []) do
+  defp execute(run, graph, inputs, workspace_id, run_opts) do
+    require OpenTelemetry.Tracer
+
+    OpenTelemetry.Tracer.with_span "flux.workflow.run", %{
+      attributes: %{
+        "flux.run_id" => run.id,
+        "flux.workflow_id" => run.workflow_id,
+        "flux.source" => to_string(run.source),
+        "flux.version" => run.version
+      }
+    } do
+      do_execute(run, graph, inputs, workspace_id, run_opts)
+    end
+  end
+
+  defp do_execute(run, graph, inputs, workspace_id, run_opts) do
     host = %Host{
       emit: fn event ->
         Phoenix.PubSub.broadcast(Flux.PubSub, topic(run.id), {:engine_event, event})

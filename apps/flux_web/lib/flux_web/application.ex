@@ -7,6 +7,12 @@ defmodule FluxWeb.Application do
 
   @impl true
   def start(_type, _args) do
+    # Trace instrumentation is always attached; whether spans go anywhere
+    # is decided by the exporter config (:none unless OTLP is configured).
+    OpentelemetryBandit.setup()
+    OpentelemetryPhoenix.setup(adapter: :bandit)
+    OpentelemetryEcto.setup([:flux, :repo])
+
     children = [
       FluxWeb.Telemetry,
       FluxWeb.PromEx,

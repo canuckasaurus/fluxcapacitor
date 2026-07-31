@@ -65,7 +65,12 @@ defmodule FluxWeb.MixProject do
       {:bandit, "~> 1.5"},
       {:hammer, "~> 7.0"},
       {:open_api_spex, "~> 3.21"},
-      {:prom_ex, "~> 1.11"}
+      {:prom_ex, "~> 1.11"},
+      {:opentelemetry, "~> 1.5"},
+      {:opentelemetry_exporter, "~> 1.8"},
+      {:opentelemetry_phoenix, "~> 2.0"},
+      {:opentelemetry_bandit, "~> 0.2"},
+      {:opentelemetry_ecto, "~> 1.2"}
     ]
   end
 

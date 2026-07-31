@@ -215,3 +215,9 @@ if System.get_env("FLUX_LOG_JSON") in ~w(1 true) do
   config :logger, :default_handler,
     formatter: {LoggerJSON.Formatters.Basic, metadata: [:request_id, :workspace_id]}
 end
+
+# Standard OTEL env vars drive the exporter; setting the endpoint enables
+# OTLP traces (Phoenix + Ecto + workflow-run spans).
+if System.get_env("OTEL_EXPORTER_OTLP_ENDPOINT") do
+  config :opentelemetry, traces_exporter: :otlp
+end
