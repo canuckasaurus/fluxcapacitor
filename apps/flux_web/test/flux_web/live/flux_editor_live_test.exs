@@ -243,6 +243,41 @@ defmodule FluxWeb.FluxEditorLiveTest do
     assert Workflows.list_triggers(scope, workflow.id) == []
   end
 
+  test "copy/paste duplicates the selection with edges and fresh ids", %{
+    conn: conn,
+    workflow: workflow,
+    scope: scope
+  } do
+    {:ok, lv, _html} = live(conn, ~p"/console/fluxes/#{workflow.id}")
+
+    # Select llm_1 + answer_1 (they are connected in the starter graph).
+    render_hook(lv, "marquee_select", %{"ids" => ["llm_1", "answer_1"]})
+    render_hook(lv, "copy_selection", %{})
+    render_hook(lv, "paste_clipboard", %{})
+
+    saved = Workflows.get_workflow(scope, workflow.id)
+    assert Enum.any?(saved.graph["nodes"], &(&1["id"] == "llm_2"))
+    assert Enum.any?(saved.graph["nodes"], &(&1["id"] == "answer_2"))
+
+    # The internal edge came along, remapped to the new ids.
+    assert Enum.any?(
+             saved.graph["edges"],
+             &(&1["source"] == "llm_2" and &1["target"] == "answer_2")
+           )
+  end
+
+  test "palette search filters addable node types", %{conn: conn, workflow: workflow} do
+    {:ok, lv, _html} = live(conn, ~p"/console/fluxes/#{workflow.id}")
+
+    html =
+      lv
+      |> form("form[phx-change=palette_search]")
+      |> render_change(%{"palette_query" => "class"})
+
+    assert html =~ "Classifier"
+    refute html =~ ">HTTP Request<"
+  end
+
   test "deleting the start node is rejected", %{conn: conn, workflow: workflow, scope: scope} do
     {:ok, lv, _html} = live(conn, ~p"/console/fluxes/#{workflow.id}")
 

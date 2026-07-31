@@ -135,6 +135,8 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
            show_variables: false,
            env_rows: [],
            conv_rows: [],
+           clipboard: nil,
+           palette_query: "",
            zoom: 100,
            undo_stack: [],
            redo_stack: [],
@@ -314,6 +316,85 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
         update_graph(socket, fn graph -> Map.update(graph, "nodes", [copy], &(&1 ++ [copy])) end)
 
       _start_or_missing ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("palette_search", %{"palette_query" => query}, socket) do
+    {:noreply, assign(socket, palette_query: query)}
+  end
+
+  def handle_event("copy_selection", _params, socket) do
+    graph = socket.assigns.graph
+
+    ids =
+      case {socket.assigns.selected_ids, socket.assigns.selected_id} do
+        {[_ | _] = many, _single} -> many
+        {_none, id} when is_binary(id) -> [id]
+        _nothing -> []
+      end
+
+    nodes =
+      Enum.filter(graph["nodes"] || [], &(&1["id"] in ids and &1["type"] != "start"))
+
+    node_ids = MapSet.new(nodes, & &1["id"])
+
+    edges =
+      Enum.filter(graph["edges"] || [], fn edge ->
+        MapSet.member?(node_ids, edge["source"]) and MapSet.member?(node_ids, edge["target"])
+      end)
+
+    if nodes == [] do
+      {:noreply, socket}
+    else
+      {:noreply, assign(socket, clipboard: %{nodes: nodes, edges: edges})}
+    end
+  end
+
+  def handle_event("paste_clipboard", _params, socket) do
+    case socket.assigns.clipboard do
+      %{nodes: nodes, edges: edges} when nodes != [] ->
+        graph = socket.assigns.graph
+
+        # Mint fresh ids one at a time so pasted siblings can't collide.
+        {id_map, new_nodes} =
+          Enum.reduce(nodes, {%{}, []}, fn node, {id_map, acc} ->
+            scratch = Map.update(graph, "nodes", acc, &(&1 ++ acc))
+            new_id = unique_node_id(scratch, node["type"])
+
+            copy =
+              node
+              |> Map.put("id", new_id)
+              |> Map.put("position", %{
+                "x" => node_x(node) + 32,
+                "y" => node_y(node) + 32
+              })
+
+            {Map.put(id_map, node["id"], new_id), acc ++ [copy]}
+          end)
+
+        new_edges =
+          Enum.map(edges, fn edge ->
+            source = Map.fetch!(id_map, edge["source"])
+            target = Map.fetch!(id_map, edge["target"])
+
+            %{
+              "id" => "edge_#{source}_#{edge["source_handle"]}_#{target}",
+              "source" => source,
+              "source_handle" => edge["source_handle"],
+              "target" => target
+            }
+          end)
+
+        socket = set_selection(socket, Enum.map(new_nodes, & &1["id"]))
+
+        update_graph(socket, fn graph ->
+          graph
+          |> Map.update("nodes", new_nodes, &(&1 ++ new_nodes))
+          |> Map.update("edges", new_edges, &(&1 ++ new_edges))
+        end)
+
+      _empty ->
         {:noreply, socket}
     end
   end
@@ -816,6 +897,17 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
         %{"id" => ^id} = node -> fun.(node)
         node -> node
       end)
+    end)
+  end
+
+  defp filtered_palette(""), do: @addable_types
+
+  defp filtered_palette(query) do
+    needle = String.downcase(query)
+
+    Enum.filter(@addable_types, fn type ->
+      String.contains?(String.downcase(@node_meta[type].label), needle) or
+        String.contains?(type, needle)
     end)
   end
 
@@ -1424,16 +1516,28 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
               <div tabindex="0" role="button" class="btn btn-sm btn-outline">
                 <.icon name="hero-plus" class="size-4" /> Add node
               </div>
-              <ul
+              <div
                 tabindex="0"
-                class="dropdown-content menu bg-base-100 rounded-box z-20 w-44 p-2 shadow border border-base-200"
+                class="dropdown-content bg-base-100 rounded-box z-20 w-56 p-2 shadow border border-base-200 space-y-1"
               >
-                <li :for={type <- ~w(llm if_else template tool http_request code agent answer end)}>
-                  <button phx-click="add_node" phx-value-type={type}>
-                    <.icon name={meta(type).icon} class="size-4" /> {meta(type).label}
-                  </button>
-                </li>
-              </ul>
+                <form phx-change="palette_search" onsubmit="return false">
+                  <input
+                    type="text"
+                    name="palette_query"
+                    value={@palette_query}
+                    placeholder="Search nodes…"
+                    autocomplete="off"
+                    class="input input-xs w-full"
+                  />
+                </form>
+                <ul class="menu p-0 max-h-72 overflow-y-auto flex-nowrap">
+                  <li :for={type <- filtered_palette(@palette_query)}>
+                    <button phx-click="add_node" phx-value-type={type}>
+                      <.icon name={meta(type).icon} class="size-4" /> {meta(type).label}
+                    </button>
+                  </li>
+                </ul>
+              </div>
             </div>
             <.link
               :if={@can_export}
@@ -3311,6 +3415,10 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
               } else if ((mod && key === "z" && e.shiftKey) || (mod && key === "y")) {
                 e.preventDefault()
                 this.pushEvent("redo", {})
+              } else if (mod && key === "c") {
+                this.pushEvent("copy_selection", {})
+              } else if (mod && key === "v") {
+                this.pushEvent("paste_clipboard", {})
               } else if (e.key === "Delete" || e.key === "Backspace") {
                 this.pushEvent("delete_selection", {})
               }
