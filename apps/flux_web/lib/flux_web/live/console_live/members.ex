@@ -21,7 +21,9 @@ defmodule FluxWeb.ConsoleLive.Members do
     assign(socket,
       members: Accounts.list_members(scope),
       pending: Accounts.list_pending_invitations(scope),
-      can_manage: RBAC.can?(scope, :workspace_member_manage)
+      can_manage: RBAC.can?(scope, :workspace_member_manage),
+      can_manage_roles: RBAC.can?(scope, :workspace_role_manage),
+      roles: RBAC.list_roles(scope)
     )
   end
 
@@ -85,6 +87,54 @@ defmodule FluxWeb.ConsoleLive.Members do
     end
   end
 
+  def handle_event("create-role", params, socket) do
+    permissions =
+      params
+      |> Map.get("permissions", %{})
+      |> Enum.filter(fn {_permission, checked} -> checked == "true" end)
+      |> Enum.map(fn {permission, _} -> permission end)
+
+    case RBAC.create_role(socket.assigns.current_scope, %{
+           "name" => params["name"],
+           "permissions" => permissions
+         }) do
+      {:ok, role} ->
+        {:noreply, socket |> put_flash(:info, "Role \"#{role.name}\" created.") |> refresh()}
+
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "You don't have permission to manage roles.")}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:noreply, put_flash(socket, :error, role_error(changeset))}
+    end
+  end
+
+  def handle_event("delete-role", %{"role-id" => id}, socket) do
+    case RBAC.delete_role(socket.assigns.current_scope, id) do
+      {:ok, _role} -> {:noreply, socket |> put_flash(:info, "Role deleted.") |> refresh()}
+      _error -> {:noreply, put_flash(socket, :error, "Could not delete that role.")}
+    end
+  end
+
+  def handle_event(
+        "assign-custom-role",
+        %{"membership-id" => id, "custom-role" => role_id},
+        socket
+      ) do
+    with {_account, membership} <-
+           Enum.find(socket.assigns.members, fn {_a, m} -> m.id == id end),
+         {:ok, _} <-
+           RBAC.assign_custom_role(
+             socket.assigns.current_scope,
+             membership,
+             (role_id == "" && nil) || role_id
+           ) do
+      {:noreply, socket |> put_flash(:info, "Custom role updated.") |> refresh()}
+    else
+      _ -> {:noreply, put_flash(socket, :error, "Could not update the custom role.")}
+    end
+  end
+
   def handle_event("revoke-invitation", %{"invitation-id" => id}, socket) do
     with true <- socket.assigns.can_manage,
          {:ok, _} <- Accounts.revoke_invitation(socket.assigns.current_scope, id) do
@@ -106,6 +156,20 @@ defmodule FluxWeb.ConsoleLive.Members do
         url(~p"/invitations/accept/#{raw_token}")
       )
     end
+  end
+
+  defp role_error(changeset) do
+    changeset
+    |> Ecto.Changeset.traverse_errors(fn {msg, _opts} -> msg end)
+    |> Enum.map_join("; ", fn {field, errors} -> "#{field} #{Enum.join(errors, ", ")}" end)
+  end
+
+  defp permission_groups do
+    [
+      {"App", Flux.RBAC.Permission.app_scope()},
+      {"Knowledge", Flux.RBAC.Permission.dataset_scope()},
+      {"Workspace", Flux.RBAC.Permission.workspace_scope()}
+    ]
   end
 
   defp maybe_flash_ok(socket, []), do: socket
@@ -136,6 +200,8 @@ defmodule FluxWeb.ConsoleLive.Members do
   attr :account, :map, required: true
   attr :membership, :map, required: true
   attr :can_manage, :boolean, required: true
+  attr :can_manage_roles, :boolean, default: false
+  attr :roles, :list, default: []
   attr :current_account_id, :string, required: true
 
   defp member_row(assigns) do
@@ -144,25 +210,42 @@ defmodule FluxWeb.ConsoleLive.Members do
       <td>{@account.email}</td>
       <td>
         <span :if={@membership.role == :owner} class="badge badge-primary">owner</span>
-        <form :if={@membership.role != :owner and @can_manage} phx-change="change-role">
-          <input type="hidden" name="membership-id" value={@membership.id} />
-          <select name="role" class="select select-sm select-bordered">
-            <option
-              :for={
-                {label, value} <- [
-                  {"admin", "admin"},
-                  {"editor", "editor"},
-                  {"member", "normal"},
-                  {"knowledge operator", "dataset_operator"}
-                ]
-              }
-              value={value}
-              selected={to_string(@membership.role) == value}
-            >
-              {label}
-            </option>
-          </select>
-        </form>
+        <div :if={@membership.role != :owner and @can_manage} class="flex items-center gap-2">
+          <form phx-change="change-role">
+            <input type="hidden" name="membership-id" value={@membership.id} />
+            <select name="role" class="select select-sm select-bordered">
+              <option
+                :for={
+                  {label, value} <- [
+                    {"admin", "admin"},
+                    {"editor", "editor"},
+                    {"member", "normal"},
+                    {"knowledge operator", "dataset_operator"}
+                  ]
+                }
+                value={value}
+                selected={to_string(@membership.role) == value}
+              >
+                {label}
+              </option>
+            </select>
+          </form>
+          <form :if={@can_manage_roles and @roles != []} phx-change="assign-custom-role">
+            <input type="hidden" name="membership-id" value={@membership.id} />
+            <select name="custom-role" class="select select-sm select-bordered" title="Custom role">
+              <option value="" selected={@membership.custom_role_id == nil}>
+                built-in grants
+              </option>
+              <option
+                :for={role <- @roles}
+                value={role.id}
+                selected={@membership.custom_role_id == role.id}
+              >
+                ⚙ {role.name}
+              </option>
+            </select>
+          </form>
+        </div>
         <span :if={@membership.role != :owner and not @can_manage} class="badge">
           {@membership.role}
         </span>
@@ -257,6 +340,8 @@ defmodule FluxWeb.ConsoleLive.Members do
               account={account}
               membership={membership}
               can_manage={@can_manage}
+              can_manage_roles={@can_manage_roles}
+              roles={@roles}
               current_account_id={@current_scope.account.id}
             />
             <tr :if={regulars(@members) != []} class="bg-base-200/40 border-t-2 border-base-300">
@@ -269,10 +354,80 @@ defmodule FluxWeb.ConsoleLive.Members do
               account={account}
               membership={membership}
               can_manage={@can_manage}
+              can_manage_roles={@can_manage_roles}
+              roles={@roles}
               current_account_id={@current_scope.account.id}
             />
           </tbody>
         </table>
+      </div>
+
+      <div :if={@can_manage_roles} class="card border border-base-200 p-6 space-y-4">
+        <h2 class="font-semibold">Custom roles</h2>
+        <p class="text-sm opacity-70">
+          A custom role grants exactly the checked permissions; assign it to a member in
+          the table above (their built-in role stops applying while assigned).
+        </p>
+
+        <table :if={@roles != []} class="table table-sm">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Permissions</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={role <- @roles} id={"role-#{role.id}"}>
+              <td class="font-semibold">{role.name}</td>
+              <td class="text-xs opacity-70">{length(role.permissions)} permission(s)</td>
+              <td class="text-right">
+                <button
+                  class="btn btn-ghost btn-xs text-error"
+                  phx-click="delete-role"
+                  phx-value-role-id={role.id}
+                  data-confirm={"Delete role #{role.name}? Assigned members revert to built-in grants."}
+                >
+                  Delete
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <details class="collapse collapse-arrow border border-base-200">
+          <summary class="collapse-title text-sm font-semibold">New custom role</summary>
+          <div class="collapse-content">
+            <form id="role-form" phx-submit="create-role" class="space-y-3">
+              <input
+                type="text"
+                name="name"
+                placeholder="Role name"
+                required
+                class="input input-bordered input-sm w-64"
+              />
+              <div :for={{group, permissions} <- permission_groups()} class="space-y-1">
+                <p class="text-xs font-semibold opacity-70">{group}</p>
+                <div class="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1">
+                  <label
+                    :for={permission <- permissions}
+                    class="flex items-center gap-1.5 text-xs"
+                  >
+                    <input type="hidden" name={"permissions[#{permission}]"} value="false" />
+                    <input
+                      type="checkbox"
+                      name={"permissions[#{permission}]"}
+                      value="true"
+                      class="checkbox checkbox-xs"
+                    />
+                    {permission}
+                  </label>
+                </div>
+              </div>
+              <button class="btn btn-primary btn-sm">Create role</button>
+            </form>
+          </div>
+        </details>
       </div>
 
       <div :if={@can_manage and @pending != []} class="card border border-base-200 p-6 space-y-4">

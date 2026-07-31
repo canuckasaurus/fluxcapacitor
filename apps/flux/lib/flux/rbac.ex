@@ -40,6 +40,16 @@ defmodule Flux.RBAC do
   def can?(%Scope{membership: nil}, _permission, _resource), do: false
   def can?(nil, _permission, _resource), do: false
 
+  # A membership bound to a custom role is authorized by exactly that
+  # role's permission subset (built-in role grants do not apply).
+  def can?(
+        %Scope{membership: %{custom_role: %Flux.RBAC.Role{permissions: permissions}}},
+        permission,
+        _resource
+      ) do
+    Permission.valid?(permission) and to_string(permission) in permissions
+  end
+
   def can?(%Scope{} = scope, permission, _resource) do
     Permission.valid?(permission) and role_grants?(Scope.role(scope), permission)
   end
@@ -57,6 +67,70 @@ defmodule Flux.RBAC do
   def permissions_for_role(:normal), do: @normal_permissions
   def permissions_for_role(:dataset_operator), do: @dataset_operator_permissions
   def permissions_for_role(_role), do: MapSet.new()
+
+  ## Custom roles (per-workspace named permission subsets)
+
+  import Ecto.Query, only: [from: 2]
+
+  alias Flux.Repo
+  alias Flux.RBAC.Role
+
+  def list_roles(%Scope{} = scope) do
+    workspace_id = Scope.workspace_id(scope)
+    Repo.all(from r in Role, where: r.workspace_id == ^workspace_id, order_by: r.name)
+  end
+
+  def create_role(%Scope{} = scope, attrs) do
+    with :ok <- authorize(scope, :workspace_role_manage) do
+      %Role{workspace_id: Scope.workspace_id(scope)}
+      |> Role.changeset(attrs)
+      |> Repo.insert()
+    end
+  end
+
+  def update_role(%Scope{} = scope, role_id, attrs) do
+    with :ok <- authorize(scope, :workspace_role_manage),
+         %Role{} = role <- get_role(scope, role_id) do
+      role |> Role.changeset(attrs) |> Repo.update()
+    end
+  end
+
+  def delete_role(%Scope{} = scope, role_id) do
+    with :ok <- authorize(scope, :workspace_role_manage),
+         %Role{} = role <- get_role(scope, role_id) do
+      # Memberships pointing at it fall back to their built-in role
+      # (custom_role_id nilifies on delete).
+      Repo.delete(role)
+    end
+  end
+
+  @doc "Binds (or with nil, unbinds) a membership to a custom role."
+  def assign_custom_role(%Scope{} = scope, %Flux.Accounts.Membership{} = membership, role_id) do
+    workspace_id = Scope.workspace_id(scope)
+
+    with :ok <- authorize(scope, :workspace_role_manage),
+         true <- membership.workspace_id == workspace_id || {:error, :not_found},
+         true <- membership.role != :owner || {:error, :cannot_change_owner_role},
+         :ok <- validate_role_binding(scope, role_id) do
+      membership |> Ecto.Changeset.change(custom_role_id: role_id) |> Repo.update()
+    end
+  end
+
+  defp validate_role_binding(_scope, nil), do: :ok
+
+  defp validate_role_binding(scope, role_id) do
+    case get_role(scope, role_id) do
+      %Role{} -> :ok
+      {:error, :not_found} -> {:error, :not_found}
+    end
+  end
+
+  defp get_role(scope, role_id) do
+    workspace_id = Scope.workspace_id(scope)
+
+    Repo.one(from r in Role, where: r.id == ^role_id and r.workspace_id == ^workspace_id) ||
+      {:error, :not_found}
+  end
 
   defp role_grants?(role, _permission) when role in [:owner, :admin], do: true
 

@@ -359,8 +359,14 @@ defmodule Flux.Accounts do
         select: {w, m}
       )
 
-    Repo.one(from([m, w] in base, where: m.current == true, limit: 1)) ||
-      Repo.one(from([m, w] in base, order_by: [asc: m.inserted_at], limit: 1))
+    result =
+      Repo.one(from([m, w] in base, where: m.current == true, limit: 1)) ||
+        Repo.one(from([m, w] in base, order_by: [asc: m.inserted_at], limit: 1))
+
+    case result do
+      {workspace, membership} -> {workspace, Repo.preload(membership, :custom_role)}
+      nil -> nil
+    end
   end
 
   @doc """

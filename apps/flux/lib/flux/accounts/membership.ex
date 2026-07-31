@@ -19,6 +19,7 @@ defmodule Flux.Accounts.Membership do
     belongs_to :account, Flux.Accounts.Account
     belongs_to :invited_by, Flux.Accounts.Account
 
+    belongs_to :custom_role, Flux.RBAC.Role
     field :role, Ecto.Enum, values: @roles
     field :current, :boolean, default: false
     field :last_active_at, :utc_datetime
