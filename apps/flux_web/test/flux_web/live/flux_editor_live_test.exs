@@ -166,6 +166,83 @@ defmodule FluxWeb.FluxEditorLiveTest do
     assert html =~ "Copy this key now"
   end
 
+  test "triggers modal creates, disables, and deletes a webhook trigger", %{
+    conn: conn,
+    workflow: workflow,
+    scope: scope
+  } do
+    {:ok, lv, _html} = live(conn, ~p"/console/fluxes/#{workflow.id}")
+
+    lv |> element("button[phx-click=toggle_triggers]") |> render_click()
+
+    html =
+      lv
+      |> form("form[phx-submit=create_trigger]", %{"type" => "webhook", "inputs" => ""})
+      |> render_submit()
+
+    assert html =~ "/triggers/webhook/wht_"
+
+    [trigger] = Workflows.list_triggers(scope, workflow.id)
+    assert trigger.type == :webhook
+    assert {:ok, _} = Workflows.fetch_trigger_by_token(trigger.token)
+
+    html = lv |> element("button", "Disable") |> render_click()
+    assert html =~ "disabled"
+    assert {:error, :not_found} = Workflows.fetch_trigger_by_token(trigger.token)
+
+    lv |> element("button[phx-click=delete_trigger]") |> render_click()
+    assert Workflows.list_triggers(scope, workflow.id) == []
+  end
+
+  test "triggers modal creates a schedule trigger with static inputs", %{
+    conn: conn,
+    workflow: workflow,
+    scope: scope
+  } do
+    {:ok, lv, _html} = live(conn, ~p"/console/fluxes/#{workflow.id}")
+
+    lv |> element("button[phx-click=toggle_triggers]") |> render_click()
+
+    lv
+    |> form("form[phx-submit=create_trigger]")
+    |> render_change(%{"type" => "schedule"})
+
+    html =
+      lv
+      |> form("form[phx-submit=create_trigger]", %{
+        "type" => "schedule",
+        "interval_minutes" => "15",
+        "inputs" => ~s({"query": "scheduled"})
+      })
+      |> render_submit()
+
+    assert html =~ "every 15 min"
+
+    [trigger] = Workflows.list_triggers(scope, workflow.id)
+    assert trigger.type == :schedule
+    assert trigger.interval_minutes == 15
+    assert trigger.inputs == %{"query" => "scheduled"}
+    assert trigger.token == nil
+  end
+
+  test "trigger creation rejects malformed static inputs JSON", %{
+    conn: conn,
+    workflow: workflow,
+    scope: scope
+  } do
+    {:ok, lv, _html} = live(conn, ~p"/console/fluxes/#{workflow.id}")
+
+    lv |> element("button[phx-click=toggle_triggers]") |> render_click()
+
+    html =
+      lv
+      |> form("form[phx-submit=create_trigger]", %{"type" => "webhook", "inputs" => "not json"})
+      |> render_submit()
+
+    assert html =~ "Static inputs must be a JSON object."
+    assert Workflows.list_triggers(scope, workflow.id) == []
+  end
+
   test "deleting the start node is rejected", %{conn: conn, workflow: workflow, scope: scope} do
     {:ok, lv, _html} = live(conn, ~p"/console/fluxes/#{workflow.id}")
 

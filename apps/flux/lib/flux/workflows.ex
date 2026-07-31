@@ -290,6 +290,15 @@ defmodule Flux.Workflows do
     end
   end
 
+  def set_trigger_enabled(%Scope{} = scope, trigger_id, enabled) when is_boolean(enabled) do
+    with :ok <- RBAC.authorize(scope, :app_edit) do
+      case Repo.one(Repo.scoped(where(Flux.Workflows.Trigger, id: ^trigger_id), scope)) do
+        nil -> {:error, :not_found}
+        trigger -> trigger |> Ecto.Changeset.change(enabled: enabled) |> Repo.update()
+      end
+    end
+  end
+
   def fetch_trigger_by_token("wht_" <> _rest = token) do
     case Repo.get_by(Flux.Workflows.Trigger, [token: token], skip_workspace_guard: true) do
       %Flux.Workflows.Trigger{enabled: true} = trigger -> {:ok, trigger}

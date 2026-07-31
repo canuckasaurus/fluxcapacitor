@@ -161,7 +161,7 @@ Timeline above assumes ~2–3 engineers; single-engineer pace ≈ 2.5× the dura
 ## 5. Ledger: unblocked backlog vs blocked items (2026-07-31)
 
 ### Unblocked (buildable now, in priority order)
-1. Console UI for triggers (editor modal: list/create webhook+schedule, show URL) — context/API exist.
+1. ~~Console UI for triggers~~ ✅ (2026-07-31): editor Triggers modal — list/create webhook+schedule, webhook URL shown, enable/disable, delete, static-inputs JSON.
 2. Console UI for completion apps (Apps form mode/template/variables; run panel) — API exists.
 3. Site publishing + JS embed (WS5's biggest remaining piece).
 4. `open_api_spex` contract tests over the now-12-route `/v1` surface.
@@ -173,12 +173,11 @@ Timeline above assumes ~2–3 engineers; single-engineer pace ≈ 2.5× the dura
 ### Blocked — external unblocks required
 | Item | Blocked on |
 |---|---|
-| Push to GitHub + first real CI run (26+ commits local-only) | `gh auth login` (user has taken this) |
+| ~~Push to GitHub~~ ✅ (2026-07-31: `canuckasaurus/fluxcapacitor`, folder renamed too — WS0 complete) | CI-green confirmation still needs `gh auth login` (token stale) |
 | flux-coderunner container (code node phase 1: real deps + sandbox) | Docker Desktop |
 | RAG workstream WS3 (ArangoDB + compose stack: postgres/arango/minio/tika) | Docker Desktop |
 | Golden harness phase 2 (recorded run traces + SSE transcripts) | Docker Desktop (live Reference instance) |
 | Code node phase 2 hardening (network-namespace split) | phase 1 (Docker) |
 | ArangoDB BUSL-1.1 license acceptability review | user/legal decision |
 | Prod email adapter (magic links beyond the local mailbox) | choice of SMTP/API provider + credentials |
-| Repo folder rename `dify-elixir` → `fluxcapacitor` | external file handle holds the directory; do at next reboot/re-clone (the last "dify" anywhere) |
 | bcrypt swap (currently pbkdf2) | Linux/CI build (no local C toolchain) |

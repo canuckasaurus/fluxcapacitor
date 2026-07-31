@@ -99,6 +99,9 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
            show_api: false,
            tokens: [],
            new_token_raw: nil,
+           show_triggers: false,
+           triggers: [],
+           trigger_type: "webhook",
            zoom: 100,
            undo_stack: [],
            redo_stack: [],
@@ -490,6 +493,63 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
 
     {:noreply,
      assign(socket, tokens: Workflows.list_api_tokens(scope, socket.assigns.workflow.id))}
+  end
+
+  ## Triggers
+
+  def handle_event("toggle_triggers", _params, socket) do
+    scope = socket.assigns.current_scope
+
+    {:noreply,
+     assign(socket,
+       show_triggers: not socket.assigns.show_triggers,
+       trigger_type: "webhook",
+       triggers: Workflows.list_triggers(scope, socket.assigns.workflow.id)
+     )}
+  end
+
+  def handle_event("trigger_form_change", %{"type" => type}, socket) do
+    {:noreply, assign(socket, trigger_type: type)}
+  end
+
+  def handle_event("create_trigger", params, socket) do
+    scope = socket.assigns.current_scope
+
+    with {:ok, inputs} <- parse_trigger_inputs(params["inputs"]),
+         {:ok, _trigger} <-
+           Workflows.create_trigger(scope, socket.assigns.workflow, %{
+             "type" => params["type"],
+             "interval_minutes" => params["interval_minutes"],
+             "inputs" => inputs
+           }) do
+      {:noreply,
+       assign(socket, triggers: Workflows.list_triggers(scope, socket.assigns.workflow.id))}
+    else
+      {:error, :bad_json} ->
+        {:noreply, put_flash(socket, :error, "Static inputs must be a JSON object.")}
+
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "You don't have permission to manage triggers.")}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:noreply, put_flash(socket, :error, changeset_error(changeset))}
+    end
+  end
+
+  def handle_event("toggle_trigger", %{"trigger-id" => trigger_id, "enabled" => enabled}, socket) do
+    scope = socket.assigns.current_scope
+    Workflows.set_trigger_enabled(scope, trigger_id, enabled == "true")
+
+    {:noreply,
+     assign(socket, triggers: Workflows.list_triggers(scope, socket.assigns.workflow.id))}
+  end
+
+  def handle_event("delete_trigger", %{"trigger-id" => trigger_id}, socket) do
+    scope = socket.assigns.current_scope
+    Workflows.delete_trigger(scope, trigger_id)
+
+    {:noreply,
+     assign(socket, triggers: Workflows.list_triggers(scope, socket.assigns.workflow.id))}
   end
 
   ## Engine events
@@ -988,6 +1048,25 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     """
   end
 
+  defp parse_trigger_inputs(raw) when raw in [nil, ""], do: {:ok, %{}}
+
+  defp parse_trigger_inputs(raw) do
+    case Jason.decode(raw) do
+      {:ok, %{} = inputs} -> {:ok, inputs}
+      _not_an_object -> {:error, :bad_json}
+    end
+  end
+
+  defp changeset_error(changeset) do
+    changeset
+    |> Ecto.Changeset.traverse_errors(fn {msg, opts} ->
+      Enum.reduce(opts, msg, fn {key, value}, acc ->
+        String.replace(acc, "%{#{key}}", to_string(value))
+      end)
+    end)
+    |> Enum.map_join("; ", fn {field, errors} -> "#{field} #{Enum.join(errors, ", ")}" end)
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -1070,6 +1149,9 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
             </button>
             <button :if={@can_manage_tokens} class="btn btn-sm btn-ghost" phx-click="toggle_api">
               <.icon name="hero-key" class="size-4" /> API
+            </button>
+            <button :if={@can_edit} class="btn btn-sm btn-ghost" phx-click="toggle_triggers">
+              <.icon name="hero-bolt" class="size-4" /> Triggers
             </button>
             <button :if={@can_publish} class="btn btn-sm btn-outline" phx-click="publish">
               <.icon name="hero-rocket-launch" class="size-4" /> Publish
@@ -2087,6 +2169,114 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
           </button>
         </div>
         <div class="modal-backdrop" phx-click="toggle_api"></div>
+      </dialog>
+
+      <dialog :if={@show_triggers} class="modal modal-open">
+        <div class="modal-box max-w-2xl space-y-4">
+          <div class="flex items-center justify-between">
+            <h3 class="font-bold">Triggers</h3>
+            <button class="btn btn-ghost btn-xs" phx-click="toggle_triggers">
+              <.icon name="hero-x-mark" class="size-4" />
+            </button>
+          </div>
+          <p class="text-sm opacity-70">
+            Triggers start the latest <span class="font-semibold">published</span>
+            version of this flux from the outside — publish first, then wire up a
+            webhook or a schedule.
+          </p>
+
+          <p :if={@triggers == []} class="text-sm opacity-60">No triggers yet.</p>
+
+          <div
+            :for={trigger <- @triggers}
+            class="rounded-box border border-base-200 p-3 space-y-2"
+            id={"trigger-#{trigger.id}"}
+          >
+            <div class="flex items-center gap-2">
+              <span class={[
+                "badge badge-sm",
+                (trigger.type == :webhook && "badge-info") || "badge-accent"
+              ]}>
+                {trigger.type}
+              </span>
+              <span :if={trigger.type == :schedule} class="text-xs opacity-70">
+                every {trigger.interval_minutes} min
+              </span>
+              <span :if={not trigger.enabled} class="badge badge-ghost badge-sm">disabled</span>
+              <span class="ml-auto text-xs opacity-60">
+                last run: {(trigger.last_run_at &&
+                             Calendar.strftime(trigger.last_run_at, "%Y-%m-%d %H:%M")) || "never"}
+              </span>
+            </div>
+            <pre
+              :if={trigger.type == :webhook}
+              class="rounded bg-base-200 p-2 text-xs overflow-x-auto"
+            >POST {url(~p"/triggers/webhook/#{trigger.token}")}</pre>
+            <pre
+              :if={trigger.inputs != %{}}
+              class="rounded bg-base-200 p-2 text-xs overflow-x-auto"
+            >{Jason.encode!(trigger.inputs)}</pre>
+            <div class="flex items-center gap-2">
+              <button
+                class="btn btn-ghost btn-xs"
+                phx-click="toggle_trigger"
+                phx-value-trigger-id={trigger.id}
+                phx-value-enabled={to_string(not trigger.enabled)}
+              >
+                {(trigger.enabled && "Disable") || "Enable"}
+              </button>
+              <button
+                class="btn btn-ghost btn-xs text-error"
+                phx-click="delete_trigger"
+                phx-value-trigger-id={trigger.id}
+                data-confirm="Delete this trigger?"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+
+          <form
+            phx-submit="create_trigger"
+            phx-change="trigger_form_change"
+            class="rounded-box border border-base-300 p-3 space-y-3"
+          >
+            <div class="flex items-end gap-3 flex-wrap">
+              <label class="form-control">
+                <span class="label-text text-xs opacity-70 mb-1">Type</span>
+                <select name="type" class="select select-bordered select-sm">
+                  <option value="webhook" selected={@trigger_type == "webhook"}>Webhook</option>
+                  <option value="schedule" selected={@trigger_type == "schedule"}>Schedule</option>
+                </select>
+              </label>
+              <label :if={@trigger_type == "schedule"} class="form-control">
+                <span class="label-text text-xs opacity-70 mb-1">Interval (minutes)</span>
+                <input
+                  type="number"
+                  name="interval_minutes"
+                  min="1"
+                  value="60"
+                  class="input input-bordered input-sm w-32"
+                />
+              </label>
+            </div>
+            <label class="form-control block">
+              <span class="label-text text-xs opacity-70 mb-1">
+                Static inputs (JSON object, optional — webhook payloads override these)
+              </span>
+              <textarea
+                name="inputs"
+                rows="2"
+                placeholder={~s({"query": "…"})}
+                class="textarea textarea-bordered textarea-sm w-full font-mono"
+              ></textarea>
+            </label>
+            <button type="submit" class="btn btn-primary btn-sm">
+              <.icon name="hero-plus" class="size-4" /> Create trigger
+            </button>
+          </form>
+        </div>
+        <div class="modal-backdrop" phx-click="toggle_triggers"></div>
       </dialog>
 
       <script :type={Phoenix.LiveView.ColocatedHook} name=".FluxCanvas">
