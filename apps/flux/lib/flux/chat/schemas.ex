@@ -19,6 +19,8 @@ defmodule Flux.Chat.App do
     field :prompt_template, :string
     field :input_form, {:array, :map}, default: []
     field :params, :map, default: %{}
+    field :site_token, :string
+    field :site_enabled, :boolean, default: false
 
     timestamps(type: :utc_datetime)
   end

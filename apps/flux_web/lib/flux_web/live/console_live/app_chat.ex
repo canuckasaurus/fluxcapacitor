@@ -136,6 +136,26 @@ defmodule FluxWeb.ConsoleLive.AppChat do
     end
   end
 
+  def handle_event("enable_site", _params, socket) do
+    case Chat.enable_site(socket.assigns.current_scope, socket.assigns.app) do
+      {:ok, app} ->
+        {:noreply, assign(socket, app: app)}
+
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "You don't have permission to publish this app.")}
+    end
+  end
+
+  def handle_event("disable_site", _params, socket) do
+    case Chat.disable_site(socket.assigns.current_scope, socket.assigns.app) do
+      {:ok, app} ->
+        {:noreply, assign(socket, app: app)}
+
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "You don't have permission to unpublish this app.")}
+    end
+  end
+
   def handle_event("create-token", _params, socket) do
     case Chat.create_api_token(socket.assigns.current_scope, socket.assigns.app) do
       {:ok, _token, raw} ->
@@ -198,6 +218,10 @@ defmodule FluxWeb.ConsoleLive.AppChat do
   end
 
   defp parse_var_rows(_params), do: []
+
+  defp embed_snippet(app) do
+    ~s(<iframe src="#{url(~p"/site/#{app.site_token}")}"\n  style="width: 100%; height: 640px; border: 0; border-radius: 12px;"\n  allow="clipboard-write"></iframe>)
+  end
 
   defp completion_output(messages) do
     case List.last(messages) do
@@ -400,6 +424,44 @@ defmodule FluxWeb.ConsoleLive.AppChat do
             <button type="submit" class="btn btn-primary btn-sm">Save configuration</button>
           </div>
         </form>
+      </div>
+
+      <div :if={@can_manage} class="card border border-base-200 p-6 space-y-3" id="site-publishing">
+        <div class="flex items-center justify-between">
+          <h2 class="font-semibold">Site publishing</h2>
+          <button
+            :if={not @app.site_enabled}
+            class="btn btn-sm btn-primary"
+            phx-click="enable_site"
+          >
+            <.icon name="hero-globe-alt" class="size-4" /> Publish site
+          </button>
+          <button
+            :if={@app.site_enabled}
+            class="btn btn-sm btn-ghost text-error"
+            phx-click="disable_site"
+            data-confirm="Unpublish the public site?"
+          >
+            Unpublish
+          </button>
+        </div>
+        <p :if={not @app.site_enabled} class="text-sm opacity-60">
+          Publish this app at a public URL anyone can use — no login required.
+        </p>
+        <div :if={@app.site_enabled} class="space-y-2">
+          <p class="text-sm">
+            Live at
+            <a
+              href={url(~p"/site/#{@app.site_token}")}
+              target="_blank"
+              class="link link-primary font-mono text-xs"
+            >
+              {url(~p"/site/#{@app.site_token}")}
+            </a>
+          </p>
+          <p class="text-xs opacity-60">Embed it on any page:</p>
+          <pre class="rounded-box bg-base-200 p-3 text-xs overflow-x-auto">{embed_snippet(@app)}</pre>
+        </div>
       </div>
 
       <div :if={@can_manage} class="card border border-base-200 p-6 space-y-3">

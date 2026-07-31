@@ -111,7 +111,7 @@ Order inside the workstream:
 ### WS5 — Product surface (~4–6 weeks, parallelizable with WS4)
 - `/v1` completion: ✅ conversations list, messages, feedback, stop, parameters (2026-07-30).
   Remaining: conversation rename/delete, files upload, meta, completion-messages, `open_api_spex` contract tests.
-- **Site publishing**: public chat page + workflow form page per app/flux, EndUser identity, JS embed snippet.
+- **Site publishing**: app sites ✅ (2026-07-31, chat + completion + iframe embed + EndUser refs); workflow form page per flux + JS bubble embed still open.
 - Completion app mode; app-of-mode-workflow binding (app ↔ flux).
 - Default/system model config; azure_openai + bedrock providers.
 
@@ -163,7 +163,7 @@ Timeline above assumes ~2–3 engineers; single-engineer pace ≈ 2.5× the dura
 ### Unblocked (buildable now, in priority order)
 1. ~~Console UI for triggers~~ ✅ (2026-07-31): editor Triggers modal — list/create webhook+schedule, webhook URL shown, enable/disable, delete, static-inputs JSON.
 2. ~~Console UI for completion apps~~ ✅ (2026-07-31): mode select + template on create, variables editor + run panel on the app page, `/v1/parameters` now serves the real `user_input_form`.
-3. Site publishing + JS embed (WS5's biggest remaining piece).
+3. Site publishing: **app sites ✅ (2026-07-31)** — public `/site/:token` page for chat + completion apps, anonymous `web_…` end-user refs, publish/unpublish console card, iframe embed snippet (frame headers relaxed on that scope only). Remaining: public form page per *flux*, JS bubble embed, rate limiting on public LiveView events.
 4. `open_api_spex` contract tests over the now-12-route `/v1` surface.
 5. Agent v2 features: structured `final_output`, deferred-tool HITL, streamed thought events.
 6. azure_openai + bedrock providers; default/system model config.

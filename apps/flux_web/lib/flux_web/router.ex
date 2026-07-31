@@ -58,6 +58,16 @@ defmodule FluxWeb.Router do
     get "/", PageController, :home
   end
 
+  ## Public published app sites (token in path is the authorization)
+
+  scope "/site", FluxWeb do
+    pipe_through [:browser, :allow_embedding]
+
+    live_session :public_site do
+      live "/:token", SiteLive.AppSite, :show
+    end
+  end
+
   ## Public workflow triggers (token in path is the authorization)
 
   scope "/triggers", FluxWeb do
@@ -95,6 +105,14 @@ defmodule FluxWeb.Router do
     pipe_through [:browser, :require_authenticated_account, :require_mailbox_enabled]
 
     forward "/mailbox", Plug.Swoosh.MailboxPreview
+  end
+
+  # Published sites are meant to be iframed from anywhere; undo the
+  # SAMEORIGIN default set by put_secure_browser_headers for this scope only.
+  defp allow_embedding(conn, _opts) do
+    conn
+    |> delete_resp_header("x-frame-options")
+    |> put_resp_header("content-security-policy", "frame-ancestors *")
   end
 
   defp require_mailbox_enabled(conn, _opts) do

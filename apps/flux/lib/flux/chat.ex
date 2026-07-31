@@ -50,6 +50,49 @@ defmodule Flux.Chat do
     end
   end
 
+  ## Site publishing
+
+  @doc """
+  Publishes the app at a public URL (`/site/:token`). The token is minted
+  once and survives disable/enable so the public URL stays stable.
+  """
+  def enable_site(%Scope{} = scope, %App{} = app) do
+    with :ok <- RBAC.authorize(scope, :app_create_and_management),
+         true <- app.workspace_id == Scope.workspace_id(scope) || {:error, :not_found} do
+      token = app.site_token || "site_" <> Base.url_encode64(:crypto.strong_rand_bytes(18), padding: false)
+
+      app
+      |> Ecto.Changeset.change(site_token: token, site_enabled: true)
+      |> Repo.update()
+    end
+  end
+
+  def disable_site(%Scope{} = scope, %App{} = app) do
+    with :ok <- RBAC.authorize(scope, :app_create_and_management),
+         true <- app.workspace_id == Scope.workspace_id(scope) || {:error, :not_found} do
+      app |> Ecto.Changeset.change(site_enabled: false) |> Repo.update()
+    end
+  end
+
+  @doc "Resolves a public site token to its app; the token is the authorization."
+  def get_app_by_site_token("site_" <> _rest = token) do
+    case Repo.get_by(App, [site_token: token], skip_workspace_guard: true) do
+      %App{site_enabled: true} = app -> {:ok, app}
+      _disabled_or_missing -> {:error, :not_found}
+    end
+  end
+
+  def get_app_by_site_token(_other), do: {:error, :not_found}
+
+  @doc "A workspace-only scope for anonymous public-site visitors."
+  def site_scope(%App{} = app) do
+    %Scope{
+      account: nil,
+      membership: nil,
+      workspace: %Flux.Accounts.Workspace{id: app.workspace_id}
+    }
+  end
+
   ## Conversations & messages
 
   def create_conversation(%Scope{} = scope, %App{} = app, attrs \\ %{}) do
