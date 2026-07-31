@@ -56,10 +56,26 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
       label: "Agent",
       icon: "hero-cpu-chip",
       accent: "bg-secondary/10 text-secondary"
+    },
+    "variable_aggregator" => %{
+      label: "Aggregator",
+      icon: "hero-funnel",
+      accent: "bg-accent/10 text-accent"
+    },
+    "variable_assigner" => %{
+      label: "Assigner",
+      icon: "hero-pencil-square",
+      accent: "bg-accent/10 text-accent"
+    },
+    "list_operator" => %{
+      label: "List Operator",
+      icon: "hero-list-bullet",
+      accent: "bg-info/10 text-info"
     }
   }
 
-  @addable_types ~w(llm if_else template tool http_request code agent answer end)
+  @addable_types ~w(llm if_else template tool http_request code agent
+                    variable_aggregator variable_assigner list_operator answer end)
   @zoom_levels [50, 65, 80, 100, 125, 150]
   @history_cap 50
 
@@ -745,6 +761,20 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
 
   defp default_config("answer"), do: %{"answer" => ""}
   defp default_config("end"), do: %{"outputs" => [%{"key" => "result", "value" => ""}]}
+
+  defp default_config("variable_aggregator"), do: %{"variables" => []}
+
+  defp default_config("variable_assigner"),
+    do: %{"assignments" => [%{"name" => "", "value" => ""}]}
+
+  defp default_config("list_operator"),
+    do: %{
+      "variable" => "",
+      "filter" => %{"operator" => "", "value" => ""},
+      "sort" => "none",
+      "limit" => ""
+    }
+
   defp default_config(_type), do: %{}
 
   defp row_key("variable"), do: "variables"
@@ -753,6 +783,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
   defp row_key("code_input"), do: "inputs"
   defp row_key("condition"), do: "conditions"
   defp row_key("output"), do: "outputs"
+  defp row_key("assignment"), do: "assignments"
 
   defp empty_row("variable"),
     do: %{"name" => "", "label" => "", "type" => "text", "required" => false}
@@ -762,6 +793,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
   defp empty_row("code_input"), do: %{"name" => "", "value" => ""}
   defp empty_row("condition"), do: %{"left" => "", "operator" => "contains", "right" => ""}
   defp empty_row("output"), do: %{"key" => "", "value" => ""}
+  defp empty_row("assignment"), do: %{"name" => "", "value" => ""}
 
   defp build_config("llm", config, params) do
     {plugin_id, model} =
@@ -851,6 +883,32 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
       end
 
     %{"toolset_id" => toolset_id, "operation_id" => operation_id, "args" => args}
+  end
+
+  defp build_config("variable_aggregator", config, params) do
+    variables =
+      params
+      |> Map.get("variables_text", "")
+      |> String.split(["\n", "\r\n"], trim: true)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+
+    Map.put(config, "variables", variables)
+  end
+
+  defp build_config("variable_assigner", config, params) do
+    Map.put(config, "assignments", indexed_rows(params["asgn"], ~w(name value), %{}))
+  end
+
+  defp build_config("list_operator", config, params) do
+    config
+    |> Map.put("variable", Map.get(params, "variable", ""))
+    |> Map.put("filter", %{
+      "operator" => Map.get(params, "filter_operator", ""),
+      "value" => Map.get(params, "filter_value", "")
+    })
+    |> Map.put("sort", Map.get(params, "sort", "none"))
+    |> Map.put("limit", Map.get(params, "limit", ""))
   end
 
   defp build_config("answer", config, params) do
@@ -1038,7 +1096,9 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     "tool" => ~w(text status body),
     "http_request" => ~w(text status_code body),
     "code" => ~w(stdout),
-    "agent" => ~w(text output status iterations tool_calls)
+    "agent" => ~w(text output status iterations tool_calls),
+    "variable_aggregator" => ~w(output),
+    "list_operator" => ~w(output first last count)
   }
 
   defp variable_hints(graph, selected_id) do
@@ -1991,6 +2051,132 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                     >
                       <.icon name="hero-plus" class="size-3" /> Add output
                     </button>
+                  </div>
+                <% "variable_aggregator" -> %>
+                  <label class="floating-label">
+                    <span>Selectors (one per line, first non-empty wins)</span>
+                    <textarea
+                      name="variables_text"
+                      rows="4"
+                      placeholder="llm_1.text\nllm_2.text"
+                      class="textarea textarea-sm w-full font-mono"
+                      disabled={not @can_edit}
+                    >{Enum.join(List.wrap(node["config"]["variables"]), "\n")}</textarea>
+                  </label>
+                <% "variable_assigner" -> %>
+                  <div class="space-y-2">
+                    <p class="text-xs font-semibold opacity-70">Assignments</p>
+                    <div
+                      :for={
+                        {assignment, index} <-
+                          Enum.with_index(List.wrap(node["config"]["assignments"]))
+                      }
+                      class="flex gap-2"
+                    >
+                      <input
+                        type="text"
+                        name={"asgn[#{index}][name]"}
+                        value={assignment["name"]}
+                        placeholder="variable"
+                        class="input input-xs w-28 font-mono"
+                        disabled={not @can_edit}
+                      />
+                      <input
+                        type="text"
+                        name={"asgn[#{index}][value]"}
+                        value={assignment["value"]}
+                        placeholder="{{llm_1.text}}"
+                        class="input input-xs flex-1 font-mono"
+                        disabled={not @can_edit}
+                      />
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-xs text-error"
+                        phx-click="remove_row"
+                        phx-value-kind="assignment"
+                        phx-value-index={index}
+                        disabled={not @can_edit}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      class="btn btn-outline btn-xs"
+                      phx-click="add_row"
+                      phx-value-kind="assignment"
+                      disabled={not @can_edit}
+                    >
+                      <.icon name="hero-plus" class="size-3" /> Add assignment
+                    </button>
+                  </div>
+                <% "list_operator" -> %>
+                  <label class="floating-label">
+                    <span>List variable</span>
+                    <input
+                      type="text"
+                      name="variable"
+                      value={node["config"]["variable"]}
+                      placeholder="code_1.items"
+                      class="input input-sm w-full font-mono"
+                      disabled={not @can_edit}
+                    />
+                  </label>
+                  <div class="flex gap-2">
+                    <label class="floating-label flex-1">
+                      <span>Filter</span>
+                      <select
+                        name="filter_operator"
+                        class="select select-sm w-full"
+                        disabled={not @can_edit}
+                      >
+                        <option value="" selected={node["config"]["filter"]["operator"] in [nil, ""]}>
+                          No filter
+                        </option>
+                        <option
+                          :for={operator <- ~w(contains not_contains eq neq gt lt not_empty)}
+                          value={operator}
+                          selected={node["config"]["filter"]["operator"] == operator}
+                        >
+                          {operator}
+                        </option>
+                      </select>
+                    </label>
+                    <label class="floating-label flex-1">
+                      <span>Filter value</span>
+                      <input
+                        type="text"
+                        name="filter_value"
+                        value={node["config"]["filter"]["value"]}
+                        class="input input-sm w-full font-mono"
+                        disabled={not @can_edit}
+                      />
+                    </label>
+                  </div>
+                  <div class="flex gap-2">
+                    <label class="floating-label">
+                      <span>Sort</span>
+                      <select name="sort" class="select select-sm w-28" disabled={not @can_edit}>
+                        <option
+                          :for={sort <- ~w(none asc desc)}
+                          value={sort}
+                          selected={(node["config"]["sort"] || "none") == sort}
+                        >
+                          {sort}
+                        </option>
+                      </select>
+                    </label>
+                    <label class="floating-label">
+                      <span>Limit</span>
+                      <input
+                        type="number"
+                        name="limit"
+                        value={node["config"]["limit"]}
+                        min="1"
+                        class="input input-sm w-24"
+                        disabled={not @can_edit}
+                      />
+                    </label>
                   </div>
                 <% _other -> %>
               <% end %>

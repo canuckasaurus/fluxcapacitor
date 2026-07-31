@@ -632,6 +632,88 @@ defmodule Flux.EngineTest do
       assert delta.kind == "thinking" and delta.delta == "final "
     end
 
+    test "variable aggregator outputs the first non-empty selector" do
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("t1", "template", %{"template" => ""}),
+          node!("t2", "template", %{"template" => "second wins"}),
+          node!("agg", "variable_aggregator", %{
+            "variables" => ["t1.output", "t2.output", "start.query"]
+          }),
+          node!("out", "end", %{"outputs" => [%{"key" => "picked", "value" => "{{agg.output}}"}]})
+        ],
+        "edges" => [
+          edge!("start", "t1"),
+          edge!("t1", "t2"),
+          edge!("t2", "agg"),
+          edge!("agg", "out")
+        ]
+      }
+
+      {:ok, built} = Engine.build(graph)
+      assert {:ok, result} = Engine.run(built, %{"query" => "q"}, echo_host())
+      assert result.outputs == %{"picked" => "second wins"}
+    end
+
+    test "variable assigner outputs values and emits conversation_var_set" do
+      {:ok, events} = Agent.start_link(fn -> [] end)
+
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("assign", "variable_assigner", %{
+            "assignments" => [
+              %{"name" => "topic", "value" => "{{start.query}}"},
+              %{"name" => "", "value" => "dropped"}
+            ]
+          })
+        ],
+        "edges" => [edge!("start", "assign")]
+      }
+
+      host = %Host{
+        emit: fn
+          {:conversation_var_set, data} -> Elixir.Agent.update(events, &[data | &1])
+          _other -> :ok
+        end
+      }
+
+      {:ok, built} = Engine.build(graph)
+      assert {:ok, result} = Engine.run(built, %{"query" => "elixir"}, host)
+      assert result.outputs == %{"topic" => "elixir"}
+      assert [%{name: "topic", value: "elixir"}] = Elixir.Agent.get(events, & &1)
+    end
+
+    test "list operator filters, sorts, and limits" do
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("code_1", "code", %{"code" => "x", "language" => "python3", "inputs" => []}),
+          node!("list", "list_operator", %{
+            "variable" => "code_1.items",
+            "filter" => %{"operator" => "contains", "value" => "a"},
+            "sort" => "asc",
+            "limit" => 2
+          })
+        ],
+        "edges" => [edge!("start", "code_1"), edge!("code_1", "list")]
+      }
+
+      host = %Host{
+        emit: fn _e -> :ok end,
+        run_code: fn _spec ->
+          {:ok, %{result: %{"items" => ["banana", "cherry", "apple", "avocado"]}, stdout: ""}}
+        end
+      }
+
+      {:ok, built} = Engine.build(graph)
+      assert {:ok, result} = Engine.run(built, %{"query" => "q"}, host)
+      assert result.outputs["output"] == ["apple", "avocado"]
+      assert result.outputs["first"] == "apple"
+      assert result.outputs["count"] == 2
+    end
+
     test "unresolved template references render blank" do
       graph = %{
         "nodes" => [

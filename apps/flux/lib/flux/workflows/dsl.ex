@@ -19,7 +19,11 @@ defmodule Flux.Workflows.DSL do
     "end" => "end",
     "template-transform" => "template",
     "http-request" => "http_request",
-    "code" => "code"
+    "code" => "code",
+    "variable-aggregator" => "variable_aggregator",
+    "variable-assigner" => "variable_aggregator",
+    "assigner" => "variable_assigner",
+    "list-operator" => "list_operator"
   }
 
   @operator_map %{
@@ -96,7 +100,10 @@ defmodule Flux.Workflows.DSL do
     |> Jason.encode!(pretty: true)
   end
 
-  @dify_types Map.new(@supported, fn {dify, ours} -> {ours, dify} end)
+  # Inverted for export; the aggregator has two import aliases, so pin it.
+  @dify_types @supported
+              |> Map.new(fn {dify, ours} -> {ours, dify} end)
+              |> Map.put("variable_aggregator", "variable-aggregator")
   @reverse_operators %{
     "contains" => "contains",
     "not_contains" => "not contains",
@@ -237,6 +244,46 @@ defmodule Flux.Workflows.DSL do
   # Tool nodes have no the reference platform equivalent (ours bind to imported toolsets);
   # exported under a vendor key so reimport can round-trip later.
   defp export_data("tool", config), do: %{"flux_toolset" => config}
+
+  defp export_data("variable_aggregator", config) do
+    %{
+      "variables" =>
+        config["variables"] |> List.wrap() |> Enum.map(&String.split(to_string(&1), ".")),
+      "output_type" => "string"
+    }
+  end
+
+  defp export_data("list_operator", config) do
+    filter_enabled = get_in(config, ["filter", "operator"]) not in [nil, ""]
+
+    %{
+      "variable" => config["variable"] |> to_string() |> String.split("."),
+      "filter_by" => %{
+        "enabled" => filter_enabled,
+        "conditions" =>
+          if filter_enabled do
+            [
+              %{
+                "comparison_operator" =>
+                  Map.get(@reverse_operators, get_in(config, ["filter", "operator"]), "contains"),
+                "value" => get_in(config, ["filter", "value"]) || ""
+              }
+            ]
+          else
+            []
+          end
+      },
+      "order_by" => %{
+        "enabled" => config["sort"] not in [nil, "", "none"],
+        "value" => (config["sort"] in ["asc", "desc"] && config["sort"]) || "asc"
+      },
+      "limit" => %{
+        "enabled" => config["limit"] not in [nil, ""],
+        "size" => config["limit"]
+      }
+    }
+  end
+
   defp export_data(_type, config), do: config
 
   defp export_edge(edge) do
@@ -446,6 +493,79 @@ defmodule Flux.Workflows.DSL do
        "dependencies" => [],
        "inputs" => inputs,
        "timeout_ms" => 30_000
+     }, []}
+  end
+
+  defp convert_config("variable_aggregator", data) do
+    variables =
+      data["variables"]
+      |> List.wrap()
+      |> Enum.map(fn
+        selector when is_list(selector) -> Enum.join(selector, ".")
+        selector -> to_string(selector)
+      end)
+      |> Enum.reject(&(&1 == ""))
+
+    {%{"variables" => variables}, []}
+  end
+
+  defp convert_config("variable_assigner", data) do
+    assignments =
+      data["items"]
+      |> List.wrap()
+      |> Enum.flat_map(fn item ->
+        name = item["variable_selector"] |> List.wrap() |> List.last()
+
+        value =
+          case item["input_variable_selector"] do
+            [_ | _] = selector -> "{{" <> Enum.join(selector, ".") <> "}}"
+            _absent -> to_string(item["value"] || "")
+          end
+
+        if name in [nil, ""] do
+          []
+        else
+          [%{"name" => to_string(name), "value" => value}]
+        end
+      end)
+
+    {%{"assignments" => assignments}, []}
+  end
+
+  defp convert_config("list_operator", data) do
+    filter =
+      case get_in(data, ["filter_by", "conditions"]) do
+        [condition | _rest] ->
+          %{
+            "operator" =>
+              Map.get(@operator_map, condition["comparison_operator"] || "", "contains"),
+            "value" => to_string(condition["value"] || "")
+          }
+
+        _no_filter ->
+          %{"operator" => "", "value" => ""}
+      end
+
+    filter =
+      if get_in(data, ["filter_by", "enabled"]) == true,
+        do: filter,
+        else: %{"operator" => "", "value" => ""}
+
+    sort =
+      if get_in(data, ["order_by", "enabled"]) == true,
+        do: to_string(get_in(data, ["order_by", "value"]) || "asc"),
+        else: "none"
+
+    limit =
+      if get_in(data, ["limit", "enabled"]) == true,
+        do: get_in(data, ["limit", "size"]) || "",
+        else: ""
+
+    {%{
+       "variable" => data["variable"] |> List.wrap() |> Enum.join("."),
+       "filter" => filter,
+       "sort" => sort,
+       "limit" => limit
      }, []}
   end
 

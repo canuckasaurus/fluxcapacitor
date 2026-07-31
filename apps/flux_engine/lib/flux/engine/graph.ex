@@ -43,7 +43,8 @@ defmodule Flux.Engine.Graph do
           start_id: String.t()
         }
 
-  @node_types ~w(start llm if_else template answer end tool http_request code agent)
+  @node_types ~w(start llm if_else template answer end tool http_request code agent
+                 variable_aggregator variable_assigner list_operator)
   @branching_handles %{"if_else" => ~w(true false)}
 
   def node_types, do: @node_types

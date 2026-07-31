@@ -24,7 +24,10 @@ defmodule Flux.Engine.Node do
     "tool" => Flux.Engine.Nodes.Tool,
     "http_request" => Flux.Engine.Nodes.HttpRequest,
     "code" => Flux.Engine.Nodes.Code,
-    "agent" => Flux.Engine.Nodes.Agent
+    "agent" => Flux.Engine.Nodes.Agent,
+    "variable_aggregator" => Flux.Engine.Nodes.VariableAggregator,
+    "variable_assigner" => Flux.Engine.Nodes.VariableAssigner,
+    "list_operator" => Flux.Engine.Nodes.ListOperator
   }
 
   @doc "The module implementing a node type."

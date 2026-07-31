@@ -758,6 +758,174 @@ defmodule Flux.Engine.Nodes.Agent do
   end
 end
 
+defmodule Flux.Engine.Nodes.VariableAggregator do
+  @moduledoc """
+  Coalesces branch outputs: resolves each selector in `config["variables"]`
+  (`["node_id.path", ...]`) in order and outputs the first non-blank value
+  as `%{"output" => value}`. The standard way to join if/else branches
+  back into one reference.
+  """
+  @behaviour Flux.Engine.Node
+
+  alias Flux.Engine.Template
+
+  @impl true
+  def run(node, pool, _host) do
+    value =
+      node.config["variables"]
+      |> List.wrap()
+      |> Enum.map(&Template.resolve(pool, to_string(&1)))
+      |> Enum.find(&(not blank?(&1)))
+
+    {:ok, %{"output" => value}}
+  end
+
+  defp blank?(nil), do: true
+  defp blank?(""), do: true
+  defp blank?(_value), do: false
+end
+
+defmodule Flux.Engine.Nodes.VariableAssigner do
+  @moduledoc """
+  Writes named variables: each assignment renders `value` (template) and
+  outputs it under its name; all assignments are also emitted as
+  `{:conversation_var_set, %{name, value}}` events so an embedding
+  chatflow can persist them across turns.
+
+  Config: `%{"assignments" => [%{"name", "value"}]}`.
+  Outputs `%{name => value, ...}`.
+  """
+  @behaviour Flux.Engine.Node
+
+  alias Flux.Engine.{Host, Template}
+
+  @impl true
+  def run(node, pool, host) do
+    outputs =
+      node.config["assignments"]
+      |> List.wrap()
+      |> Enum.reduce(%{}, fn assignment, acc ->
+        name = to_string(assignment["name"] || "")
+
+        if name == "" do
+          acc
+        else
+          value = Template.render(assignment["value"], pool)
+          Host.emit(host, {:conversation_var_set, %{name: name, value: value}})
+          Map.put(acc, name, value)
+        end
+      end)
+
+    {:ok, outputs}
+  end
+end
+
+defmodule Flux.Engine.Nodes.ListOperator do
+  @moduledoc """
+  Filters, sorts, and slices a list. Config:
+
+    * `"variable"` — selector for the input list (JSON strings are decoded)
+    * `"filter"` — optional `%{"operator", "value"}` applied per item
+      (`contains/not_contains/eq/neq/gt/lt/not_empty`; maps are matched on
+      their JSON encoding)
+    * `"sort"` — `"asc" | "desc" | "none"` (default none)
+    * `"limit"` — optional max items
+
+  Outputs `%{"output" => list, "first" => first, "last" => last,
+  "count" => n}`.
+  """
+  @behaviour Flux.Engine.Node
+
+  alias Flux.Engine.Template
+
+  @impl true
+  def run(node, pool, _host) do
+    with {:ok, list} <- fetch_list(node, pool) do
+      filter = node.config["filter"] || %{}
+
+      list =
+        list
+        |> apply_filter(filter, Template.render(filter["value"] || "", pool))
+        |> apply_sort(node.config["sort"])
+        |> apply_limit(node.config["limit"])
+
+      {:ok,
+       %{
+         "output" => list,
+         "first" => List.first(list),
+         "last" => List.last(list),
+         "count" => length(list)
+       }}
+    end
+  end
+
+  defp fetch_list(node, pool) do
+    selector = to_string(node.config["variable"] || "")
+
+    case Template.resolve(pool, selector) do
+      list when is_list(list) ->
+        {:ok, list}
+
+      binary when is_binary(binary) ->
+        case Jason.decode(binary) do
+          {:ok, list} when is_list(list) -> {:ok, list}
+          _not_a_list -> {:error, "#{selector} is not a list"}
+        end
+
+      nil ->
+        {:ok, []}
+
+      _other ->
+        {:error, "#{selector} is not a list"}
+    end
+  end
+
+  defp apply_filter(list, %{"operator" => operator}, value) when operator != "" do
+    Enum.filter(list, &matches?(operator, item_text(&1), value))
+  end
+
+  defp apply_filter(list, _no_filter, _value), do: list
+
+  defp matches?("contains", item, value), do: String.contains?(item, value)
+  defp matches?("not_contains", item, value), do: not String.contains?(item, value)
+  defp matches?("eq", item, value), do: item == value
+  defp matches?("neq", item, value), do: item != value
+  defp matches?("not_empty", item, _value), do: item != ""
+
+  defp matches?(operator, item, value) when operator in ["gt", "lt"] do
+    with {left, ""} <- Float.parse(item),
+         {right, ""} <- Float.parse(value) do
+      if operator == "gt", do: left > right, else: left < right
+    else
+      _not_numeric -> false
+    end
+  end
+
+  defp matches?(_unknown, _item, _value), do: true
+
+  defp apply_sort(list, "asc"), do: Enum.sort_by(list, &sort_key/1)
+  defp apply_sort(list, "desc"), do: list |> Enum.sort_by(&sort_key/1) |> Enum.reverse()
+  defp apply_sort(list, _none), do: list
+
+  defp sort_key(item) when is_number(item), do: {0, item, ""}
+  defp sort_key(item), do: {1, 0, item_text(item)}
+
+  defp apply_limit(list, limit) when is_integer(limit) and limit > 0, do: Enum.take(list, limit)
+
+  defp apply_limit(list, limit) when is_binary(limit) do
+    case Integer.parse(limit) do
+      {n, ""} when n > 0 -> Enum.take(list, n)
+      _invalid -> list
+    end
+  end
+
+  defp apply_limit(list, _none), do: list
+
+  defp item_text(item) when is_binary(item), do: item
+  defp item_text(item) when is_number(item) or is_boolean(item), do: to_string(item)
+  defp item_text(item), do: Jason.encode!(item)
+end
+
 defmodule Flux.Engine.Nodes.EndNode do
   @moduledoc """
   Collects the run's final outputs. Config:
