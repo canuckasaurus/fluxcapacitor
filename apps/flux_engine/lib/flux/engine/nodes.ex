@@ -66,8 +66,7 @@ defmodule Flux.Engine.Nodes.LLM do
 
   @impl true
   def run(node, pool, host) do
-    plugin_id = to_string(node.config["provider_plugin_id"] || "")
-    model = to_string(node.config["model"] || "")
+    {plugin_id, model} = Host.resolve_llm(host, node.config)
 
     with :ok <- require_config(plugin_id != "" and model != ""),
          {:ok, invoke} <- fetch_invoker(host) do
@@ -404,8 +403,7 @@ defmodule Flux.Engine.Nodes.Agent do
 
   @impl true
   def run(node, pool, host) do
-    plugin_id = to_string(node.config["provider_plugin_id"] || "")
-    model = to_string(node.config["model"] || "")
+    {plugin_id, model} = Host.resolve_llm(host, node.config)
 
     with :ok <- require_config(plugin_id != "" and model != ""),
          {:ok, invoke_llm} <- capability(host, :invoke_llm, 2),

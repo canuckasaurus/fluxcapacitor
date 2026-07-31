@@ -72,4 +72,39 @@ defmodule Flux.ProvidersTest do
     assert {:ok, _} = Providers.delete_credential(scope, credential.id)
     assert {:error, :not_configured} = Providers.fetch_config(workspace.id, "openai")
   end
+
+  test "default model set, read, and clear", %{scope: scope, workspace: workspace} do
+    assert Providers.default_model(scope) == nil
+
+    assert {:ok, _} = Providers.set_default_model(scope, "echo", "echo-1")
+
+    assert Providers.default_model(scope) == %{
+             "provider_plugin_id" => "echo",
+             "model" => "echo-1"
+           }
+
+    assert Providers.default_model_for_workspace(workspace.id)["model"] == "echo-1"
+
+    assert {:ok, _} = Providers.set_default_model(scope, "", "")
+    assert Providers.default_model(scope) == nil
+  end
+
+  test "workflow LLM node without a model falls back to the workspace default", %{scope: scope} do
+    {:ok, _} = Providers.set_default_model(scope, "echo", "echo-1")
+
+    # Starter graph's llm_1 node keeps its blank provider/model config.
+    {:ok, workflow} = Flux.Workflows.create_workflow(scope, %{"name" => "Default Model Flux"})
+    {:ok, run} = Flux.Workflows.start_run(scope, workflow, %{"query" => "default ping"})
+
+    finished =
+      receive do
+        {:run_finished, finished} -> finished
+      after
+        5_000 -> flunk("run did not finish")
+      end
+
+    assert finished.status == :succeeded
+    assert run.id == finished.id
+    assert finished.outputs["answer"] =~ "You said: default ping"
+  end
 end

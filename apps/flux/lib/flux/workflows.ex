@@ -443,7 +443,8 @@ defmodule Flux.Workflows do
         Flux.Tools.invoke_for_workspace(workspace_id, toolset_id, operation_id, args)
       end,
       http_request: &node_http_request/1,
-      run_code: &Flux.CodeRunner.run/1
+      run_code: &Flux.CodeRunner.run/1,
+      default_llm: Providers.default_model_for_workspace(workspace_id)
     }
 
     case Engine.run(graph, inputs, host) do

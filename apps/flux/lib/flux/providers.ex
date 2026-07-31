@@ -88,6 +88,49 @@ defmodule Flux.Providers do
     end
   end
 
+  ## Default model (workspace-level system model)
+
+  @doc """
+  Sets the workspace default model, used by LLM/agent nodes whose config
+  names no provider. Requires `plugin_model_config`. Pass empty strings
+  to clear it.
+  """
+  def set_default_model(%Scope{} = scope, plugin_id, model) do
+    with :ok <- RBAC.authorize(scope, :plugin_model_config) do
+      workspace = Repo.get!(Flux.Accounts.Workspace, Scope.workspace_id(scope))
+
+      default =
+        if plugin_id in [nil, ""] or model in [nil, ""] do
+          nil
+        else
+          %{"provider_plugin_id" => plugin_id, "model" => model}
+        end
+
+      custom_config =
+        if default do
+          Map.put(workspace.custom_config || %{}, "default_model", default)
+        else
+          Map.delete(workspace.custom_config || %{}, "default_model")
+        end
+
+      workspace
+      |> Ecto.Changeset.change(custom_config: custom_config)
+      |> Repo.update()
+    end
+  end
+
+  @doc "The workspace default model as `%{\"provider_plugin_id\", \"model\"}` or nil."
+  def default_model(%Scope{} = scope), do: default_model_for_workspace(Scope.workspace_id(scope))
+
+  def default_model_for_workspace(nil), do: nil
+
+  def default_model_for_workspace(workspace_id) do
+    case Repo.get(Flux.Accounts.Workspace, workspace_id) do
+      %{custom_config: %{"default_model" => %{} = default}} -> default
+      _none -> nil
+    end
+  end
+
   defp validate_with_plugin(plugin_id, config) do
     case runtime().validate_credentials(plugin_id, config) do
       :ok -> :ok

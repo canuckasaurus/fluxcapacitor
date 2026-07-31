@@ -20,7 +20,9 @@ defmodule FluxWeb.ConsoleLive.Plugins do
     assign(socket,
       plugins: Providers.list_provider_plugins(),
       credentials_by_plugin: Map.new(credentials, &{&1.plugin_id, &1}),
-      can_manage: RBAC.can?(scope, :plugin_model_config)
+      can_manage: RBAC.can?(scope, :plugin_model_config),
+      models: Providers.available_models(scope),
+      default_model: Providers.default_model(scope)
     )
   end
 
@@ -52,6 +54,23 @@ defmodule FluxWeb.ConsoleLive.Plugins do
     end
   end
 
+  def handle_event("set_default_model", %{"model_choice" => choice}, socket) do
+    {plugin_id, model} =
+      case String.split(choice, "|", parts: 2) do
+        [plugin_id, model] -> {plugin_id, model}
+        _cleared -> {"", ""}
+      end
+
+    case Providers.set_default_model(socket.assigns.current_scope, plugin_id, model) do
+      {:ok, _workspace} ->
+        {:noreply, socket |> put_flash(:info, "Default model saved.") |> refresh()}
+
+      {:error, :unauthorized} ->
+        {:noreply,
+         put_flash(socket, :error, "You don't have permission to set the default model.")}
+    end
+  end
+
   def handle_event("remove", %{"credential-id" => id}, socket) do
     case Providers.delete_credential(socket.assigns.current_scope, id) do
       {:ok, _} -> {:noreply, socket |> put_flash(:info, "Credentials removed.") |> refresh()}
@@ -73,6 +92,29 @@ defmodule FluxWeb.ConsoleLive.Plugins do
         <p class="opacity-70 mt-1">
           Model providers available to this workspace. Configure credentials to unlock models.
         </p>
+      </div>
+
+      <div :if={@can_manage} class="card border border-base-200 p-6 space-y-3" id="default-model">
+        <h2 class="font-semibold">Default model</h2>
+        <p class="text-sm opacity-70">
+          LLM and agent nodes that name no model fall back to this workspace default.
+        </p>
+        <form phx-change="set_default_model" id="default-model-form">
+          <select name="model_choice" class="select select-bordered select-sm w-full max-w-md">
+            <option value="" selected={@default_model == nil}>No default</option>
+            <option
+              :for={%{plugin_id: pid, plugin_name: pname, model: m} <- @models}
+              value={"#{pid}|#{m.name}"}
+              selected={
+                @default_model != nil and
+                  @default_model["provider_plugin_id"] == pid and
+                  @default_model["model"] == m.name
+              }
+            >
+              {pname} — {m.label}
+            </option>
+          </select>
+        </form>
       </div>
 
       <div class="space-y-4">
