@@ -213,11 +213,12 @@ defmodule Flux.Workflows do
 
         :ok = subscribe(run.id)
         workspace_id = Scope.workspace_id(scope)
+        run_opts = Keyword.take(opts, [:sys, :conversation])
 
         {:ok, _pid} =
           Task.Supervisor.start_child(Flux.GenerationSupervisor, fn ->
             Registry.register(Flux.GenerationRegistry, run.id, nil)
-            execute(run, graph, inputs, workspace_id)
+            execute(run, graph, inputs, workspace_id, run_opts)
           end)
 
         {:ok, run}
@@ -447,7 +448,7 @@ defmodule Flux.Workflows do
 
   ## Run internals
 
-  defp execute(run, graph, inputs, workspace_id) do
+  defp execute(run, graph, inputs, workspace_id, run_opts \\ []) do
     host = %Host{
       emit: fn event ->
         Phoenix.PubSub.broadcast(Flux.PubSub, topic(run.id), {:engine_event, event})
@@ -461,7 +462,7 @@ defmodule Flux.Workflows do
       default_llm: Providers.default_model_for_workspace(workspace_id)
     }
 
-    case Engine.run(graph, inputs, host) do
+    case Engine.run(graph, inputs, host, run_opts) do
       {:ok, result} ->
         finalize(run, %{
           status: :succeeded,

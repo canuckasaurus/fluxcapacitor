@@ -25,6 +25,7 @@ defmodule Flux.Engine do
   defdelegate node_types(), to: Graph
   defdelegate handles_for(type), to: Graph
 
-  @spec run(Graph.t(), map(), Host.t()) :: {:ok, Runner.success()} | {:error, Runner.failure()}
-  defdelegate run(graph, inputs, host), to: Runner
+  @spec run(Graph.t(), map(), Host.t(), keyword()) ::
+          {:ok, Runner.success()} | {:error, Runner.failure()}
+  defdelegate run(graph, inputs, host, opts \\ []), to: Runner
 end

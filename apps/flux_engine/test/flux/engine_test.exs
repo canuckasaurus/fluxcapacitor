@@ -967,6 +967,45 @@ defmodule Flux.EngineTest do
       assert failure.node_id == "llm_1"
     end
 
+    test "env, sys, and conversation variables resolve in templates" do
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("assign", "variable_assigner", %{
+            "assignments" => [%{"name" => "greeted", "value" => "yes"}]
+          }),
+          node!("t", "template", %{
+            "template" =>
+              "env={{env.API_BASE}} sys={{sys.query}} conv={{conversation.topic}} set={{conversation.greeted}}"
+          })
+        ],
+        "edges" => [edge!("start", "assign"), edge!("assign", "t")],
+        "env" => %{"API_BASE" => "https://api.example.com"},
+        "conversation_variables" => [
+          %{"name" => "topic", "default" => "general"},
+          %{"name" => "greeted", "default" => "no"}
+        ]
+      }
+
+      {:ok, built} = Engine.build(graph)
+
+      assert {:ok, result} =
+               Engine.run(built, %{"query" => "q"}, echo_host(), sys: %{"query" => "from sys"})
+
+      assert result.outputs["output"] ==
+               "env=https://api.example.com sys=from sys conv=general set=yes"
+    end
+
+    test "reserved node ids are rejected" do
+      graph = %{
+        "nodes" => [start_node(), node!("env", "template", %{"template" => "x"})],
+        "edges" => [edge!("start", "env")]
+      }
+
+      assert {:error, errors} = Engine.build(graph)
+      assert Enum.any?(errors, &(&1 =~ "reserved"))
+    end
+
     test "unresolved template references render blank" do
       graph = %{
         "nodes" => [

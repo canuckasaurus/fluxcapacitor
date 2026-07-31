@@ -35,12 +35,14 @@ defmodule Flux.Engine.Graph do
   end
 
   @enforce_keys [:nodes, :edges, :start_id]
-  defstruct [:nodes, :edges, :start_id]
+  defstruct [:nodes, :edges, :start_id, env: %{}, conversation_variables: []]
 
   @type t :: %__MODULE__{
           nodes: %{String.t() => Node.t()},
           edges: [Edge.t()],
-          start_id: String.t()
+          start_id: String.t(),
+          env: %{String.t() => String.t()},
+          conversation_variables: [map()]
         }
 
   @node_types ~w(start llm if_else template answer end tool http_request code agent
@@ -88,7 +90,9 @@ defmodule Flux.Engine.Graph do
          %__MODULE__{
            nodes: Map.new(nodes, &{&1.id, &1}),
            edges: edges,
-           start_id: start.id
+           start_id: start.id,
+           env: env(raw),
+           conversation_variables: conversation_variables(raw)
          }}
 
       errors ->
@@ -129,10 +133,31 @@ defmodule Flux.Engine.Graph do
   defp as_map(value) when is_map(value), do: value
   defp as_map(_value), do: %{}
 
+  defp env(raw) do
+    case Map.get(raw, "env") do
+      %{} = env -> Map.new(env, fn {key, value} -> {to_string(key), to_string(value)} end)
+      _absent -> %{}
+    end
+  end
+
+  defp conversation_variables(raw) do
+    raw
+    |> Map.get("conversation_variables")
+    |> List.wrap()
+    |> Enum.flat_map(fn
+      %{"name" => name} = variable when is_binary(name) and name != "" ->
+        [%{"name" => name, "default" => to_string(variable["default"] || "")}]
+
+      _invalid ->
+        []
+    end)
+  end
+
   defp check_node_shapes(errors, nodes) do
     Enum.reduce(nodes, errors, fn node, acc ->
       cond do
         node.id == "" -> ["a node is missing an id" | acc]
+        node.id in ~w(env conversation sys) -> ["node id #{node.id} is reserved" | acc]
         node.type not in @node_types -> ["node #{node.id} has unknown type #{node.type}" | acc]
         true -> acc
       end

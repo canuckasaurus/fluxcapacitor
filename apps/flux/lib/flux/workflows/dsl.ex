@@ -60,12 +60,38 @@ defmodule Flux.Workflows.DSL do
       kept_ids = MapSet.new(nodes, & &1["id"])
       {edges, warnings} = convert_edges(raw_edges, raw_nodes, kept_ids, warnings)
 
+      env =
+        doc
+        |> get_in(["workflow", "environment_variables"])
+        |> List.wrap()
+        |> Map.new(fn variable ->
+          {to_string(variable["name"] || ""), to_string(variable["value"] || "")}
+        end)
+        |> Map.delete("")
+
+      conversation_variables =
+        doc
+        |> get_in(["workflow", "conversation_variables"])
+        |> List.wrap()
+        |> Enum.flat_map(fn
+          %{"name" => name} = variable when is_binary(name) and name != "" ->
+            [%{"name" => name, "default" => to_string(variable["value"] || "")}]
+
+          _invalid ->
+            []
+        end)
+
       {:ok,
        %{
          name: get_in(doc, ["app", "name"]) || "Imported flux",
          description: get_in(doc, ["app", "description"]),
          mode: get_in(doc, ["app", "mode"]),
-         graph: %{"nodes" => nodes, "edges" => edges},
+         graph: %{
+           "nodes" => nodes,
+           "edges" => edges,
+           "env" => env,
+           "conversation_variables" => conversation_variables
+         },
          warnings: Enum.reverse(warnings)
        }}
     end
@@ -89,8 +115,18 @@ defmodule Flux.Workflows.DSL do
       },
       "dependencies" => [],
       "workflow" => %{
-        "conversation_variables" => [],
-        "environment_variables" => [],
+        "conversation_variables" =>
+          for variable <- List.wrap(workflow.graph["conversation_variables"]) do
+            %{
+              "name" => variable["name"],
+              "value" => variable["default"] || "",
+              "value_type" => "string"
+            }
+          end,
+        "environment_variables" =>
+          for {key, value} <- Map.get(workflow.graph, "env", %{}) do
+            %{"name" => key, "value" => value, "value_type" => "string"}
+          end,
         "features" => %{},
         "graph" => %{
           "nodes" => Enum.map(workflow.graph["nodes"] || [], &export_node/1),

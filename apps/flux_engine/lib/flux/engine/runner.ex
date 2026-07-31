@@ -20,15 +20,26 @@ defmodule Flux.Engine.Runner do
           elapsed_ms: non_neg_integer()
         }
 
-  @spec run(Graph.t(), map(), Host.t()) :: {:ok, success()} | {:error, failure()}
-  def run(%Graph{} = graph, inputs, %Host{} = host) when is_map(inputs) do
+  @spec run(Graph.t(), map(), Host.t(), keyword()) :: {:ok, success()} | {:error, failure()}
+  def run(%Graph{} = graph, inputs, %Host{} = host, opts \\ []) when is_map(inputs) do
     started_at = System.monotonic_time(:millisecond)
     Host.emit(host, {:workflow_started, %{inputs: inputs}})
 
     start = Map.fetch!(graph.nodes, graph.start_id)
     start = %{start | config: Map.put(start.config, "__inputs__", inputs)}
 
-    case walk(graph, start, %{}, host, [], @max_steps) do
+    conversation_defaults =
+      Map.new(graph.conversation_variables, fn variable ->
+        {variable["name"], variable["default"]}
+      end)
+
+    pool = %{
+      "env" => graph.env,
+      "sys" => Keyword.get(opts, :sys, %{}),
+      "conversation" => Map.merge(conversation_defaults, Keyword.get(opts, :conversation, %{}))
+    }
+
+    case walk(graph, start, pool, host, [], @max_steps) do
       {:ok, outputs, executions} ->
         {:ok,
          %{
@@ -59,6 +70,14 @@ defmodule Flux.Engine.Runner do
       {:ok, outputs, branch} ->
         node_elapsed = elapsed(node_started_at)
         pool = Map.put(pool, node.id, outputs)
+
+        # Assigner writes become visible to later nodes in this run.
+        pool =
+          if node.type == "variable_assigner" do
+            Map.update(pool, "conversation", outputs, &Map.merge(&1, outputs))
+          else
+            pool
+          end
 
         Host.emit(
           host,

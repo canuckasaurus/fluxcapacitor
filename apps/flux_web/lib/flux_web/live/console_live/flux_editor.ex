@@ -132,6 +132,9 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
            triggers: [],
            trigger_type: "webhook",
            show_site: false,
+           show_variables: false,
+           env_rows: [],
+           conv_rows: [],
            zoom: 100,
            undo_stack: [],
            redo_stack: [],
@@ -539,6 +542,80 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
 
     {:noreply,
      assign(socket, tokens: Workflows.list_api_tokens(scope, socket.assigns.workflow.id))}
+  end
+
+  ## Env + conversation variables
+
+  def handle_event("toggle_variables", _params, socket) do
+    graph = socket.assigns.graph
+
+    env_rows =
+      graph
+      |> Map.get("env", %{})
+      |> Enum.sort()
+      |> Enum.map(fn {key, value} -> %{"key" => key, "value" => value} end)
+
+    {:noreply,
+     assign(socket,
+       show_variables: not socket.assigns.show_variables,
+       env_rows: env_rows,
+       conv_rows: List.wrap(graph["conversation_variables"])
+     )}
+  end
+
+  def handle_event("variables_change", params, socket) do
+    {:noreply,
+     assign(socket,
+       env_rows: indexed_rows(params["envs"], ~w(key value), %{}),
+       conv_rows: indexed_rows(params["convs"], ~w(name default), %{})
+     )}
+  end
+
+  def handle_event("add_env_row", _params, socket) do
+    {:noreply,
+     assign(socket, env_rows: socket.assigns.env_rows ++ [%{"key" => "", "value" => ""}])}
+  end
+
+  def handle_event("add_conv_row", _params, socket) do
+    {:noreply,
+     assign(socket, conv_rows: socket.assigns.conv_rows ++ [%{"name" => "", "default" => ""}])}
+  end
+
+  def handle_event("remove_env_row", %{"index" => index}, socket) do
+    {:noreply,
+     assign(socket,
+       env_rows: List.delete_at(socket.assigns.env_rows, String.to_integer(index))
+     )}
+  end
+
+  def handle_event("remove_conv_row", %{"index" => index}, socket) do
+    {:noreply,
+     assign(socket,
+       conv_rows: List.delete_at(socket.assigns.conv_rows, String.to_integer(index))
+     )}
+  end
+
+  def handle_event("save_variables", params, socket) do
+    env =
+      params["envs"]
+      |> indexed_rows(~w(key value), %{})
+      |> Enum.reject(&(&1["key"] == ""))
+      |> Map.new(fn row -> {row["key"], row["value"]} end)
+
+    conversation_variables =
+      params["convs"]
+      |> indexed_rows(~w(name default), %{})
+      |> Enum.reject(&(&1["name"] == ""))
+
+    socket =
+      update_graph(socket, fn graph ->
+        graph
+        |> Map.put("env", env)
+        |> Map.put("conversation_variables", conversation_variables)
+      end)
+      |> elem(1)
+
+    {:noreply, socket |> assign(show_variables: false) |> put_flash(:info, "Variables saved.")}
   end
 
   ## Site publishing
@@ -1371,6 +1448,9 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
             </button>
             <button :if={@can_manage_tokens} class="btn btn-sm btn-ghost" phx-click="toggle_api">
               <.icon name="hero-key" class="size-4" /> API
+            </button>
+            <button :if={@can_edit} class="btn btn-sm btn-ghost" phx-click="toggle_variables">
+              <.icon name="hero-variable" class="size-4" /> Variables
             </button>
             <button :if={@can_edit} class="btn btn-sm btn-ghost" phx-click="toggle_triggers">
               <.icon name="hero-bolt" class="size-4" /> Triggers
@@ -2787,6 +2867,93 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
           </button>
         </div>
         <div class="modal-backdrop" phx-click="toggle_api"></div>
+      </dialog>
+
+      <dialog :if={@show_variables} class="modal modal-open">
+        <div class="modal-box max-w-2xl space-y-4">
+          <div class="flex items-center justify-between">
+            <h3 class="font-bold">Variables</h3>
+            <button class="btn btn-ghost btn-xs" phx-click="toggle_variables">
+              <.icon name="hero-x-mark" class="size-4" />
+            </button>
+          </div>
+          <form
+            id="variables-form"
+            phx-submit="save_variables"
+            phx-change="variables_change"
+            class="space-y-4"
+          >
+            <div class="space-y-2">
+              <p class="text-sm font-semibold">
+                Environment variables — reference as <code>{"{{env.KEY}}"}</code>
+              </p>
+              <div :for={{row, index} <- Enum.with_index(@env_rows)} class="flex gap-2">
+                <input
+                  type="text"
+                  name={"envs[#{index}][key]"}
+                  value={row["key"]}
+                  placeholder="KEY"
+                  class="input input-sm w-40 font-mono"
+                />
+                <input
+                  type="text"
+                  name={"envs[#{index}][value]"}
+                  value={row["value"]}
+                  placeholder="value"
+                  class="input input-sm flex-1 font-mono"
+                />
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs text-error"
+                  phx-click="remove_env_row"
+                  phx-value-index={index}
+                >
+                  ✕
+                </button>
+              </div>
+              <button type="button" class="btn btn-outline btn-xs" phx-click="add_env_row">
+                <.icon name="hero-plus" class="size-3" /> Add env variable
+              </button>
+            </div>
+
+            <div class="space-y-2">
+              <p class="text-sm font-semibold">
+                Conversation variables — reference as <code>{"{{conversation.name}}"}</code>,
+                written by Assigner nodes, persisted across chatflow turns
+              </p>
+              <div :for={{row, index} <- Enum.with_index(@conv_rows)} class="flex gap-2">
+                <input
+                  type="text"
+                  name={"convs[#{index}][name]"}
+                  value={row["name"]}
+                  placeholder="name"
+                  class="input input-sm w-40 font-mono"
+                />
+                <input
+                  type="text"
+                  name={"convs[#{index}][default]"}
+                  value={row["default"]}
+                  placeholder="default value"
+                  class="input input-sm flex-1"
+                />
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs text-error"
+                  phx-click="remove_conv_row"
+                  phx-value-index={index}
+                >
+                  ✕
+                </button>
+              </div>
+              <button type="button" class="btn btn-outline btn-xs" phx-click="add_conv_row">
+                <.icon name="hero-plus" class="size-3" /> Add conversation variable
+              </button>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-sm">Save variables</button>
+          </form>
+        </div>
+        <div class="modal-backdrop" phx-click="toggle_variables"></div>
       </dialog>
 
       <dialog :if={@show_site} class="modal modal-open">
