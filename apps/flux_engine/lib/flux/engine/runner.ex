@@ -55,7 +55,7 @@ defmodule Flux.Engine.Runner do
     Host.emit(host, {:node_started, %{node_id: node.id, node_type: node.type, title: node.title}})
     node_started_at = System.monotonic_time(:millisecond)
 
-    case safe_run(node, pool, host) do
+    case run_with_retries(node, pool, host, retries_for(node)) do
       {:ok, outputs, branch} ->
         node_elapsed = elapsed(node_started_at)
         pool = Map.put(pool, node.id, outputs)
@@ -81,8 +81,55 @@ defmodule Flux.Engine.Runner do
         error = format_error(reason)
         Host.emit(host, {:node_failed, %{node_id: node.id, error: error}})
         executions = [execution(node, "failed", %{}, error, node_elapsed) | executions]
-        {:error, node.id, reason, executions}
+
+        # An "error" edge turns the failure into a routed branch: downstream
+        # nodes see %{"error", "is_error"} as this node's outputs.
+        case Graph.next_edge(graph, node.id, "error") do
+          nil ->
+            {:error, node.id, reason, executions}
+
+          edge ->
+            pool = Map.put(pool, node.id, %{"error" => error, "is_error" => true})
+            next = Map.fetch!(graph.nodes, edge.target)
+            walk(graph, next, pool, host, executions, steps_left - 1)
+        end
     end
+  end
+
+  # Bounded, host-visible retries; the interval is capped so a
+  # misconfigured node cannot stall the run for minutes.
+  defp run_with_retries(node, pool, host, {max_retries, interval_ms}) do
+    case safe_run(node, pool, host) do
+      {:error, reason} when max_retries > 0 ->
+        Host.emit(
+          host,
+          {:node_retry, %{node_id: node.id, error: format_error(reason), left: max_retries}}
+        )
+
+        Process.sleep(interval_ms)
+        run_with_retries(node, pool, host, {max_retries - 1, interval_ms})
+
+      result ->
+        result
+    end
+  end
+
+  defp retries_for(node) do
+    retry = node.config["retry"] || %{}
+
+    max_retries =
+      case retry["max_retries"] do
+        n when is_integer(n) and n > 0 -> min(n, 5)
+        _off -> 0
+      end
+
+    interval_ms =
+      case retry["interval_ms"] do
+        n when is_integer(n) and n >= 0 -> min(n, 5_000)
+        _default -> 500
+      end
+
+    {max_retries, interval_ms}
   end
 
   defp safe_run(node, pool, host) do

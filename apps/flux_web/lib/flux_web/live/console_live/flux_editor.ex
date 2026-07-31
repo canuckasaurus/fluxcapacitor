@@ -88,6 +88,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                     http_request code agent variable_aggregator variable_assigner
                     list_operator answer end)
   @zoom_levels [50, 65, 80, 100, 125, 150]
+  @failable_types ~w(llm tool http_request code agent question_classifier parameter_extractor)
   @history_cap 50
 
   @impl true
@@ -418,13 +419,29 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
 
         update_graph(socket, fn graph ->
           update_node_in(graph, node["id"], fn current ->
+            config =
+              current["type"]
+              |> build_config(current["config"], params)
+              |> put_retry(params)
+
             current
             |> Map.put("title", Map.get(params, "title", current["title"]))
-            |> Map.put("config", build_config(current["type"], current["config"], params))
+            |> Map.put("config", config)
           end)
         end)
     end
   end
+
+  # Retry settings apply to every failable node type, so they merge in
+  # after the type-specific config is built.
+  defp put_retry(config, %{"max_retries" => max_retries}) do
+    case Integer.parse(to_string(max_retries)) do
+      {n, ""} when n > 0 -> Map.put(config, "retry", %{"max_retries" => min(n, 5)})
+      _off -> Map.delete(config, "retry")
+    end
+  end
+
+  defp put_retry(config, _params), do: config
 
   def handle_event("add_row", %{"kind" => kind}, socket) do
     update_selected_rows(socket, kind, &(&1 ++ [empty_row(kind)]))
@@ -1195,6 +1212,12 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     end)
   end
 
+  defp failable?(type), do: type in @failable_types
+
+  defp source_handle_offset(%{"type" => "question_classifier"} = source, "error") do
+    @port_y + length(List.wrap(source["config"]["classes"])) * 28 - 2
+  end
+
   defp source_handle_offset(%{"type" => "question_classifier"} = source, handle) do
     index =
       source["config"]["classes"]
@@ -1205,6 +1228,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
   end
 
   defp source_handle_offset(_source, "false"), do: @false_port_y
+  defp source_handle_offset(_source, "error"), do: @false_port_y
   defp source_handle_offset(_source, _handle), do: @port_y
 
   defp start_variables(graph) do
@@ -1467,6 +1491,21 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                     >
                     </span>
                   <% end %>
+
+                  <span
+                    :if={failable?(node["type"])}
+                    data-out-port
+                    data-node-id={node["id"]}
+                    data-handle="error"
+                    class="absolute -right-1.5 size-3 rounded-full bg-error/70 hover:bg-error hover:scale-125 transition-transform cursor-crosshair"
+                    style={
+                      (node["type"] == "question_classifier" &&
+                         "top: #{22 + length(List.wrap(node["config"]["classes"])) * 28}px") ||
+                        "top: 50px"
+                    }
+                    title="Error branch"
+                  >
+                  </span>
 
                   <%= if node["type"] == "if_else" do %>
                     <span
@@ -2491,6 +2530,22 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                   </div>
                 <% _other -> %>
               <% end %>
+
+              <label
+                :if={failable?(node["type"])}
+                class="floating-label border-t border-base-200 pt-3 mt-1 block"
+              >
+                <span>Retries on failure (0–5; wire the red port for an error branch)</span>
+                <input
+                  type="number"
+                  name="max_retries"
+                  value={node["config"]["retry"]["max_retries"] || 0}
+                  min="0"
+                  max="5"
+                  class="input input-sm w-24"
+                  disabled={not @can_edit}
+                />
+              </label>
             </form>
 
             <div :if={variable_hints(@graph, @selected_id) != []} class="space-y-1">

@@ -870,6 +870,103 @@ defmodule Flux.EngineTest do
       assert result.outputs["reason"] =~ "email"
     end
 
+    test "a failing node retries up to max_retries and can still succeed" do
+      {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("llm_1", "llm", %{
+            "provider_plugin_id" => "p",
+            "model" => "m",
+            "prompt" => "{{start.query}}",
+            "retry" => %{"max_retries" => 2, "interval_ms" => 0}
+          })
+        ],
+        "edges" => [edge!("start", "llm_1")]
+      }
+
+      host = %Host{
+        emit: fn _e -> :ok end,
+        invoke_llm: fn _request, _chunk ->
+          attempt = Elixir.Agent.get_and_update(counter, &{&1, &1 + 1})
+
+          if attempt < 2 do
+            {:error, "flaky"}
+          else
+            {:ok, %{content: "third time lucky", usage: %{}, tool_calls: []}}
+          end
+        end
+      }
+
+      {:ok, built} = Engine.build(graph)
+      assert {:ok, result} = Engine.run(built, %{"query" => "q"}, host)
+      assert result.outputs["text"] == "third time lucky"
+      assert Elixir.Agent.get(counter, & &1) == 3
+    end
+
+    test "a failed node with an error edge routes the error branch" do
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("llm_1", "llm", %{
+            "provider_plugin_id" => "p",
+            "model" => "m",
+            "prompt" => "{{start.query}}"
+          }),
+          node!("fallback", "template", %{
+            "template" => "fallback because: {{llm_1.error}}"
+          })
+        ],
+        "edges" => [
+          edge!("start", "llm_1"),
+          %{
+            "id" => "e_err",
+            "source" => "llm_1",
+            "source_handle" => "error",
+            "target" => "fallback"
+          }
+        ]
+      }
+
+      host = %Host{
+        emit: fn _e -> :ok end,
+        invoke_llm: fn _request, _chunk -> {:error, "provider down"} end
+      }
+
+      {:ok, built} = Engine.build(graph)
+      assert {:ok, result} = Engine.run(built, %{"query" => "q"}, host)
+      assert result.outputs["output"] == "fallback because: provider down"
+
+      assert Enum.any?(
+               result.node_executions,
+               &(&1["node_id"] == "llm_1" and &1["status"] == "failed")
+             )
+    end
+
+    test "a failed node without an error edge still fails the run" do
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("llm_1", "llm", %{
+            "provider_plugin_id" => "p",
+            "model" => "m",
+            "prompt" => "{{start.query}}"
+          })
+        ],
+        "edges" => [edge!("start", "llm_1")]
+      }
+
+      host = %Host{
+        emit: fn _e -> :ok end,
+        invoke_llm: fn _request, _chunk -> {:error, "provider down"} end
+      }
+
+      {:ok, built} = Engine.build(graph)
+      assert {:error, failure} = Engine.run(built, %{"query" => "q"}, host)
+      assert failure.node_id == "llm_1"
+    end
+
     test "unresolved template references render blank" do
       graph = %{
         "nodes" => [

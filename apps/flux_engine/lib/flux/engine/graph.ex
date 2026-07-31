@@ -165,8 +165,16 @@ defmodule Flux.Engine.Graph do
       Enum.reduce(edges, errors, fn edge, acc ->
         handles =
           case Map.get(by_id, edge.source) do
-            nil -> ~w(default)
-            node -> handles_for_node(node)
+            nil ->
+              ~w(default)
+
+            # Any failable node may route an "error" branch (runner falls
+            # back to failing the run when no such edge exists).
+            %Node{type: type} = node when type not in ["start", "end"] ->
+              handles_for_node(node) ++ ["error"]
+
+            node ->
+              handles_for_node(node)
           end
 
         cond do
