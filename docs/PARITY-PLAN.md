@@ -96,7 +96,12 @@ Order inside the workstream:
 - variable aggregator/assigner; list-operator; document-extractor.
 - **iteration/loop** — do a design spike first: allowing cycles inside loop scopes
   touches the validator and runner; biggest structural risk in the engine.
-- code node via dify-sandbox container (compose already present from WS3).
+- **Code node with per-block dependencies — decision 2026-07-31: our own `flux-coderunner`, NOT dify-sandbox** (its fixed dependency set can't do per-block libraries; ours is a Dify superset).
+  - Contract mirrors Dify exactly (`main(**variables) -> dict`) so imported DSL code nodes run unchanged; adds `dependencies: [{name, version}]`.
+  - Engine `code` node → host capability `run_code` → `Flux.CodeRunner` behaviour with `Sandbox` (HTTP to runner container), `Local` (dev-only, opt-in, unsafe), `Fake` (CI) backends.
+  - Runner container: Python + `uv`; dependency sets hash to cached virtualenvs (first run seconds, cached runs ms); rlimits + wall timeout (30s default/120s cap) + 256KB output cap; internal-network only + API-key auth; POST /run {language, code, dependencies, inputs, timeout_ms}.
+  - Phases: P0 (no Docker — node/behaviour/Local+Fake/editor panel/DSL import, ~2–3d) → P1 (runner container in the WS3 compose, ~2–3d) → P2 (hardening: install/execute network split via unshare -n, per-workspace dep allowlist, JS via node+npm cache, single-node test-run button ≈ WS4 draft debugging, ~2–3d).
+  - Known gap until P2: network reachable during code execution (documented, not hidden).
 - Retries + error branches; env/conversation variables; human-input + pause/resume snapshots.
 - DSL import hardening (harness fixtures); export ✅ (2026-07-30, JSON-as-YAML, round-trip tested, editor Export button).
 - advanced-chat (chatflow) app mode: conversations backed by the engine.
