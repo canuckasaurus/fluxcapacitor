@@ -167,8 +167,10 @@ Timeline above assumes ~2–3 engineers; single-engineer pace ≈ 2.5× the dura
 4. ~~`open_api_spex` contract tests~~ ✅ (2026-07-31): strict schemas (additionalProperties: false) + tests over all 12 `/v1` routes.
 5. ~~Agent v2 features~~ ✅ (2026-07-31): `output_schema` → synthetic `final_output` tool → structured `"output"`; deferred tools → `status=deferred` + `session_snapshot` resume with `deferred_tool_results`; `agent_part` events (part_start/part_delta thinking, function_tool_call/result) incl. `/v1` SSE.
 6. azure_openai + bedrock providers (default/system model config ✅ 2026-07-31 — workspace default in custom_config, Host.resolve_llm fallback, Plugins-page selector).
-7. ~~Router-level RBAC plug~~ ✅ (RequirePermission plug, DSL export gated on app_import_export_dsl); ~~PromEx + logger_json + audit context~~ ✅ (2026-07-31: /metrics behind FLUX_METRICS, FLUX_LOG_JSON structured logs, `Flux.Audit` recording app/site/publish/credential mutations). OTEL traces still open.
-8. Engine depth not needing fixtures: variable aggregator/assigner, list-operator (iteration/loop spike SHOULD wait for the harness).
+7. ~~Router-level RBAC plug~~ ✅ (RequirePermission plug, DSL export gated on app_import_export_dsl); ~~PromEx + logger_json + audit context~~ ✅ (2026-07-31: /metrics behind FLUX_METRICS, FLUX_LOG_JSON structured logs, `Flux.Audit` recording app/site/publish/credential mutations); ~~OTEL traces~~ ✅ (Phoenix/Bandit/Ecto + flux.workflow.run span, OTLP via standard env vars); ~~audit browsing UI~~ ✅ (/console/audit, owner/admin).
+8. ~~Engine depth batch~~ ✅ (2026-07-31): variable aggregator + assigner, list-operator, **question-classifier + parameter-extractor** (forced tool calls; per-class branch handles), **retries + error branches** (retry.max_retries ≤5; "error" handle routes failures), **env + conversation variables** ({{env.*}}/{{conversation.*}}/{{sys.*}}, Variables modal, DSL round-trip). Engine at **15/20 node types**. Iteration/loop spike still waits for the harness (Docker).
+9. ~~advanced-chat (chatflow) app mode~~ ✅ (2026-07-31): apps bound to a flux; each turn runs the published version with {{sys.query}}, streams through the chat pipeline, persists conversation variables. Console/site/v1 all work through send_message.
+10. ~~Canvas copy/paste + searchable node palette~~ ✅ (2026-07-31).
 
 ### Blocked — external unblocks required
 | Item | Blocked on |
