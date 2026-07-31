@@ -8,7 +8,7 @@ defmodule Flux.Engine.Host do
   events to subscribers.
   """
 
-  defstruct emit: nil, invoke_llm: nil, invoke_tool: nil, http_request: nil
+  defstruct emit: nil, invoke_llm: nil, invoke_tool: nil, http_request: nil, run_code: nil
 
   @typedoc """
   `invoke_llm` receives `%{provider_plugin_id, model, messages, params}`
@@ -23,7 +23,8 @@ defmodule Flux.Engine.Host do
           emit: (term() -> any()) | nil,
           invoke_llm: (map(), (String.t() -> any()) -> {:ok, map()} | {:error, term()}) | nil,
           invoke_tool: (map() -> {:ok, map()} | {:error, term()}) | nil,
-          http_request: (map() -> {:ok, map()} | {:error, term()}) | nil
+          http_request: (map() -> {:ok, map()} | {:error, term()}) | nil,
+          run_code: (map() -> {:ok, map()} | {:error, term()}) | nil
         }
 
   @doc false

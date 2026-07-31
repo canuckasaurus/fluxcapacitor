@@ -23,6 +23,14 @@ if allow = System.get_env("FLUX_SSRF_ALLOW") do
     allow: allow |> String.split(",", trim: true) |> Enum.map(&String.trim/1)
 end
 
+# CODE_RUNNER_URL points at the internal flux-coderunner service; without
+# it, code nodes fail with a clear configuration error.
+if url = System.get_env("CODE_RUNNER_URL") do
+  config :flux, Flux.CodeRunner.Sandbox,
+    url: url,
+    api_key: System.get_env("CODE_RUNNER_API_KEY")
+end
+
 # FLUX_MAILBOX=1 keeps delivered email in memory and serves the
 # authenticated /dev/mailbox preview — for local deploys without a real
 # mail adapter. Leave unset in any real production environment.

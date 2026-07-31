@@ -46,10 +46,15 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
       label: "HTTP Request",
       icon: "hero-globe-alt",
       accent: "bg-info/10 text-info"
+    },
+    "code" => %{
+      label: "Code",
+      icon: "hero-command-line",
+      accent: "bg-neutral/10 text-neutral"
     }
   }
 
-  @addable_types ~w(llm if_else template tool http_request answer end)
+  @addable_types ~w(llm if_else template tool http_request code answer end)
   @zoom_levels [50, 65, 80, 100, 125, 150]
   @history_cap 50
 
@@ -621,12 +626,24 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
   defp default_config("http_request"),
     do: %{"method" => "get", "url" => "", "headers" => [], "body" => ""}
 
+  defp default_config("code") do
+    %{
+      "language" => "python3",
+      "code" => "def main(query: str) -> dict:\n    return {\"result\": query.upper()}",
+      "dependencies" => [],
+      "inputs" => [%{"name" => "query", "value" => "{{start.query}}"}],
+      "timeout_ms" => 30_000
+    }
+  end
+
   defp default_config("answer"), do: %{"answer" => ""}
   defp default_config("end"), do: %{"outputs" => [%{"key" => "result", "value" => ""}]}
   defp default_config(_type), do: %{}
 
   defp row_key("variable"), do: "variables"
   defp row_key("header"), do: "headers"
+  defp row_key("dependency"), do: "dependencies"
+  defp row_key("code_input"), do: "inputs"
   defp row_key("condition"), do: "conditions"
   defp row_key("output"), do: "outputs"
 
@@ -634,6 +651,8 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     do: %{"name" => "", "label" => "", "type" => "text", "required" => false}
 
   defp empty_row("header"), do: %{"key" => "", "value" => ""}
+  defp empty_row("dependency"), do: %{"name" => "", "version" => ""}
+  defp empty_row("code_input"), do: %{"name" => "", "value" => ""}
   defp empty_row("condition"), do: %{"left" => "", "operator" => "contains", "right" => ""}
   defp empty_row("output"), do: %{"key" => "", "value" => ""}
 
@@ -676,6 +695,14 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     |> Map.put("url", Map.get(params, "url", ""))
     |> Map.put("body", Map.get(params, "body", ""))
     |> Map.put("headers", indexed_rows(params["hdrs"], ~w(key value), %{}))
+  end
+
+  defp build_config("code", config, params) do
+    config
+    |> Map.put("language", Map.get(params, "language", config["language"] || "python3"))
+    |> Map.put("code", Map.get(params, "code", config["code"] || ""))
+    |> Map.put("dependencies", indexed_rows(params["deps"], ~w(name version), %{}))
+    |> Map.put("inputs", indexed_rows(params["cins"], ~w(name value), %{}))
   end
 
   defp build_config("tool", config, params) do
@@ -777,6 +804,11 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     "#{method} #{truncate(node["config"]["url"])}"
   end
 
+  defp node_summary(%{"type" => "code"} = node) do
+    deps = length(List.wrap(node["config"]["dependencies"]))
+    "#{node["config"]["language"] || "python3"} · #{deps} dep(s)"
+  end
+
   defp node_summary(%{"type" => "tool"} = node) do
     case node["config"]["operation_id"] do
       operation when is_binary(operation) and operation != "" -> operation
@@ -802,7 +834,8 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     "template" => ~w(output),
     "answer" => ~w(answer),
     "tool" => ~w(text status body),
-    "http_request" => ~w(text status_code body)
+    "http_request" => ~w(text status_code body),
+    "code" => ~w(stdout)
   }
 
   defp variable_hints(graph, selected_id) do
@@ -915,7 +948,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                 tabindex="0"
                 class="dropdown-content menu bg-base-100 rounded-box z-20 w-44 p-2 shadow border border-base-200"
               >
-                <li :for={type <- ~w(llm if_else template tool http_request answer end)}>
+                <li :for={type <- ~w(llm if_else template tool http_request code answer end)}>
                   <button phx-click="add_node" phx-value-type={type}>
                     <.icon name={meta(type).icon} class="size-4" /> {meta(type).label}
                   </button>
@@ -1404,6 +1437,119 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                       class="textarea textarea-sm w-full font-mono"
                       disabled={not @can_edit}
                     >{node["config"]["body"]}</textarea>
+                  </label>
+                <% "code" -> %>
+                  <label class="floating-label">
+                    <span>Language</span>
+                    <select name="language" class="select select-sm w-full" disabled={not @can_edit}>
+                      <option
+                        :for={lang <- ~w(python3 javascript typescript bash)}
+                        value={lang}
+                        selected={node["config"]["language"] == lang}
+                      >
+                        {lang}
+                      </option>
+                    </select>
+                  </label>
+                  <div class="space-y-2">
+                    <p class="text-xs font-semibold opacity-70">Inputs → main() arguments</p>
+                    <div
+                      :for={{input, index} <- Enum.with_index(List.wrap(node["config"]["inputs"]))}
+                      class="flex gap-2"
+                    >
+                      <input
+                        type="text"
+                        name={"cins[#{index}][name]"}
+                        value={input["name"]}
+                        placeholder="arg name"
+                        class="input input-xs w-28 font-mono"
+                        disabled={not @can_edit}
+                      />
+                      <input
+                        type="text"
+                        name={"cins[#{index}][value]"}
+                        value={input["value"]}
+                        placeholder="{{start.query}}"
+                        class="input input-xs flex-1 font-mono"
+                        disabled={not @can_edit}
+                      />
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-xs text-error"
+                        phx-click="remove_row"
+                        phx-value-kind="code_input"
+                        phx-value-index={index}
+                        disabled={not @can_edit}
+                      >
+                        x
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      class="btn btn-outline btn-xs"
+                      phx-click="add_row"
+                      phx-value-kind="code_input"
+                      disabled={not @can_edit}
+                    >
+                      <.icon name="hero-plus" class="size-3" /> Add input
+                    </button>
+                  </div>
+                  <div class="space-y-2">
+                    <p class="text-xs font-semibold opacity-70">
+                      Dependencies (installed per block, cached)
+                    </p>
+                    <div
+                      :for={
+                        {dep, index} <- Enum.with_index(List.wrap(node["config"]["dependencies"]))
+                      }
+                      class="flex gap-2"
+                    >
+                      <input
+                        type="text"
+                        name={"deps[#{index}][name]"}
+                        value={dep["name"]}
+                        placeholder="pandas"
+                        class="input input-xs flex-1 font-mono"
+                        disabled={not @can_edit}
+                      />
+                      <input
+                        type="text"
+                        name={"deps[#{index}][version]"}
+                        value={dep["version"]}
+                        placeholder="2.2.*"
+                        class="input input-xs w-24 font-mono"
+                        disabled={not @can_edit}
+                      />
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-xs text-error"
+                        phx-click="remove_row"
+                        phx-value-kind="dependency"
+                        phx-value-index={index}
+                        disabled={not @can_edit}
+                      >
+                        x
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      class="btn btn-outline btn-xs"
+                      phx-click="add_row"
+                      phx-value-kind="dependency"
+                      disabled={not @can_edit}
+                    >
+                      <.icon name="hero-plus" class="size-3" /> Add dependency
+                    </button>
+                  </div>
+                  <label class="floating-label">
+                    <span>Code — define main(...) returning a dict</span>
+                    <textarea
+                      name="code"
+                      rows="10"
+                      class="textarea textarea-sm w-full font-mono text-xs"
+                      spellcheck="false"
+                      disabled={not @can_edit}
+                    >{node["config"]["code"]}</textarea>
                   </label>
                 <% "tool" -> %>
                   <label class="floating-label">

@@ -291,6 +291,53 @@ defmodule Flux.EngineTest do
       assert {:ok, %{outputs: %{"code" => "201"}}} = Engine.run(built, %{"query" => "abc"}, host)
     end
 
+    test "code node renders inputs and maps result + stdout to outputs" do
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("code_1", "code", %{
+            "language" => "python3",
+            "code" => "def main(q): return {}",
+            "inputs" => [%{"name" => "q", "value" => "{{start.query}}"}]
+          }),
+          node!("end_1", "end", %{
+            "outputs" => [%{"key" => "up", "value" => "{{code_1.upper}}"}]
+          })
+        ],
+        "edges" => [edge!("start", "code_1"), edge!("code_1", "end_1")]
+      }
+
+      host = %Host{
+        emit: fn _e -> :ok end,
+        run_code: fn spec ->
+          assert spec.language == "python3"
+          assert spec.inputs == %{"q" => "abc"}
+          {:ok, %{result: %{"upper" => String.upcase(spec.inputs["q"])}, stdout: "traced"}}
+        end
+      }
+
+      {:ok, built} = Engine.build(graph)
+      assert {:ok, %{outputs: %{"up" => "ABC"}}} = Engine.run(built, %{"query" => "abc"}, host)
+    end
+
+    test "code node without host capability or non-dict result fails" do
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("code_1", "code", %{"code" => "def main(): return 1"})
+        ],
+        "edges" => [edge!("start", "code_1")]
+      }
+
+      {:ok, built} = Engine.build(graph)
+      assert {:error, failure} = Engine.run(built, %{"query" => "x"}, echo_host())
+      assert failure.error =~ "cannot execute code"
+
+      bad_host = %Host{emit: fn _e -> :ok end, run_code: fn _s -> {:ok, %{result: 42}} end}
+      assert {:error, failure} = Engine.run(built, %{"query" => "x"}, bad_host)
+      assert failure.error =~ "must return a dict"
+    end
+
     test "unresolved template references render blank" do
       graph = %{
         "nodes" => [

@@ -311,6 +311,64 @@ defmodule Flux.Engine.Nodes.HttpRequest do
   defp fetch_requester(_host), do: {:error, "this run's host cannot make HTTP requests"}
 end
 
+defmodule Flux.Engine.Nodes.Code do
+  @moduledoc """
+  Executes a code block through the host's `run_code` capability
+  (Dify-compatible `main(**inputs) -> dict` contract, plus per-block
+  `dependencies`). Config: `language`, `code`,
+  `dependencies` ([{name, version}]), `inputs` ([{name, value-template}]),
+  `timeout_ms`. Outputs: the returned dict's keys plus `"stdout"`.
+  """
+  @behaviour Flux.Engine.Node
+
+  alias Flux.Engine.{Host, Template}
+
+  @impl true
+  def run(node, pool, host) do
+    code = to_string(node.config["code"] || "")
+
+    with :ok <- require_config(code != ""),
+         {:ok, runner} <- fetch_runner(host) do
+      inputs =
+        node.config["inputs"]
+        |> List.wrap()
+        |> Map.new(fn input ->
+          {to_string(input["name"] || ""), Template.render(input["value"], pool)}
+        end)
+        |> Map.delete("")
+
+      spec = %{
+        language: to_string(node.config["language"] || "python3"),
+        code: code,
+        dependencies:
+          node.config["dependencies"]
+          |> List.wrap()
+          |> Enum.filter(&(to_string(&1["name"] || "") != "")),
+        inputs: inputs,
+        timeout_ms: node.config["timeout_ms"] || 30_000
+      }
+
+      case runner.(spec) do
+        {:ok, %{result: %{} = result} = response} ->
+          outputs = Map.new(result, fn {key, value} -> {to_string(key), value} end)
+          {:ok, Map.put(outputs, "stdout", Map.get(response, :stdout, ""))}
+
+        {:ok, _bad_shape} ->
+          {:error, "the code block's main() must return a dict/object"}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  defp require_config(true), do: :ok
+  defp require_config(false), do: {:error, "the code node has no code"}
+
+  defp fetch_runner(%Host{run_code: fun}) when is_function(fun, 1), do: {:ok, fun}
+  defp fetch_runner(_host), do: {:error, "this run's host cannot execute code"}
+end
+
 defmodule Flux.Engine.Nodes.EndNode do
   @moduledoc """
   Collects the run's final outputs. Config:

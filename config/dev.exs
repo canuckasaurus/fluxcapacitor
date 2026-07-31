@@ -86,6 +86,10 @@ config :flux_web, mailbox_enabled: true
 # Local APIs and providers are fair game in dev.
 config :flux, Flux.SSRF, enabled: true, allow: ["localhost", "127.0.0.1"]
 
+# Dev code blocks run via the (unsandboxed) local python interpreter.
+config :flux, :code_runner, Flux.CodeRunner.Local
+config :flux, Flux.CodeRunner.Local, enabled: true
+
 # Do not include metadata nor timestamps in development logs
 config :logger, :default_formatter, format: "[$level] $message\n"
 

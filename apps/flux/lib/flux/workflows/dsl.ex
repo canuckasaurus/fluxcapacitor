@@ -17,7 +17,8 @@ defmodule Flux.Workflows.DSL do
     "answer" => "answer",
     "end" => "end",
     "template-transform" => "template",
-    "http-request" => "http_request"
+    "http-request" => "http_request",
+    "code" => "code"
   }
 
   @operator_map %{
@@ -183,6 +184,19 @@ defmodule Flux.Workflows.DSL do
             end
         }
       ]
+    }
+  end
+
+  defp export_data("code", config) do
+    %{
+      "code_language" => config["language"] || "python3",
+      "code" => config["code"] || "",
+      "variables" =>
+        for input <- List.wrap(config["inputs"]) do
+          %{"variable" => input["name"], "value_selector" => ref_selector(input["value"])}
+        end,
+      "outputs" => %{},
+      "flux_dependencies" => config["dependencies"] || []
     }
   end
 
@@ -414,6 +428,23 @@ defmodule Flux.Workflows.DSL do
        "url" => convert_selectors(data["url"] || ""),
        "headers" => headers,
        "body" => body
+     }, []}
+  end
+
+  defp convert_config("code", data) do
+    inputs =
+      data["variables"]
+      |> List.wrap()
+      |> Enum.map(fn variable ->
+        %{"name" => variable["variable"], "value" => selector_ref(variable["value_selector"])}
+      end)
+
+    {%{
+       "language" => data["code_language"] || "python3",
+       "code" => data["code"] || "",
+       "dependencies" => [],
+       "inputs" => inputs,
+       "timeout_ms" => 30_000
      }, []}
   end
 

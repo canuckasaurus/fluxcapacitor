@@ -388,7 +388,8 @@ defmodule Flux.Workflows do
       invoke_tool: fn %{toolset_id: toolset_id, operation_id: operation_id, args: args} ->
         Flux.Tools.invoke_for_workspace(workspace_id, toolset_id, operation_id, args)
       end,
-      http_request: &node_http_request/1
+      http_request: &node_http_request/1,
+      run_code: &Flux.CodeRunner.run/1
     }
 
     case Engine.run(graph, inputs, host) do
