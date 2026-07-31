@@ -33,7 +33,7 @@ with hashed tokens → local production release (OTP release + migrations + seed
 | RAG / Knowledge | **0%** | — | everything: datasets, ingestion, pgvector, retrieval, UI, API, knowledge node |
 | API surfaces | 50% | 9 `/v1` routes (+completion-messages, files/upload) + public webhook triggers | conversation rename/delete, meta, web/embed API, datasets API, OpenAPI contract tests |
 | Plugin system | 20% | SDK ModelProvider behaviour, supervised invocation | Tool/Datasource/Trigger/Endpoint behaviours, install flow, registry |
-| Agents | 0% | — | agent node, strategies; upstream moved to `dify-agent` + Go runtime — re-scope before building |
+| Agents | 30% | agent node v1: tool loop + iteration cap + canvas panel | structured final_output, deferred-tool HITL, shell/drive capabilities (v2 scope) |
 | Enterprise | 5% | RBAC catalog, vault | audit log, SSO, licensing/features, bulk ops, importer |
 | Infra/ops | 60% | CI, gates, OTP release + local deploy, storage (now consumed), vault, rate limiting, SSRF guard, **first Oban worker (schedule triggers)** | **Dockerfile/compose**, PromEx/OTEL |
 
@@ -122,7 +122,7 @@ Order inside the workstream:
   - Worth mirroring: composition-as-data (layers with type-id allowlist ≈ our host capabilities, made declarative), snapshot-out resumability, deferred-tool-call HITL, terminal-event-carries-everything, and the event vocabulary (`run_started/…/run_succeeded`; inner `part_start/part_delta/function_tool_call/function_tool_result`, `part_kind: thinking`) if we want frontend wire compat.
   - Collapse into OTP: the whole HTTP+SSE+Redis-stream transport and the service split exist to escape Python's process model — our supervised runs + PubSub already provide it; keep the cursor/replay property.
   - Scope warning: v2 "agent parity" also includes shell/drive/config-asset ("Agent Soul") capabilities with no v1 analogue — far beyond the loop. Phase those separately.
-  - **Our v1 agent node** therefore: tool-calling loop over toolsets (have), max-iteration cap, final_output tool for structured output, deferred-tool HITL reusing our pause-less run model. Buildable now that SDK tool calling landed.
+  - ✅ **Agent node v1 shipped (2026-07-31)**: engine loop (LLM↔toolset tools, role:tool history, agent_tool_call events), max-iteration guard, editor panel snapshotting toolset ops into JSON-schema tool defs. Engine at **11/20 node types**. Remaining for v2: final_output structured output, deferred-tool HITL, streaming thought vocabulary.
 - Plugin SDK: Tool/Datasource/Trigger/Endpoint behaviours; per-workspace installations.
 
 ### WS7 — Ops & enterprise (ongoing → P5)
