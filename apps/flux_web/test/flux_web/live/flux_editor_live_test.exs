@@ -266,6 +266,24 @@ defmodule FluxWeb.FluxEditorLiveTest do
            )
   end
 
+  test "per-node debug run executes one node with a mock pool", %{
+    conn: conn,
+    workflow: workflow,
+    scope: scope
+  } do
+    wire_echo(scope, workflow)
+    {:ok, lv, _html} = live(conn, ~p"/console/fluxes/#{workflow.id}")
+
+    render_hook(lv, "select_node", %{"id" => "llm_1", "shift" => false})
+
+    html =
+      lv
+      |> form("form[phx-submit=debug_node]", %{"mock" => %{"start.query" => "debug ping"}})
+      |> render_submit()
+
+    assert html =~ "You said: debug ping"
+  end
+
   test "palette search filters addable node types", %{conn: conn, workflow: workflow} do
     {:ok, lv, _html} = live(conn, ~p"/console/fluxes/#{workflow.id}")
 

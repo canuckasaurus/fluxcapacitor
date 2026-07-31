@@ -137,6 +137,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
            conv_rows: [],
            clipboard: nil,
            palette_query: "",
+           node_debug: nil,
            zoom: 100,
            undo_stack: [],
            redo_stack: [],
@@ -516,6 +517,24 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     end
   end
 
+  def handle_event("debug_node", params, socket) do
+    node = selected_node(socket)
+
+    if node && socket.assigns.can_run do
+      result =
+        Workflows.debug_node(
+          socket.assigns.current_scope,
+          socket.assigns.workflow,
+          node["id"],
+          params["mock"] || %{}
+        )
+
+      {:noreply, assign(socket, node_debug: result)}
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_event("add_row", %{"kind" => kind}, socket) do
     update_selected_rows(socket, kind, &(&1 ++ [empty_row(kind)]))
   end
@@ -856,9 +875,29 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     assign(socket,
       selected_ids: ids,
       selected_id: (match?([_single], ids) && hd(ids)) || nil,
-      selected_edge: edge
+      selected_edge: edge,
+      node_debug: nil
     )
   end
+
+  # Every {{selector}} referenced anywhere in a node's config (recursively),
+  # so the debug panel can offer a mock input per upstream value.
+  defp config_references(node) do
+    node["config"]
+    |> collect_strings()
+    |> Enum.flat_map(fn text ->
+      ~r/\{\{\s*([\w\-\.]+)\s*\}\}/
+      |> Regex.scan(text)
+      |> Enum.map(fn [_whole, path] -> path end)
+    end)
+    |> Enum.uniq()
+  end
+
+  defp collect_strings(value) when is_binary(value), do: [value]
+  defp collect_strings(value) when is_map(value), do: Enum.flat_map(value, &collect_strings/1)
+  defp collect_strings(value) when is_list(value), do: Enum.flat_map(value, &collect_strings/1)
+  defp collect_strings({_key, value}), do: collect_strings(value)
+  defp collect_strings(_other), do: []
 
   defp find_node(graph, id), do: Enum.find(graph["nodes"] || [], &(&1["id"] == id))
 
@@ -1382,6 +1421,11 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
   end
 
   defp failable?(type), do: type in @failable_types
+
+  defp format_debug_error(:unauthorized), do: "You don't have permission to run nodes."
+  defp format_debug_error(:not_found), do: "Node not found."
+  defp format_debug_error(message) when is_binary(message), do: message
+  defp format_debug_error(other), do: inspect(other)
 
   defp source_handle_offset(%{"type" => "question_classifier"} = source, "error") do
     @port_y + length(List.wrap(source["config"]["classes"])) * 28 - 2
@@ -2732,12 +2776,47 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
               </label>
             </form>
 
+            <div
+              :if={@can_run and node["type"] != "start"}
+              class="border-t border-base-200 pt-3 space-y-2"
+              id="node-debug"
+            >
+              <p class="text-xs font-semibold opacity-70">Test this node</p>
+              <form phx-submit="debug_node" class="space-y-2">
+                <div :for={reference <- config_references(node)} class="flex items-center gap-2">
+                  <code class="text-xs font-mono opacity-70 w-32 truncate" title={reference}>
+                    {reference}
+                  </code>
+                  <input
+                    type="text"
+                    name={"mock[#{reference}]"}
+                    placeholder="mock value"
+                    class="input input-xs flex-1"
+                  />
+                </div>
+                <button class="btn btn-outline btn-xs">
+                  <.icon name="hero-beaker" class="size-3" /> Run node
+                </button>
+              </form>
+              <div :if={@node_debug != nil}>
+                <%= case @node_debug do %>
+                  <% {:ok, outputs} -> %>
+                    <pre class="rounded bg-base-200 p-2 text-xs overflow-x-auto max-h-48">{Jason.encode!(outputs, pretty: true)}</pre>
+                  <% {:error, message} -> %>
+                    <p class="text-xs text-error">{format_debug_error(message)}</p>
+                <% end %>
+              </div>
+            </div>
+
             <div :if={variable_hints(@graph, @selected_id) != []} class="space-y-1">
-              <p class="text-xs font-semibold opacity-70">Available variables</p>
-              <div class="flex flex-wrap gap-1">
+              <p class="text-xs font-semibold opacity-70">
+                Available variables — click to insert
+              </p>
+              <div class="flex flex-wrap gap-1" id="variable-picker" phx-hook=".VariablePicker">
                 <code
                   :for={hint <- variable_hints(@graph, @selected_id)}
-                  class="badge badge-ghost badge-sm font-mono"
+                  class="badge badge-ghost badge-sm font-mono cursor-pointer hover:badge-primary"
+                  data-selector={hint}
                 >
                   {hint}
                 </code>
@@ -3214,6 +3293,42 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
         </div>
         <div class="modal-backdrop" phx-click="toggle_triggers"></div>
       </dialog>
+
+      <script :type={Phoenix.LiveView.ColocatedHook} name=".VariablePicker">
+        export default {
+          mounted() {
+            // Remember the last focused config input so a clicked hint can be
+            // inserted at the cursor; fall back to copying the selector.
+            this.onFocus = (e) => {
+              const t = e.target
+              if ((t.tagName === "INPUT" && t.type === "text") || t.tagName === "TEXTAREA") {
+                this.lastInput = t
+              }
+            }
+            document.addEventListener("focusin", this.onFocus)
+
+            this.el.addEventListener("click", (e) => {
+              const badge = e.target.closest("[data-selector]")
+              if (!badge) return
+              const text = "{{" + badge.dataset.selector + "}}"
+              const input = this.lastInput
+              if (input && document.body.contains(input)) {
+                const start = input.selectionStart ?? input.value.length
+                const end = input.selectionEnd ?? input.value.length
+                input.value = input.value.slice(0, start) + text + input.value.slice(end)
+                input.selectionStart = input.selectionEnd = start + text.length
+                input.dispatchEvent(new Event("input", {bubbles: true}))
+                input.focus()
+              } else if (navigator.clipboard) {
+                navigator.clipboard.writeText(text)
+              }
+            })
+          },
+          destroyed() {
+            document.removeEventListener("focusin", this.onFocus)
+          }
+        }
+      </script>
 
       <script :type={Phoenix.LiveView.ColocatedHook} name=".FluxCanvas">
         export default {

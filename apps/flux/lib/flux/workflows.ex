@@ -464,18 +464,10 @@ defmodule Flux.Workflows do
   end
 
   defp do_execute(run, graph, inputs, workspace_id, run_opts) do
-    host = %Host{
-      emit: fn event ->
+    host =
+      build_host(workspace_id, fn event ->
         Phoenix.PubSub.broadcast(Flux.PubSub, topic(run.id), {:engine_event, event})
-      end,
-      invoke_llm: build_llm_invoker(workspace_id),
-      invoke_tool: fn %{toolset_id: toolset_id, operation_id: operation_id, args: args} ->
-        Flux.Tools.invoke_for_workspace(workspace_id, toolset_id, operation_id, args)
-      end,
-      http_request: &node_http_request/1,
-      run_code: &Flux.CodeRunner.run/1,
-      default_llm: Providers.default_model_for_workspace(workspace_id)
-    }
+      end)
 
     case Engine.run(graph, inputs, host, run_opts) do
       {:ok, result} ->
@@ -501,6 +493,68 @@ defmodule Flux.Workflows do
     Phoenix.PubSub.broadcast(Flux.PubSub, topic(run.id), {:run_finished, run})
     {:ok, run}
   end
+
+  defp build_host(workspace_id, emit) do
+    %Host{
+      emit: emit,
+      invoke_llm: build_llm_invoker(workspace_id),
+      invoke_tool: fn %{toolset_id: toolset_id, operation_id: operation_id, args: args} ->
+        Flux.Tools.invoke_for_workspace(workspace_id, toolset_id, operation_id, args)
+      end,
+      http_request: &node_http_request/1,
+      run_code: &Flux.CodeRunner.run/1,
+      default_llm: Providers.default_model_for_workspace(workspace_id)
+    }
+  end
+
+  @debug_timeout 60_000
+
+  @doc """
+  Runs a single draft node against a mock variable pool (selector strings
+  → values, e.g. `%{"start.query" => "hi"}`) with the full production
+  host. Returns `{:ok, outputs}` or `{:error, message}`.
+  """
+  def debug_node(%Scope{} = scope, %Workflow{} = workflow, node_id, mock_pool) do
+    with :ok <- RBAC.authorize(scope, :app_test_and_run),
+         :ok <- owned(scope, workflow),
+         %{} = raw <-
+           Enum.find(workflow.graph["nodes"] || [], &(&1["id"] == node_id)) ||
+             {:error, :not_found} do
+      node = %Flux.Engine.Graph.Node{
+        id: raw["id"],
+        type: raw["type"],
+        title: raw["title"] || "",
+        config: raw["config"] || %{}
+      }
+
+      pool = nest_mock_pool(mock_pool)
+      host = build_host(workflow.workspace_id, fn _event -> :ok end)
+
+      task =
+        Task.Supervisor.async_nolink(Flux.GenerationSupervisor, fn ->
+          Flux.Engine.Node.implementation(node.type).run(node, pool, host)
+        end)
+
+      case Task.yield(task, @debug_timeout) || Task.shutdown(task, :brutal_kill) do
+        {:ok, {:ok, outputs}} -> {:ok, outputs}
+        {:ok, {:ok, outputs, _branch}} -> {:ok, outputs}
+        {:ok, {:error, reason}} -> {:error, debug_error(reason)}
+        {:exit, reason} -> {:error, "node crashed: #{inspect(reason)}"}
+        nil -> {:error, "the node did not finish within 60s"}
+      end
+    end
+  end
+
+  # %{"llm_1.text" => "hi"} → %{"llm_1" => %{"text" => "hi"}} (deep).
+  defp nest_mock_pool(mock_pool) do
+    Enum.reduce(mock_pool, %{}, fn {selector, value}, pool ->
+      path = selector |> to_string() |> String.split(".")
+      put_in(pool, Enum.map(path, &Access.key(&1, %{})), value)
+    end)
+  end
+
+  defp debug_error(reason) when is_binary(reason), do: reason
+  defp debug_error(reason), do: inspect(reason)
 
   defp build_llm_invoker(workspace_id) do
     fn request, chunk_emit ->
