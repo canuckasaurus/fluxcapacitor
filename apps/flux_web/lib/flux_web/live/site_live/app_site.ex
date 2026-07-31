@@ -18,6 +18,7 @@ defmodule FluxWeb.SiteLive.AppSite do
          assign(socket,
            page_title: app.name,
            app: app,
+           visitor_ip: FluxWeb.SiteRateLimit.visitor_ip(socket),
            site_scope: Chat.site_scope(app),
            end_user_ref: "web_" <> Base.url_encode64(:crypto.strong_rand_bytes(9), padding: false),
            conversation: nil,
@@ -35,19 +36,24 @@ defmodule FluxWeb.SiteLive.AppSite do
   def handle_event("send", %{"content" => content}, socket) when content != "" do
     %{app: app, site_scope: scope} = socket.assigns
 
-    conversation =
-      socket.assigns.conversation ||
-        Chat.create_conversation(scope, app, %{end_user_ref: socket.assigns.end_user_ref})
+    if allowed?(socket) do
+      conversation =
+        socket.assigns.conversation ||
+          Chat.create_conversation(scope, app, %{end_user_ref: socket.assigns.end_user_ref})
 
-    {:ok, user_message, assistant_message} = Chat.send_message(scope, app, conversation, content)
+      {:ok, user_message, assistant_message} =
+        Chat.send_message(scope, app, conversation, content)
 
-    {:noreply,
-     assign(socket,
-       conversation: conversation,
-       messages: socket.assigns.messages ++ [user_message],
-       streaming_id: assistant_message.id,
-       streaming_text: ""
-     )}
+      {:noreply,
+       assign(socket,
+         conversation: conversation,
+         messages: socket.assigns.messages ++ [user_message],
+         streaming_id: assistant_message.id,
+         streaming_text: ""
+       )}
+    else
+      {:noreply, put_flash(socket, :error, "Too many requests — please slow down.")}
+    end
   end
 
   def handle_event("send", _params, socket), do: {:noreply, socket}
@@ -55,17 +61,21 @@ defmodule FluxWeb.SiteLive.AppSite do
   def handle_event("run_completion", params, socket) do
     %{app: app, site_scope: scope} = socket.assigns
 
-    case Chat.send_completion(scope, app, params["inputs"] || %{}, %{
-           end_user_ref: socket.assigns.end_user_ref
-         }) do
-      {:ok, conversation, _user_message, assistant_message} ->
-        {:noreply,
-         assign(socket,
-           conversation: conversation,
-           messages: [],
-           streaming_id: assistant_message.id,
-           streaming_text: ""
-         )}
+    with true <- allowed?(socket),
+         {:ok, conversation, _user_message, assistant_message} <-
+           Chat.send_completion(scope, app, params["inputs"] || %{}, %{
+             end_user_ref: socket.assigns.end_user_ref
+           }) do
+      {:noreply,
+       assign(socket,
+         conversation: conversation,
+         messages: [],
+         streaming_id: assistant_message.id,
+         streaming_text: ""
+       )}
+    else
+      false ->
+        {:noreply, put_flash(socket, :error, "Too many requests — please slow down.")}
 
       {:error, :not_completion_app} ->
         {:noreply, socket}
@@ -101,6 +111,10 @@ defmodule FluxWeb.SiteLive.AppSite do
        streaming_id: nil,
        streaming_text: ""
      )}
+  end
+
+  defp allowed?(socket) do
+    FluxWeb.SiteRateLimit.allow?(socket.assigns.app.site_token, socket.assigns.visitor_ip)
   end
 
   defp completion_output(messages) do

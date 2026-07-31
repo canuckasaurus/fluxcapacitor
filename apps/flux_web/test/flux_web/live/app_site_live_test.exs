@@ -83,6 +83,36 @@ defmodule FluxWeb.AppSiteLiveTest do
     refute poll_until_gone(lv, "animate-pulse", 50) =~ "animate-pulse"
   end
 
+  test "embed.js is served and the console shows the bubble snippet", %{
+    conn: conn,
+    scope: scope,
+    app: app,
+    account: account
+  } do
+    body = conn |> get("/embed.js") |> response(200)
+    assert body =~ "data-flux-site"
+
+    {:ok, _app} = Chat.enable_site(scope, app)
+    conn = log_in_account(conn, account)
+    {:ok, _lv, html} = live(conn, ~p"/console/apps/#{app.id}")
+    assert html =~ "embed.js"
+    assert html =~ "floating chat bubble"
+  end
+
+  test "public chat events are rate limited per visitor", %{conn: conn, scope: scope, app: app} do
+    {:ok, app} = Chat.enable_site(scope, app)
+    {:ok, lv, _html} = live(conn, ~p"/site/#{app.site_token}")
+
+    # Exhaust the per-site bucket (visitor-IP independent); the next send is refused.
+    Enum.each(1..120, fn n ->
+      FluxWeb.SiteRateLimit.allow?(app.site_token, "10.0.0.#{n}")
+    end)
+
+    html = lv |> form("#site-chat-form", %{"content" => "over the line"}) |> render_submit()
+    assert html =~ "Too many requests"
+    assert Chat.list_conversations(scope, app.id) == []
+  end
+
   test "site responses allow cross-origin framing", %{conn: conn, scope: scope, app: app} do
     {:ok, app} = Chat.enable_site(scope, app)
 

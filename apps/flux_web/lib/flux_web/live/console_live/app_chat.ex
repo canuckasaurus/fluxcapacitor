@@ -223,6 +223,10 @@ defmodule FluxWeb.ConsoleLive.AppChat do
     ~s(<iframe src="#{url(~p"/site/#{app.site_token}")}"\n  style="width: 100%; height: 640px; border: 0; border-radius: 12px;"\n  allow="clipboard-write"></iframe>)
   end
 
+  defp bubble_snippet(site_token) do
+    ~s(<script src="#{url(~p"/embed.js")}"\n  data-flux-site="#{url(~p"/site/#{site_token}")}" defer></script>)
+  end
+
   defp completion_output(messages) do
     case List.last(messages) do
       %{role: :assistant, status: :error, error: error} -> error
@@ -461,6 +465,8 @@ defmodule FluxWeb.ConsoleLive.AppChat do
           </p>
           <p class="text-xs opacity-60">Embed it on any page:</p>
           <pre class="rounded-box bg-base-200 p-3 text-xs overflow-x-auto">{embed_snippet(@app)}</pre>
+          <p class="text-xs opacity-60">Or as a floating chat bubble:</p>
+          <pre class="rounded-box bg-base-200 p-3 text-xs overflow-x-auto">{bubble_snippet(@app.site_token)}</pre>
         </div>
       </div>
 

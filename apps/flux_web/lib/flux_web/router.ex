@@ -64,6 +64,7 @@ defmodule FluxWeb.Router do
     pipe_through [:browser, :allow_embedding]
 
     live_session :public_site do
+      live "/flux/:token", SiteLive.FluxSite, :show
       live "/:token", SiteLive.AppSite, :show
     end
   end

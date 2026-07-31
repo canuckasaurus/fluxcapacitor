@@ -102,6 +102,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
            show_triggers: false,
            triggers: [],
            trigger_type: "webhook",
+           show_site: false,
            zoom: 100,
            undo_stack: [],
            redo_stack: [],
@@ -493,6 +494,32 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
 
     {:noreply,
      assign(socket, tokens: Workflows.list_api_tokens(scope, socket.assigns.workflow.id))}
+  end
+
+  ## Site publishing
+
+  def handle_event("toggle_site", _params, socket) do
+    {:noreply, assign(socket, show_site: not socket.assigns.show_site)}
+  end
+
+  def handle_event("enable_site", _params, socket) do
+    case Workflows.enable_site(socket.assigns.current_scope, socket.assigns.workflow) do
+      {:ok, workflow} ->
+        {:noreply, assign(socket, workflow: workflow)}
+
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "You don't have permission to publish this flux.")}
+    end
+  end
+
+  def handle_event("disable_site", _params, socket) do
+    case Workflows.disable_site(socket.assigns.current_scope, socket.assigns.workflow) do
+      {:ok, workflow} ->
+        {:noreply, assign(socket, workflow: workflow)}
+
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "You don't have permission to unpublish this flux.")}
+    end
   end
 
   ## Triggers
@@ -1048,6 +1075,14 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     """
   end
 
+  defp flux_embed_snippet(workflow) do
+    ~s(<iframe src="#{url(~p"/site/flux/#{workflow.site_token}")}"\n  style="width: 100%; height: 640px; border: 0; border-radius: 12px;"\n  allow="clipboard-write"></iframe>)
+  end
+
+  defp flux_bubble_snippet(workflow) do
+    ~s(<script src="#{url(~p"/embed.js")}"\n  data-flux-site="#{url(~p"/site/flux/#{workflow.site_token}")}" defer></script>)
+  end
+
   defp parse_trigger_inputs(raw) when raw in [nil, ""], do: {:ok, %{}}
 
   defp parse_trigger_inputs(raw) do
@@ -1152,6 +1187,13 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
             </button>
             <button :if={@can_edit} class="btn btn-sm btn-ghost" phx-click="toggle_triggers">
               <.icon name="hero-bolt" class="size-4" /> Triggers
+            </button>
+            <button
+              :if={@can_manage_tokens}
+              class="btn btn-sm btn-ghost"
+              phx-click="toggle_site"
+            >
+              <.icon name="hero-globe-alt" class="size-4" /> Site
             </button>
             <button :if={@can_publish} class="btn btn-sm btn-outline" phx-click="publish">
               <.icon name="hero-rocket-launch" class="size-4" /> Publish
@@ -2169,6 +2211,49 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
           </button>
         </div>
         <div class="modal-backdrop" phx-click="toggle_api"></div>
+      </dialog>
+
+      <dialog :if={@show_site} class="modal modal-open">
+        <div class="modal-box space-y-4">
+          <div class="flex items-center justify-between">
+            <h3 class="font-bold">Site publishing</h3>
+            <button class="btn btn-ghost btn-xs" phx-click="toggle_site">
+              <.icon name="hero-x-mark" class="size-4" />
+            </button>
+          </div>
+          <p class="text-sm opacity-70">
+            Publish this flux at a public form URL anyone can use — no login required.
+            The public page always runs the latest <span class="font-semibold">published</span>
+            version, so publish a version first.
+          </p>
+          <button :if={not @workflow.site_enabled} class="btn btn-primary btn-sm" phx-click="enable_site">
+            <.icon name="hero-globe-alt" class="size-4" /> Publish site
+          </button>
+          <div :if={@workflow.site_enabled} class="space-y-2">
+            <p class="text-sm">
+              Live at
+              <a
+                href={url(~p"/site/flux/#{@workflow.site_token}")}
+                target="_blank"
+                class="link link-primary font-mono text-xs"
+              >
+                {url(~p"/site/flux/#{@workflow.site_token}")}
+              </a>
+            </p>
+            <p class="text-xs opacity-60">Embed it on any page:</p>
+            <pre class="rounded-box bg-base-200 p-3 text-xs overflow-x-auto">{flux_embed_snippet(@workflow)}</pre>
+            <p class="text-xs opacity-60">Or as a floating bubble:</p>
+            <pre class="rounded-box bg-base-200 p-3 text-xs overflow-x-auto">{flux_bubble_snippet(@workflow)}</pre>
+            <button
+              class="btn btn-ghost btn-sm text-error"
+              phx-click="disable_site"
+              data-confirm="Unpublish the public site?"
+            >
+              Unpublish
+            </button>
+          </div>
+        </div>
+        <div class="modal-backdrop" phx-click="toggle_site"></div>
       </dialog>
 
       <dialog :if={@show_triggers} class="modal modal-open">

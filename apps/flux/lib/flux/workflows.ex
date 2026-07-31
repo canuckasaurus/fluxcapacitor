@@ -290,6 +290,51 @@ defmodule Flux.Workflows do
     end
   end
 
+  ## Site publishing
+
+  @doc """
+  Publishes the flux at a public form URL (`/site/flux/:token`). The token
+  is minted once and survives disable/enable so the URL stays stable.
+  """
+  def enable_site(%Scope{} = scope, %Workflow{} = workflow) do
+    with :ok <- RBAC.authorize(scope, :app_create_and_management),
+         :ok <- owned(scope, workflow) do
+      token =
+        workflow.site_token ||
+          "site_" <> Base.url_encode64(:crypto.strong_rand_bytes(18), padding: false)
+
+      workflow
+      |> Ecto.Changeset.change(site_token: token, site_enabled: true)
+      |> Repo.update()
+    end
+  end
+
+  def disable_site(%Scope{} = scope, %Workflow{} = workflow) do
+    with :ok <- RBAC.authorize(scope, :app_create_and_management),
+         :ok <- owned(scope, workflow) do
+      workflow |> Ecto.Changeset.change(site_enabled: false) |> Repo.update()
+    end
+  end
+
+  @doc "Resolves a public site token to its flux; the token is the authorization."
+  def get_workflow_by_site_token("site_" <> _rest = token) do
+    case Repo.get_by(Workflow, [site_token: token], skip_workspace_guard: true) do
+      %Workflow{site_enabled: true} = workflow -> {:ok, workflow}
+      _disabled_or_missing -> {:error, :not_found}
+    end
+  end
+
+  def get_workflow_by_site_token(_other), do: {:error, :not_found}
+
+  @doc "A workspace-only scope for anonymous public-site visitors."
+  def site_scope(%Workflow{} = workflow) do
+    %Scope{
+      account: nil,
+      membership: nil,
+      workspace: %Flux.Accounts.Workspace{id: workflow.workspace_id}
+    }
+  end
+
   def set_trigger_enabled(%Scope{} = scope, trigger_id, enabled) when is_boolean(enabled) do
     with :ok <- RBAC.authorize(scope, :app_edit) do
       case Repo.one(Repo.scoped(where(Flux.Workflows.Trigger, id: ^trigger_id), scope)) do
