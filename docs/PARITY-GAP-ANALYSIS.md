@@ -1,8 +1,10 @@
-# FluxCapacitor ↔ Dify Parity Gap Analysis
+# FluxCapacitor ↔ Reference Parity Gap Analysis
 
-Date: 2026-07-30 rev 3 (verified against code, commit 8f2231c) · Reference: Dify v1.16.0 (`C:\Users\jpcre\GitHub\dify`) · Execution plan: `PARITY-PLAN.md`
+> "Reference" = the upstream platform we measure parity against (checkout: `C:\Users\jpcre\GitHub\dify`).
 
-Scale context: Dify's production backend is ~368k LOC of Python (~840 HTTP routes,
+Date: 2026-07-30 rev 3 (verified against code, commit 8f2231c) · Reference: Reference v1.16.0 (`C:\Users\jpcre\GitHub\dify`) · Execution plan: `PARITY-PLAN.md`
+
+Scale context: the Reference's production backend is ~368k LOC of Python (~840 HTTP routes,
 ~80 background tasks over ~25 queues), its workflow canvas alone is ~218k LOC of
 TypeScript, and its workflow engine + model runtime live in the external `graphon`
 PyPI package. FluxCapacitor today is ~12.2k LOC of lib code + ~5.0k LOC of tests
@@ -37,7 +39,7 @@ Legend: ✅ done · 🟡 partial · ❌ missing · 🚫 deliberately not mirrore
 | SCIM 2.0 provisioning | ❌ | P5 |
 | Social OAuth login (GitHub/Google) | ❌ | low priority for enterprise; `assent` when needed |
 
-## 2. Model runtime & providers (Dify: plugin-daemon-backed; ours: P1)
+## 2. Model runtime & providers (Reference: plugin-daemon-backed; ours: P1)
 
 | Capability | Status | Notes |
 |---|---|---|
@@ -51,7 +53,7 @@ Legend: ✅ done · 🟡 partial · ❌ missing · 🚫 deliberately not mirrore
 | ModelInstance/ModelManager facade; load balancing + cooldowns | ❌ | schema supports named credentials (`name`, default `"default"`) but nothing uses more than one |
 | 🚫 TTS/speech-to-text (API returns 501), LLM polling mode, hosted/system quota providers | 🚫 | quotas come via Features layer instead |
 
-## 3. Plugin system (Dify: Go daemon + Python SDK; ours: BEAM-native, P1+P4)
+## 3. Plugin system (Reference: Go daemon + Python SDK; ours: BEAM-native, P1+P4)
 
 | Capability | Status | Notes |
 |---|---|---|
@@ -60,7 +62,7 @@ Legend: ✅ done · 🟡 partial · ❌ missing · 🚫 deliberately not mirrore
 | SDK: Tool, Datasource, Trigger, AgentStrategy, Endpoint behaviours | ❌ | P4 |
 | Runtime: catalog + supervised invocations | 🟡 | static `@builtin_plugins` list (config-overridable); `Task.Supervisor.async_nolink` with yield/brutal-kill timeouts. No max_heap, no telemetry, no capability broker |
 | Network guard (SSRF) for plugin/toolset HTTP | ✅ | `Flux.SSRF` on provider base URLs, toolset calls, credential validation; `FLUX_SSRF_ALLOW` exemptions. Capability grants still ❌ |
-| Host capability struct (replaces Dify's 17 inner-API reverse-invocation endpoints) | ❌ | P1/P4 |
+| Host capability struct (replaces the Reference's 17 inner-API reverse-invocation endpoints) | ❌ | P1/P4 |
 | Per-workspace `plugin_installations`, install permissions, auto-upgrade | ❌ | P4 |
 | Split plugin-runtime BEAM node + `:erpc` streaming (Phase B) | ❌ | P4 |
 | Private Hex registry (mini_repo) + plugin CI | ❌ | P4 |
@@ -95,7 +97,7 @@ auth + `{{vars.*}}` private variables, /console/tools UI) — plus
 PubSub, stop, `flux-…` API tokens) and a **LiveView-native canvas editor** at
 `/console/fluxes/:id` (SVG edges, JS-hook drag & port-to-port connect, per-type config
 panels, live-validation badge, streaming run drawer, publish + API key modal).
-`POST /v1/workflows/run` executes the latest published snapshot with Dify-style SSE
+`POST /v1/workflows/run` executes the latest published snapshot with Reference-style SSE
 events (workflow_started / node_started / text_chunk / node_finished / workflow_finished)
 or blocking mode.
 
@@ -103,14 +105,14 @@ Still missing (unchanged from prior analysis):
 - gen_statem run coordinator + per-run Task.Supervisor (today: one task under the shared GenerationSupervisor)
 - The other ~12 node types (code via dify-sandbox, agent, iteration, loop, question-classifier, parameter-extractor, variable aggregator/assigner, document-extractor, list-operator, knowledge-retrieval, human-input) — http-request ✅ 07-30, tool ✅ (toolsets)
 - Variable pool >256KB object-storage offload; env/conversation variables (today: in-memory pool, `{{node.field}}` templates)
-- Full Dify SSE schema (~45 events; today: 5 core events)
+- Full Reference SSE schema (~45 events; today: 5 core events)
 - Pause/resume via versioned JSON snapshots; human-in-the-loop forms; timeout jobs
 - Retries/error branches; per-workspace concurrency limits (stop via kill exists)
 - Run history/log UI, node-execution offload (runs+traces persist; no browsing UI yet)
 - Single-node draft debugging (full-draft run exists)
-- DSL import ✅ + export ✅ (round-trip tested; editor Export button, Fluxes-page Import; Dify-importable JSON-as-YAML). Remaining bar: import coverage grows with node types
-- **Golden test harness — phase 1 running**: DSL importer executes verbatim Dify fixtures with behavioral assertions in CI. Phase 2 (recorded run traces + SSE transcripts) needs a live Dify via Docker
-- Canvas decision RESOLVED: LiveView-native (SVG + JS hook), not a ReactFlow island. Still missing vs Dify's editor: zoom/minimap, multi-select, undo/redo, auto-layout, copy/paste
+- DSL import ✅ + export ✅ (round-trip tested; editor Export button, Fluxes-page Import; Reference-importable JSON-as-YAML). Remaining bar: import coverage grows with node types
+- **Golden test harness — phase 1 running**: DSL importer executes verbatim Reference fixtures with behavioral assertions in CI. Phase 2 (recorded run traces + SSE transcripts) needs a live Reference via Docker
+- Canvas decision RESOLVED: LiveView-native (SVG + JS hook), not a ReactFlow island. Still missing vs the Reference's editor: zoom/minimap, multi-select, undo/redo, auto-layout, copy/paste
 - Collaboration: Presence soft-lock first; y_ex CRDT P5 (🚫 loro)
 - Triggers: webhook/schedule/plugin trigger tables + dispatch (P4); Agent v2 (config revisions, runtime sessions, ReAct/function-calling strategies) (P4) — **note upstream Agent v2 now lives in `dify-agent`/`dify-agent-runtime`; re-validate scope**
 - Workflow comments/mentions, run archives (P5+)
@@ -123,7 +125,7 @@ All ❌ — `apps/flux_rag` is still `mix new` output. Unchanged from prior anal
 - Embedding cache table + Cachex; batched embeds
 - VectorStore behaviour → **pgvector** (HNSW + tsvector/GIN: semantic, full-text, hybrid in one Postgres); Qdrant on demand; 🚫 other ~28 backends
 - Retrieval: semantic/full_text/hybrid/keyword, weighted + model rerank, RRF, multi-dataset merge, citations
-- Dataset UI: upload, indexing progress, segment editor, hit testing; batch document status ops (Dify parity)
+- Dataset UI: upload, indexing progress, segment editor, hit testing; batch document status ops (Reference parity)
 - External knowledge API binding; datasource plugins (Notion/Firecrawl) when needed
 - 🚫 summary index, jieba economy mode (Postgres FTS instead); RAG-pipeline-as-workflow P5
 
@@ -131,7 +133,7 @@ Note: Oban is configured with 10 queues but **zero `Oban.Worker` modules exist**
 
 ## 7. API surfaces
 
-| Dify surface | Status | Plan |
+| Reference surface | Status | Plan |
 |---|---|---|
 | service API `/v1` | 🟡 | **7 routes live**: chat-messages + workflows/run (SSE + blocking), parameters, conversations, messages, stop, feedbacks — hashed bearer auth, rate-limited, cross-workspace rejection tested. Missing: conversation rename/delete, completion-messages, files upload, meta, audio; P2 datasets |
 | `open_api_spex` contract tests | ❌ | no OpenAPI spec exists yet — add before the route count grows |
@@ -155,7 +157,7 @@ All ❌: `Flux.Bulk.Operation` behaviour + tables (P2 core, first consumers = ba
 | Branding/custom logo | ❌ P5 |
 | Billing | 🚫 quotas only, no billing UI |
 | Moderation (keyword + one provider hook) | ❌ P1/P2 |
-| Importer `mix flux.import` from live Dify Postgres | ❌ P5 (credentials/vectors/plugins not importable by design) |
+| Importer `mix flux.import` from live Reference Postgres | ❌ P5 (credentials/vectors/plugins not importable by design) |
 
 ## 10. Infrastructure & operations
 
@@ -168,7 +170,7 @@ All ❌: `Flux.Bulk.Operation` behaviour + tables (P2 core, first consumers = ba
 | Cachex | ✅ started; sole consumer is DEK cache |
 | hammer rate limiting | ✅ /v1 per token principal (120/min), auth POSTs per IP (10/min) |
 | SSRF-guard step | ✅ `Flux.SSRF` (see §3) |
-| PromEx + OpenTelemetry + logger_json (replaces Dify's OTEL + langfuse/langsmith seam) | ❌ stock Phoenix telemetry only, no reporter started |
+| PromEx + OpenTelemetry + logger_json (replaces the Reference's OTEL + langfuse/langsmith seam) | ❌ stock Phoenix telemetry only, no reporter started |
 | mix release + local deploy (migrate/seed release tasks, FLUX_MAILBOX mailbox) | ✅ runs at localhost:4001 |
 | Dockerfile + 4-container compose (app, postgres+pgvector, minio, tika) | ❌ pulled into RAG workstream (pgvector) |
 | dify-sandbox container integration (code node) | ❌ P3 |
@@ -191,7 +193,7 @@ Still open:
 
 ## 12. Critical path & recommended order
 
-1. **Golden test harness (still item #1, still not started; needs the live Dify install)** — export real workflow DSLs + record run traces + SSE snapshots; everything in P3 keys off this.
+1. **Golden test harness (still item #1, still not started; needs the live Reference install)** — export real workflow DSLs + record run traces + SSE snapshots; everything in P3 keys off this.
 2. Hardening pass: context-level RBAC in Accounts, hammer on `/v1`, SSRF-guarded Req, stop-generation fix (§11).
 3. Finish P1: remaining `/v1` routes (conversations/messages/feedback/stop/files) + open_api_spex, site/embed + EndUser, file upload wired to storage, default models, azure/bedrock providers, embeddings invocation, Dockerfile/compose + mix release.
 4. Early spikes that size later phases: ReactFlow island round-trip; `:erpc` chunk streaming; Tika on the enterprise corpus; pgvector load test; Oban Pro decision; **review upstream `dify-agent`/`dify-agent-runtime` for Agent v2 scope drift**.

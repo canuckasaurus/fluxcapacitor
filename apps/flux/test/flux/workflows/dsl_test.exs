@@ -1,9 +1,9 @@
 defmodule Flux.Workflows.DSLTest do
   @moduledoc """
-  Golden-harness seed: imports real Dify DSL exports (copied verbatim from
+  Golden-harness seed: imports real portable DSL exports (copied verbatim from
   dify/api/tests/fixtures/workflow) and checks structural validity plus run
   behavior for the node types we support. Recorded run traces from a live
-  Dify instance extend this suite later.
+  the reference platform instance extend this suite later.
   """
   use ExUnit.Case, async: true
 
@@ -72,7 +72,7 @@ defmodule Flux.Workflows.DSLTest do
 
     assert {:ok, graph} = Engine.build(parsed.graph)
 
-    # Dify semantics per the fixture description: query containing "hello"
+    # Reference semantics per the fixture description: query containing "hello"
     # exits via the {"true": query} end node, otherwise {"false": query}.
     assert {:ok, result} = Engine.run(graph, %{"query" => "well hello there"}, stub_host())
     assert result.outputs == %{"true" => "well hello there"}
@@ -108,7 +108,7 @@ defmodule Flux.Workflows.DSLTest do
     end
   end
 
-  test "export emits Dify-importable DSL that round-trips" do
+  test "export emits portable DSL that round-trips" do
     {:ok, parsed} = DSL.parse(fixture!("conditional_hello_branching_workflow.yml"))
     workflow = %{name: "roundtrip", description: "d", graph: parsed.graph}
 

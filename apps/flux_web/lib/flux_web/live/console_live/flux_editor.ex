@@ -1061,7 +1061,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
             <.link
               href={~p"/console/fluxes/#{@workflow.id}/export"}
               class="btn btn-sm btn-ghost"
-              title="Download Dify-importable DSL"
+              title="Download portable DSL"
             >
               <.icon name="hero-arrow-up-tray" class="size-4" /> Export
             </.link>

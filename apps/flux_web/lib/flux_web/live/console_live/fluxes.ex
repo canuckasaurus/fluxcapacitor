@@ -128,9 +128,9 @@ defmodule FluxWeb.ConsoleLive.Fluxes do
       </div>
 
       <div :if={@importing} class="card border border-base-200 p-6 space-y-4">
-        <h2 class="font-semibold">Import a Dify DSL export</h2>
+        <h2 class="font-semibold">Import a portable DSL export</h2>
         <p class="text-sm opacity-70">
-          Paste a Dify workflow/advanced-chat YAML export. Unsupported nodes are
+          Paste a workflow/advanced-chat DSL YAML export. Unsupported nodes are
           dropped with warnings; model bindings may need rebinding after import.
         </p>
         <form phx-submit="import" class="space-y-3">

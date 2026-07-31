@@ -95,7 +95,7 @@ defmodule Flux.Workflows do
   end
 
   @doc """
-  Imports a Dify DSL YAML export as a new flux. Returns
+  Imports a portable DSL YAML export as a new flux. Returns
   `{:ok, workflow, warnings}` — warnings list dropped/approximated pieces.
   """
   def import_dsl(%Scope{} = scope, yaml) do

@@ -94,7 +94,7 @@ defmodule FluxWeb.V1.WorkflowRunControllerTest do
     assert body["workflow_run_id"] == body["data"]["id"]
   end
 
-  test "streaming mode emits the Dify event sequence", %{
+  test "streaming mode emits the portable event sequence", %{
     conn: conn,
     scope: scope,
     workflow: workflow

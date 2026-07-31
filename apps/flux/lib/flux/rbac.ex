@@ -3,7 +3,7 @@ defmodule Flux.RBAC do
   Authorization checks against the caller's `Flux.Accounts.Scope`.
 
   Built-in workspace roles map to fixed permission sets defined here
-  (mirroring Dify's legacy role semantics); per-workspace custom roles layer
+  (mirroring the reference platform's legacy role semantics); per-workspace custom roles layer
   on top later via `roles`/`role_permissions` rows without changing callers.
 
   Usage in contexts:

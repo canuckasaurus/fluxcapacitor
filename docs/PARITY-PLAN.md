@@ -1,6 +1,8 @@
-# FluxCapacitor → Dify Parity: Analysis & Execution Plan
+# FluxCapacitor → Reference Parity: Analysis & Execution Plan
 
-Date: 2026-07-30 (rev 4 — tool calling, completion+files, triggers; WS3 backend decision; Agent-v2 re-scope) · Companion: `PARITY-GAP-ANALYSIS.md` · Reference: Dify v1.16.0+197 commits
+> "Reference" = the upstream platform we measure parity against (checkout: `C:\Users\jpcre\GitHub\dify`).
+
+Date: 2026-07-30 (rev 4 — tool calling, completion+files, triggers; WS3 backend decision; Agent-v2 re-scope) · Companion: `PARITY-GAP-ANALYSIS.md` · Reference: Reference v1.16.0+197 commits
 
 ## 1. Where we actually are
 
@@ -10,17 +12,17 @@ Verified against code (commit 544e50a, clean tree, 16 commits on `main`):
 |---|---|
 | Lib code | ~12,156 LOC |
 | Test code | ~5,300 LOC, 293 tests, 0 failures |
-| Dify reference | ~368k LOC Python API + ~218k LOC TS canvas + graphon engine pkg |
+| Reference reference | ~368k LOC Python API + ~218k LOC TS canvas + graphon engine pkg |
 | Volume parity | ~3% — but the built slices are complete verticals, not scaffolds |
 
 **Works end-to-end today:** auth/workspaces/members/RBAC → provider credentials
 (OpenAI, Anthropic, Gemini; encrypted per-workspace) → chat apps with streaming +
 stop → visual workflow builder (8 node types incl. http-request, multi-select canvas, undo/redo,
 zoom/pan, run drawer, run history, publish/versioning) → OpenAPI custom tools with
-encrypted auth/private variables → Dify-compatible `/v1` chat + workflow-run APIs
+encrypted auth/private variables → Reference-compatible `/v1` chat + workflow-run APIs
 with hashed tokens → local production release (OTP release + migrations + seeds).
 
-### Scorecard by area (share of Dify capability, judged by feature, not LOC)
+### Scorecard by area (share of Reference capability, judged by feature, not LOC)
 
 | Area | ~% | Have | Biggest absences |
 |---|---|---|---|
@@ -43,7 +45,7 @@ with hashed tokens → local production release (OTP release + migrations + seed
 2. ~~SSRF~~ → **fixed**: `Flux.SSRF` guards provider + toolset + validation calls; `FLUX_SSRF_ALLOW` for exemptions.
 3. ~~No rate limiting~~ → **fixed**: hammer on `/v1` (120/min per token principal) and auth POSTs (10/min per IP).
 4. ~~Accounts RBAC~~ → **fixed** at the context level, with bypass tests.
-5. **Golden harness: phase 1 done** — DSL importer runs verbatim Dify fixtures (from `dify/api/tests/fixtures/workflow`) through the engine with behavioral assertions. Phase 2 (recorded run traces + SSE transcripts from a live Dify) needs Docker Desktop installed.
+5. **Golden harness: phase 1 done** — DSL importer runs verbatim Reference fixtures (from `dify/api/tests/fixtures/workflow`) through the engine with behavioral assertions. Phase 2 (recorded run traces + SSE transcripts from a live Reference) needs Docker Desktop installed.
 6. ~~Stop prefix loss / untested providers~~ → **fixed** (ETS stream buffers; 10 Req.Test provider suites). Remaining from this list: no metrics exporter (WS7).
 
 ## 2. The plan
@@ -64,18 +66,18 @@ Eight workstreams. WS0/WS1/WS2 are immediate; WS3–WS7 sequence after.
 
 ### WS2 — Golden test harness (phase 1 ✅; phase 2 needs Docker)
 - ✅ **DSL importer v0** (`Flux.Workflows.DSL`): workflow/advanced-chat exports → flux graphs; selector/Jinja conversion; unsupported nodes dropped with warnings; Import DSL UI on the Fluxes page.
-- ✅ Conformance tests over **verbatim Dify fixtures** (copied from `dify/api/tests/fixtures/workflow`) including behavioral runs (if-else routing matches the fixture's documented semantics).
-- ⏳ Phase 2: run live Dify via Docker; record run traces + SSE transcripts for 15–20 workflows; extend the runner to compare traces, not just outputs. Gate stands: every WS4 engine feature lands with harness fixtures.
+- ✅ Conformance tests over **verbatim Reference fixtures** (copied from `dify/api/tests/fixtures/workflow`) including behavioral runs (if-else routing matches the fixture's documented semantics).
+- ⏳ Phase 2: run live Reference via Docker; record run traces + SSE transcripts for 15–20 workflows; extend the runner to compare traces, not just outputs. Gate stands: every WS4 engine feature lands with harness fixtures.
 
 ### WS3 — RAG / Knowledge, the missing pillar (~8–12 weeks)
 
 **Backend decision (2026-07-30): ArangoDB-first behind a `Flux.RAG.VectorStore`
 behaviour.** Postgres stays the system of record (datasets/documents/segments,
-tenancy-guarded) — the vector store is a replaceable index, exactly Dify's own
+tenancy-guarded) — the vector store is a replaceable index, exactly the Reference's own
 pattern for its ~28 backends. Arango (≥3.12.4) supplies vectors (FAISS index,
 APPROX_NEAR_COSINE), BM25 full-text (ArangoSearch), and — the differentiator —
 graphs for a later GraphRAG phase (entity/relation edges + traversal-augmented
-retrieval, which Dify lacks). Client = thin Req HTTP layer (~200 LOC; no
+retrieval, which Reference lacks). Client = thin Req HTTP layer (~200 LOC; no
 official Elixir driver — arangox is aging). A `Naive` backend (exact cosine in
 Postgres) keeps CI hermetic. Open items before build: BUSL-1.1 license
 acceptability; Arango is Docker-only on Windows (same blocker as pgvector);
@@ -91,16 +93,16 @@ Order inside the workstream:
 7. `knowledge-retrieval` engine node + citations into chat; `/v1/datasets` subset.
 
 ### WS4 — Engine depth to parity (~6–10 weeks, fixture-driven)
-- ✅ http-request node (2026-07-30): host-injected + SSRF-guarded; editor panel; DSL import maps Dify http-request cleanly.
+- ✅ http-request node (2026-07-30): host-injected + SSRF-guarded; editor panel; DSL import maps Reference http-request cleanly.
 - question-classifier + parameter-extractor (needs structured-output support in providers).
 - variable aggregator/assigner; list-operator; document-extractor.
 - **iteration/loop** — do a design spike first: allowing cycles inside loop scopes
   touches the validator and runner; biggest structural risk in the engine.
-- **Code node with per-block dependencies — decision 2026-07-31: our own `flux-coderunner`, NOT dify-sandbox** (its fixed dependency set can't do per-block libraries; ours is a Dify superset).
-  - Contract mirrors Dify exactly (`main(**variables) -> dict`) so imported DSL code nodes run unchanged; adds `dependencies: [{name, version}]`.
+- **Code node with per-block dependencies — decision 2026-07-31: our own `flux-coderunner`, NOT dify-sandbox** (its fixed dependency set can't do per-block libraries; ours is a Reference superset).
+  - Contract mirrors Reference exactly (`main(**variables) -> dict`) so imported DSL code nodes run unchanged; adds `dependencies: [{name, version}]`.
   - Engine `code` node → host capability `run_code` → `Flux.CodeRunner` behaviour with `Sandbox` (HTTP to runner container), `Local` (dev-only, opt-in, unsafe), `Fake` (CI) backends.
   - **Multi-language via adapters (rev 2026-07-31)**: one runner, one protocol (POST /run {language, code, dependencies, inputs, timeout_ms}; GET /languages feeds the editor dropdown); per-language adapter = prepare(deps)→cached env_ref + execute(env, code, inputs, limits) + wrapper. Line-up: python3 (uv venv cache by depset hash), **typescript/javascript via Deno** (npm: import maps, no install step, built-in --deny-net sandbox at execution — closes the network gap for JS from day one), bash (allowlisted binaries), ruby via bundler/inline later. Result channel = /workdir/__result__.json (stdout kept separate as {{code_x.stdout}}); rlimits + wall timeout (30s/120s cap) + 256KB output cap; internal-network only + API-key auth. Adding a language touches only the runner.
-  - Phases: **P0 ✅ (2026-07-31)** — engine code node + run_code capability, CodeRunner behaviour (Sandbox HTTP client/Local dev subprocess/Fake CI), editor panel, DSL import/export mapping, Dify code fixture imports clean; engine now at **10/20 node types**. → P1 (runner container in the WS3 compose, ~2–3d) → P2 (hardening: install/execute network split, per-workspace dep allowlist, single-node test-run button ≈ WS4 draft debugging, ~2–3d).
+  - Phases: **P0 ✅ (2026-07-31)** — engine code node + run_code capability, CodeRunner behaviour (Sandbox HTTP client/Local dev subprocess/Fake CI), editor panel, DSL import/export mapping, Reference code fixture imports clean; engine now at **10/20 node types**. → P1 (runner container in the WS3 compose, ~2–3d) → P2 (hardening: install/execute network split, per-workspace dep allowlist, single-node test-run button ≈ WS4 draft debugging, ~2–3d).
   - Known gap until P2: network reachable during code execution (documented, not hidden).
 - Retries + error branches; env/conversation variables; human-input + pause/resume snapshots.
 - DSL import hardening (harness fixtures); export ✅ (2026-07-30, JSON-as-YAML, round-trip tested, editor Export button).
@@ -129,14 +131,14 @@ Order inside the workstream:
 - Near-term: PromEx + OpenTelemetry + logger_json; audit-log context (`Flux.Audit`) so
   contexts start recording now even before the browsing UI.
 - Later (P5 proper): SSO (OIDC/SAML) + SCIM, custom roles, licensing/features layer,
-  bulk-operations framework, `mix flux.import` from live Dify.
+  bulk-operations framework, `mix flux.import` from live Reference.
 
 ## 3. Milestones
 
 | Milestone | Target | Definition of done |
 |---|---|---|
 | M0 | +1 week | Pushed to GitHub, CI green, WS1 hardening merged — **hardening ✅, commits ✅; push pending gh auth** |
-| M1 | +3 weeks | Harness runs ≥10 Dify fixtures incl. recorded traces; DSL import passes them — **4 fixtures + importer ✅; traces need Docker** |
+| M1 | +3 weeks | Harness runs ≥10 Reference fixtures incl. recorded traces; DSL import passes them — **4 fixtures + importer ✅; traces need Docker** |
 | M2 | +9 weeks | RAG MVP: upload → index → hybrid retrieve → knowledge node in a flux → cited answer; compose stack |
 | M3 | +14 weeks | Engine core parity (http/code/classifier/extractor/aggregator/loop), DSL import green on full fixture set |
 | M4 | +18 weeks | `/v1` subset complete + contract tests; site publishing + embed live |
@@ -149,7 +151,7 @@ Timeline above assumes ~2–3 engineers; single-engineer pace ≈ 2.5× the dura
 
 ## 4. Top risks & mitigations
 
-1. **Engine semantic drift** (high → medium) — structural/behavioral fixtures now run in CI; trace-level comparison still missing until a live Dify records them (Docker). Keep the freeze on new node types until phase 2 lands.
+1. **Engine semantic drift** (high → medium) — structural/behavioral fixtures now run in CI; trace-level comparison still missing until a live Reference records them (Docker). Keep the freeze on new node types until phase 2 lands.
 2. **Iteration/loop graph-model change** (medium) — cycles-in-scope may force validator/runner refactor. Mitigation: design spike at WS4 start, before more nodes stack on the current walker.
 3. **RAG scale unknowns** (medium) — Tika throughput, embedding costs, pgvector at enterprise corpus size. Mitigation: load-test spike with a real corpus in WS3 step 5.
 4. **Upstream drift** (medium) — Agent v2 externalized upstream. Mitigation: WS6 starts with a re-scoping read of `dify-agent`/`dify-agent-runtime`.

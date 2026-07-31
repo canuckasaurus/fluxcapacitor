@@ -1,12 +1,13 @@
 defmodule Flux.Workflows.DSL do
   @moduledoc """
-  Imports Dify app DSL (the `kind: app` YAML export, current version 0.7.x)
+  Imports the portable app DSL (`kind: app` YAML exports, as produced by
+  the upstream reference platform, current version 0.7.x)
   into a flux graph.
 
   Node types supported today: start, llm, if-else, answer, end,
   template-transform. Unsupported nodes (and edges touching them) are
   dropped and reported as warnings so partial imports remain editable.
-  Dify variable selectors (`{{#node.field#}}`, `value_selector` lists,
+  reference-platform variable selectors (`{{#node.field#}}`, `value_selector` lists,
   Jinja arguments in template-transform) convert to `{{node.field}}`.
   """
 
@@ -65,8 +66,8 @@ defmodule Flux.Workflows.DSL do
   end
 
   @doc """
-  Exports a workflow as Dify-importable DSL. Emitted as JSON — a strict
-  subset of YAML, so Dify's `yaml.safe_load` reads it unchanged.
+  Exports a workflow as portable DSL. Emitted as JSON — a strict
+  subset of YAML, so any YAML 1.2 parser reads it unchanged.
   """
   def export(workflow) do
     %{
@@ -233,7 +234,7 @@ defmodule Flux.Workflows.DSL do
     }
   end
 
-  # Tool nodes have no Dify equivalent (ours bind to imported toolsets);
+  # Tool nodes have no the reference platform equivalent (ours bind to imported toolsets);
   # exported under a vendor key so reimport can round-trip later.
   defp export_data("tool", config), do: %{"flux_toolset" => config}
   defp export_data(_type, config), do: config
@@ -290,7 +291,7 @@ defmodule Flux.Workflows.DSL do
   defp decode(yaml) do
     case YamlElixir.read_from_string(yaml) do
       {:ok, doc} when is_map(doc) -> {:ok, doc}
-      _invalid -> {:error, "Not valid YAML (expected a Dify app DSL document)."}
+      _invalid -> {:error, "Not valid YAML (expected a portable app DSL document)."}
     end
   end
 
@@ -299,7 +300,7 @@ defmodule Flux.Workflows.DSL do
 
     cond do
       not is_map(doc["app"]) ->
-        {:error, "Missing app section — is this a Dify DSL export?"}
+        {:error, "Missing app section — is this a portable DSL export?"}
 
       mode not in ["workflow", "advanced-chat"] ->
         {:error, "Only workflow and advanced-chat DSLs are importable (got #{mode || "none"})."}

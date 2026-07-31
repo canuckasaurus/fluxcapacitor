@@ -1,7 +1,7 @@
 defmodule Flux.Plugin.ModelProvider do
   @moduledoc """
   Behaviour for model-provider plugins (the BEAM-native replacement for
-  Dify's daemon-hosted provider plugins).
+  daemon-hosted provider plugins elsewhere).
 
   Streaming is push-based: `invoke_llm/3` receives an `emit` function and
   calls it with `%Chunk{}`s as tokens arrive, then returns the final

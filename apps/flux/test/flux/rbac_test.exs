@@ -22,7 +22,7 @@ defmodule Flux.RBACTest do
   end
 
   describe "permission catalog" do
-    test "matches Dify's 45 permission points" do
+    test "matches the reference platform's 45 permission points" do
       assert length(Permission.all()) == 45
       assert length(Permission.app_scope()) == 12
       assert length(Permission.dataset_scope()) == 15

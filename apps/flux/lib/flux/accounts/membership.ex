@@ -1,8 +1,8 @@
 defmodule Flux.Accounts.Membership do
   @moduledoc """
-  Joins an account to a workspace with a role (Dify's `TenantAccountJoin`).
+  Joins an account to a workspace with a role (the reference platform's `TenantAccountJoin`).
 
-  Roles mirror Dify exactly: `owner` > `admin` > `editor` > `normal`, with
+  Roles mirror the reference platform exactly: `owner` > `admin` > `editor` > `normal`, with
   `dataset_operator` as a special knowledge-only role. Exactly one membership
   per account has `current: true` — the workspace the account last switched to.
   """

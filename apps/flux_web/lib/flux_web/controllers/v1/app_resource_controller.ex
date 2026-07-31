@@ -1,6 +1,6 @@
 defmodule FluxWeb.V1.AppResourceController do
   @moduledoc """
-  Dify-compatible app-token resources: `GET /parameters`,
+  interoperable app-token resources: `GET /parameters`,
   `GET /conversations`, `GET /messages`, `POST /chat-messages/:id/stop`,
   `POST /messages/:id/feedbacks`. All require an `app-…` token.
   """

@@ -1,5 +1,5 @@
 defmodule FluxWeb.FluxDslController do
-  @moduledoc "Downloads a flux as Dify-importable DSL."
+  @moduledoc "Downloads a flux as portable DSL."
   use FluxWeb, :controller
 
   alias Flux.Workflows

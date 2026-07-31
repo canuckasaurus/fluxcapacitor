@@ -1,6 +1,6 @@
 defmodule Flux.Accounts.Workspace do
   @moduledoc """
-  A workspace (Dify's "tenant") — the unit of team collaboration and
+  A workspace (the reference platform's "tenant") — the unit of team collaboration and
   resource ownership. Every tenant-owned row in the system carries a
   `workspace_id` foreign key back to this table.
   """

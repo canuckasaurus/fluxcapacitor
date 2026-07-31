@@ -1,6 +1,6 @@
 defmodule FluxWeb.V1.WorkflowRunController do
   @moduledoc """
-  Dify-compatible `POST /v1/workflows/run`: executes the latest published
+  FluxCapacitor service API `POST /v1/workflows/run`: executes the latest published
   version of the token's workflow. Streaming SSE by default
   (`workflow_started` / `node_started` / `text_chunk` / `node_finished` /
   `workflow_finished`), or one JSON document with

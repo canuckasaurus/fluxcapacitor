@@ -32,7 +32,7 @@ defmodule FluxWeb.Router do
       methods: ["POST"]
   end
 
-  ## Service API (Dify-compatible, Bearer app-… tokens)
+  ## Service API (FluxCapacitor service API, Bearer app-… tokens)
 
   scope "/v1", FluxWeb.V1 do
     pipe_through :service_api

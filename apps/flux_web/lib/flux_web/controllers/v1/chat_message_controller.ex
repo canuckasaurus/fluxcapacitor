@@ -1,6 +1,6 @@
 defmodule FluxWeb.V1.ChatMessageController do
   @moduledoc """
-  Dify-compatible `/v1/chat-messages`: streaming SSE by default
+  FluxCapacitor service API `/v1/chat-messages`: streaming SSE by default
   (`event: message` deltas, then `message_end` with usage), or a single
   JSON document with `response_mode: "blocking"`.
   """
@@ -22,7 +22,7 @@ defmodule FluxWeb.V1.ChatMessageController do
     error(conn, 400, "invalid_param", "query is required")
   end
 
-  @doc "Dify-compatible `/v1/completion-messages` for completion-mode apps."
+  @doc "FluxCapacitor service API `/v1/completion-messages` for completion-mode apps."
   def completion(conn, params) do
     case conn.assigns[:service_app] do
       nil ->

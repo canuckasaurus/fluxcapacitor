@@ -157,7 +157,7 @@ defmodule Flux.CodeRunnerTest do
     end
   end
 
-  test "Dify code fixture imports code nodes without warnings for them" do
+  test "the reference platform code fixture imports code nodes without warnings for them" do
     yaml =
       Path.expand("../support/fixtures/dsl", __DIR__)
       |> Path.join("conditional_parallel_code_execution_workflow.yml")

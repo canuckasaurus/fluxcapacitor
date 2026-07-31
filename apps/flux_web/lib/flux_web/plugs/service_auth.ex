@@ -1,7 +1,7 @@
 defmodule FluxWeb.Plugs.ServiceAuth do
   @moduledoc """
   Authenticates service-API requests by bearer token: `app-…` resolves to a
-  chat app (Dify-compatible), `flux-…` to a workflow. Assigns
+  chat app (interoperable), `flux-…` to a workflow. Assigns
   `:service_app` / `:service_workflow` (one of them nil) and a
   workspace-bearing `:service_scope`.
   """

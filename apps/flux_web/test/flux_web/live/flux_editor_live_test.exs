@@ -34,7 +34,7 @@ defmodule FluxWeb.FluxEditorLiveTest do
     workflow
   end
 
-  test "importing a Dify DSL creates a flux and opens the editor", %{conn: conn, scope: scope} do
+  test "importing a portable DSL creates a flux and opens the editor", %{conn: conn, scope: scope} do
     dsl =
       Path.expand("../../../../flux/test/support/fixtures/dsl", __DIR__)
       |> Path.join("conditional_hello_branching_workflow.yml")

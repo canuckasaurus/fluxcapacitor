@@ -1,7 +1,7 @@
 defmodule Flux.RBAC.Permission do
   @moduledoc """
-  The catalog of permission points, ported 1:1 from Dify's
-  `api/core/rbac/entities.py` (`RBACPermission`, 45 points across the
+  The catalog of permission points, ported 1:1 from the reference
+  platform's RBAC catalog (`RBACPermission`, 45 points across the
   `app`, `dataset`, and `workspace` scopes).
 
   Permission names are compile-time atoms; `valid?/1` and `all/0` are the

@@ -314,7 +314,7 @@ end
 defmodule Flux.Engine.Nodes.Code do
   @moduledoc """
   Executes a code block through the host's `run_code` capability
-  (Dify-compatible `main(**inputs) -> dict` contract, plus per-block
+  (interoperable `main(**inputs) -> dict` contract, plus per-block
   `dependencies`). Config: `language`, `code`,
   `dependencies` ([{name, version}]), `inputs` ([{name, value-template}]),
   `timeout_ms`. Outputs: the returned dict's keys plus `"stdout"`.
@@ -373,7 +373,7 @@ defmodule Flux.Engine.Nodes.Agent do
   @moduledoc """
   Autonomous tool-calling loop: the model may call any of the node's
   configured tools (snapshotted toolset operations) until it answers in
-  plain text or `max_iterations` is hit — the guard upstream Dify v2 lacks.
+  plain text or `max_iterations` is hit — the guard the upstream reference lacks.
 
   Config: `provider_plugin_id`, `model`, `instructions`, `query`
   (template), `max_iterations` (default 5),
