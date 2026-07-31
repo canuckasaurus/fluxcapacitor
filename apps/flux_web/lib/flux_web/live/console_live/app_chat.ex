@@ -250,14 +250,21 @@ defmodule FluxWeb.ConsoleLive.AppChat do
           <p class="opacity-60 text-sm">{@app.provider_plugin_id} · {@app.model}</p>
         </div>
         <div class="flex gap-2">
-          <button :if={@app.mode == :chat} class="btn btn-sm btn-ghost" phx-click="new-conversation">
+          <button
+            :if={@app.mode in [:chat, :advanced_chat]}
+            class="btn btn-sm btn-ghost"
+            phx-click="new-conversation"
+          >
             New conversation
           </button>
           <.link navigate={~p"/console/apps"} class="btn btn-sm btn-ghost">&larr; All apps</.link>
         </div>
       </div>
 
-      <div :if={@app.mode == :chat} class="card border border-base-200 p-6 space-y-4">
+      <div
+        :if={@app.mode in [:chat, :advanced_chat]}
+        class="card border border-base-200 p-6 space-y-4"
+      >
         <div id="chat-messages" class="space-y-3 max-h-[28rem] overflow-y-auto">
           <p :if={@messages == [] and @streaming_id == nil} class="text-sm opacity-60">
             Say something to start the conversation.

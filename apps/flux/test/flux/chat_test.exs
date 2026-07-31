@@ -140,4 +140,105 @@ defmodule Flux.ChatTest do
     assert Enum.any?(models, &(&1.plugin_id == "echo" and &1.model.name == "echo-1"))
     refute Enum.any?(models, &(&1.plugin_id == "openai"))
   end
+
+  describe "advanced_chat (chatflow) apps" do
+    setup %{scope: scope} do
+      {:ok, workflow} = Flux.Workflows.create_workflow(scope, %{"name" => "Chatflow Flux"})
+
+      # Echo LLM + an assigner that records the last question as a
+      # conversation variable.
+      graph =
+        workflow.graph
+        |> update_in(["nodes"], fn nodes ->
+          Enum.map(nodes, fn
+            %{"id" => "llm_1"} = node ->
+              node
+              |> put_in(["config", "provider_plugin_id"], "echo")
+              |> put_in(["config", "model"], "echo-1")
+              |> put_in(["config", "prompt"], "{{sys.query}}")
+
+            node ->
+              node
+          end)
+        end)
+        |> Map.update!("nodes", fn nodes ->
+          nodes ++
+            [
+              %{
+                "id" => "assign_1",
+                "type" => "variable_assigner",
+                "title" => "Remember",
+                "position" => %{"x" => 900, "y" => 400},
+                "config" => %{
+                  "assignments" => [%{"name" => "last_question", "value" => "{{sys.query}}"}]
+                }
+              }
+            ]
+        end)
+        |> Map.update!("edges", fn edges ->
+          edges ++
+            [
+              %{
+                "id" => "e_answer_assign",
+                "source" => "answer_1",
+                "source_handle" => "default",
+                "target" => "assign_1"
+              }
+            ]
+        end)
+
+      {:ok, workflow} = Flux.Workflows.update_draft(scope, workflow, graph)
+      {:ok, _version} = Flux.Workflows.publish(scope, workflow)
+
+      {:ok, app} =
+        Chat.create_app(scope, %{
+          "name" => "Chatflow App",
+          "mode" => "advanced_chat",
+          "workflow_id" => workflow.id
+        })
+
+      %{chatflow_app: app, workflow: workflow}
+    end
+
+    test "a turn runs the published flux and persists conversation variables", %{
+      scope: scope,
+      chatflow_app: app
+    } do
+      conversation = Chat.create_conversation(scope, app)
+
+      {:ok, _user, assistant_message} =
+        Chat.send_message(scope, app, conversation, "what is flux?")
+
+      assert_receive {:done, final}, 5_000
+      assert final.id == assistant_message.id
+      assert final.content =~ "You said: what is flux?"
+
+      updated = Flux.Repo.get!(Chat.Conversation, conversation.id, skip_workspace_guard: true)
+      assert updated.variables == %{"last_question" => "what is flux?"}
+    end
+
+    test "creating a chatflow app requires a flux", %{scope: scope} do
+      assert {:error, changeset} =
+               Chat.create_app(scope, %{"name" => "No Flux", "mode" => "advanced_chat"})
+
+      assert %{workflow_id: ["can't be blank"]} = errors_on(changeset)
+    end
+
+    test "an unpublished flux fails the turn gracefully", %{scope: scope} do
+      {:ok, workflow} = Flux.Workflows.create_workflow(scope, %{"name" => "Unpublished"})
+
+      {:ok, app} =
+        Chat.create_app(scope, %{
+          "name" => "Broken Chatflow",
+          "mode" => "advanced_chat",
+          "workflow_id" => workflow.id
+        })
+
+      conversation = Chat.create_conversation(scope, app)
+      {:ok, _user, _assistant} = Chat.send_message(scope, app, conversation, "hi")
+
+      assert_receive {:error, message}, 5_000
+      assert message.error =~ "no published flux"
+    end
+  end
 end

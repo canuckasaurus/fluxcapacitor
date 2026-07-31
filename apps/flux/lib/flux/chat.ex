@@ -318,6 +318,48 @@ defmodule Flux.Chat do
 
   ## Generation internals
 
+  # Chatflow: the turn is answered by the app's published flux. The
+  # engine run streams through the run topic (this task subscribed via
+  # start_run); we bridge chunks to the message topic, persist
+  # conversation-variable writes, and finalize from the run outcome.
+  defp generate(%App{mode: :advanced_chat} = app, history, assistant_message) do
+    scope = site_scope(app)
+
+    query =
+      history
+      |> Enum.reverse()
+      |> Enum.find_value("", fn message ->
+        message.role == :user && message.content
+      end)
+
+    conversation =
+      Repo.get!(Conversation, assistant_message.conversation_id, skip_workspace_guard: true)
+
+    with %Flux.Workflows.Workflow{} = workflow <-
+           app.workflow_id &&
+             Repo.get_by(Flux.Workflows.Workflow, [id: app.workflow_id],
+               skip_workspace_guard: true
+             ),
+         %{} = version <- Flux.Workflows.latest_version(scope, workflow.id) do
+      # The message is offered both as {{sys.query}} (chatflow convention)
+      # and as the "query" start variable so the default starter graph
+      # works as a chatflow unchanged.
+      {:ok, _run} =
+        Flux.Workflows.start_run(scope, workflow, %{"query" => query},
+          graph: version.graph,
+          version: version.version,
+          source: :api,
+          sys: %{"query" => query, "conversation_id" => conversation.id},
+          conversation: conversation.variables || %{}
+        )
+
+      bridge_run(assistant_message, conversation, %{})
+    else
+      _missing ->
+        fail_generation(assistant_message, "This app has no published flux to run.")
+    end
+  end
+
   defp generate(app, history, assistant_message) do
     request = %Flux.Plugin.ModelProvider.Request{
       model: app.model,
@@ -354,6 +396,59 @@ defmodule Flux.Chat do
         Phoenix.PubSub.broadcast(Flux.PubSub, topic(assistant_message.id), {:error, message})
         {:error, reason}
     end
+  end
+
+  @chatflow_timeout :timer.minutes(5)
+
+  defp bridge_run(assistant_message, conversation, variables) do
+    receive do
+      {:engine_event, {:node_chunk, %{delta: delta}}} ->
+        Flux.StreamBuffers.append(assistant_message.id, delta)
+        Phoenix.PubSub.broadcast(Flux.PubSub, topic(assistant_message.id), {:chunk, delta})
+        bridge_run(assistant_message, conversation, variables)
+
+      {:engine_event, {:conversation_var_set, %{name: name, value: value}}} ->
+        bridge_run(assistant_message, conversation, Map.put(variables, name, value))
+
+      {:engine_event, _other} ->
+        bridge_run(assistant_message, conversation, variables)
+
+      {:run_finished, run} ->
+        if variables != %{} do
+          conversation
+          |> Ecto.Changeset.change(variables: Map.merge(conversation.variables || %{}, variables))
+          |> Repo.update()
+        end
+
+        case run.status do
+          :succeeded ->
+            answer =
+              case Flux.StreamBuffers.get(assistant_message.id) do
+                "" -> to_string(run.outputs["answer"] || "")
+                streamed -> streamed
+              end
+
+            finalize(assistant_message, :completed, answer, %{})
+
+          _failed_or_stopped ->
+            fail_generation(assistant_message, run.error || "The flux run failed.")
+        end
+    after
+      @chatflow_timeout ->
+        fail_generation(assistant_message, "The flux run timed out.")
+    end
+  end
+
+  defp fail_generation(assistant_message, error) do
+    Flux.StreamBuffers.delete(assistant_message.id)
+
+    message =
+      assistant_message
+      |> Ecto.Changeset.change(status: :error, error: error)
+      |> Repo.update!()
+
+    Phoenix.PubSub.broadcast(Flux.PubSub, topic(assistant_message.id), {:error, message})
+    {:error, error}
   end
 
   defp finalize(message, status, content, usage) do

@@ -148,7 +148,7 @@ defmodule FluxWeb.SiteLive.AppSite do
           <p :if={@app.description} class="text-sm opacity-70">{@app.description}</p>
         </header>
 
-        <div :if={@app.mode == :chat} class="flex-1 flex flex-col gap-3">
+        <div :if={@app.mode in [:chat, :advanced_chat]} class="flex-1 flex flex-col gap-3">
           <div id="site-messages" class="flex-1 space-y-3 overflow-y-auto">
             <p :if={@messages == [] and @streaming_id == nil} class="text-sm opacity-60">
               Say something to start the conversation.

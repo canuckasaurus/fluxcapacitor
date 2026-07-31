@@ -12,7 +12,8 @@ defmodule Flux.Chat.App do
 
     field :name, :string
     field :description, :string
-    field :mode, Ecto.Enum, values: [:chat, :completion], default: :chat
+    field :mode, Ecto.Enum, values: [:chat, :completion, :advanced_chat], default: :chat
+    belongs_to :workflow, Flux.Workflows.Workflow
     field :provider_plugin_id, :string
     field :model, :string
     field :system_prompt, :string
@@ -31,6 +32,7 @@ defmodule Flux.Chat.App do
       :name,
       :description,
       :mode,
+      :workflow_id,
       :provider_plugin_id,
       :model,
       :system_prompt,
@@ -38,8 +40,17 @@ defmodule Flux.Chat.App do
       :input_form,
       :params
     ])
-    |> validate_required([:name, :provider_plugin_id, :model])
+    |> validate_required([:name])
     |> validate_length(:name, min: 1, max: 255)
+    |> validate_mode_requirements()
+  end
+
+  # Chatflow apps are driven by a flux; the other modes call a model directly.
+  defp validate_mode_requirements(changeset) do
+    case get_field(changeset, :mode) do
+      :advanced_chat -> validate_required(changeset, [:workflow_id])
+      _direct_model -> validate_required(changeset, [:provider_plugin_id, :model])
+    end
   end
 end
 
@@ -55,6 +66,7 @@ defmodule Flux.Chat.Conversation do
     belongs_to :app, Flux.Chat.App
     field :title, :string
     field :end_user_ref, :string
+    field :variables, :map, default: %{}
 
     timestamps(type: :utc_datetime)
   end

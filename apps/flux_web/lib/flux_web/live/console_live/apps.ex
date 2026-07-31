@@ -18,6 +18,7 @@ defmodule FluxWeb.ConsoleLive.Apps do
        creating: false,
        form: to_form(App.changeset(%App{}, %{})),
        models: Providers.available_models(scope),
+       fluxes: Flux.Workflows.list_workflows(scope),
        can_create: RBAC.can?(scope, :app_create_and_management)
      )
      |> assign(apps: Chat.list_apps(scope))}
@@ -113,10 +114,12 @@ defmodule FluxWeb.ConsoleLive.Apps do
             label="Mode"
             options={[
               {"Chat — back-and-forth conversation", "chat"},
-              {"Completion — one-shot text generation from a form", "completion"}
+              {"Completion — one-shot text generation from a form", "completion"},
+              {"Chatflow — conversation driven by a published flux", "advanced_chat"}
             ]}
           />
           <.input
+            :if={to_string(@form[:mode].value) != "advanced_chat"}
             field={@form[:model_choice]}
             name="app[model_choice]"
             type="select"
@@ -126,6 +129,13 @@ defmodule FluxWeb.ConsoleLive.Apps do
                 {"#{pname} — #{m.label}", "#{pid}|#{m.name}"}
               end
             }
+          />
+          <.input
+            :if={to_string(@form[:mode].value) == "advanced_chat"}
+            field={@form[:workflow_id]}
+            type="select"
+            label="Flux (must be published; each turn runs it with {{sys.query}})"
+            options={for flux <- @fluxes, do: {flux.name, flux.id}}
           />
           <.input
             :if={to_string(@form[:mode].value || "chat") == "chat"}
@@ -181,7 +191,8 @@ defmodule FluxWeb.ConsoleLive.Apps do
           </div>
           <p class="text-xs opacity-60">
             <span class="badge badge-ghost badge-xs align-middle">{app.mode}</span>
-            {app.provider_plugin_id} · {app.model}
+            {(app.mode == :advanced_chat && "flux-driven") ||
+              "#{app.provider_plugin_id} · #{app.model}"}
           </p>
           <p :if={app.description} class="text-sm opacity-70">{app.description}</p>
           <.link navigate={~p"/console/apps/#{app.id}"} class="btn btn-sm btn-outline w-fit">
