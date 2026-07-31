@@ -23,7 +23,8 @@ defmodule Flux.Engine.Node do
     "end" => Flux.Engine.Nodes.EndNode,
     "tool" => Flux.Engine.Nodes.Tool,
     "http_request" => Flux.Engine.Nodes.HttpRequest,
-    "code" => Flux.Engine.Nodes.Code
+    "code" => Flux.Engine.Nodes.Code,
+    "agent" => Flux.Engine.Nodes.Agent
   }
 
   @doc "The module implementing a node type."

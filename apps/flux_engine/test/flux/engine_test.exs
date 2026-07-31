@@ -338,6 +338,96 @@ defmodule Flux.EngineTest do
       assert failure.error =~ "must return a dict"
     end
 
+    test "agent node loops through tool calls then answers, capped by max_iterations" do
+      tools = [
+        %{
+          "name" => "get_weather",
+          "description" => "d",
+          "parameters" => %{"type" => "object"},
+          "toolset_id" => "ts1",
+          "operation_id" => "getWeather"
+        }
+      ]
+
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("agent_1", "agent", %{
+            "provider_plugin_id" => "p",
+            "model" => "m",
+            "query" => "{{start.query}}",
+            "max_iterations" => 3,
+            "tools" => tools
+          })
+        ],
+        "edges" => [edge!("start", "agent_1")]
+      }
+
+      {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+      host = %Host{
+        emit: fn _e -> :ok end,
+        invoke_llm: fn request, _chunk ->
+          turn = Elixir.Agent.get_and_update(counter, &{&1, &1 + 1})
+
+          if turn == 0 do
+            assert [%{"name" => "get_weather"}] = request.tools
+
+            {:ok,
+             %{
+               content: "",
+               usage: %{},
+               tool_calls: [%{id: "c1", name: "get_weather", arguments: %{"city" => "Paris"}}]
+             }}
+          else
+            # Second turn sees the tool result in history.
+            assert Enum.any?(request.messages, &(&1[:role] == :tool and &1.content =~ "sunny"))
+            {:ok, %{content: "It is sunny in Paris.", usage: %{}, tool_calls: []}}
+          end
+        end,
+        invoke_tool: fn %{toolset_id: "ts1", operation_id: "getWeather", args: args} ->
+          assert args == %{"city" => "Paris"}
+          {:ok, %{status: 200, body: %{}, text: "sunny, 22C"}}
+        end
+      }
+
+      {:ok, built} = Engine.build(graph)
+      assert {:ok, result} = Engine.run(built, %{"query" => "weather in paris"}, host)
+      assert result.outputs["text"] == "It is sunny in Paris."
+      assert result.outputs["iterations"] == 2
+      assert result.outputs["tool_calls"] == 1
+    end
+
+    test "agent node errors past max_iterations" do
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("agent_1", "agent", %{
+            "provider_plugin_id" => "p",
+            "model" => "m",
+            "query" => "{{start.query}}",
+            "max_iterations" => 2,
+            "tools" => [
+              %{"name" => "t", "parameters" => %{}, "toolset_id" => "x", "operation_id" => "y"}
+            ]
+          })
+        ],
+        "edges" => [edge!("start", "agent_1")]
+      }
+
+      host = %Host{
+        emit: fn _e -> :ok end,
+        invoke_llm: fn _request, _chunk ->
+          {:ok, %{content: "", usage: %{}, tool_calls: [%{id: "c", name: "t", arguments: %{}}]}}
+        end,
+        invoke_tool: fn _spec -> {:ok, %{status: 200, body: %{}, text: "r"}} end
+      }
+
+      {:ok, built} = Engine.build(graph)
+      assert {:error, failure} = Engine.run(built, %{"query" => "q"}, host)
+      assert failure.error =~ "max_iterations (2)"
+    end
+
     test "unresolved template references render blank" do
       graph = %{
         "nodes" => [

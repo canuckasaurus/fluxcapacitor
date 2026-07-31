@@ -425,10 +425,20 @@ defmodule Flux.Workflows do
           {:error, :not_configured} -> %{}
         end
 
+      tools =
+        for tool <- Map.get(request, :tools, []) do
+          %Flux.Plugin.ModelProvider.ToolDef{
+            name: tool["name"],
+            description: tool["description"] || "",
+            parameters: tool["parameters"] || %{"type" => "object", "properties" => %{}}
+          }
+        end
+
       provider_request = %Flux.Plugin.ModelProvider.Request{
         model: request.model,
         messages: request.messages,
-        params: atomize_params(request.params)
+        params: atomize_params(request.params),
+        tools: tools
       }
 
       emit = fn %{delta: delta} -> chunk_emit.(delta) end
@@ -441,7 +451,8 @@ defmodule Flux.Workflows do
              usage: %{
                "input_tokens" => result.usage.input_tokens,
                "output_tokens" => result.usage.output_tokens
-             }
+             },
+             tool_calls: result.tool_calls
            }}
 
         {:error, reason} ->

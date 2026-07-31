@@ -369,6 +369,143 @@ defmodule Flux.Engine.Nodes.Code do
   defp fetch_runner(_host), do: {:error, "this run's host cannot execute code"}
 end
 
+defmodule Flux.Engine.Nodes.Agent do
+  @moduledoc """
+  Autonomous tool-calling loop: the model may call any of the node's
+  configured tools (snapshotted toolset operations) until it answers in
+  plain text or `max_iterations` is hit — the guard upstream Dify v2 lacks.
+
+  Config: `provider_plugin_id`, `model`, `instructions`, `query`
+  (template), `max_iterations` (default 5),
+  `tools` ([{name, description, parameters, toolset_id, operation_id}]).
+  Outputs `%{"text", "iterations", "tool_calls"}`.
+  """
+  @behaviour Flux.Engine.Node
+
+  alias Flux.Engine.{Host, Template}
+
+  @impl true
+  def run(node, pool, host) do
+    plugin_id = to_string(node.config["provider_plugin_id"] || "")
+    model = to_string(node.config["model"] || "")
+
+    with :ok <- require_config(plugin_id != "" and model != ""),
+         {:ok, invoke_llm} <- capability(host, :invoke_llm, 2),
+         {:ok, invoke_tool} <- capability(host, :invoke_tool, 1) do
+      instructions = Template.render(node.config["instructions"], pool)
+      query = Template.render(node.config["query"], pool)
+      tools = List.wrap(node.config["tools"])
+
+      messages =
+        if instructions == "" do
+          [%{role: :user, content: query}]
+        else
+          [%{role: :system, content: instructions}, %{role: :user, content: query}]
+        end
+
+      max_iterations = node.config["max_iterations"] || 5
+
+      chunk_emit = fn delta ->
+        Host.emit(host, {:node_chunk, %{node_id: node.id, delta: delta}})
+      end
+
+      context = %{
+        node: node,
+        host: host,
+        plugin_id: plugin_id,
+        model: model,
+        tools: tools,
+        invoke_llm: invoke_llm,
+        invoke_tool: invoke_tool,
+        chunk_emit: chunk_emit
+      }
+
+      loop(context, messages, 1, max_iterations, 0)
+    end
+  end
+
+  defp loop(_context, _messages, iteration, max_iterations, _calls)
+       when iteration > max_iterations do
+    {:error, "agent exceeded max_iterations (#{max_iterations}) without a final answer"}
+  end
+
+  defp loop(context, messages, iteration, max_iterations, calls_so_far) do
+    request = %{
+      provider_plugin_id: context.plugin_id,
+      model: context.model,
+      messages: messages,
+      params: context.node.config["params"] || %{},
+      tools: Enum.map(context.tools, &Map.take(&1, ["name", "description", "parameters"]))
+    }
+
+    case context.invoke_llm.(request, context.chunk_emit) do
+      {:ok, %{tool_calls: [_call | _] = tool_calls} = result} ->
+        assistant = %{role: :assistant, content: result.content, tool_calls: tool_calls}
+        tool_messages = Enum.map(tool_calls, &execute_tool(context, &1))
+
+        loop(
+          context,
+          messages ++ [assistant | tool_messages],
+          iteration + 1,
+          max_iterations,
+          calls_so_far + length(tool_calls)
+        )
+
+      {:ok, result} ->
+        {:ok,
+         %{
+           "text" => result.content,
+           "iterations" => iteration,
+           "tool_calls" => calls_so_far
+         }}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp execute_tool(context, call) do
+    Host.emit(
+      context.host,
+      {:agent_tool_call, %{node_id: context.node.id, tool: call.name, arguments: call.arguments}}
+    )
+
+    content =
+      case Enum.find(context.tools, &(&1["name"] == call.name)) do
+        nil ->
+          "error: unknown tool #{call.name}"
+
+        tool ->
+          case context.invoke_tool.(%{
+                 toolset_id: tool["toolset_id"],
+                 operation_id: tool["operation_id"],
+                 args: stringify(call.arguments)
+               }) do
+            {:ok, %{text: text}} -> String.slice(text, 0, 8_000)
+            {:error, reason} -> "error: #{inspect(reason)}"
+          end
+      end
+
+    %{role: :tool, tool_call_id: call.id, name: call.name, content: content}
+  end
+
+  defp stringify(arguments) when is_map(arguments) do
+    Map.new(arguments, fn {key, value} -> {to_string(key), value} end)
+  end
+
+  defp stringify(_arguments), do: %{}
+
+  defp require_config(true), do: :ok
+  defp require_config(false), do: {:error, "the agent node needs a provider and model"}
+
+  defp capability(host, key, arity) do
+    case Map.get(host, key) do
+      fun when is_function(fun, arity) -> {:ok, fun}
+      _missing -> {:error, "this run's host cannot #{key}"}
+    end
+  end
+end
+
 defmodule Flux.Engine.Nodes.EndNode do
   @moduledoc """
   Collects the run's final outputs. Config:

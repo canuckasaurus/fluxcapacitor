@@ -51,10 +51,15 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
       label: "Code",
       icon: "hero-command-line",
       accent: "bg-neutral/10 text-neutral"
+    },
+    "agent" => %{
+      label: "Agent",
+      icon: "hero-cpu-chip",
+      accent: "bg-secondary/10 text-secondary"
     }
   }
 
-  @addable_types ~w(llm if_else template tool http_request code answer end)
+  @addable_types ~w(llm if_else template tool http_request code agent answer end)
   @zoom_levels [50, 65, 80, 100, 125, 150]
   @history_cap 50
 
@@ -377,6 +382,8 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
         {:noreply, socket}
 
       node ->
+        params = Map.put(params, "__toolsets__", socket.assigns.toolsets)
+
         update_graph(socket, fn graph ->
           update_node_in(graph, node["id"], fn current ->
             current
@@ -626,6 +633,18 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
   defp default_config("http_request"),
     do: %{"method" => "get", "url" => "", "headers" => [], "body" => ""}
 
+  defp default_config("agent") do
+    %{
+      "provider_plugin_id" => "",
+      "model" => "",
+      "instructions" => "",
+      "query" => "{{start.query}}",
+      "max_iterations" => 5,
+      "agent_toolset_id" => "",
+      "tools" => []
+    }
+  end
+
   defp default_config("code") do
     %{
       "language" => "python3",
@@ -705,6 +724,31 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     |> Map.put("inputs", indexed_rows(params["cins"], ~w(name value), %{}))
   end
 
+  defp build_config("agent", config, params) do
+    {plugin_id, model} =
+      case String.split(Map.get(params, "model_choice", ""), "|", parts: 2) do
+        [plugin_id, model] -> {plugin_id, model}
+        _other -> {config["provider_plugin_id"], config["model"]}
+      end
+
+    toolset_id = Map.get(params, "agent_toolset_id", config["agent_toolset_id"] || "")
+
+    %{
+      "provider_plugin_id" => plugin_id,
+      "model" => model,
+      "instructions" => Map.get(params, "instructions", config["instructions"] || ""),
+      "query" => Map.get(params, "query", config["query"] || ""),
+      "max_iterations" => parse_iterations(Map.get(params, "max_iterations")),
+      "agent_toolset_id" => toolset_id,
+      "tools" =>
+        if toolset_id == config["agent_toolset_id"] do
+          config["tools"] || []
+        else
+          snapshot_tools(toolset_id, Map.get(params, "__toolsets__", []))
+        end
+    }
+  end
+
   defp build_config("tool", config, params) do
     toolset_id = Map.get(params, "toolset_id", config["toolset_id"] || "")
     operation_id = Map.get(params, "operation_id", config["operation_id"] || "")
@@ -751,6 +795,58 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
   end
 
   defp stringify_map(_other), do: %{}
+
+  defp parse_iterations(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {parsed, ""} when parsed in 1..25 -> parsed
+      _invalid -> 5
+    end
+  end
+
+  defp parse_iterations(_value), do: 5
+
+  # Snapshots every operation of the chosen toolset as an agent tool
+  # (name/description/JSON-schema parameters + invocation binding). The
+  # toolset comes from the workspace-scoped assigns, never a raw id lookup.
+  defp snapshot_tools("", _toolsets), do: []
+
+  defp snapshot_tools(toolset_id, toolsets) do
+    case Enum.find(toolsets, &(&1.id == toolset_id)) do
+      nil ->
+        []
+
+      toolset ->
+        for operation <- toolset.operations do
+          properties =
+            Map.new(operation["params"], fn param ->
+              {param["name"],
+               %{
+                 "type" => schema_type(param["type"]),
+                 "description" => param["description"] || param["in"]
+               }}
+            end)
+
+          required =
+            for param <- operation["params"], param["required"], do: param["name"]
+
+          %{
+            "name" => operation["operation_id"],
+            "description" =>
+              "#{String.upcase(operation["method"])} #{operation["path"]} — #{operation["summary"]}",
+            "parameters" => %{
+              "type" => "object",
+              "properties" => properties,
+              "required" => required
+            },
+            "toolset_id" => toolset.id,
+            "operation_id" => operation["operation_id"]
+          }
+        end
+    end
+  end
+
+  defp schema_type(type) when type in ~w(integer number boolean string), do: type
+  defp schema_type(_other), do: "string"
 
   defp round_num(value) when is_number(value), do: round(value)
   defp round_num(_value), do: 0
@@ -809,6 +905,12 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     "#{node["config"]["language"] || "python3"} · #{deps} dep(s)"
   end
 
+  defp node_summary(%{"type" => "agent"} = node) do
+    tools = length(List.wrap(node["config"]["tools"]))
+    model = node["config"]["model"]
+    "#{(model != "" && model) || "no model"} · #{tools} tool(s)"
+  end
+
   defp node_summary(%{"type" => "tool"} = node) do
     case node["config"]["operation_id"] do
       operation when is_binary(operation) and operation != "" -> operation
@@ -835,7 +937,8 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     "answer" => ~w(answer),
     "tool" => ~w(text status body),
     "http_request" => ~w(text status_code body),
-    "code" => ~w(stdout)
+    "code" => ~w(stdout),
+    "agent" => ~w(text iterations tool_calls)
   }
 
   defp variable_hints(graph, selected_id) do
@@ -948,7 +1051,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                 tabindex="0"
                 class="dropdown-content menu bg-base-100 rounded-box z-20 w-44 p-2 shadow border border-base-200"
               >
-                <li :for={type <- ~w(llm if_else template tool http_request code answer end)}>
+                <li :for={type <- ~w(llm if_else template tool http_request code agent answer end)}>
                   <button phx-click="add_node" phx-value-type={type}>
                     <.icon name={meta(type).icon} class="size-4" /> {meta(type).label}
                   </button>
@@ -1550,6 +1653,78 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                       spellcheck="false"
                       disabled={not @can_edit}
                     >{node["config"]["code"]}</textarea>
+                  </label>
+                <% "agent" -> %>
+                  <label class="floating-label">
+                    <span>Model</span>
+                    <select
+                      name="model_choice"
+                      class="select select-sm w-full"
+                      disabled={not @can_edit}
+                    >
+                      <option value="" selected={node["config"]["model"] in [nil, ""]}>
+                        Choose a model…
+                      </option>
+                      <option
+                        :for={%{plugin_id: pid, plugin_name: pname, model: m} <- @models}
+                        value={"#{pid}|#{m.name}"}
+                        selected={
+                          node["config"]["provider_plugin_id"] == pid and
+                            node["config"]["model"] == m.name
+                        }
+                      >
+                        {pname} — {m.label}
+                      </option>
+                    </select>
+                  </label>
+                  <label class="floating-label">
+                    <span>Toolset (every operation becomes a callable tool)</span>
+                    <select
+                      name="agent_toolset_id"
+                      class="select select-sm w-full"
+                      disabled={not @can_edit}
+                    >
+                      <option value="" selected={node["config"]["agent_toolset_id"] in [nil, ""]}>
+                        No tools
+                      </option>
+                      <option
+                        :for={toolset <- @toolsets}
+                        value={toolset.id}
+                        selected={node["config"]["agent_toolset_id"] == toolset.id}
+                      >
+                        {toolset.name} ({length(toolset.operations)} ops)
+                      </option>
+                    </select>
+                  </label>
+                  <label class="floating-label">
+                    <span>Instructions</span>
+                    <textarea
+                      name="instructions"
+                      rows="3"
+                      class="textarea textarea-sm w-full"
+                      disabled={not @can_edit}
+                    >{node["config"]["instructions"]}</textarea>
+                  </label>
+                  <label class="floating-label">
+                    <span>Task / query</span>
+                    <textarea
+                      name="query"
+                      rows="3"
+                      class="textarea textarea-sm w-full font-mono"
+                      disabled={not @can_edit}
+                    >{node["config"]["query"]}</textarea>
+                  </label>
+                  <label class="floating-label">
+                    <span>Max iterations (1–25)</span>
+                    <input
+                      type="number"
+                      name="max_iterations"
+                      value={node["config"]["max_iterations"] || 5}
+                      min="1"
+                      max="25"
+                      class="input input-sm w-24"
+                      disabled={not @can_edit}
+                    />
                   </label>
                 <% "tool" -> %>
                   <label class="floating-label">
