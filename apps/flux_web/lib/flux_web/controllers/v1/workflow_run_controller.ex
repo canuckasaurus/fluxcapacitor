@@ -139,6 +139,10 @@ defmodule FluxWeb.V1.WorkflowRunController do
     })
   end
 
+  defp sse_engine_event(conn, run, {:agent_part, data}) do
+    sse(conn, %{event: "agent_part", workflow_run_id: run.id, data: data})
+  end
+
   defp sse_engine_event(conn, _run, _other), do: {:ok, conn}
 
   defp sse(conn, payload), do: chunk(conn, "data: " <> Jason.encode!(payload) <> "\n\n")

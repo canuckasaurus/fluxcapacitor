@@ -826,6 +826,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
       "instructions" => Map.get(params, "instructions", config["instructions"] || ""),
       "query" => Map.get(params, "query", config["query"] || ""),
       "max_iterations" => parse_iterations(Map.get(params, "max_iterations")),
+      "output_schema" => parse_output_schema(params["output_schema"], config["output_schema"]),
       "agent_toolset_id" => toolset_id,
       "tools" =>
         if toolset_id == config["agent_toolset_id"] do
@@ -891,6 +892,17 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
   end
 
   defp parse_iterations(_value), do: 5
+
+  # Blank clears the schema; invalid JSON keeps the previous value.
+  defp parse_output_schema(nil, previous), do: previous
+  defp parse_output_schema("", _previous), do: nil
+
+  defp parse_output_schema(json, previous) when is_binary(json) do
+    case Jason.decode(json) do
+      {:ok, %{} = schema} -> schema
+      _invalid -> previous
+    end
+  end
 
   # Snapshots every operation of the chosen toolset as an agent tool
   # (name/description/JSON-schema parameters + invocation binding). The
@@ -1025,7 +1037,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     "tool" => ~w(text status body),
     "http_request" => ~w(text status_code body),
     "code" => ~w(stdout),
-    "agent" => ~w(text iterations tool_calls)
+    "agent" => ~w(text output status iterations tool_calls)
   }
 
   defp variable_hints(graph, selected_id) do
@@ -1849,6 +1861,16 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                       class="input input-sm w-24"
                       disabled={not @can_edit}
                     />
+                  </label>
+                  <label class="floating-label">
+                    <span>Output schema (JSON, optional — forces a structured final_output)</span>
+                    <textarea
+                      name="output_schema"
+                      rows="3"
+                      class="textarea textarea-sm w-full font-mono"
+                      placeholder={~s({"type": "object", "properties": {...}})}
+                      disabled={not @can_edit}
+                    >{node["config"]["output_schema"] && Jason.encode!(node["config"]["output_schema"])}</textarea>
                   </label>
                 <% "tool" -> %>
                   <label class="floating-label">

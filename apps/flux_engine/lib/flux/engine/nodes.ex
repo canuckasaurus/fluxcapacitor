@@ -372,17 +372,35 @@ end
 defmodule Flux.Engine.Nodes.Agent do
   @moduledoc """
   Autonomous tool-calling loop: the model may call any of the node's
-  configured tools (snapshotted toolset operations) until it answers in
-  plain text or `max_iterations` is hit — the guard the upstream reference lacks.
+  configured tools (snapshotted toolset operations) until it answers or
+  `max_iterations` is hit — the guard the upstream reference lacks.
 
   Config: `provider_plugin_id`, `model`, `instructions`, `query`
   (template), `max_iterations` (default 5),
-  `tools` ([{name, description, parameters, toolset_id, operation_id}]).
-  Outputs `%{"text", "iterations", "tool_calls"}`.
+  `tools` ([{name, description, parameters, toolset_id, operation_id,
+  deferred?}]), plus three v2 features:
+
+    * `output_schema` — a JSON schema; when set, a synthetic `final_output`
+      tool is offered and calling it terminates the loop with the
+      arguments as structured `"output"`.
+    * deferred tools (`"deferred" => true` on a tool) — human-in-the-loop:
+      calling one ends the run with `"status" => "deferred"`, the pending
+      `"deferred_tool_calls"`, and an opaque `"session_snapshot"`. Resume
+      by running again with `session_snapshot` and
+      `deferred_tool_results` (JSON list of `{tool_call_id, content}`)
+      in the node config (typically wired from start variables).
+    * part events — every iteration emits `{:agent_part, ...}` engine
+      events with the upstream vocabulary (`part_start`/`part_delta` with
+      `kind: thinking`, `function_tool_call`, `function_tool_result`).
+
+  Outputs `%{"text", "output", "status", "iterations", "tool_calls"}`
+  plus `"deferred_tool_calls"`/`"session_snapshot"` when deferred.
   """
   @behaviour Flux.Engine.Node
 
   alias Flux.Engine.{Host, Template}
+
+  @final_output "final_output"
 
   @impl true
   def run(node, pool, host) do
@@ -392,9 +410,36 @@ defmodule Flux.Engine.Nodes.Agent do
     with :ok <- require_config(plugin_id != "" and model != ""),
          {:ok, invoke_llm} <- capability(host, :invoke_llm, 2),
          {:ok, invoke_tool} <- capability(host, :invoke_tool, 1) do
+      context = %{
+        node: node,
+        host: host,
+        plugin_id: plugin_id,
+        model: model,
+        tools: List.wrap(node.config["tools"]),
+        output_schema: node.config["output_schema"],
+        invoke_llm: invoke_llm,
+        invoke_tool: invoke_tool
+      }
+
+      max_iterations = node.config["max_iterations"] || 5
+
+      case initial_state(node, pool) do
+        {:ok, messages, iteration, calls_so_far} ->
+          loop(context, messages, iteration, max_iterations, calls_so_far)
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  # Fresh run, or resume from a deferred-tool snapshot.
+  defp initial_state(node, pool) do
+    snapshot = Template.render(node.config["session_snapshot"], pool)
+
+    if snapshot == "" do
       instructions = Template.render(node.config["instructions"], pool)
       query = Template.render(node.config["query"], pool)
-      tools = List.wrap(node.config["tools"])
 
       messages =
         if instructions == "" do
@@ -403,24 +448,14 @@ defmodule Flux.Engine.Nodes.Agent do
           [%{role: :system, content: instructions}, %{role: :user, content: query}]
         end
 
-      max_iterations = node.config["max_iterations"] || 5
+      {:ok, messages, 1, 0}
+    else
+      results_json = Template.render(node.config["deferred_tool_results"], pool)
 
-      chunk_emit = fn delta ->
-        Host.emit(host, {:node_chunk, %{node_id: node.id, delta: delta}})
+      with {:ok, state} <- decode_snapshot(snapshot),
+           {:ok, results} <- decode_results(results_json) do
+        {:ok, resolve_pending(state.messages, results), state.iteration, state.tool_calls}
       end
-
-      context = %{
-        node: node,
-        host: host,
-        plugin_id: plugin_id,
-        model: model,
-        tools: tools,
-        invoke_llm: invoke_llm,
-        invoke_tool: invoke_tool,
-        chunk_emit: chunk_emit
-      }
-
-      loop(context, messages, 1, max_iterations, 0)
     end
   end
 
@@ -430,45 +465,134 @@ defmodule Flux.Engine.Nodes.Agent do
   end
 
   defp loop(context, messages, iteration, max_iterations, calls_so_far) do
+    emit_part(context, iteration, %{type: "part_start", kind: "thinking"})
+
+    chunk_emit = fn delta ->
+      Host.emit(context.host, {:node_chunk, %{node_id: context.node.id, delta: delta}})
+      emit_part(context, iteration, %{type: "part_delta", kind: "thinking", delta: delta})
+    end
+
     request = %{
       provider_plugin_id: context.plugin_id,
       model: context.model,
       messages: messages,
       params: context.node.config["params"] || %{},
-      tools: Enum.map(context.tools, &Map.take(&1, ["name", "description", "parameters"]))
+      tools: tool_defs(context)
     }
 
-    case context.invoke_llm.(request, context.chunk_emit) do
+    case context.invoke_llm.(request, chunk_emit) do
       {:ok, %{tool_calls: [_call | _] = tool_calls} = result} ->
-        assistant = %{role: :assistant, content: result.content, tool_calls: tool_calls}
-        tool_messages = Enum.map(tool_calls, &execute_tool(context, &1))
-
-        loop(
+        handle_tool_round(
           context,
-          messages ++ [assistant | tool_messages],
-          iteration + 1,
+          messages,
+          result,
+          tool_calls,
+          iteration,
           max_iterations,
-          calls_so_far + length(tool_calls)
+          calls_so_far
         )
 
       {:ok, result} ->
-        {:ok,
-         %{
-           "text" => result.content,
-           "iterations" => iteration,
-           "tool_calls" => calls_so_far
-         }}
+        {:ok, completed(result.content, nil, iteration, calls_so_far)}
 
       {:error, reason} ->
         {:error, reason}
     end
   end
 
-  defp execute_tool(context, call) do
-    Host.emit(
-      context.host,
-      {:agent_tool_call, %{node_id: context.node.id, tool: call.name, arguments: call.arguments}}
-    )
+  defp handle_tool_round(context, messages, result, tool_calls, iteration, max, calls_so_far) do
+    calls_total = calls_so_far + length(tool_calls)
+
+    case Enum.find(tool_calls, &(&1.name == @final_output)) do
+      %{arguments: arguments} ->
+        {:ok, completed(result.content || "", stringify(arguments), iteration, calls_total)}
+
+      nil ->
+        assistant = %{role: :assistant, content: result.content, tool_calls: tool_calls}
+        {deferred, executable} = Enum.split_with(tool_calls, &deferred?(context, &1))
+        tool_messages = Enum.map(executable, &execute_tool(context, &1, iteration))
+
+        if deferred == [] do
+          loop(context, messages ++ [assistant | tool_messages], iteration + 1, max, calls_total)
+        else
+          Enum.each(deferred, fn call ->
+            emit_part(context, iteration, %{
+              type: "function_tool_call",
+              id: call.id,
+              name: call.name,
+              arguments: call.arguments,
+              deferred: true
+            })
+          end)
+
+          snapshot =
+            encode_snapshot(
+              messages ++ [assistant | tool_messages],
+              iteration + 1,
+              calls_total
+            )
+
+          {:ok,
+           %{
+             "text" => "",
+             "output" => nil,
+             "status" => "deferred",
+             "deferred_tool_calls" =>
+               Enum.map(deferred, fn call ->
+                 %{"id" => call.id, "name" => call.name, "arguments" => stringify(call.arguments)}
+               end),
+             "session_snapshot" => snapshot,
+             "iterations" => iteration,
+             "tool_calls" => calls_total
+           }}
+        end
+    end
+  end
+
+  defp completed(text, output, iterations, tool_calls) do
+    %{
+      "text" => text,
+      "output" => output,
+      "status" => "completed",
+      "iterations" => iterations,
+      "tool_calls" => tool_calls
+    }
+  end
+
+  defp tool_defs(context) do
+    defs = Enum.map(context.tools, &Map.take(&1, ["name", "description", "parameters"]))
+
+    case context.output_schema do
+      %{} = schema ->
+        defs ++
+          [
+            %{
+              "name" => @final_output,
+              "description" =>
+                "Call this exactly once to finish and return your final structured answer.",
+              "parameters" => schema
+            }
+          ]
+
+      _absent ->
+        defs
+    end
+  end
+
+  defp deferred?(context, call) do
+    case Enum.find(context.tools, &(&1["name"] == call.name)) do
+      %{"deferred" => true} -> true
+      _normal_or_unknown -> false
+    end
+  end
+
+  defp execute_tool(context, call, iteration) do
+    emit_part(context, iteration, %{
+      type: "function_tool_call",
+      id: call.id,
+      name: call.name,
+      arguments: call.arguments
+    })
 
     content =
       case Enum.find(context.tools, &(&1["name"] == call.name)) do
@@ -486,7 +610,137 @@ defmodule Flux.Engine.Nodes.Agent do
           end
       end
 
+    emit_part(context, iteration, %{
+      type: "function_tool_result",
+      id: call.id,
+      name: call.name,
+      content: content
+    })
+
     %{role: :tool, tool_call_id: call.id, name: call.name, content: content}
+  end
+
+  defp emit_part(context, iteration, payload) do
+    Host.emit(
+      context.host,
+      {:agent_part, Map.merge(payload, %{node_id: context.node.id, iteration: iteration})}
+    )
+  end
+
+  ## Session snapshots (opaque base64 JSON; the resume contract)
+
+  defp encode_snapshot(messages, iteration, tool_calls) do
+    %{
+      "messages" => Enum.map(messages, &encode_message/1),
+      "iteration" => iteration,
+      "tool_calls" => tool_calls
+    }
+    |> Jason.encode!()
+    |> Base.encode64()
+  end
+
+  defp encode_message(%{role: :tool} = message) do
+    %{
+      "role" => "tool",
+      "tool_call_id" => message.tool_call_id,
+      "name" => message.name,
+      "content" => message.content
+    }
+  end
+
+  defp encode_message(%{role: role, tool_calls: tool_calls} = message) do
+    %{
+      "role" => to_string(role),
+      "content" => message.content,
+      "tool_calls" =>
+        Enum.map(tool_calls, fn call ->
+          %{"id" => call.id, "name" => call.name, "arguments" => stringify(call.arguments)}
+        end)
+    }
+  end
+
+  defp encode_message(%{role: role, content: content}) do
+    %{"role" => to_string(role), "content" => content}
+  end
+
+  defp decode_snapshot(snapshot) do
+    with {:ok, json} <- Base.decode64(snapshot),
+         {:ok, %{"messages" => messages} = state} <- Jason.decode(json) do
+      {:ok,
+       %{
+         messages: Enum.map(messages, &decode_message/1),
+         iteration: state["iteration"] || 1,
+         tool_calls: state["tool_calls"] || 0
+       }}
+    else
+      _invalid -> {:error, "invalid session_snapshot"}
+    end
+  end
+
+  defp decode_message(%{"role" => "tool"} = message) do
+    %{
+      role: :tool,
+      tool_call_id: message["tool_call_id"],
+      name: message["name"],
+      content: message["content"]
+    }
+  end
+
+  defp decode_message(%{"tool_calls" => tool_calls} = message) do
+    %{
+      role: decode_role(message["role"]),
+      content: message["content"],
+      tool_calls:
+        Enum.map(tool_calls, fn call ->
+          %{id: call["id"], name: call["name"], arguments: call["arguments"] || %{}}
+        end)
+    }
+  end
+
+  defp decode_message(message) do
+    %{role: decode_role(message["role"]), content: message["content"]}
+  end
+
+  defp decode_role("system"), do: :system
+  defp decode_role("assistant"), do: :assistant
+  defp decode_role("tool"), do: :tool
+  defp decode_role(_user), do: :user
+
+  defp decode_results(""), do: {:ok, []}
+
+  defp decode_results(json) do
+    case Jason.decode(json) do
+      {:ok, results} when is_list(results) -> {:ok, results}
+      _invalid -> {:error, "deferred_tool_results must be a JSON list"}
+    end
+  end
+
+  # Answers every tool call that has no tool message yet with the caller's
+  # supplied results (matched by tool_call_id).
+  defp resolve_pending(messages, results) do
+    answered =
+      for %{role: :tool, tool_call_id: id} <- messages, into: MapSet.new(), do: id
+
+    pending =
+      messages
+      |> Enum.flat_map(fn
+        %{role: :assistant, tool_calls: calls} -> calls
+        _other -> []
+      end)
+      |> Enum.reject(&MapSet.member?(answered, &1.id))
+
+    tool_messages =
+      Enum.map(pending, fn call ->
+        content =
+          Enum.find_value(results, "error: no result provided", fn result ->
+            if result["tool_call_id"] == call.id or result["id"] == call.id,
+              do: to_string(result["content"] || "")
+          end)
+
+        %{role: :tool, tool_call_id: call.id, name: call.name, content: content}
+      end)
+
+    messages ++ tool_messages
   end
 
   defp stringify(arguments) when is_map(arguments) do

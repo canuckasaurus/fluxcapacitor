@@ -428,6 +428,210 @@ defmodule Flux.EngineTest do
       assert failure.error =~ "max_iterations (2)"
     end
 
+    test "agent node with output_schema terminates via final_output" do
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("agent_1", "agent", %{
+            "provider_plugin_id" => "p",
+            "model" => "m",
+            "query" => "{{start.query}}",
+            "max_iterations" => 3,
+            "output_schema" => %{
+              "type" => "object",
+              "properties" => %{"answer" => %{"type" => "string"}}
+            },
+            "tools" => []
+          })
+        ],
+        "edges" => [edge!("start", "agent_1")]
+      }
+
+      host = %Host{
+        emit: fn _e -> :ok end,
+        invoke_llm: fn request, _chunk ->
+          # The synthetic final_output tool is offered alongside real tools.
+          assert Enum.any?(request.tools, &(&1["name"] == "final_output"))
+
+          {:ok,
+           %{
+             content: "",
+             usage: %{},
+             tool_calls: [
+               %{id: "f1", name: "final_output", arguments: %{"answer" => "42"}}
+             ]
+           }}
+        end,
+        invoke_tool: fn _spec -> {:ok, %{status: 200, body: %{}, text: ""}} end
+      }
+
+      {:ok, built} = Engine.build(graph)
+      assert {:ok, result} = Engine.run(built, %{"query" => "meaning of life"}, host)
+      assert result.outputs["status"] == "completed"
+      assert result.outputs["output"] == %{"answer" => "42"}
+      assert result.outputs["iterations"] == 1
+    end
+
+    test "agent node defers on a deferred tool and resumes from the snapshot" do
+      tools = [
+        %{
+          "name" => "ask_human",
+          "description" => "ask the operator",
+          "parameters" => %{"type" => "object"},
+          "toolset_id" => "ts1",
+          "operation_id" => "ask",
+          "deferred" => true
+        }
+      ]
+
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("agent_1", "agent", %{
+            "provider_plugin_id" => "p",
+            "model" => "m",
+            "query" => "{{start.query}}",
+            "max_iterations" => 5,
+            "tools" => tools
+          })
+        ],
+        "edges" => [edge!("start", "agent_1")]
+      }
+
+      host = %Host{
+        emit: fn _e -> :ok end,
+        invoke_llm: fn _request, _chunk ->
+          {:ok,
+           %{
+             content: "",
+             usage: %{},
+             tool_calls: [%{id: "d1", name: "ask_human", arguments: %{"question" => "ok?"}}]
+           }}
+        end,
+        invoke_tool: fn _spec -> flunk("deferred tools must not be invoked") end
+      }
+
+      {:ok, built} = Engine.build(graph)
+      assert {:ok, result} = Engine.run(built, %{"query" => "check with human"}, host)
+      assert result.outputs["status"] == "deferred"
+
+      assert [%{"id" => "d1", "name" => "ask_human", "arguments" => %{"question" => "ok?"}}] =
+               result.outputs["deferred_tool_calls"]
+
+      snapshot = result.outputs["session_snapshot"]
+      assert is_binary(snapshot) and snapshot != ""
+
+      # Resume: same node, snapshot + human answer in config; the model
+      # sees the tool result in history and finishes.
+      resume_graph = %{
+        "nodes" => [
+          start_node(),
+          node!("agent_1", "agent", %{
+            "provider_plugin_id" => "p",
+            "model" => "m",
+            "query" => "ignored on resume",
+            "max_iterations" => 5,
+            "tools" => tools,
+            "session_snapshot" => snapshot,
+            "deferred_tool_results" =>
+              Jason.encode!([%{"tool_call_id" => "d1", "content" => "human says yes"}])
+          })
+        ],
+        "edges" => [edge!("start", "agent_1")]
+      }
+
+      resume_host = %Host{
+        emit: fn _e -> :ok end,
+        invoke_llm: fn request, _chunk ->
+          assert Enum.any?(
+                   request.messages,
+                   &(&1[:role] == :tool and &1.content == "human says yes")
+                 )
+
+          {:ok, %{content: "Confirmed by the human.", usage: %{}, tool_calls: []}}
+        end,
+        invoke_tool: fn _spec -> {:ok, %{status: 200, body: %{}, text: ""}} end
+      }
+
+      {:ok, resume_built} = Engine.build(resume_graph)
+      assert {:ok, resumed} = Engine.run(resume_built, %{"query" => "x"}, resume_host)
+      assert resumed.outputs["status"] == "completed"
+      assert resumed.outputs["text"] == "Confirmed by the human."
+      # Iteration count carried across the deferral.
+      assert resumed.outputs["iterations"] == 2
+    end
+
+    test "agent node emits part events with the upstream vocabulary" do
+      {:ok, events} = Agent.start_link(fn -> [] end)
+
+      tools = [
+        %{
+          "name" => "lookup",
+          "description" => "d",
+          "parameters" => %{"type" => "object"},
+          "toolset_id" => "ts1",
+          "operation_id" => "op"
+        }
+      ]
+
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("agent_1", "agent", %{
+            "provider_plugin_id" => "p",
+            "model" => "m",
+            "query" => "{{start.query}}",
+            "max_iterations" => 3,
+            "tools" => tools
+          })
+        ],
+        "edges" => [edge!("start", "agent_1")]
+      }
+
+      {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+      host = %Host{
+        emit: fn
+          {:agent_part, data} -> Elixir.Agent.update(events, &[data | &1])
+          _other -> :ok
+        end,
+        invoke_llm: fn _request, chunk ->
+          turn = Elixir.Agent.get_and_update(counter, &{&1, &1 + 1})
+
+          if turn == 0 do
+            {:ok,
+             %{
+               content: "",
+               usage: %{},
+               tool_calls: [%{id: "c1", name: "lookup", arguments: %{}}]
+             }}
+          else
+            chunk.("final ")
+            chunk.("answer")
+            {:ok, %{content: "final answer", usage: %{}, tool_calls: []}}
+          end
+        end,
+        invoke_tool: fn _spec -> {:ok, %{status: 200, body: %{}, text: "found"}} end
+      }
+
+      {:ok, built} = Engine.build(graph)
+      assert {:ok, _result} = Engine.run(built, %{"query" => "q"}, host)
+
+      parts = events |> Elixir.Agent.get(& &1) |> Enum.reverse()
+      types = Enum.map(parts, & &1.type)
+
+      assert "part_start" in types
+      assert "part_delta" in types
+      assert "function_tool_call" in types
+      assert "function_tool_result" in types
+
+      call = Enum.find(parts, &(&1.type == "function_tool_call"))
+      assert call.name == "lookup" and call.iteration == 1
+
+      delta = Enum.find(parts, &(&1.type == "part_delta"))
+      assert delta.kind == "thinking" and delta.delta == "final "
+    end
+
     test "unresolved template references render blank" do
       graph = %{
         "nodes" => [
