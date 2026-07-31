@@ -57,13 +57,14 @@ defmodule Flux.Audit do
     _error -> :ok
   end
 
-  @doc "Recent entries for the scope's workspace, newest first."
+  @doc "Recent entries for the scope's workspace, newest first (actor preloaded)."
   def list(%Scope{} = scope, limit \\ 50) do
     Entry
     |> Repo.scoped(scope)
     |> order_by([e], desc: e.inserted_at, desc: e.id)
     |> limit(^limit)
     |> Repo.all()
+    |> Repo.preload(:actor)
   end
 
   defp resource_ref(opts) do

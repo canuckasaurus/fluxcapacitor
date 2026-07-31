@@ -150,6 +150,13 @@ defmodule FluxWeb.Layouts do
             label="Members"
             active={@active == :members}
           />
+          <.sidebar_link
+            :if={Flux.RBAC.can?(@current_scope, :workspace_member_manage)}
+            navigate={~p"/console/audit"}
+            icon="hero-clipboard-document-list"
+            label="Audit log"
+            active={@active == :audit}
+          />
         </nav>
 
         <div class="px-4 py-4 border-t border-base-200 space-y-3">
