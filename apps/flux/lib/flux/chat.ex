@@ -29,17 +29,22 @@ defmodule Flux.Chat do
   end
 
   def create_app(%Scope{} = scope, attrs) do
-    with :ok <- RBAC.authorize(scope, :app_create_and_management) do
-      %App{workspace_id: Scope.workspace_id(scope), created_by_id: Scope.account_id(scope)}
-      |> App.changeset(attrs)
-      |> Repo.insert()
+    with :ok <- RBAC.authorize(scope, :app_create_and_management),
+         {:ok, app} <-
+           %App{workspace_id: Scope.workspace_id(scope), created_by_id: Scope.account_id(scope)}
+           |> App.changeset(attrs)
+           |> Repo.insert() do
+      Flux.Audit.record(scope, "app.create", resource: app, metadata: %{"name" => app.name})
+      {:ok, app}
     end
   end
 
   def delete_app(%Scope{} = scope, %App{} = app) do
     with :ok <- RBAC.authorize(scope, :app_delete),
-         true <- app.workspace_id == Scope.workspace_id(scope) || {:error, :not_found} do
-      Repo.delete(app)
+         true <- app.workspace_id == Scope.workspace_id(scope) || {:error, :not_found},
+         {:ok, deleted} <- Repo.delete(app) do
+      Flux.Audit.record(scope, "app.delete", resource: app, metadata: %{"name" => app.name})
+      {:ok, deleted}
     end
   end
 
@@ -63,16 +68,22 @@ defmodule Flux.Chat do
         app.site_token ||
           "site_" <> Base.url_encode64(:crypto.strong_rand_bytes(18), padding: false)
 
-      app
-      |> Ecto.Changeset.change(site_token: token, site_enabled: true)
-      |> Repo.update()
+      with {:ok, updated} <-
+             app
+             |> Ecto.Changeset.change(site_token: token, site_enabled: true)
+             |> Repo.update() do
+        Flux.Audit.record(scope, "app.site_enable", resource: app)
+        {:ok, updated}
+      end
     end
   end
 
   def disable_site(%Scope{} = scope, %App{} = app) do
     with :ok <- RBAC.authorize(scope, :app_create_and_management),
-         true <- app.workspace_id == Scope.workspace_id(scope) || {:error, :not_found} do
-      app |> Ecto.Changeset.change(site_enabled: false) |> Repo.update()
+         true <- app.workspace_id == Scope.workspace_id(scope) || {:error, :not_found},
+         {:ok, updated} <- app |> Ecto.Changeset.change(site_enabled: false) |> Repo.update() do
+      Flux.Audit.record(scope, "app.site_disable", resource: app)
+      {:ok, updated}
     end
   end
 

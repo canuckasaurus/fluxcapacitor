@@ -36,18 +36,25 @@ defmodule Flux.Providers do
   def upsert_credential(%Scope{} = scope, plugin_id, config) when is_map(config) do
     with :ok <- RBAC.authorize(scope, :plugin_model_config),
          :ok <- validate_with_plugin(plugin_id, config),
-         {:ok, encrypted} <- Crypto.encrypt(Scope.workspace_id(scope), Jason.encode!(config)) do
-      %ProviderCredential{}
-      |> ProviderCredential.changeset(%{
-        workspace_id: Scope.workspace_id(scope),
-        plugin_id: plugin_id,
-        encrypted_config: encrypted,
-        validated_at: DateTime.utc_now(:second)
-      })
-      |> Repo.insert(
-        on_conflict: {:replace, [:encrypted_config, :validated_at, :updated_at]},
-        conflict_target: [:workspace_id, :plugin_id, :name]
+         {:ok, encrypted} <- Crypto.encrypt(Scope.workspace_id(scope), Jason.encode!(config)),
+         {:ok, credential} <-
+           %ProviderCredential{}
+           |> ProviderCredential.changeset(%{
+             workspace_id: Scope.workspace_id(scope),
+             plugin_id: plugin_id,
+             encrypted_config: encrypted,
+             validated_at: DateTime.utc_now(:second)
+           })
+           |> Repo.insert(
+             on_conflict: {:replace, [:encrypted_config, :validated_at, :updated_at]},
+             conflict_target: [:workspace_id, :plugin_id, :name]
+           ) do
+      Flux.Audit.record(scope, "provider.credential_upsert",
+        resource_type: "provider_credential",
+        resource_id: plugin_id
       )
+
+      {:ok, credential}
     end
   end
 
@@ -55,8 +62,14 @@ defmodule Flux.Providers do
     with :ok <- RBAC.authorize(scope, :plugin_model_config),
          %ProviderCredential{} = credential <-
            Repo.one(Repo.scoped(where(ProviderCredential, id: ^credential_id), scope)) ||
-             {:error, :not_found} do
-      Repo.delete(credential)
+             {:error, :not_found},
+         {:ok, deleted} <- Repo.delete(credential) do
+      Flux.Audit.record(scope, "provider.credential_delete",
+        resource_type: "provider_credential",
+        resource_id: credential.plugin_id
+      )
+
+      {:ok, deleted}
     end
   end
 
@@ -113,9 +126,18 @@ defmodule Flux.Providers do
           Map.delete(workspace.custom_config || %{}, "default_model")
         end
 
-      workspace
-      |> Ecto.Changeset.change(custom_config: custom_config)
-      |> Repo.update()
+      with {:ok, updated} <-
+             workspace
+             |> Ecto.Changeset.change(custom_config: custom_config)
+             |> Repo.update() do
+        Flux.Audit.record(scope, "provider.default_model_set",
+          resource_type: "workspace",
+          resource_id: workspace.id,
+          metadata: default || %{"cleared" => true}
+        )
+
+        {:ok, updated}
+      end
     end
   end
 

@@ -156,7 +156,14 @@ defmodule Flux.Workflows do
         graph: workflow.graph
       }
 
-      {:ok, Repo.insert!(version)}
+      inserted = Repo.insert!(version)
+
+      Flux.Audit.record(scope, "workflow.publish",
+        resource: workflow,
+        metadata: %{"version" => inserted.version}
+      )
+
+      {:ok, inserted}
     else
       {:error, errors} when is_list(errors) -> {:error, {:invalid_graph, errors}}
       {:error, reason} -> {:error, reason}
@@ -303,16 +310,23 @@ defmodule Flux.Workflows do
         workflow.site_token ||
           "site_" <> Base.url_encode64(:crypto.strong_rand_bytes(18), padding: false)
 
-      workflow
-      |> Ecto.Changeset.change(site_token: token, site_enabled: true)
-      |> Repo.update()
+      with {:ok, updated} <-
+             workflow
+             |> Ecto.Changeset.change(site_token: token, site_enabled: true)
+             |> Repo.update() do
+        Flux.Audit.record(scope, "workflow.site_enable", resource: workflow)
+        {:ok, updated}
+      end
     end
   end
 
   def disable_site(%Scope{} = scope, %Workflow{} = workflow) do
     with :ok <- RBAC.authorize(scope, :app_create_and_management),
-         :ok <- owned(scope, workflow) do
-      workflow |> Ecto.Changeset.change(site_enabled: false) |> Repo.update()
+         :ok <- owned(scope, workflow),
+         {:ok, updated} <-
+           workflow |> Ecto.Changeset.change(site_enabled: false) |> Repo.update() do
+      Flux.Audit.record(scope, "workflow.site_disable", resource: workflow)
+      {:ok, updated}
     end
   end
 

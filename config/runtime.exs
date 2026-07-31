@@ -202,3 +202,16 @@ if config_env() == :prod do
 
   config :flux, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 end
+
+# FLUX_METRICS=1 exposes Prometheus metrics at GET /metrics (unauthenticated —
+# keep it network-restricted or off on public deployments).
+if System.get_env("FLUX_METRICS") in ~w(1 true) do
+  config :flux_web, metrics_enabled: true
+end
+
+# FLUX_LOG_JSON=1 switches the default logger handler to structured JSON
+# (one object per line; request_id and workspace metadata included).
+if System.get_env("FLUX_LOG_JSON") in ~w(1 true) do
+  config :logger, :default_handler,
+    formatter: {LoggerJSON.Formatters.Basic, metadata: [:request_id, :workspace_id]}
+end

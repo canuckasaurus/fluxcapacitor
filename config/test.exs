@@ -63,3 +63,6 @@ config :flux, Flux.SSRF, enabled: false
 
 # No rate limiting in tests.
 config :flux_web, rate_limit_enabled: false
+
+# Exercise the /metrics route in tests.
+config :flux_web, metrics_enabled: true

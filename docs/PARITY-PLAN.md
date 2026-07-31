@@ -163,11 +163,11 @@ Timeline above assumes ~2–3 engineers; single-engineer pace ≈ 2.5× the dura
 ### Unblocked (buildable now, in priority order)
 1. ~~Console UI for triggers~~ ✅ (2026-07-31): editor Triggers modal — list/create webhook+schedule, webhook URL shown, enable/disable, delete, static-inputs JSON.
 2. ~~Console UI for completion apps~~ ✅ (2026-07-31): mode select + template on create, variables editor + run panel on the app page, `/v1/parameters` now serves the real `user_input_form`.
-3. Site publishing: **app sites ✅ (2026-07-31)** — public `/site/:token` page for chat + completion apps, anonymous `web_…` end-user refs, publish/unpublish console card, iframe embed snippet (frame headers relaxed on that scope only). Remaining: public form page per *flux*, JS bubble embed, rate limiting on public LiveView events.
-4. `open_api_spex` contract tests over the now-12-route `/v1` surface.
-5. Agent v2 features: structured `final_output`, deferred-tool HITL, streamed thought events.
-6. azure_openai + bedrock providers; default/system model config.
-7. Router-level RBAC plug; PromEx/OTEL + logger_json; audit-log context stubs.
+3. ~~Site publishing~~ ✅ (2026-07-31, complete): app sites (`/site/:token`) AND flux form pages (`/site/flux/:token`, runs the published version), anonymous `web_…` end-user refs, publish/unpublish console UIs, iframe + JS bubble embeds (`/embed.js`), hammer rate limiting on public LiveView events (120/min per site, 15/min per visitor IP).
+4. ~~`open_api_spex` contract tests~~ ✅ (2026-07-31): strict schemas (additionalProperties: false) + tests over all 12 `/v1` routes.
+5. ~~Agent v2 features~~ ✅ (2026-07-31): `output_schema` → synthetic `final_output` tool → structured `"output"`; deferred tools → `status=deferred` + `session_snapshot` resume with `deferred_tool_results`; `agent_part` events (part_start/part_delta thinking, function_tool_call/result) incl. `/v1` SSE.
+6. azure_openai + bedrock providers (default/system model config ✅ 2026-07-31 — workspace default in custom_config, Host.resolve_llm fallback, Plugins-page selector).
+7. ~~Router-level RBAC plug~~ ✅ (RequirePermission plug, DSL export gated on app_import_export_dsl); ~~PromEx + logger_json + audit context~~ ✅ (2026-07-31: /metrics behind FLUX_METRICS, FLUX_LOG_JSON structured logs, `Flux.Audit` recording app/site/publish/credential mutations). OTEL traces still open.
 8. Engine depth not needing fixtures: variable aggregator/assigner, list-operator (iteration/loop spike SHOULD wait for the harness).
 
 ### Blocked — external unblocks required

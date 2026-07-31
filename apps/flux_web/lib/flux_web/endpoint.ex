@@ -40,6 +40,8 @@ defmodule FluxWeb.Endpoint do
     param_key: "request_logger",
     cookie_key: "request_logger"
 
+  plug FluxWeb.MetricsExporter
+
   plug Plug.RequestId
   plug Plug.Telemetry, event_prefix: [:phoenix, :endpoint]
 
