@@ -32,6 +32,10 @@ defmodule FluxWeb.ConsoleLive.Apps do
     {:noreply, assign(socket, creating: false)}
   end
 
+  def handle_event("validate", %{"app" => params}, socket) do
+    {:noreply, assign(socket, form: to_form(App.changeset(%App{}, split_model_choice(params))))}
+  end
+
   def handle_event("save", %{"app" => params}, socket) do
     params = split_model_choice(params)
 
@@ -97,12 +101,19 @@ defmodule FluxWeb.ConsoleLive.Apps do
       </div>
 
       <div :if={@creating} class="card border border-base-200 p-6 space-y-4">
-        <h2 class="font-semibold">Create a chat app</h2>
+        <h2 class="font-semibold">Create an app</h2>
         <p :if={@models == []} class="text-sm text-warning">
           No models available — configure a provider under Plugins first.
         </p>
-        <.form for={@form} id="app-form" phx-submit="save" class="space-y-3">
+        <.form for={@form} id="app-form" phx-submit="save" phx-change="validate" class="space-y-3">
           <.input field={@form[:name]} type="text" label="Name" placeholder="Support Assistant" />
+          <.input
+            field={@form[:mode]}
+            type="select"
+            label="Mode"
+            options={[{"Chat — back-and-forth conversation", "chat"},
+                      {"Completion — one-shot text generation from a form", "completion"}]}
+          />
           <.input
             field={@form[:model_choice]}
             name="app[model_choice]"
@@ -115,11 +126,23 @@ defmodule FluxWeb.ConsoleLive.Apps do
             }
           />
           <.input
+            :if={to_string(@form[:mode].value || "chat") == "chat"}
             field={@form[:system_prompt]}
             type="textarea"
             label="System prompt"
             placeholder="You are a helpful assistant for..."
           />
+          <.input
+            :if={to_string(@form[:mode].value) == "completion"}
+            field={@form[:prompt_template]}
+            type="textarea"
+            label="Prompt template"
+            placeholder="Summarize the following text: {{inputs.text}}"
+          />
+          <p :if={to_string(@form[:mode].value) == "completion"} class="text-xs opacity-60">
+            Reference form variables as <code>{"{{inputs.name}}"}</code> — define the form
+            fields on the app page after creating it.
+          </p>
           <div class="flex gap-2">
             <button class="btn btn-primary" disabled={@models == []}>Create app</button>
             <button type="button" class="btn btn-ghost" phx-click="cancel">Cancel</button>
@@ -154,10 +177,13 @@ defmodule FluxWeb.ConsoleLive.Apps do
               Delete
             </button>
           </div>
-          <p class="text-xs opacity-60">{app.provider_plugin_id} · {app.model}</p>
+          <p class="text-xs opacity-60">
+            <span class="badge badge-ghost badge-xs align-middle">{app.mode}</span>
+            {app.provider_plugin_id} · {app.model}
+          </p>
           <p :if={app.description} class="text-sm opacity-70">{app.description}</p>
           <.link navigate={~p"/console/apps/#{app.id}"} class="btn btn-sm btn-outline w-fit">
-            Open chat
+            {(app.mode == :completion && "Open app") || "Open chat"}
           </.link>
         </div>
       </div>

@@ -162,7 +162,7 @@ Timeline above assumes ~2–3 engineers; single-engineer pace ≈ 2.5× the dura
 
 ### Unblocked (buildable now, in priority order)
 1. ~~Console UI for triggers~~ ✅ (2026-07-31): editor Triggers modal — list/create webhook+schedule, webhook URL shown, enable/disable, delete, static-inputs JSON.
-2. Console UI for completion apps (Apps form mode/template/variables; run panel) — API exists.
+2. ~~Console UI for completion apps~~ ✅ (2026-07-31): mode select + template on create, variables editor + run panel on the app page, `/v1/parameters` now serves the real `user_input_form`.
 3. Site publishing + JS embed (WS5's biggest remaining piece).
 4. `open_api_spex` contract tests over the now-12-route `/v1` surface.
 5. Agent v2 features: structured `final_output`, deferred-tool HITL, streamed thought events.

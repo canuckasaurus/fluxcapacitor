@@ -25,6 +25,42 @@ defmodule FluxWeb.V1.AppResourceControllerTest do
   test "parameters returns app model info", %{conn: conn} do
     body = conn |> get(~p"/v1/parameters") |> json_response(200)
     assert body["model"]["name"] == "echo-1"
+    assert body["user_input_form"] == []
+  end
+
+  test "parameters renders the app's input form in wire shape", %{
+    conn: conn,
+    scope: scope,
+    app: app
+  } do
+    {:ok, _app} =
+      Chat.update_app(scope, app, %{
+        "input_form" => [
+          %{"variable" => "text", "label" => "Text", "type" => "paragraph", "required" => true},
+          %{"variable" => "tone", "label" => "", "type" => "text-input", "required" => false}
+        ]
+      })
+
+    body = conn |> get(~p"/v1/parameters") |> json_response(200)
+
+    assert body["user_input_form"] == [
+             %{
+               "paragraph" => %{
+                 "label" => "Text",
+                 "variable" => "text",
+                 "required" => true,
+                 "default" => ""
+               }
+             },
+             %{
+               "text-input" => %{
+                 "label" => "tone",
+                 "variable" => "tone",
+                 "required" => false,
+                 "default" => ""
+               }
+             }
+           ]
   end
 
   test "conversations and messages list after a blocking chat", %{conn: conn} do

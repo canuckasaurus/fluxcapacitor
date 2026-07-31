@@ -22,7 +22,10 @@ defmodule FluxWeb.ConsoleLive.AppChat do
            streaming_text: "",
            api_tokens: Chat.list_api_tokens(scope, app.id),
            new_token: nil,
-           can_manage: RBAC.can?(scope, :app_create_and_management)
+           can_manage: RBAC.can?(scope, :app_create_and_management),
+           can_edit: RBAC.can?(scope, :app_edit),
+           var_rows: app.input_form,
+           template_draft: app.prompt_template
          )}
 
       {:error, :not_found} ->
@@ -66,6 +69,71 @@ defmodule FluxWeb.ConsoleLive.AppChat do
   def handle_event("new-conversation", _params, socket) do
     {:noreply,
      assign(socket, conversation: nil, messages: [], streaming_id: nil, streaming_text: "")}
+  end
+
+  ## Completion apps: run panel + configuration
+
+  def handle_event("run_completion", params, socket) do
+    scope = socket.assigns.current_scope
+
+    case Chat.send_completion(scope, socket.assigns.app, params["inputs"] || %{}) do
+      {:ok, conversation, _user_message, assistant_message} ->
+        {:noreply,
+         assign(socket,
+           conversation: conversation,
+           messages: [],
+           streaming_id: assistant_message.id,
+           streaming_text: ""
+         )}
+
+      {:error, :not_completion_app} ->
+        {:noreply, put_flash(socket, :error, "This app is not in completion mode.")}
+    end
+  end
+
+  def handle_event("add_var", _params, socket) do
+    {:noreply,
+     assign(socket,
+       var_rows: socket.assigns.var_rows ++ [%{"type" => "text-input", "required" => false}]
+     )}
+  end
+
+  def handle_event("remove_var", %{"index" => index}, socket) do
+    {:noreply,
+     assign(socket,
+       var_rows: List.delete_at(socket.assigns.var_rows, String.to_integer(index))
+     )}
+  end
+
+  def handle_event("settings_change", params, socket) do
+    {:noreply,
+     assign(socket, template_draft: params["prompt_template"], var_rows: parse_var_rows(params))}
+  end
+
+  def handle_event("save_settings", params, socket) do
+    scope = socket.assigns.current_scope
+
+    rows =
+      params
+      |> parse_var_rows()
+      |> Enum.reject(&(&1["variable"] == ""))
+
+    case Chat.update_app(scope, socket.assigns.app, %{
+           "prompt_template" => params["prompt_template"],
+           "input_form" => rows
+         }) do
+      {:ok, app} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Configuration saved.")
+         |> assign(app: app, var_rows: app.input_form, template_draft: app.prompt_template)}
+
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "You don't have permission to edit this app.")}
+
+      {:error, %Ecto.Changeset{}} ->
+        {:noreply, put_flash(socket, :error, "Could not save the configuration.")}
+    end
   end
 
   def handle_event("create-token", _params, socket) do
@@ -116,6 +184,29 @@ defmodule FluxWeb.ConsoleLive.AppChat do
      )}
   end
 
+  defp parse_var_rows(%{"vars" => vars}) when is_map(vars) do
+    vars
+    |> Enum.sort_by(fn {index, _row} -> String.to_integer(index) end)
+    |> Enum.map(fn {_index, row} ->
+      %{
+        "variable" => String.trim(row["variable"] || ""),
+        "label" => row["label"] || "",
+        "type" => row["type"] || "text-input",
+        "required" => row["required"] == "true"
+      }
+    end)
+  end
+
+  defp parse_var_rows(_params), do: []
+
+  defp completion_output(messages) do
+    case List.last(messages) do
+      %{role: :assistant, status: :error, error: error} -> error
+      %{role: :assistant, content: content} -> content
+      _no_output_yet -> nil
+    end
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -131,12 +222,14 @@ defmodule FluxWeb.ConsoleLive.AppChat do
           <p class="opacity-60 text-sm">{@app.provider_plugin_id} · {@app.model}</p>
         </div>
         <div class="flex gap-2">
-          <button class="btn btn-sm btn-ghost" phx-click="new-conversation">New conversation</button>
+          <button :if={@app.mode == :chat} class="btn btn-sm btn-ghost" phx-click="new-conversation">
+            New conversation
+          </button>
           <.link navigate={~p"/console/apps"} class="btn btn-sm btn-ghost">&larr; All apps</.link>
         </div>
       </div>
 
-      <div class="card border border-base-200 p-6 space-y-4">
+      <div :if={@app.mode == :chat} class="card border border-base-200 p-6 space-y-4">
         <div id="chat-messages" class="space-y-3 max-h-[28rem] overflow-y-auto">
           <p :if={@messages == [] and @streaming_id == nil} class="text-sm opacity-60">
             Say something to start the conversation.
@@ -174,6 +267,138 @@ defmodule FluxWeb.ConsoleLive.AppChat do
           <button :if={@streaming_id} type="button" class="btn btn-warning" phx-click="stop">
             Stop
           </button>
+        </form>
+      </div>
+
+      <div :if={@app.mode == :completion} class="card border border-base-200 p-6 space-y-4">
+        <h2 class="font-semibold">Run</h2>
+        <form phx-submit="run_completion" id="completion-form" class="space-y-3">
+          <p :if={@app.input_form == []} class="text-sm opacity-60">
+            No form variables defined — the prompt template runs as-is.
+          </p>
+          <div :for={field <- @app.input_form} class="form-control">
+            <label class="label-text text-sm mb-1">
+              {(field["label"] != "" && field["label"]) || field["variable"]}
+              <span :if={field["required"]} class="text-error">*</span>
+            </label>
+            <textarea
+              :if={field["type"] == "paragraph"}
+              name={"inputs[#{field["variable"]}]"}
+              rows="3"
+              required={field["required"] == true}
+              class="textarea textarea-bordered w-full"
+            ></textarea>
+            <input
+              :if={field["type"] == "number"}
+              type="number"
+              name={"inputs[#{field["variable"]}]"}
+              required={field["required"] == true}
+              class="input input-bordered w-full"
+            />
+            <input
+              :if={field["type"] not in ["paragraph", "number"]}
+              type="text"
+              name={"inputs[#{field["variable"]}]"}
+              required={field["required"] == true}
+              class="input input-bordered w-full"
+            />
+          </div>
+          <div class="flex gap-2">
+            <button :if={@streaming_id == nil} class="btn btn-primary btn-sm">
+              <.icon name="hero-play" class="size-4" /> Run
+            </button>
+            <button :if={@streaming_id} type="button" class="btn btn-warning btn-sm" phx-click="stop">
+              Stop
+            </button>
+          </div>
+        </form>
+
+        <div
+          :if={@streaming_id != nil or completion_output(@messages) != nil}
+          id="completion-output"
+          class="rounded-box bg-base-200 p-4 text-sm whitespace-pre-wrap"
+        >
+          {(@streaming_id && @streaming_text) || completion_output(@messages)}
+          <span :if={@streaming_id} class="animate-pulse">▌</span>
+        </div>
+      </div>
+
+      <div
+        :if={@app.mode == :completion and @can_edit}
+        class="card border border-base-200 p-6 space-y-3"
+      >
+        <h2 class="font-semibold">Configuration</h2>
+        <form
+          id="settings-form"
+          phx-submit="save_settings"
+          phx-change="settings_change"
+          class="space-y-3"
+        >
+          <label class="form-control block">
+            <span class="label-text text-sm mb-1">
+              Prompt template — reference variables as <code>{"{{inputs.name}}"}</code>
+            </span>
+            <textarea
+              name="prompt_template"
+              rows="3"
+              placeholder="Summarize the following text: {{inputs.text}}"
+              class="textarea textarea-bordered w-full font-mono"
+            >{@template_draft}</textarea>
+          </label>
+
+          <p class="text-sm font-semibold">Form variables</p>
+          <div
+            :for={{row, index} <- Enum.with_index(@var_rows)}
+            class="flex items-center gap-2 flex-wrap"
+            id={"var-row-#{index}"}
+          >
+            <input
+              type="text"
+              name={"vars[#{index}][variable]"}
+              value={row["variable"]}
+              placeholder="variable"
+              class="input input-bordered input-sm font-mono w-36"
+            />
+            <input
+              type="text"
+              name={"vars[#{index}][label]"}
+              value={row["label"]}
+              placeholder="Label"
+              class="input input-bordered input-sm flex-1 min-w-32"
+            />
+            <select name={"vars[#{index}][type]"} class="select select-bordered select-sm w-32">
+              <option value="text-input" selected={row["type"] in [nil, "", "text-input"]}>
+                Text
+              </option>
+              <option value="paragraph" selected={row["type"] == "paragraph"}>Paragraph</option>
+              <option value="number" selected={row["type"] == "number"}>Number</option>
+            </select>
+            <label class="flex items-center gap-1 text-xs">
+              <input type="hidden" name={"vars[#{index}][required]"} value="false" />
+              <input
+                type="checkbox"
+                name={"vars[#{index}][required]"}
+                value="true"
+                checked={row["required"] == true}
+                class="checkbox checkbox-xs"
+              /> required
+            </label>
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs text-error"
+              phx-click="remove_var"
+              phx-value-index={index}
+            >
+              <.icon name="hero-x-mark" class="size-3" />
+            </button>
+          </div>
+
+          <div class="flex gap-2">
+            <button type="button" class="btn btn-ghost btn-sm" phx-click="add_var">
+              <.icon name="hero-plus" class="size-4" /> Add variable
+            </button>
+            <button type="submit" class="btn btn-primary btn-sm">Save configuration</button>
+          </div>
         </form>
       </div>
 
@@ -217,7 +442,10 @@ defmodule FluxWeb.ConsoleLive.AppChat do
           </tbody>
         </table>
         <p class="text-xs opacity-60">
-          Use with <code>POST /v1/chat-messages</code>
+          Use with
+          <code>
+            POST {(@app.mode == :completion && "/v1/completion-messages") || "/v1/chat-messages"}
+          </code>
           and header <code>Authorization: Bearer app-…</code>
         </p>
       </div>

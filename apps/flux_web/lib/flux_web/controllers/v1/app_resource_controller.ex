@@ -16,7 +16,17 @@ defmodule FluxWeb.V1.AppResourceController do
     json(conn, %{
       opening_statement: nil,
       suggested_questions: [],
-      user_input_form: [],
+      user_input_form:
+        for field <- app.input_form do
+          %{
+            (field["type"] || "text-input") => %{
+              label: (field["label"] not in [nil, ""] && field["label"]) || field["variable"],
+              variable: field["variable"],
+              required: field["required"] == true,
+              default: ""
+            }
+          }
+        end,
       model: %{provider: app.provider_plugin_id, name: app.model}
     })
   end

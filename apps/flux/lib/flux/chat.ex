@@ -43,6 +43,13 @@ defmodule Flux.Chat do
     end
   end
 
+  def update_app(%Scope{} = scope, %App{} = app, attrs) do
+    with :ok <- RBAC.authorize(scope, :app_edit),
+         true <- app.workspace_id == Scope.workspace_id(scope) || {:error, :not_found} do
+      app |> App.changeset(attrs) |> Repo.update()
+    end
+  end
+
   ## Conversations & messages
 
   def create_conversation(%Scope{} = scope, %App{} = app, attrs \\ %{}) do
