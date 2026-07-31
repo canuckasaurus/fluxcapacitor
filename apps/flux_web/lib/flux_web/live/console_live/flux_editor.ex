@@ -81,14 +81,20 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
       label: "Extractor",
       icon: "hero-magnifying-glass",
       accent: "bg-secondary/10 text-secondary"
+    },
+    "document_extractor" => %{
+      label: "Doc Extractor",
+      icon: "hero-document-text",
+      accent: "bg-neutral/10 text-neutral"
     }
   }
 
-  @addable_types ~w(llm if_else question_classifier parameter_extractor template tool
-                    http_request code agent variable_aggregator variable_assigner
-                    list_operator answer end)
+  @addable_types ~w(llm if_else question_classifier parameter_extractor document_extractor
+                    template tool http_request code agent variable_aggregator
+                    variable_assigner list_operator answer end)
   @zoom_levels [50, 65, 80, 100, 125, 150]
-  @failable_types ~w(llm tool http_request code agent question_classifier parameter_extractor)
+  @failable_types ~w(llm tool http_request code agent question_classifier parameter_extractor
+                     document_extractor)
   @history_cap 50
 
   @impl true
@@ -1023,6 +1029,8 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     }
   end
 
+  defp default_config("document_extractor"), do: %{"variable" => ""}
+
   defp default_config("variable_aggregator"), do: %{"variables" => []}
 
   defp default_config("variable_assigner"),
@@ -1183,6 +1191,10 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
       "parameters",
       indexed_rows(params["prms"], ~w(name type description), %{"required" => false})
     )
+  end
+
+  defp build_config("document_extractor", config, params) do
+    Map.put(config, "variable", Map.get(params, "variable", config["variable"] || ""))
   end
 
   defp build_config("variable_aggregator", config, params) do
@@ -1400,7 +1412,8 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     "variable_aggregator" => ~w(output),
     "list_operator" => ~w(output first last count),
     "question_classifier" => ~w(class_id class_name),
-    "parameter_extractor" => ~w(is_success reason)
+    "parameter_extractor" => ~w(is_success reason),
+    "document_extractor" => ~w(text name size)
   }
 
   defp variable_hints(graph, selected_id) do
@@ -2630,6 +2643,22 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                       <.icon name="hero-plus" class="size-3" /> Add parameter
                     </button>
                   </div>
+                <% "document_extractor" -> %>
+                  <label class="floating-label">
+                    <span>File id variable (an uploaded-file id, e.g. from a start input)</span>
+                    <input
+                      type="text"
+                      name="variable"
+                      value={node["config"]["variable"]}
+                      placeholder="start.file_id"
+                      class="input input-sm w-full font-mono"
+                      disabled={not @can_edit}
+                    />
+                  </label>
+                  <p class="text-xs opacity-60">
+                    Native formats: text, markdown, CSV, JSON, HTML. Office formats
+                    need the Tika sidecar (Docker stack).
+                  </p>
                 <% "variable_aggregator" -> %>
                   <label class="floating-label">
                     <span>Selectors (one per line, first non-empty wins)</span>

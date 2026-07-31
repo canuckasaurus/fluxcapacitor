@@ -758,6 +758,49 @@ defmodule Flux.Engine.Nodes.Agent do
   end
 end
 
+defmodule Flux.Engine.Nodes.DocumentExtractor do
+  @moduledoc """
+  Extracts text from an uploaded file: `config["variable"]` resolves to a
+  file id (e.g. from a start variable carrying an upload id), and the
+  host's `read_document` capability returns the text.
+
+  Outputs `%{"text", "name", "size"}`.
+  """
+  @behaviour Flux.Engine.Node
+
+  alias Flux.Engine.{Host, Template}
+
+  @impl true
+  def run(node, pool, host) do
+    with {:ok, read} <- capability(host) do
+      file_id =
+        case Template.resolve(pool, to_string(node.config["variable"] || "")) do
+          nil -> Template.render(node.config["variable"], pool)
+          value -> to_string(value)
+        end
+
+      case read.(%{file_id: file_id}) do
+        {:ok, %{text: text} = result} ->
+          {:ok,
+           %{
+             "text" => text,
+             "name" => Map.get(result, :name, ""),
+             "size" => Map.get(result, :size)
+           }}
+
+        {:error, reason} when is_binary(reason) ->
+          {:error, reason}
+
+        {:error, reason} ->
+          {:error, inspect(reason)}
+      end
+    end
+  end
+
+  defp capability(%Host{read_document: fun}) when is_function(fun, 1), do: {:ok, fun}
+  defp capability(_host), do: {:error, "this run's host cannot read documents"}
+end
+
 defmodule Flux.Engine.Nodes.QuestionClassifier do
   @moduledoc """
   LLM-backed branching: classifies the rendered `query` into one of the

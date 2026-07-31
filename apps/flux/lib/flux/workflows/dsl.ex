@@ -25,7 +25,8 @@ defmodule Flux.Workflows.DSL do
     "assigner" => "variable_assigner",
     "list-operator" => "list_operator",
     "question-classifier" => "question_classifier",
-    "parameter-extractor" => "parameter_extractor"
+    "parameter-extractor" => "parameter_extractor",
+    "document-extractor" => "document_extractor"
   }
 
   @operator_map %{
@@ -284,6 +285,13 @@ defmodule Flux.Workflows.DSL do
   # Tool nodes have no the reference platform equivalent (ours bind to imported toolsets);
   # exported under a vendor key so reimport can round-trip later.
   defp export_data("tool", config), do: %{"flux_toolset" => config}
+
+  defp export_data("document_extractor", config) do
+    %{
+      "variable_selector" => config["variable"] |> to_string() |> String.split("."),
+      "is_array_file" => false
+    }
+  end
 
   defp export_data("variable_aggregator", config) do
     %{
@@ -619,6 +627,10 @@ defmodule Flux.Workflows.DSL do
        "instruction" => convert_selectors(data["instruction"] || ""),
        "parameters" => parameters
      }, provider_warnings}
+  end
+
+  defp convert_config("document_extractor", data) do
+    {%{"variable" => data["variable_selector"] |> List.wrap() |> Enum.join(".")}, []}
   end
 
   defp convert_config("variable_aggregator", data) do

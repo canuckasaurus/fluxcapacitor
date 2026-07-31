@@ -503,6 +503,7 @@ defmodule Flux.Workflows do
       end,
       http_request: &node_http_request/1,
       run_code: &Flux.CodeRunner.run/1,
+      read_document: fn %{file_id: file_id} -> Flux.Documents.extract(workspace_id, file_id) end,
       default_llm: Providers.default_model_for_workspace(workspace_id)
     }
   end

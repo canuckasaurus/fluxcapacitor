@@ -13,6 +13,7 @@ defmodule Flux.Engine.Host do
             invoke_tool: nil,
             http_request: nil,
             run_code: nil,
+            read_document: nil,
             default_llm: nil
 
   @typedoc """
@@ -30,6 +31,7 @@ defmodule Flux.Engine.Host do
           invoke_tool: (map() -> {:ok, map()} | {:error, term()}) | nil,
           http_request: (map() -> {:ok, map()} | {:error, term()}) | nil,
           run_code: (map() -> {:ok, map()} | {:error, term()}) | nil,
+          read_document: (map() -> {:ok, map()} | {:error, term()}) | nil,
           default_llm: %{optional(String.t()) => String.t()} | nil
         }
 

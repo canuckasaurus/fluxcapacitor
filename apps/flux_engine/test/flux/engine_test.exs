@@ -1006,6 +1006,28 @@ defmodule Flux.EngineTest do
       assert Enum.any?(errors, &(&1 =~ "reserved"))
     end
 
+    test "document extractor reads text through the host" do
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("doc", "document_extractor", %{"variable" => "start.query"})
+        ],
+        "edges" => [edge!("start", "doc")]
+      }
+
+      host = %Host{
+        emit: fn _e -> :ok end,
+        read_document: fn %{file_id: "file-123"} ->
+          {:ok, %{text: "extracted contents", name: "notes.txt", size: 18}}
+        end
+      }
+
+      {:ok, built} = Engine.build(graph)
+      assert {:ok, result} = Engine.run(built, %{"query" => "file-123"}, host)
+      assert result.outputs["text"] == "extracted contents"
+      assert result.outputs["name"] == "notes.txt"
+    end
+
     test "unresolved template references render blank" do
       graph = %{
         "nodes" => [

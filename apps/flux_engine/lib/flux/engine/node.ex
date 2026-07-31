@@ -29,7 +29,8 @@ defmodule Flux.Engine.Node do
     "variable_assigner" => Flux.Engine.Nodes.VariableAssigner,
     "list_operator" => Flux.Engine.Nodes.ListOperator,
     "question_classifier" => Flux.Engine.Nodes.QuestionClassifier,
-    "parameter_extractor" => Flux.Engine.Nodes.ParameterExtractor
+    "parameter_extractor" => Flux.Engine.Nodes.ParameterExtractor,
+    "document_extractor" => Flux.Engine.Nodes.DocumentExtractor
   }
 
   @doc "The module implementing a node type."
