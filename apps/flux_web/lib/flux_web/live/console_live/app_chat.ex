@@ -257,6 +257,13 @@ defmodule FluxWeb.ConsoleLive.AppChat do
           >
             New conversation
           </button>
+          <.link
+            :if={Flux.RBAC.can?(@current_scope, :app_monitor)}
+            navigate={~p"/console/apps/#{@app.id}/monitor"}
+            class="btn btn-sm btn-ghost"
+          >
+            <.icon name="hero-chart-bar" class="size-4" /> Monitor
+          </.link>
           <.link navigate={~p"/console/apps"} class="btn btn-sm btn-ghost">&larr; All apps</.link>
         </div>
       </div>

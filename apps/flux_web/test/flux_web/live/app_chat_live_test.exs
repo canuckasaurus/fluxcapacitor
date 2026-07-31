@@ -173,6 +173,23 @@ defmodule FluxWeb.AppChatLiveTest do
     end
   end
 
+  test "monitor page lists conversations and expands messages", %{
+    conn: conn,
+    app: app,
+    scope: scope
+  } do
+    conversation = Chat.create_conversation(scope, app, %{end_user_ref: "web_test"})
+    {:ok, _user, _assistant} = Chat.send_message(scope, app, conversation, "monitor me")
+    assert_receive {:done, _final}, 5_000
+
+    {:ok, lv, html} = live(conn, ~p"/console/apps/#{app.id}/monitor")
+    assert html =~ "web_test"
+
+    html = lv |> element("button", "Untitled conversation") |> render_click()
+    assert html =~ "monitor me"
+    assert html =~ "You said: monitor me"
+  end
+
   defp poll_until(lv, needle, retries) do
     html = render(lv)
 

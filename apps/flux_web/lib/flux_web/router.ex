@@ -141,6 +141,7 @@ defmodule FluxWeb.Router do
       live "/", ConsoleLive.Dashboard, :index
       live "/apps", ConsoleLive.Apps, :index
       live "/apps/:id", ConsoleLive.AppChat, :show
+      live "/apps/:id/monitor", ConsoleLive.AppMonitor, :show
       live "/fluxes", ConsoleLive.Fluxes, :index
       live "/fluxes/:id", ConsoleLive.FluxEditor, :edit
       live "/knowledge", ConsoleLive.Knowledge, :index
