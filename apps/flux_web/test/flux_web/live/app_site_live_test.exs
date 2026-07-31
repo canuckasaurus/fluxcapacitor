@@ -89,6 +89,51 @@ defmodule FluxWeb.AppSiteLiveTest do
     refute poll_until_gone(lv, "animate-pulse", 50) =~ "animate-pulse"
   end
 
+  test "opening statement + suggested questions flow to the public site and /v1", %{
+    conn: conn,
+    scope: scope,
+    app: app,
+    account: account
+  } do
+    # Save via the console chat-settings card.
+    console = log_in_account(conn, account)
+    {:ok, lv, _html} = live(console, ~p"/console/apps/#{app.id}")
+
+    lv
+    |> form("#chat-settings-form", %{
+      "opening_statement" => "Welcome! Ask me anything.",
+      "suggested_questions_text" => "What can you do?\nHow do refunds work?"
+    })
+    |> render_submit()
+
+    {:ok, app} = {:ok, Chat.get_app(scope, app.id)}
+    assert app.opening_statement == "Welcome! Ask me anything."
+    assert app.suggested_questions == ["What can you do?", "How do refunds work?"]
+
+    # Public site shows both; clicking a suggestion sends it.
+    {:ok, app} = Chat.enable_site(scope, app)
+    {:ok, lv, html} = live(conn, ~p"/site/#{app.site_token}")
+    assert html =~ "Welcome! Ask me anything."
+    assert html =~ "How do refunds work?"
+
+    lv |> element("button", "What can you do?") |> render_click()
+    html = poll_until(lv, "You said: What can you do?", 50)
+    assert html =~ "You said: What can you do?"
+    refute poll_until_gone(lv, "animate-pulse", 50) =~ "animate-pulse"
+
+    # /v1/parameters serves the real values.
+    {:ok, _token, raw} = Chat.create_api_token(scope, app)
+
+    body =
+      build_conn()
+      |> put_req_header("authorization", "Bearer #{raw}")
+      |> get(~p"/v1/parameters")
+      |> json_response(200)
+
+    assert body["opening_statement"] == "Welcome! Ask me anything."
+    assert body["suggested_questions"] == ["What can you do?", "How do refunds work?"]
+  end
+
   test "embed.js is served and the console shows the bubble snippet", %{
     conn: conn,
     scope: scope,

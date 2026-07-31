@@ -59,6 +59,10 @@ defmodule FluxWeb.SiteLive.AppSite do
 
   def handle_event("send", _params, socket), do: {:noreply, socket}
 
+  def handle_event("suggest", %{"question" => question}, socket) do
+    handle_event("send", %{"content" => question}, socket)
+  end
+
   def handle_event("run_completion", params, socket) do
     %{app: app, site_scope: scope} = socket.assigns
 
@@ -150,9 +154,37 @@ defmodule FluxWeb.SiteLive.AppSite do
 
         <div :if={@app.mode in [:chat, :advanced_chat]} class="flex-1 flex flex-col gap-3">
           <div id="site-messages" class="flex-1 space-y-3 overflow-y-auto">
-            <p :if={@messages == [] and @streaming_id == nil} class="text-sm opacity-60">
+            <div
+              :if={
+                @messages == [] and @streaming_id == nil and @app.opening_statement not in [nil, ""]
+              }
+              class="chat chat-start"
+            >
+              <div class="chat-bubble whitespace-pre-wrap">{@app.opening_statement}</div>
+            </div>
+            <p
+              :if={
+                @messages == [] and @streaming_id == nil and
+                  @app.opening_statement in [nil, ""]
+              }
+              class="text-sm opacity-60"
+            >
               Say something to start the conversation.
             </p>
+            <div
+              :if={@messages == [] and @streaming_id == nil and @app.suggested_questions != []}
+              class="flex flex-wrap gap-2"
+            >
+              <button
+                :for={question <- @app.suggested_questions}
+                type="button"
+                class="btn btn-outline btn-xs"
+                phx-click="suggest"
+                phx-value-question={question}
+              >
+                {question}
+              </button>
+            </div>
             <div
               :for={message <- @messages}
               class={["chat", (message.role == :user && "chat-end") || "chat-start"]}

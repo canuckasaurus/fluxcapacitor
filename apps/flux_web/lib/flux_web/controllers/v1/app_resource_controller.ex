@@ -14,8 +14,8 @@ defmodule FluxWeb.V1.AppResourceController do
     app = conn.assigns.service_app
 
     json(conn, %{
-      opening_statement: nil,
-      suggested_questions: [],
+      opening_statement: app.opening_statement,
+      suggested_questions: app.suggested_questions,
       user_input_form:
         for field <- app.input_form do
           %{

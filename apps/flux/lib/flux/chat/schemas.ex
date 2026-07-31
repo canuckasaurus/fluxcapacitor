@@ -20,6 +20,8 @@ defmodule Flux.Chat.App do
     field :prompt_template, :string
     field :input_form, {:array, :map}, default: []
     field :params, :map, default: %{}
+    field :opening_statement, :string
+    field :suggested_questions, {:array, :string}, default: []
     field :site_token, :string
     field :site_enabled, :boolean, default: false
 
@@ -38,7 +40,9 @@ defmodule Flux.Chat.App do
       :system_prompt,
       :prompt_template,
       :input_form,
-      :params
+      :params,
+      :opening_statement,
+      :suggested_questions
     ])
     |> validate_required([:name])
     |> validate_length(:name, min: 1, max: 255)

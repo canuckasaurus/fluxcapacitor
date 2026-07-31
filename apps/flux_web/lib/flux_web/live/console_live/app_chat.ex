@@ -156,6 +156,31 @@ defmodule FluxWeb.ConsoleLive.AppChat do
     end
   end
 
+  def handle_event("save_chat_settings", params, socket) do
+    scope = socket.assigns.current_scope
+
+    questions =
+      params
+      |> Map.get("suggested_questions_text", "")
+      |> String.split(["\n", "\r\n"], trim: true)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+
+    case Chat.update_app(scope, socket.assigns.app, %{
+           "opening_statement" => params["opening_statement"],
+           "suggested_questions" => questions
+         }) do
+      {:ok, app} ->
+        {:noreply, socket |> put_flash(:info, "Chat settings saved.") |> assign(app: app)}
+
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "You don't have permission to edit this app.")}
+
+      {:error, %Ecto.Changeset{}} ->
+        {:noreply, put_flash(socket, :error, "Could not save the settings.")}
+    end
+  end
+
   def handle_event("create-token", _params, socket) do
     case Chat.create_api_token(socket.assigns.current_scope, socket.assigns.app) do
       {:ok, _token, raw} ->
@@ -309,6 +334,34 @@ defmodule FluxWeb.ConsoleLive.AppChat do
           <button :if={@streaming_id} type="button" class="btn btn-warning" phx-click="stop">
             Stop
           </button>
+        </form>
+      </div>
+
+      <div
+        :if={@app.mode in [:chat, :advanced_chat] and @can_edit}
+        class="card border border-base-200 p-6 space-y-3"
+      >
+        <h2 class="font-semibold">Chat settings</h2>
+        <form id="chat-settings-form" phx-submit="save_chat_settings" class="space-y-3">
+          <label class="form-control block">
+            <span class="label-text text-sm mb-1">
+              Opening statement (shown before the first message)
+            </span>
+            <textarea
+              name="opening_statement"
+              rows="2"
+              class="textarea textarea-bordered w-full"
+            >{@app.opening_statement}</textarea>
+          </label>
+          <label class="form-control block">
+            <span class="label-text text-sm mb-1">Suggested questions (one per line)</span>
+            <textarea
+              name="suggested_questions_text"
+              rows="3"
+              class="textarea textarea-bordered w-full"
+            >{Enum.join(@app.suggested_questions, "\n")}</textarea>
+          </label>
+          <button class="btn btn-primary btn-sm">Save chat settings</button>
         </form>
       </div>
 
