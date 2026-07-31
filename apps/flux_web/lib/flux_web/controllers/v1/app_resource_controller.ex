@@ -96,6 +96,34 @@ defmodule FluxWeb.V1.AppResourceController do
     end
   end
 
+  def meta(conn, _params) do
+    json(conn, %{tool_icons: %{}})
+  end
+
+  def rename_conversation(conn, %{"id" => id} = params) do
+    name = to_string(params["name"] || "")
+
+    with true <- name != "",
+         {:ok, conversation} <-
+           Chat.rename_conversation(conn.assigns.service_scope, id, name) do
+      json(conn, %{
+        id: conversation.id,
+        name: conversation.title,
+        created_at: DateTime.to_unix(conversation.inserted_at)
+      })
+    else
+      false -> error(conn, 400, "invalid_param", "name is required")
+      {:error, :not_found} -> error(conn, 404, "not_found", "Conversation not found")
+    end
+  end
+
+  def delete_conversation(conn, %{"id" => id}) do
+    case Chat.delete_conversation(conn.assigns.service_scope, id) do
+      {:ok, _conversation} -> json(conn, %{result: "success"})
+      {:error, :not_found} -> error(conn, 404, "not_found", "Conversation not found")
+    end
+  end
+
   def upload_file(conn, %{"file" => %Plug.Upload{} = upload} = params) do
     attrs = %{
       path: upload.path,

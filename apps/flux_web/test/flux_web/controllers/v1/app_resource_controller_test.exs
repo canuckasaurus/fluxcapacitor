@@ -71,6 +71,23 @@ defmodule FluxWeb.V1.AppResourceControllerTest do
     assert body["code"] == "not_streaming"
   end
 
+  test "conversations rename and delete", %{conn: conn, scope: scope, app: app} do
+    conversation = Chat.create_conversation(scope, app)
+
+    body =
+      conn
+      |> post(~p"/v1/conversations/#{conversation.id}/name", %{"name" => "Renamed"})
+      |> json_response(200)
+
+    assert body["name"] == "Renamed"
+
+    assert conn |> delete(~p"/v1/conversations/#{conversation.id}") |> json_response(200) ==
+             %{"result" => "success"}
+
+    assert conn |> delete(~p"/v1/conversations/#{conversation.id}") |> json_response(404)
+    assert conn |> get(~p"/v1/meta") |> json_response(200) == %{"tool_icons" => %{}}
+  end
+
   test "flux tokens are rejected", %{scope: scope} do
     {:ok, workflow} = Flux.Workflows.create_workflow(scope, %{"name" => "W"})
     {:ok, _t, raw} = Flux.Workflows.create_api_token(scope, workflow)

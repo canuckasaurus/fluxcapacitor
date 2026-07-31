@@ -47,6 +47,9 @@ defmodule FluxWeb.Router do
     get "/messages", AppResourceController, :messages
     post "/chat-messages/:id/stop", AppResourceController, :stop
     post "/messages/:id/feedbacks", AppResourceController, :feedback
+    get "/meta", AppResourceController, :meta
+    post "/conversations/:id/name", AppResourceController, :rename_conversation
+    delete "/conversations/:id", AppResourceController, :delete_conversation
   end
 
   scope "/", FluxWeb do

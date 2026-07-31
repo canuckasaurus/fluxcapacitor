@@ -67,6 +67,20 @@ defmodule Flux.Chat do
     |> Repo.all()
   end
 
+  def rename_conversation(%Scope{} = scope, conversation_id, name) when is_binary(name) do
+    case Repo.one(Repo.scoped(where(Conversation, id: ^conversation_id), scope)) do
+      nil -> {:error, :not_found}
+      conversation -> conversation |> Ecto.Changeset.change(title: name) |> Repo.update()
+    end
+  end
+
+  def delete_conversation(%Scope{} = scope, conversation_id) do
+    case Repo.one(Repo.scoped(where(Conversation, id: ^conversation_id), scope)) do
+      nil -> {:error, :not_found}
+      conversation -> Repo.delete(conversation)
+    end
+  end
+
   @doc "Records end-user feedback (like/dislike/nil to clear) on a message."
   def set_feedback(%Scope{} = scope, message_id, rating) when rating in [:like, :dislike, nil] do
     case Repo.one(Repo.scoped(where(Message, id: ^message_id), scope)) do
