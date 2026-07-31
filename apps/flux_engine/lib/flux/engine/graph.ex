@@ -44,14 +44,24 @@ defmodule Flux.Engine.Graph do
         }
 
   @node_types ~w(start llm if_else template answer end tool http_request code agent
-                 variable_aggregator variable_assigner list_operator)
-  @branching_handles %{"if_else" => ~w(true false)}
+                 variable_aggregator variable_assigner list_operator
+                 question_classifier parameter_extractor)
 
   def node_types, do: @node_types
 
   @doc "Output handles a node type exposes (branching nodes have several)."
   def handles_for("if_else"), do: ~w(true false)
   def handles_for(_type), do: ~w(default)
+
+  @doc "Output handles for a concrete node (classifier handles come from its classes)."
+  def handles_for_node(%Node{type: "question_classifier", config: config}) do
+    case Flux.Engine.Nodes.QuestionClassifier.classes(config) do
+      [] -> ~w(default)
+      classes -> Enum.map(classes, & &1["id"])
+    end
+  end
+
+  def handles_for_node(%Node{type: type}), do: handles_for(type)
 
   @doc """
   Validates the raw graph map and returns `{:ok, %Graph{}}` or
@@ -149,10 +159,15 @@ defmodule Flux.Engine.Graph do
   defp check_edges(errors, nodes, edges) do
     ids = MapSet.new(nodes, & &1.id)
     types = Map.new(nodes, &{&1.id, &1.type})
+    by_id = Map.new(nodes, &{&1.id, &1})
 
     errors =
       Enum.reduce(edges, errors, fn edge, acc ->
-        handles = Map.get(@branching_handles, Map.get(types, edge.source), ~w(default))
+        handles =
+          case Map.get(by_id, edge.source) do
+            nil -> ~w(default)
+            node -> handles_for_node(node)
+          end
 
         cond do
           not MapSet.member?(ids, edge.source) ->

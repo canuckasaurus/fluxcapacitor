@@ -714,6 +714,162 @@ defmodule Flux.EngineTest do
       assert result.outputs["count"] == 2
     end
 
+    test "question classifier routes on the tool-reported class" do
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("qc", "question_classifier", %{
+            "provider_plugin_id" => "p",
+            "model" => "m",
+            "query" => "{{start.query}}",
+            "classes" => [
+              %{"id" => "billing", "name" => "Billing questions"},
+              %{"id" => "support", "name" => "Technical support"}
+            ]
+          }),
+          node!("billing_end", "template", %{"template" => "billing branch"}),
+          node!("support_end", "template", %{"template" => "support branch"})
+        ],
+        "edges" => [
+          edge!("start", "qc"),
+          %{
+            "id" => "e_billing",
+            "source" => "qc",
+            "source_handle" => "billing",
+            "target" => "billing_end"
+          },
+          %{
+            "id" => "e_support",
+            "source" => "qc",
+            "source_handle" => "support",
+            "target" => "support_end"
+          }
+        ]
+      }
+
+      host = %Host{
+        emit: fn _e -> :ok end,
+        invoke_llm: fn request, _chunk ->
+          assert Enum.any?(request.tools, &(&1["name"] == "classify"))
+
+          {:ok,
+           %{
+             content: "",
+             usage: %{},
+             tool_calls: [
+               %{id: "c1", name: "classify", arguments: %{"class_id" => "support"}}
+             ]
+           }}
+        end
+      }
+
+      {:ok, built} = Engine.build(graph)
+      assert {:ok, result} = Engine.run(built, %{"query" => "my app crashes"}, host)
+      assert result.outputs["output"] == "support branch"
+
+      assert Enum.any?(
+               result.node_executions,
+               &(&1["node_id"] == "qc" and &1["outputs"]["class_id"] == "support")
+             )
+    end
+
+    test "classifier rejects edges on unknown class handles" do
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("qc", "question_classifier", %{
+            "classes" => [%{"id" => "a", "name" => "A"}]
+          }),
+          node!("t", "template", %{"template" => "x"})
+        ],
+        "edges" => [
+          edge!("start", "qc"),
+          %{"id" => "bad", "source" => "qc", "source_handle" => "nope", "target" => "t"}
+        ]
+      }
+
+      assert {:error, errors} = Engine.build(graph)
+      assert Enum.any?(errors, &(&1 =~ "handle nope"))
+    end
+
+    test "parameter extractor coerces types and reports success" do
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("px", "parameter_extractor", %{
+            "provider_plugin_id" => "p",
+            "model" => "m",
+            "query" => "{{start.query}}",
+            "parameters" => [
+              %{"name" => "city", "type" => "string", "required" => true},
+              %{"name" => "days", "type" => "number", "required" => false}
+            ]
+          })
+        ],
+        "edges" => [edge!("start", "px")]
+      }
+
+      host = %Host{
+        emit: fn _e -> :ok end,
+        invoke_llm: fn request, _chunk ->
+          [tool] = request.tools
+          assert tool["name"] == "extract"
+          assert tool["parameters"]["required"] == ["city"]
+
+          {:ok,
+           %{
+             content: "",
+             usage: %{},
+             tool_calls: [
+               %{
+                 id: "e1",
+                 name: "extract",
+                 arguments: %{"city" => "Paris", "days" => "3"}
+               }
+             ]
+           }}
+        end
+      }
+
+      {:ok, built} = Engine.build(graph)
+      assert {:ok, result} = Engine.run(built, %{"query" => "3 days in Paris"}, host)
+      assert result.outputs["city"] == "Paris"
+      assert result.outputs["days"] == 3
+      assert result.outputs["is_success"] == true
+    end
+
+    test "parameter extractor flags missing required fields" do
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("px", "parameter_extractor", %{
+            "provider_plugin_id" => "p",
+            "model" => "m",
+            "query" => "{{start.query}}",
+            "parameters" => [%{"name" => "email", "type" => "string", "required" => true}]
+          })
+        ],
+        "edges" => [edge!("start", "px")]
+      }
+
+      host = %Host{
+        emit: fn _e -> :ok end,
+        invoke_llm: fn _request, _chunk ->
+          {:ok,
+           %{
+             content: "",
+             usage: %{},
+             tool_calls: [%{id: "e1", name: "extract", arguments: %{}}]
+           }}
+        end
+      }
+
+      {:ok, built} = Engine.build(graph)
+      assert {:ok, result} = Engine.run(built, %{"query" => "no email here"}, host)
+      assert result.outputs["is_success"] == false
+      assert result.outputs["reason"] =~ "email"
+    end
+
     test "unresolved template references render blank" do
       graph = %{
         "nodes" => [

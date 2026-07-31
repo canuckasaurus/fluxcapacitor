@@ -758,6 +758,282 @@ defmodule Flux.Engine.Nodes.Agent do
   end
 end
 
+defmodule Flux.Engine.Nodes.QuestionClassifier do
+  @moduledoc """
+  LLM-backed branching: classifies the rendered `query` into one of the
+  configured `classes` (`[%{"id", "name"}]`) and leaves on the matching
+  class-id handle. Uses a forced `classify` tool call for structure, with
+  a text-match fallback; an unclassifiable answer takes the first class.
+
+  Config: `provider_plugin_id`/`model` (workspace default applies),
+  `query`, `classes`, `instruction` (optional).
+  Outputs `%{"class_id", "class_name"}` on the class-id branch.
+  """
+  @behaviour Flux.Engine.Node
+
+  alias Flux.Engine.{Host, Template}
+
+  @impl true
+  def run(node, pool, host) do
+    {plugin_id, model} = Host.resolve_llm(host, node.config)
+    classes = classes(node.config)
+
+    with :ok <- require_classes(classes),
+         :ok <- require_model(plugin_id, model),
+         {:ok, invoke} <- fetch_invoker(host) do
+      query = Template.render(node.config["query"], pool)
+      instruction = Template.render(node.config["instruction"], pool)
+
+      catalog =
+        Enum.map_join(classes, "\n", fn class -> "- #{class["id"]}: #{class["name"]}" end)
+
+      system =
+        """
+        Classify the user's input into exactly one of these classes:
+        #{catalog}
+        #{instruction}
+        Call the classify tool with the chosen class_id.\
+        """
+
+      tool = %{
+        "name" => "classify",
+        "description" => "Report the class the input belongs to.",
+        "parameters" => %{
+          "type" => "object",
+          "properties" => %{
+            "class_id" => %{"type" => "string", "enum" => Enum.map(classes, & &1["id"])}
+          },
+          "required" => ["class_id"]
+        }
+      }
+
+      request = %{
+        provider_plugin_id: plugin_id,
+        model: model,
+        messages: [%{role: :system, content: system}, %{role: :user, content: query}],
+        params: node.config["params"] || %{},
+        tools: [tool]
+      }
+
+      case invoke.(request, fn _delta -> :ok end) do
+        {:ok, result} ->
+          class = pick_class(result, classes)
+          {:ok, %{"class_id" => class["id"], "class_name" => class["name"]}, class["id"]}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  @doc "Normalized classes from a node config (shared with the graph validator)."
+  def classes(config) do
+    config["classes"]
+    |> List.wrap()
+    |> Enum.map(fn class ->
+      %{
+        "id" => to_string(class["id"] || ""),
+        "name" => to_string(class["name"] || class["id"] || "")
+      }
+    end)
+    |> Enum.reject(&(&1["id"] == ""))
+  end
+
+  defp pick_class(result, classes) do
+    from_tool =
+      result
+      |> Map.get(:tool_calls, [])
+      |> Enum.find_value(fn
+        %{name: "classify", arguments: %{"class_id" => id}} -> find_class(classes, id)
+        _other -> nil
+      end)
+
+    from_tool || from_text(result.content, classes) || List.first(classes)
+  end
+
+  defp find_class(classes, id), do: Enum.find(classes, &(&1["id"] == to_string(id)))
+
+  defp from_text(nil, _classes), do: nil
+
+  defp from_text(content, classes) do
+    text = String.downcase(content)
+
+    Enum.find(classes, fn class ->
+      String.contains?(text, String.downcase(class["id"])) or
+        String.contains?(text, String.downcase(class["name"]))
+    end)
+  end
+
+  defp require_classes([]), do: {:error, "the classifier needs at least one class"}
+  defp require_classes(_classes), do: :ok
+
+  defp require_model(plugin_id, model) when plugin_id != "" and model != "", do: :ok
+
+  defp require_model(_plugin_id, _model),
+    do: {:error, "the classifier needs a provider and model"}
+
+  defp fetch_invoker(%Host{invoke_llm: fun}) when is_function(fun, 2), do: {:ok, fun}
+  defp fetch_invoker(_host), do: {:error, "this run's host cannot invoke models"}
+end
+
+defmodule Flux.Engine.Nodes.ParameterExtractor do
+  @moduledoc """
+  LLM-backed structured extraction: pulls the configured `parameters`
+  (`[%{"name", "type", "description", "required"}]`, type
+  `"string" | "number" | "bool"`) out of the rendered `query` via a
+  forced `extract` tool call.
+
+  Outputs the extracted values by name plus `"is_success"` and
+  `"reason"` (why extraction failed or which required fields are missing).
+  """
+  @behaviour Flux.Engine.Node
+
+  alias Flux.Engine.{Host, Template}
+
+  @impl true
+  def run(node, pool, host) do
+    {plugin_id, model} = Host.resolve_llm(host, node.config)
+    parameters = parameters(node.config)
+
+    with :ok <- require_parameters(parameters),
+         :ok <- require_model(plugin_id, model),
+         {:ok, invoke} <- fetch_invoker(host) do
+      query = Template.render(node.config["query"], pool)
+      instruction = Template.render(node.config["instruction"], pool)
+
+      properties =
+        Map.new(parameters, fn parameter ->
+          {parameter["name"],
+           %{
+             "type" => json_type(parameter["type"]),
+             "description" => parameter["description"] || ""
+           }}
+        end)
+
+      required =
+        parameters |> Enum.filter(&(&1["required"] == true)) |> Enum.map(& &1["name"])
+
+      tool = %{
+        "name" => "extract",
+        "description" => "Report the extracted parameters.",
+        "parameters" => %{
+          "type" => "object",
+          "properties" => properties,
+          "required" => required
+        }
+      }
+
+      system =
+        """
+        Extract the requested parameters from the user's input by calling
+        the extract tool. Leave out anything that is not present.
+        #{instruction}\
+        """
+
+      request = %{
+        provider_plugin_id: plugin_id,
+        model: model,
+        messages: [%{role: :system, content: system}, %{role: :user, content: query}],
+        params: node.config["params"] || %{},
+        tools: [tool]
+      }
+
+      case invoke.(request, fn _delta -> :ok end) do
+        {:ok, result} -> {:ok, build_outputs(result, parameters)}
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  defp build_outputs(result, parameters) do
+    arguments =
+      result
+      |> Map.get(:tool_calls, [])
+      |> Enum.find_value(fn
+        %{name: "extract", arguments: %{} = arguments} -> arguments
+        _other -> nil
+      end) || decode_content(result.content)
+
+    extracted =
+      Map.new(parameters, fn parameter ->
+        name = parameter["name"]
+        {name, coerce(parameter["type"], Map.get(arguments, name))}
+      end)
+
+    missing =
+      for parameter <- parameters,
+          parameter["required"] == true,
+          extracted[parameter["name"]] == nil,
+          do: parameter["name"]
+
+    status =
+      cond do
+        missing != [] ->
+          %{"is_success" => false, "reason" => "missing: #{Enum.join(missing, ", ")}"}
+
+        arguments == %{} ->
+          %{"is_success" => false, "reason" => "no parameters extracted"}
+
+        true ->
+          %{"is_success" => true, "reason" => nil}
+      end
+
+    Map.merge(extracted, status)
+  end
+
+  defp decode_content(content) when is_binary(content) do
+    case Jason.decode(content) do
+      {:ok, %{} = decoded} -> decoded
+      _not_json -> %{}
+    end
+  end
+
+  defp decode_content(_content), do: %{}
+
+  defp coerce(_type, nil), do: nil
+  defp coerce("number", value) when is_number(value), do: value
+
+  defp coerce("number", value) when is_binary(value) do
+    case Float.parse(value) do
+      {number, ""} -> if trunc(number) == number, do: trunc(number), else: number
+      _invalid -> nil
+    end
+  end
+
+  defp coerce("bool", value) when is_boolean(value), do: value
+  defp coerce("bool", value) when is_binary(value), do: value in ~w(true yes 1)
+  defp coerce(_string, value) when is_binary(value), do: value
+  defp coerce(_string, value) when is_number(value) or is_boolean(value), do: to_string(value)
+  defp coerce(_string, _value), do: nil
+
+  defp json_type("number"), do: "number"
+  defp json_type("bool"), do: "boolean"
+  defp json_type(_string), do: "string"
+
+  defp parameters(config) do
+    config["parameters"]
+    |> List.wrap()
+    |> Enum.map(fn parameter ->
+      %{
+        "name" => to_string(parameter["name"] || ""),
+        "type" => to_string(parameter["type"] || "string"),
+        "description" => parameter["description"],
+        "required" => parameter["required"] == true
+      }
+    end)
+    |> Enum.reject(&(&1["name"] == ""))
+  end
+
+  defp require_parameters([]), do: {:error, "the extractor needs at least one parameter"}
+  defp require_parameters(_parameters), do: :ok
+
+  defp require_model(plugin_id, model) when plugin_id != "" and model != "", do: :ok
+  defp require_model(_plugin_id, _model), do: {:error, "the extractor needs a provider and model"}
+
+  defp fetch_invoker(%Host{invoke_llm: fun}) when is_function(fun, 2), do: {:ok, fun}
+  defp fetch_invoker(_host), do: {:error, "this run's host cannot invoke models"}
+end
+
 defmodule Flux.Engine.Nodes.VariableAggregator do
   @moduledoc """
   Coalesces branch outputs: resolves each selector in `config["variables"]`

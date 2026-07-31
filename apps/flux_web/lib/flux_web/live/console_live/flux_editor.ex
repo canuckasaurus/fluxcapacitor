@@ -71,11 +71,22 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
       label: "List Operator",
       icon: "hero-list-bullet",
       accent: "bg-info/10 text-info"
+    },
+    "question_classifier" => %{
+      label: "Classifier",
+      icon: "hero-arrows-pointing-out",
+      accent: "bg-warning/10 text-warning"
+    },
+    "parameter_extractor" => %{
+      label: "Extractor",
+      icon: "hero-magnifying-glass",
+      accent: "bg-secondary/10 text-secondary"
     }
   }
 
-  @addable_types ~w(llm if_else template tool http_request code agent
-                    variable_aggregator variable_assigner list_operator answer end)
+  @addable_types ~w(llm if_else question_classifier parameter_extractor template tool
+                    http_request code agent variable_aggregator variable_assigner
+                    list_operator answer end)
   @zoom_levels [50, 65, 80, 100, 125, 150]
   @history_cap 50
 
@@ -762,6 +773,31 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
   defp default_config("answer"), do: %{"answer" => ""}
   defp default_config("end"), do: %{"outputs" => [%{"key" => "result", "value" => ""}]}
 
+  defp default_config("question_classifier") do
+    %{
+      "provider_plugin_id" => "",
+      "model" => "",
+      "query" => "{{start.query}}",
+      "instruction" => "",
+      "classes" => [
+        %{"id" => "class_1", "name" => ""},
+        %{"id" => "class_2", "name" => ""}
+      ]
+    }
+  end
+
+  defp default_config("parameter_extractor") do
+    %{
+      "provider_plugin_id" => "",
+      "model" => "",
+      "query" => "{{start.query}}",
+      "instruction" => "",
+      "parameters" => [
+        %{"name" => "", "type" => "string", "description" => "", "required" => false}
+      ]
+    }
+  end
+
   defp default_config("variable_aggregator"), do: %{"variables" => []}
 
   defp default_config("variable_assigner"),
@@ -784,6 +820,8 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
   defp row_key("condition"), do: "conditions"
   defp row_key("output"), do: "outputs"
   defp row_key("assignment"), do: "assignments"
+  defp row_key("class"), do: "classes"
+  defp row_key("parameter"), do: "parameters"
 
   defp empty_row("variable"),
     do: %{"name" => "", "label" => "", "type" => "text", "required" => false}
@@ -794,6 +832,10 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
   defp empty_row("condition"), do: %{"left" => "", "operator" => "contains", "right" => ""}
   defp empty_row("output"), do: %{"key" => "", "value" => ""}
   defp empty_row("assignment"), do: %{"name" => "", "value" => ""}
+  defp empty_row("class"), do: %{"id" => "", "name" => ""}
+
+  defp empty_row("parameter"),
+    do: %{"name" => "", "type" => "string", "description" => "", "required" => false}
 
   defp build_config("llm", config, params) do
     {plugin_id, model} =
@@ -883,6 +925,39 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
       end
 
     %{"toolset_id" => toolset_id, "operation_id" => operation_id, "args" => args}
+  end
+
+  defp build_config("question_classifier", config, params) do
+    {plugin_id, model} =
+      case String.split(Map.get(params, "model_choice", ""), "|", parts: 2) do
+        [plugin_id, model] -> {plugin_id, model}
+        _other -> {config["provider_plugin_id"], config["model"]}
+      end
+
+    config
+    |> Map.put("provider_plugin_id", plugin_id)
+    |> Map.put("model", model)
+    |> Map.put("query", Map.get(params, "query", config["query"] || ""))
+    |> Map.put("instruction", Map.get(params, "instruction", config["instruction"] || ""))
+    |> Map.put("classes", indexed_rows(params["cls"], ~w(id name), %{}))
+  end
+
+  defp build_config("parameter_extractor", config, params) do
+    {plugin_id, model} =
+      case String.split(Map.get(params, "model_choice", ""), "|", parts: 2) do
+        [plugin_id, model] -> {plugin_id, model}
+        _other -> {config["provider_plugin_id"], config["model"]}
+      end
+
+    config
+    |> Map.put("provider_plugin_id", plugin_id)
+    |> Map.put("model", model)
+    |> Map.put("query", Map.get(params, "query", config["query"] || ""))
+    |> Map.put("instruction", Map.get(params, "instruction", config["instruction"] || ""))
+    |> Map.put(
+      "parameters",
+      indexed_rows(params["prms"], ~w(name type description), %{"required" => false})
+    )
   end
 
   defp build_config("variable_aggregator", config, params) do
@@ -1019,7 +1094,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
   defp edge_path(graph, edge) do
     with %{} = source <- find_node(graph, edge["source"]),
          %{} = target <- find_node(graph, edge["target"]) do
-      y_offset = if edge["source_handle"] == "false", do: @false_port_y, else: @port_y
+      y_offset = source_handle_offset(source, edge["source_handle"])
       x1 = node_x(source) + @node_width
       y1 = node_y(source) + y_offset
       x2 = node_x(target)
@@ -1098,7 +1173,9 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     "code" => ~w(stdout),
     "agent" => ~w(text output status iterations tool_calls),
     "variable_aggregator" => ~w(output),
-    "list_operator" => ~w(output first last count)
+    "list_operator" => ~w(output first last count),
+    "question_classifier" => ~w(class_id class_name),
+    "parameter_extractor" => ~w(is_success reason)
   }
 
   defp variable_hints(graph, selected_id) do
@@ -1117,6 +1194,18 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
       end
     end)
   end
+
+  defp source_handle_offset(%{"type" => "question_classifier"} = source, handle) do
+    index =
+      source["config"]["classes"]
+      |> List.wrap()
+      |> Enum.find_index(&(&1["id"] == handle))
+
+    @port_y + (index || 0) * 28 - 2
+  end
+
+  defp source_handle_offset(_source, "false"), do: @false_port_y
+  defp source_handle_offset(_source, _handle), do: @port_y
 
   defp start_variables(graph) do
     case Enum.find(graph["nodes"] || [], &(&1["type"] == "start")) do
@@ -1353,7 +1442,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                   </span>
 
                   <span
-                    :if={node["type"] not in ["end", "if_else"]}
+                    :if={node["type"] not in ["end", "if_else", "question_classifier"]}
                     data-out-port
                     data-node-id={node["id"]}
                     data-handle="default"
@@ -1361,6 +1450,23 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                     title="Drag to connect"
                   >
                   </span>
+
+                  <%= if node["type"] == "question_classifier" do %>
+                    <span
+                      :for={
+                        {class, index} <-
+                          Enum.with_index(List.wrap(node["config"]["classes"]))
+                      }
+                      :if={class["id"] != ""}
+                      data-out-port
+                      data-node-id={node["id"]}
+                      data-handle={class["id"]}
+                      class="absolute -right-1.5 size-3 rounded-full bg-warning hover:scale-125 transition-transform cursor-crosshair"
+                      style={"top: #{22 + index * 28}px"}
+                      title={"Branch: #{class["id"]}"}
+                    >
+                    </span>
+                  <% end %>
 
                   <%= if node["type"] == "if_else" do %>
                     <span
@@ -2050,6 +2156,211 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                       disabled={not @can_edit}
                     >
                       <.icon name="hero-plus" class="size-3" /> Add output
+                    </button>
+                  </div>
+                <% "question_classifier" -> %>
+                  <label class="floating-label">
+                    <span>Model</span>
+                    <select
+                      name="model_choice"
+                      class="select select-sm w-full"
+                      disabled={not @can_edit}
+                    >
+                      <option value="" selected={node["config"]["model"] in [nil, ""]}>
+                        Workspace default
+                      </option>
+                      <option
+                        :for={%{plugin_id: pid, plugin_name: pname, model: m} <- @models}
+                        value={"#{pid}|#{m.name}"}
+                        selected={
+                          node["config"]["provider_plugin_id"] == pid and
+                            node["config"]["model"] == m.name
+                        }
+                      >
+                        {pname} — {m.label}
+                      </option>
+                    </select>
+                  </label>
+                  <label class="floating-label">
+                    <span>Input to classify</span>
+                    <input
+                      type="text"
+                      name="query"
+                      value={node["config"]["query"]}
+                      class="input input-sm w-full font-mono"
+                      disabled={not @can_edit}
+                    />
+                  </label>
+                  <label class="floating-label">
+                    <span>Extra instructions (optional)</span>
+                    <textarea
+                      name="instruction"
+                      rows="2"
+                      class="textarea textarea-sm w-full"
+                      disabled={not @can_edit}
+                    >{node["config"]["instruction"]}</textarea>
+                  </label>
+                  <div class="space-y-2">
+                    <p class="text-xs font-semibold opacity-70">
+                      Classes (each becomes an output branch)
+                    </p>
+                    <div
+                      :for={{class, index} <- Enum.with_index(List.wrap(node["config"]["classes"]))}
+                      class="flex gap-2"
+                    >
+                      <input
+                        type="text"
+                        name={"cls[#{index}][id]"}
+                        value={class["id"]}
+                        placeholder="id"
+                        class="input input-xs w-24 font-mono"
+                        disabled={not @can_edit}
+                      />
+                      <input
+                        type="text"
+                        name={"cls[#{index}][name]"}
+                        value={class["name"]}
+                        placeholder="What this class means"
+                        class="input input-xs flex-1"
+                        disabled={not @can_edit}
+                      />
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-xs text-error"
+                        phx-click="remove_row"
+                        phx-value-kind="class"
+                        phx-value-index={index}
+                        disabled={not @can_edit}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      class="btn btn-outline btn-xs"
+                      phx-click="add_row"
+                      phx-value-kind="class"
+                      disabled={not @can_edit}
+                    >
+                      <.icon name="hero-plus" class="size-3" /> Add class
+                    </button>
+                  </div>
+                <% "parameter_extractor" -> %>
+                  <label class="floating-label">
+                    <span>Model</span>
+                    <select
+                      name="model_choice"
+                      class="select select-sm w-full"
+                      disabled={not @can_edit}
+                    >
+                      <option value="" selected={node["config"]["model"] in [nil, ""]}>
+                        Workspace default
+                      </option>
+                      <option
+                        :for={%{plugin_id: pid, plugin_name: pname, model: m} <- @models}
+                        value={"#{pid}|#{m.name}"}
+                        selected={
+                          node["config"]["provider_plugin_id"] == pid and
+                            node["config"]["model"] == m.name
+                        }
+                      >
+                        {pname} — {m.label}
+                      </option>
+                    </select>
+                  </label>
+                  <label class="floating-label">
+                    <span>Input to extract from</span>
+                    <input
+                      type="text"
+                      name="query"
+                      value={node["config"]["query"]}
+                      class="input input-sm w-full font-mono"
+                      disabled={not @can_edit}
+                    />
+                  </label>
+                  <label class="floating-label">
+                    <span>Extra instructions (optional)</span>
+                    <textarea
+                      name="instruction"
+                      rows="2"
+                      class="textarea textarea-sm w-full"
+                      disabled={not @can_edit}
+                    >{node["config"]["instruction"]}</textarea>
+                  </label>
+                  <div class="space-y-2">
+                    <p class="text-xs font-semibold opacity-70">Parameters</p>
+                    <div
+                      :for={
+                        {parameter, index} <-
+                          Enum.with_index(List.wrap(node["config"]["parameters"]))
+                      }
+                      class="rounded-box border border-base-200 p-2 space-y-1"
+                    >
+                      <div class="flex gap-2">
+                        <input
+                          type="text"
+                          name={"prms[#{index}][name]"}
+                          value={parameter["name"]}
+                          placeholder="name"
+                          class="input input-xs w-28 font-mono"
+                          disabled={not @can_edit}
+                        />
+                        <select
+                          name={"prms[#{index}][type]"}
+                          class="select select-xs w-24"
+                          disabled={not @can_edit}
+                        >
+                          <option
+                            :for={type <- ~w(string number bool)}
+                            value={type}
+                            selected={(parameter["type"] || "string") == type}
+                          >
+                            {type}
+                          </option>
+                        </select>
+                        <label class="flex items-center gap-1 text-xs">
+                          <input
+                            type="hidden"
+                            name={"prms[#{index}][required]"}
+                            value="false"
+                          />
+                          <input
+                            type="checkbox"
+                            name={"prms[#{index}][required]"}
+                            value="true"
+                            checked={parameter["required"] == true}
+                            class="checkbox checkbox-xs"
+                            disabled={not @can_edit}
+                          /> required
+                        </label>
+                        <button
+                          type="button"
+                          class="btn btn-ghost btn-xs text-error ml-auto"
+                          phx-click="remove_row"
+                          phx-value-kind="parameter"
+                          phx-value-index={index}
+                          disabled={not @can_edit}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                      <input
+                        type="text"
+                        name={"prms[#{index}][description]"}
+                        value={parameter["description"]}
+                        placeholder="What to extract"
+                        class="input input-xs w-full"
+                        disabled={not @can_edit}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      class="btn btn-outline btn-xs"
+                      phx-click="add_row"
+                      phx-value-kind="parameter"
+                      disabled={not @can_edit}
+                    >
+                      <.icon name="hero-plus" class="size-3" /> Add parameter
                     </button>
                   </div>
                 <% "variable_aggregator" -> %>

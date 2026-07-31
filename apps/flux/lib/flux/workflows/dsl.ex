@@ -23,7 +23,9 @@ defmodule Flux.Workflows.DSL do
     "variable-aggregator" => "variable_aggregator",
     "variable-assigner" => "variable_aggregator",
     "assigner" => "variable_assigner",
-    "list-operator" => "list_operator"
+    "list-operator" => "list_operator",
+    "question-classifier" => "question_classifier",
+    "parameter-extractor" => "parameter_extractor"
   }
 
   @operator_map %{
@@ -104,6 +106,8 @@ defmodule Flux.Workflows.DSL do
   @dify_types @supported
               |> Map.new(fn {dify, ours} -> {ours, dify} end)
               |> Map.put("variable_aggregator", "variable-aggregator")
+              |> Map.put("question_classifier", "question-classifier")
+              |> Map.put("parameter_extractor", "parameter-extractor")
   @reverse_operators %{
     "contains" => "contains",
     "not_contains" => "not contains",
@@ -281,6 +285,46 @@ defmodule Flux.Workflows.DSL do
         "enabled" => config["limit"] not in [nil, ""],
         "size" => config["limit"]
       }
+    }
+  end
+
+  defp export_data("question_classifier", config) do
+    %{
+      "model" => %{
+        "provider" => config["provider_plugin_id"] || "",
+        "name" => config["model"] || "",
+        "mode" => "chat",
+        "completion_params" => config["params"] || %{}
+      },
+      "query_variable_selector" => ref_selector(config["query"]),
+      "instruction" => dify_selectors(config["instruction"] || ""),
+      "classes" =>
+        for class <- List.wrap(config["classes"]) do
+          %{"id" => class["id"], "name" => class["name"]}
+        end
+    }
+  end
+
+  defp export_data("parameter_extractor", config) do
+    %{
+      "model" => %{
+        "provider" => config["provider_plugin_id"] || "",
+        "name" => config["model"] || "",
+        "mode" => "chat",
+        "completion_params" => config["params"] || %{}
+      },
+      "query" => ref_selector(config["query"]),
+      "instruction" => dify_selectors(config["instruction"] || ""),
+      "reasoning_mode" => "function_call",
+      "parameters" =>
+        for parameter <- List.wrap(config["parameters"]) do
+          %{
+            "name" => parameter["name"],
+            "type" => parameter["type"] || "string",
+            "description" => parameter["description"] || "",
+            "required" => parameter["required"] == true
+          }
+        end
     }
   end
 
@@ -496,6 +540,51 @@ defmodule Flux.Workflows.DSL do
      }, []}
   end
 
+  defp convert_config("question_classifier", data) do
+    model = data["model"] || %{}
+    {provider, provider_warnings} = map_provider(model["provider"])
+
+    classes =
+      data["classes"]
+      |> List.wrap()
+      |> Enum.map(fn class ->
+        %{"id" => to_string(class["id"] || ""), "name" => to_string(class["name"] || "")}
+      end)
+
+    {%{
+       "provider_plugin_id" => provider,
+       "model" => model["name"] || "",
+       "query" => selector_ref(data["query_variable_selector"]),
+       "instruction" => convert_selectors(data["instruction"] || ""),
+       "classes" => classes
+     }, provider_warnings}
+  end
+
+  defp convert_config("parameter_extractor", data) do
+    model = data["model"] || %{}
+    {provider, provider_warnings} = map_provider(model["provider"])
+
+    parameters =
+      data["parameters"]
+      |> List.wrap()
+      |> Enum.map(fn parameter ->
+        %{
+          "name" => to_string(parameter["name"] || ""),
+          "type" => extractor_type(parameter["type"]),
+          "description" => parameter["description"] || "",
+          "required" => parameter["required"] == true
+        }
+      end)
+
+    {%{
+       "provider_plugin_id" => provider,
+       "model" => model["name"] || "",
+       "query" => selector_ref(data["query"]),
+       "instruction" => convert_selectors(data["instruction"] || ""),
+       "parameters" => parameters
+     }, provider_warnings}
+  end
+
   defp convert_config("variable_aggregator", data) do
     variables =
       data["variables"]
@@ -630,15 +719,19 @@ defmodule Flux.Workflows.DSL do
 
   defp convert_edges(raw_edges, raw_nodes, kept_ids, warnings) do
     if_else_case_ids = first_case_ids(raw_nodes)
+    classifier_class_ids = classifier_class_ids(raw_nodes)
 
     Enum.reduce(raw_edges, {[], warnings}, fn raw, {edges, warnings} ->
       source = to_string(raw["source"])
       target = to_string(raw["target"])
+      handle = to_string(raw["sourceHandle"] || "")
+      classifier_handles = Map.get(classifier_class_ids, source, MapSet.new())
 
       if not MapSet.member?(kept_ids, source) or not MapSet.member?(kept_ids, target) do
         {edges, warnings}
       else
-        case map_handle(raw["sourceHandle"], Map.get(if_else_case_ids, source)) do
+        case (MapSet.member?(classifier_handles, handle) && {:ok, handle}) ||
+               map_handle(raw["sourceHandle"], Map.get(if_else_case_ids, source)) do
           {:ok, handle} ->
             edge = %{
               "id" => to_string(raw["id"]),
@@ -658,6 +751,24 @@ defmodule Flux.Workflows.DSL do
         end
       end
     end)
+  end
+
+  defp extractor_type(type) when type in ["number", "float", "int"], do: "number"
+  defp extractor_type("bool"), do: "bool"
+  defp extractor_type(_string), do: "string"
+
+  defp classifier_class_ids(raw_nodes) do
+    for raw <- raw_nodes,
+        get_in(raw, ["data", "type"]) == "question-classifier",
+        into: %{} do
+      ids =
+        raw
+        |> get_in(["data", "classes"])
+        |> List.wrap()
+        |> MapSet.new(&to_string(&1["id"] || ""))
+
+      {to_string(raw["id"]), ids}
+    end
   end
 
   defp first_case_ids(raw_nodes) do
