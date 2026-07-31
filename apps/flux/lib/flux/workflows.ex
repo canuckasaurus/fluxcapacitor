@@ -494,7 +494,7 @@ defmodule Flux.Workflows do
     {:ok, run}
   end
 
-  defp build_host(workspace_id, emit) do
+  defp build_host(workspace_id, emit, depth \\ 0) do
     %Host{
       emit: emit,
       invoke_llm: build_llm_invoker(workspace_id),
@@ -504,8 +504,39 @@ defmodule Flux.Workflows do
       http_request: &node_http_request/1,
       run_code: &Flux.CodeRunner.run/1,
       read_document: fn %{file_id: file_id} -> Flux.Documents.extract(workspace_id, file_id) end,
+      run_subflux: build_subflux_runner(workspace_id, depth),
       default_llm: Providers.default_model_for_workspace(workspace_id)
     }
+  end
+
+  # Iteration items run the sub-flux's published version inline (no run
+  # rows, silent host) — depth-capped so sub-fluxes cannot nest further.
+  defp build_subflux_runner(workspace_id, depth) do
+    fn %{workflow_id: workflow_id, item: item, index: index} ->
+      scope = %Scope{workspace: %Flux.Accounts.Workspace{id: workspace_id}}
+
+      with :ok <- (depth < 1 && :ok) || {:error, "sub-fluxes cannot start their own sub-fluxes"},
+           %Workflow{workspace_id: ^workspace_id} = workflow <-
+             Repo.get_by(Workflow, [id: workflow_id], skip_workspace_guard: true) ||
+               {:error, "sub-flux not found"},
+           %WorkflowVersion{} = version <-
+             latest_version(scope, workflow.id) || {:error, "sub-flux has no published version"},
+           {:ok, graph} <- Engine.build(version.graph) do
+        sub_host = build_host(workspace_id, fn _event -> :ok end, depth + 1)
+        item_text = if is_binary(item), do: item, else: Jason.encode!(item)
+
+        case Engine.run(graph, %{"item" => item_text, "index" => index}, sub_host,
+               sys: %{"item" => item, "index" => index}
+             ) do
+          {:ok, result} -> {:ok, result.outputs}
+          {:error, failure} -> {:error, failure.error}
+        end
+      else
+        %Workflow{} -> {:error, "sub-flux not found"}
+        {:error, errors} when is_list(errors) -> {:error, Enum.join(errors, "; ")}
+        {:error, reason} -> {:error, reason}
+      end
+    end
   end
 
   @debug_timeout 60_000

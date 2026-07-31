@@ -758,6 +758,102 @@ defmodule Flux.Engine.Nodes.Agent do
   end
 end
 
+defmodule Flux.Engine.Nodes.Iteration do
+  @moduledoc """
+  Runs another published flux once per item of a list (see
+  docs/ITERATION-DESIGN.md for why iteration composes over a sub-flux
+  rather than an inline scope).
+
+  Config: `variable` (list selector; JSON strings decoded),
+  `workflow_id`, `max_items` (default 50, cap 200).
+  Outputs `%{"output" => [sub-run outputs...], "count" => n}`; emits
+  `{:iteration_progress, %{node_id, index, total}}` per item.
+  """
+  @behaviour Flux.Engine.Node
+
+  alias Flux.Engine.{Host, Template}
+
+  @default_max_items 50
+  @max_items_cap 200
+
+  @impl true
+  def run(node, pool, host) do
+    workflow_id = to_string(node.config["workflow_id"] || "")
+
+    with :ok <- require_workflow(workflow_id),
+         {:ok, run_subflux} <- capability(host),
+         {:ok, items} <- fetch_items(node, pool) do
+      total = length(items)
+
+      items
+      |> Enum.with_index()
+      |> Enum.reduce_while({:ok, []}, fn {item, index}, {:ok, acc} ->
+        Host.emit(
+          host,
+          {:iteration_progress, %{node_id: node.id, index: index, total: total}}
+        )
+
+        case run_subflux.(%{workflow_id: workflow_id, item: item, index: index}) do
+          {:ok, outputs} -> {:cont, {:ok, [outputs | acc]}}
+          {:error, reason} -> {:halt, {:error, "item #{index}: #{format(reason)}"}}
+        end
+      end)
+      |> case do
+        {:ok, outputs} ->
+          {:ok, %{"output" => Enum.reverse(outputs), "count" => total}}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  defp fetch_items(node, pool) do
+    selector = to_string(node.config["variable"] || "")
+
+    items =
+      case Template.resolve(pool, selector) do
+        list when is_list(list) ->
+          list
+
+        binary when is_binary(binary) ->
+          case Jason.decode(binary) do
+            {:ok, list} when is_list(list) -> list
+            _not_a_list -> :error
+          end
+
+        nil ->
+          []
+
+        _other ->
+          :error
+      end
+
+    case items do
+      :error ->
+        {:error, "#{selector} is not a list"}
+
+      list ->
+        max_items = min(node.config["max_items"] || @default_max_items, @max_items_cap)
+
+        if length(list) > max_items do
+          {:error, "the list has #{length(list)} items; max_items is #{max_items}"}
+        else
+          {:ok, list}
+        end
+    end
+  end
+
+  defp require_workflow(""), do: {:error, "the iteration node needs a sub-flux"}
+  defp require_workflow(_id), do: :ok
+
+  defp capability(%Host{run_subflux: fun}) when is_function(fun, 1), do: {:ok, fun}
+  defp capability(_host), do: {:error, "this run's host cannot run sub-fluxes"}
+
+  defp format(reason) when is_binary(reason), do: reason
+  defp format(reason), do: inspect(reason)
+end
+
 defmodule Flux.Engine.Nodes.DocumentExtractor do
   @moduledoc """
   Extracts text from an uploaded file: `config["variable"]` resolves to a

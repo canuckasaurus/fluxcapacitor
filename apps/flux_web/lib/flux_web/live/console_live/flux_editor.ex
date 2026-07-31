@@ -86,15 +86,20 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
       label: "Doc Extractor",
       icon: "hero-document-text",
       accent: "bg-neutral/10 text-neutral"
+    },
+    "iteration" => %{
+      label: "Iteration",
+      icon: "hero-arrow-path-rounded-square",
+      accent: "bg-primary/10 text-primary"
     }
   }
 
   @addable_types ~w(llm if_else question_classifier parameter_extractor document_extractor
-                    template tool http_request code agent variable_aggregator
+                    iteration template tool http_request code agent variable_aggregator
                     variable_assigner list_operator answer end)
   @zoom_levels [50, 65, 80, 100, 125, 150]
   @failable_types ~w(llm tool http_request code agent question_classifier parameter_extractor
-                     document_extractor)
+                     document_extractor iteration)
   @history_cap 50
 
   @impl true
@@ -121,6 +126,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
            issues: issues(workflow.graph),
            models: Providers.available_models(scope),
            toolsets: Flux.Tools.list_toolsets(scope),
+           fluxes: Workflows.list_workflows(scope),
            latest_version: Workflows.latest_version(scope, workflow.id),
            can_edit: RBAC.can?(scope, :app_edit),
            can_export: RBAC.can?(scope, :app_import_export_dsl),
@@ -1031,6 +1037,9 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
 
   defp default_config("document_extractor"), do: %{"variable" => ""}
 
+  defp default_config("iteration"),
+    do: %{"variable" => "", "workflow_id" => "", "max_items" => 50}
+
   defp default_config("variable_aggregator"), do: %{"variables" => []}
 
   defp default_config("variable_assigner"),
@@ -1195,6 +1204,19 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
 
   defp build_config("document_extractor", config, params) do
     Map.put(config, "variable", Map.get(params, "variable", config["variable"] || ""))
+  end
+
+  defp build_config("iteration", config, params) do
+    max_items =
+      case Integer.parse(to_string(Map.get(params, "max_items", ""))) do
+        {n, ""} when n in 1..200 -> n
+        _invalid -> config["max_items"] || 50
+      end
+
+    config
+    |> Map.put("variable", Map.get(params, "variable", config["variable"] || ""))
+    |> Map.put("workflow_id", Map.get(params, "workflow_id", config["workflow_id"] || ""))
+    |> Map.put("max_items", max_items)
   end
 
   defp build_config("variable_aggregator", config, params) do
@@ -1413,7 +1435,8 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     "list_operator" => ~w(output first last count),
     "question_classifier" => ~w(class_id class_name),
     "parameter_extractor" => ~w(is_success reason),
-    "document_extractor" => ~w(text name size)
+    "document_extractor" => ~w(text name size),
+    "iteration" => ~w(output count)
   }
 
   defp variable_hints(graph, selected_id) do
@@ -2643,6 +2666,50 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                       <.icon name="hero-plus" class="size-3" /> Add parameter
                     </button>
                   </div>
+                <% "iteration" -> %>
+                  <label class="floating-label">
+                    <span>List variable (one sub-flux run per item)</span>
+                    <input
+                      type="text"
+                      name="variable"
+                      value={node["config"]["variable"]}
+                      placeholder="code_1.items"
+                      class="input input-sm w-full font-mono"
+                      disabled={not @can_edit}
+                    />
+                  </label>
+                  <label class="floating-label">
+                    <span>Sub-flux (published; sees {"{{sys.item}}"} / {"{{sys.index}}"})</span>
+                    <select
+                      name="workflow_id"
+                      class="select select-sm w-full"
+                      disabled={not @can_edit}
+                    >
+                      <option value="" selected={node["config"]["workflow_id"] in [nil, ""]}>
+                        Choose a flux…
+                      </option>
+                      <option
+                        :for={flux <- @fluxes}
+                        :if={flux.id != @workflow.id}
+                        value={flux.id}
+                        selected={node["config"]["workflow_id"] == flux.id}
+                      >
+                        {flux.name}
+                      </option>
+                    </select>
+                  </label>
+                  <label class="floating-label">
+                    <span>Max items (1–200)</span>
+                    <input
+                      type="number"
+                      name="max_items"
+                      value={node["config"]["max_items"] || 50}
+                      min="1"
+                      max="200"
+                      class="input input-sm w-24"
+                      disabled={not @can_edit}
+                    />
+                  </label>
                 <% "document_extractor" -> %>
                   <label class="floating-label">
                     <span>File id variable (an uploaded-file id, e.g. from a start input)</span>

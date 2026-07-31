@@ -30,7 +30,8 @@ defmodule Flux.Engine.Node do
     "list_operator" => Flux.Engine.Nodes.ListOperator,
     "question_classifier" => Flux.Engine.Nodes.QuestionClassifier,
     "parameter_extractor" => Flux.Engine.Nodes.ParameterExtractor,
-    "document_extractor" => Flux.Engine.Nodes.DocumentExtractor
+    "document_extractor" => Flux.Engine.Nodes.DocumentExtractor,
+    "iteration" => Flux.Engine.Nodes.Iteration
   }
 
   @doc "The module implementing a node type."

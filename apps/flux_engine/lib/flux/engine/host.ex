@@ -14,6 +14,7 @@ defmodule Flux.Engine.Host do
             http_request: nil,
             run_code: nil,
             read_document: nil,
+            run_subflux: nil,
             default_llm: nil
 
   @typedoc """
@@ -32,6 +33,7 @@ defmodule Flux.Engine.Host do
           http_request: (map() -> {:ok, map()} | {:error, term()}) | nil,
           run_code: (map() -> {:ok, map()} | {:error, term()}) | nil,
           read_document: (map() -> {:ok, map()} | {:error, term()}) | nil,
+          run_subflux: (map() -> {:ok, map()} | {:error, term()}) | nil,
           default_llm: %{optional(String.t()) => String.t()} | nil
         }
 

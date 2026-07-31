@@ -1028,6 +1028,66 @@ defmodule Flux.EngineTest do
       assert result.outputs["name"] == "notes.txt"
     end
 
+    test "iteration node maps items through the run_subflux capability" do
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("code_1", "code", %{"code" => "x", "language" => "python3", "inputs" => []}),
+          node!("iter", "iteration", %{
+            "variable" => "code_1.items",
+            "workflow_id" => "wf-sub",
+            "max_items" => 10
+          })
+        ],
+        "edges" => [edge!("start", "code_1"), edge!("code_1", "iter")]
+      }
+
+      host = %Host{
+        emit: fn _e -> :ok end,
+        run_code: fn _spec -> {:ok, %{result: %{"items" => ["a", "b"]}, stdout: ""}} end,
+        run_subflux: fn %{workflow_id: "wf-sub", item: item, index: index} ->
+          {:ok, %{"echoed" => "#{index}:#{item}"}}
+        end
+      }
+
+      {:ok, built} = Engine.build(graph)
+      assert {:ok, result} = Engine.run(built, %{"query" => "q"}, host)
+      assert result.outputs["count"] == 2
+      assert result.outputs["output"] == [%{"echoed" => "0:a"}, %{"echoed" => "1:b"}]
+    end
+
+    test "iteration node enforces max_items and reports item failures" do
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("iter", "iteration", %{
+            "variable" => "start.query",
+            "workflow_id" => "wf-sub",
+            "max_items" => 2
+          })
+        ],
+        "edges" => [edge!("start", "iter")]
+      }
+
+      failing_host = %Host{
+        emit: fn _e -> :ok end,
+        run_subflux: fn %{index: index} ->
+          if index == 1, do: {:error, "boom"}, else: {:ok, %{}}
+        end
+      }
+
+      {:ok, built} = Engine.build(graph)
+
+      # JSON list in a start variable is decoded; over-limit is rejected.
+      assert {:error, failure} =
+               Engine.run(built, %{"query" => ~s(["a","b","c"])}, failing_host)
+
+      assert failure.error =~ "max_items"
+
+      assert {:error, failure} = Engine.run(built, %{"query" => ~s(["a","b"])}, failing_host)
+      assert failure.error =~ "item 1: boom"
+    end
+
     test "unresolved template references render blank" do
       graph = %{
         "nodes" => [
