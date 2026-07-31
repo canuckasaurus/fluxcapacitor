@@ -157,3 +157,28 @@ Timeline above assumes ~2–3 engineers; single-engineer pace ≈ 2.5× the dura
 4. **Upstream drift** (medium) — Agent v2 externalized upstream. Mitigation: WS6 starts with a re-scoping read of `dify-agent`/`dify-agent-runtime`.
 5. **Single-machine, uncommitted code** (high, trivial to fix) — WS0 this week.
 6. **Oban Pro buy/no-buy** still open — decide during WS3 (first heavy queue user).
+
+## 5. Ledger: unblocked backlog vs blocked items (2026-07-31)
+
+### Unblocked (buildable now, in priority order)
+1. Console UI for triggers (editor modal: list/create webhook+schedule, show URL) — context/API exist.
+2. Console UI for completion apps (Apps form mode/template/variables; run panel) — API exists.
+3. Site publishing + JS embed (WS5's biggest remaining piece).
+4. `open_api_spex` contract tests over the now-12-route `/v1` surface.
+5. Agent v2 features: structured `final_output`, deferred-tool HITL, streamed thought events.
+6. azure_openai + bedrock providers; default/system model config.
+7. Router-level RBAC plug; PromEx/OTEL + logger_json; audit-log context stubs.
+8. Engine depth not needing fixtures: variable aggregator/assigner, list-operator (iteration/loop spike SHOULD wait for the harness).
+
+### Blocked — external unblocks required
+| Item | Blocked on |
+|---|---|
+| Push to GitHub + first real CI run (26+ commits local-only) | `gh auth login` (user has taken this) |
+| flux-coderunner container (code node phase 1: real deps + sandbox) | Docker Desktop |
+| RAG workstream WS3 (ArangoDB + compose stack: postgres/arango/minio/tika) | Docker Desktop |
+| Golden harness phase 2 (recorded run traces + SSE transcripts) | Docker Desktop (live Reference instance) |
+| Code node phase 2 hardening (network-namespace split) | phase 1 (Docker) |
+| ArangoDB BUSL-1.1 license acceptability review | user/legal decision |
+| Prod email adapter (magic links beyond the local mailbox) | choice of SMTP/API provider + credentials |
+| Repo folder rename `dify-elixir` → `fluxcapacitor` | external file handle holds the directory; do at next reboot/re-clone (the last "dify" anywhere) |
+| bcrypt swap (currently pbkdf2) | Linux/CI build (no local C toolchain) |
