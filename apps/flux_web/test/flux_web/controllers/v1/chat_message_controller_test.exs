@@ -49,6 +49,65 @@ defmodule FluxWeb.V1.ChatMessageControllerTest do
     assert body["metadata"]["usage"]["output_tokens"] == 12
   end
 
+  test "image files attach to the message and reach the provider", %{
+    conn: conn,
+    scope: scope,
+    app: app
+  } do
+    # A 1x1 transparent PNG.
+    png =
+      Base.decode64!(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+      )
+
+    path = Path.join(System.tmp_dir!(), "pixel.png")
+    File.write!(path, png)
+    upload = %Plug.Upload{path: path, filename: "pixel.png", content_type: "image/png"}
+
+    file_id =
+      conn
+      |> post(~p"/v1/files/upload", %{"file" => upload})
+      |> json_response(200)
+      |> Map.fetch!("id")
+
+    body =
+      conn
+      |> post(~p"/v1/chat-messages", %{
+        "query" => "what is in this picture?",
+        "response_mode" => "blocking",
+        "files" => [
+          %{"type" => "image", "transfer_method" => "local_file", "upload_file_id" => file_id}
+        ]
+      })
+      |> json_response(200)
+
+    # The echo provider acknowledges images it received via the SDK.
+    assert body["answer"] =~ "[1 image(s)]"
+
+    # The stored user message carries the attachment metadata.
+    [conversation] = Chat.list_conversations(scope, app.id)
+    [user_message | _rest] = Chat.list_messages(scope, conversation.id)
+    assert [%{"name" => "pixel.png", "content_type" => "image/png"}] = user_message.files
+
+    # Unknown and non-image file ids are ignored, not errors.
+    body =
+      conn
+      |> post(~p"/v1/chat-messages", %{
+        "query" => "no image here",
+        "response_mode" => "blocking",
+        "files" => [
+          %{
+            "type" => "image",
+            "transfer_method" => "local_file",
+            "upload_file_id" => Ecto.UUID.generate()
+          }
+        ]
+      })
+      |> json_response(200)
+
+    refute body["answer"] =~ "image(s)"
+  end
+
   test "streaming mode emits message events then message_end", %{conn: conn} do
     conn = post(conn, ~p"/v1/chat-messages", %{"query" => "stream me"})
 

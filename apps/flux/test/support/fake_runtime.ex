@@ -63,8 +63,14 @@ defmodule Flux.FakeRuntime do
       request.messages
       |> Enum.reverse()
       |> Enum.find_value("(nothing)", fn
-        %{role: :user, content: content} -> content
-        _ -> nil
+        %{role: :user, content: content} = message ->
+          case Map.get(message, :images, []) do
+            [] -> content
+            images -> "#{content} [#{length(images)} image(s)]"
+          end
+
+        _ ->
+          nil
       end)
 
     reply = "You said: #{last_user}"

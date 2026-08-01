@@ -92,6 +92,56 @@ defmodule Flux.ProvidersHTTPTest do
     assert chunks == ["Ho", "la"]
   end
 
+  test "image parts are encoded onto the wire for each provider" do
+    image = %{data: Base.encode64("fakepng"), media_type: "image/png"}
+
+    message = %{role: :user, content: "what is this?", images: [image]}
+    request = %Request{model: "m", messages: [message]}
+
+    # OpenAI: content becomes text + image_url data-URI parts.
+    Req.Test.stub(Flux.ProviderStub, fn conn ->
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+      [%{"content" => [text_part, image_part]}] = Jason.decode!(body)["messages"]
+      assert text_part == %{"type" => "text", "text" => "what is this?"}
+      assert image_part["image_url"]["url"] =~ "data:image/png;base64,"
+      sse_response(conn, [~s({"choices":[{"delta":{"content":"a png"}}]}), "[DONE]"])
+    end)
+
+    {result, _chunks} =
+      collect_chunks(fn emit -> OpenAI.invoke_llm(%{"api_key" => "sk-x"}, request, emit) end)
+
+    assert {:ok, %{content: "a png"}} = result
+
+    # Anthropic: base64 image source blocks before the text.
+    Req.Test.stub(Flux.ProviderStub, fn conn ->
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+      [%{"content" => [image_block, text_block]}] = Jason.decode!(body)["messages"]
+      assert image_block["source"]["media_type"] == "image/png"
+      assert image_block["source"]["type"] == "base64"
+      assert text_block["text"] == "what is this?"
+      sse_response(conn, [~s({"type":"content_block_delta","delta":{"text":"ok"}})])
+    end)
+
+    {result, _chunks} =
+      collect_chunks(fn emit -> Anthropic.invoke_llm(%{"api_key" => "sk-a"}, request, emit) end)
+
+    assert {:ok, %{content: "ok"}} = result
+
+    # Gemini: inline_data parts alongside the text.
+    Req.Test.stub(Flux.ProviderStub, fn conn ->
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+      [%{"parts" => [text_part, image_part]}] = Jason.decode!(body)["contents"]
+      assert text_part["text"] == "what is this?"
+      assert image_part["inline_data"]["mime_type"] == "image/png"
+      sse_response(conn, [~s({"candidates":[{"content":{"parts":[{"text":"ok"}]}}]})])
+    end)
+
+    {result, _chunks} =
+      collect_chunks(fn emit -> Gemini.invoke_llm(%{"api_key" => "AIza"}, request, emit) end)
+
+    assert {:ok, %{content: "ok"}} = result
+  end
+
   test "malformed frames are skipped without crashing the stream" do
     Req.Test.stub(Flux.ProviderStub, fn conn ->
       sse_response(conn, [

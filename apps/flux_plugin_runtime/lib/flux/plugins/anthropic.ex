@@ -197,6 +197,22 @@ defmodule Flux.Plugins.Anthropic do
     %{role: "assistant", content: text_blocks ++ tool_blocks}
   end
 
+  # Messages may carry `images: [%{data: base64, media_type: mime}]`.
+  defp encode_message(%{images: [_image | _] = images} = message) do
+    image_blocks =
+      for image <- images do
+        %{
+          type: "image",
+          source: %{type: "base64", media_type: image.media_type, data: image.data}
+        }
+      end
+
+    %{
+      role: message.role,
+      content: image_blocks ++ [%{type: "text", text: message.content || ""}]
+    }
+  end
+
   defp encode_message(message), do: %{role: message.role, content: message.content}
 
   defp split_system(messages) do

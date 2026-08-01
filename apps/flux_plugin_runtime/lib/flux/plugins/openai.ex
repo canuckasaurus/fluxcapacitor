@@ -240,6 +240,22 @@ defmodule Flux.Plugins.OpenAI do
     }
   end
 
+  # Messages may carry `images: [%{data: base64, media_type: mime}]`.
+  defp encode_message(%{images: [_image | _] = images} = message) do
+    %{
+      role: message.role,
+      content: [
+        %{type: "text", text: message.content || ""}
+        | for image <- images do
+            %{
+              type: "image_url",
+              image_url: %{url: "data:#{image.media_type};base64,#{image.data}"}
+            }
+          end
+      ]
+    }
+  end
+
   defp encode_message(message), do: %{role: message.role, content: message.content}
 
   defp base_url(credentials) do

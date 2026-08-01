@@ -53,7 +53,9 @@ defmodule FluxWeb.V1.ChatMessageController do
 
     case resolve_conversation(scope, app, params) do
       {:ok, conversation} ->
-        case Chat.send_message(scope, app, conversation, query) do
+        files = resolve_files(scope, params["files"])
+
+        case Chat.send_message(scope, app, conversation, query, files: files) do
           {:ok, _user_message, assistant_message} ->
             case Map.get(params, "response_mode", "streaming") do
               "blocking" -> respond_blocking(conn, conversation, assistant_message)
@@ -80,6 +82,21 @@ defmodule FluxWeb.V1.ChatMessageController do
   defp resolve_conversation(scope, app, params) do
     {:ok, Chat.create_conversation(scope, app, %{end_user_ref: params["user"]})}
   end
+
+  # Reference-compatible files param: [%{"type" => "image",
+  # "transfer_method" => "local_file", "upload_file_id" => id}]. Only
+  # image uploads that exist in this workspace are attached.
+  defp resolve_files(scope, files) when is_list(files) do
+    for %{"upload_file_id" => id} <- files,
+        is_binary(id),
+        match?({:ok, _}, Ecto.UUID.cast(id)),
+        %Flux.Chat.UploadedFile{content_type: "image/" <> _} = file <-
+          [Chat.get_uploaded_file(scope, id)] do
+      file
+    end
+  end
+
+  defp resolve_files(_scope, _files), do: []
 
   ## Streaming
 

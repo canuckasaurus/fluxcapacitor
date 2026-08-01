@@ -194,24 +194,32 @@ defmodule Flux.Chat do
   missed), and starts generation. Returns
   `{:ok, user_message, assistant_message}`.
   """
-  def send_message(%Scope{} = scope, %App{} = app, %Conversation{} = conversation, content)
+  def send_message(scope, app, conversation, content, opts \\ [])
+
+  def send_message(%Scope{} = scope, %App{} = app, %Conversation{} = conversation, content, opts)
       when is_binary(content) do
     if quota_exceeded?(app) do
       {:error, :quota_exceeded}
     else
-      do_send_message(scope, app, conversation, content)
+      do_send_message(scope, app, conversation, content, opts)
     end
   end
 
-  defp do_send_message(scope, app, conversation, content) do
+  defp do_send_message(scope, app, conversation, content, opts) do
     workspace_id = Scope.workspace_id(scope)
+
+    files =
+      for %Flux.Chat.UploadedFile{} = file <- Keyword.get(opts, :files, []) do
+        %{"id" => file.id, "name" => file.name, "content_type" => file.content_type}
+      end
 
     user_message =
       Repo.insert!(%Message{
         workspace_id: workspace_id,
         conversation_id: conversation.id,
         role: :user,
-        content: content
+        content: content,
+        files: files
       })
 
     assistant_message =
@@ -281,6 +289,11 @@ defmodule Flux.Chat do
 
   defp check_size(bytes) when bytes <= @max_upload_bytes, do: :ok
   defp check_size(_bytes), do: {:error, :too_large}
+
+  @doc "Fetches an uploaded file in the scope's workspace, or nil."
+  def get_uploaded_file(%Scope{} = scope, id) do
+    Repo.one(Repo.scoped(where(Flux.Chat.UploadedFile, id: ^id), scope))
+  end
 
   @doc "Whether the app's daily token budget (input+output, UTC day) is spent."
   def quota_exceeded?(%App{daily_token_limit: nil}), do: false
@@ -620,9 +633,28 @@ defmodule Flux.Chat do
     turns =
       history
       |> Enum.filter(&(&1.status == :completed or &1.role == :user))
-      |> Enum.map(&%{role: &1.role, content: &1.content})
+      |> Enum.map(fn message ->
+        base = %{role: message.role, content: message.content}
+
+        case load_images(message.files || []) do
+          [] -> base
+          images -> Map.put(base, :images, images)
+        end
+      end)
 
     system ++ turns
+  end
+
+  # Attached image files become base64 payloads for vision-capable
+  # providers (the SDK's `images` message key). Unreadable files and
+  # non-images are skipped rather than failing the whole turn.
+  defp load_images(files) do
+    for %{"id" => id, "content_type" => "image/" <> _subtype = content_type} <- files,
+        file = Repo.get(Flux.Chat.UploadedFile, id, skip_workspace_guard: true),
+        file != nil,
+        {:ok, binary} <- [Flux.Storage.get(file.key)] do
+      %{data: Base.encode64(binary), media_type: content_type}
+    end
   end
 
   # Stop killed the task mid-stream; the stream buffer holds every delta

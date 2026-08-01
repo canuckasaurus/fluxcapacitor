@@ -102,6 +102,7 @@ defmodule Flux.Chat.Message do
     field :error, :string
     field :usage, :map, default: %{}
     field :citations, {:array, :map}, default: []
+    field :files, {:array, :map}, default: []
     field :feedback, Ecto.Enum, values: [:like, :dislike]
 
     timestamps(type: :utc_datetime)

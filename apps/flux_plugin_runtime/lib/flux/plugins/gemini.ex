@@ -188,6 +188,19 @@ defmodule Flux.Plugins.Gemini do
     %{role: "model", parts: text_parts ++ call_parts}
   end
 
+  # Messages may carry `images: [%{data: base64, media_type: mime}]`.
+  defp content_for(%{images: [_image | _] = images} = message) do
+    image_parts =
+      for image <- images do
+        %{inline_data: %{mime_type: image.media_type, data: image.data}}
+      end
+
+    %{
+      role: (message.role == :assistant && "model") || "user",
+      parts: [%{text: message.content || ""} | image_parts]
+    }
+  end
+
   defp content_for(%{role: role, content: content}) do
     %{role: (role == :assistant && "model") || "user", parts: [%{text: content}]}
   end
