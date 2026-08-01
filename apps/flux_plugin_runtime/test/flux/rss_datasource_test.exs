@@ -106,6 +106,29 @@ defmodule Flux.Plugins.RSSTest do
              RSS.fetch_document(@credentials, "urn:uuid:1")
   end
 
+  test "poll primes on first call, then emits new items oldest-first" do
+    # First poll: cursor is nil → prime on the newest item, no events.
+    assert {:ok, [], "post-1"} = RSS.poll(@credentials, nil)
+
+    # Nothing new → no events, cursor unchanged.
+    assert {:ok, [], "post-1"} = RSS.poll(@credentials, "post-1")
+
+    # Two newer items appear above the cursored one.
+    Req.Test.stub(Flux.RSSStub, fn conn ->
+      Plug.Conn.send_resp(conn, 200, """
+      <rss version="2.0"><channel>
+        <item><title>Third</title><guid>post-3</guid><description>c</description></item>
+        <item><title>Second</title><guid>post-2</guid><description>b</description></item>
+        <item><title>First</title><guid>post-1</guid><description>a</description></item>
+      </channel></rss>
+      """)
+    end)
+
+    assert {:ok, events, "post-3"} = RSS.poll(@credentials, "post-1")
+    assert Enum.map(events, & &1["title"]) == ["Second", "Third"]
+    assert Enum.map(events, & &1["id"]) == ["post-2", "post-3"]
+  end
+
   test "the runtime exposes rss as a datasource plugin and proxies calls" do
     assert Enum.any?(Flux.PluginRuntime.list_datasource_plugins(), &(&1.id == "rss"))
 

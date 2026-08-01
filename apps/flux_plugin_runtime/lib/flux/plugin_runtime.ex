@@ -49,6 +49,24 @@ defmodule Flux.PluginRuntime do
     Enum.filter(list_plugins(), &(&1.category == :datasource))
   end
 
+  @doc "Manifests of plugins that can act as pollable run triggers."
+  def list_trigger_plugins do
+    plugin_modules()
+    |> Enum.filter(&function_exported?(&1, :poll, 2))
+    |> Enum.map(& &1.manifest())
+  end
+
+  @doc "Polls a trigger plugin; returns `{:ok, events, cursor}`."
+  def poll_trigger_plugin(plugin_id, credentials, cursor) do
+    with {:ok, module} <- fetch_plugin(plugin_id) do
+      if function_exported?(module, :poll, 2) do
+        run_supervised(fn -> module.poll(credentials, cursor) end, @invoke_timeout)
+      else
+        {:error, :not_supported}
+      end
+    end
+  end
+
   @doc "Enumerates the documents a datasource currently offers."
   def datasource_documents(plugin_id, credentials) do
     with {:ok, module} <- fetch_plugin(plugin_id) do

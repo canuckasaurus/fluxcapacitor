@@ -1,9 +1,12 @@
 defmodule Flux.Workflows.Trigger do
   @moduledoc """
   Starts published runs from the outside: `:webhook` (POST
-  /triggers/webhook/:token) or `:schedule` (every `interval_minutes`,
-  driven by `Flux.Workflows.ScheduleWorker`). `inputs` are the static
-  start-variables for triggered runs; webhook payloads override them.
+  /triggers/webhook/:token), `:schedule` (every `interval_minutes` or a
+  cron expression), or `:plugin` (an installed trigger plugin polled
+  every `interval_minutes`; each event it returns becomes one run). All
+  scheduled/polled types are driven by `Flux.Workflows.ScheduleWorker`.
+  `inputs` are the static start-variables for triggered runs; webhook
+  payloads and plugin events override them.
   """
   use Ecto.Schema
   import Ecto.Changeset
@@ -15,10 +18,12 @@ defmodule Flux.Workflows.Trigger do
     belongs_to :workspace, Flux.Accounts.Workspace
     belongs_to :workflow, Flux.Workflows.Workflow
 
-    field :type, Ecto.Enum, values: [:webhook, :schedule]
+    field :type, Ecto.Enum, values: [:webhook, :schedule, :plugin]
     field :token, :string
     field :interval_minutes, :integer
     field :cron, :string
+    field :plugin_id, :string
+    field :plugin_cursor, :string
     field :inputs, :map, default: %{}
     field :enabled, :boolean, default: true
     field :last_run_at, :utc_datetime
@@ -28,7 +33,7 @@ defmodule Flux.Workflows.Trigger do
 
   def changeset(trigger, attrs) do
     trigger
-    |> cast(attrs, [:type, :interval_minutes, :cron, :inputs, :enabled])
+    |> cast(attrs, [:type, :interval_minutes, :cron, :inputs, :enabled, :plugin_id])
     |> validate_required([:type])
     |> validate_number(:interval_minutes, greater_than_or_equal_to: 1)
     |> update_change(:cron, fn cron ->
@@ -46,6 +51,9 @@ defmodule Flux.Workflows.Trigger do
           else
             validate_required(changeset, [:interval_minutes])
           end
+
+        :plugin ->
+          validate_required(changeset, [:plugin_id, :interval_minutes])
 
         _webhook ->
           changeset

@@ -282,7 +282,8 @@ defmodule Flux.Workflows do
 
   def create_trigger(%Scope{} = scope, %Workflow{} = workflow, attrs) do
     with :ok <- RBAC.authorize(scope, :app_edit),
-         :ok <- owned(scope, workflow) do
+         :ok <- owned(scope, workflow),
+         :ok <- verify_trigger_plugin(workflow.workspace_id, attrs) do
       token =
         if attrs["type"] in [:webhook, "webhook"] do
           "wht_" <> Base.url_encode64(:crypto.strong_rand_bytes(18), padding: false)
@@ -303,6 +304,21 @@ defmodule Flux.Workflows do
 
         {:ok, trigger}
       end
+    end
+  end
+
+  # Plugin triggers must name a plugin installed in the workspace.
+  defp verify_trigger_plugin(workspace_id, attrs) do
+    if attrs["type"] in [:plugin, "plugin"] do
+      plugin_id = attrs["plugin_id"] || ""
+
+      if plugin_id != "" and Flux.Tools.plugin_installed?(workspace_id, plugin_id) do
+        :ok
+      else
+        {:error, :plugin_not_installed}
+      end
+    else
+      :ok
     end
   end
 

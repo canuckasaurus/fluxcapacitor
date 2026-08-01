@@ -7,6 +7,7 @@ defmodule Flux.Plugins.RSS do
   """
   @behaviour Flux.Plugin
   @behaviour Flux.Plugin.Datasource
+  @behaviour Flux.Plugin.Trigger
 
   alias Flux.Plugin.{CredentialField, Manifest}
   alias Flux.Plugin.Datasource.SourceDoc
@@ -21,7 +22,10 @@ defmodule Flux.Plugins.RSS do
       name: "RSS feed",
       version: "0.1.0",
       category: :datasource,
-      description: "Sync the items of an RSS/Atom feed into a knowledge dataset.",
+      capabilities: [:datasource, :trigger],
+      description:
+        "Sync the items of an RSS/Atom feed into a knowledge dataset, " <>
+          "or trigger flux runs when new items appear.",
       credential_schema: [
         %CredentialField{
           key: "feed_url",
@@ -68,6 +72,37 @@ defmodule Flux.Plugins.RSS do
   end
 
   def fetch_document(_credentials, _doc_id), do: {:error, "feed_url is required"}
+
+  @impl Flux.Plugin.Trigger
+  # First poll (nil cursor) primes on the newest item without replaying
+  # history; afterwards every item newer than the cursor is one event.
+  # If the cursored item rotated out of the feed, everything replays —
+  # acceptable for feeds, and the run inputs make duplicates visible.
+  def poll(%{"feed_url" => url}, cursor) when is_binary(url) do
+    with {:ok, body} <- get(url) do
+      case items(body) do
+        [] ->
+          {:ok, [], cursor}
+
+        [newest | _rest] when is_nil(cursor) ->
+          {:ok, [], newest.id}
+
+        [newest | _rest] = items ->
+          events =
+            items
+            |> Enum.take_while(&(&1.id != cursor))
+            # Oldest first, so runs start in publication order.
+            |> Enum.reverse()
+            |> Enum.map(
+              &%{"id" => &1.id, "title" => &1.title, "link" => &1.link, "content" => &1.body}
+            )
+
+          {:ok, events, newest.id}
+      end
+    end
+  end
+
+  def poll(_credentials, _cursor), do: {:error, "feed_url is required"}
 
   defp fetch_linked_page(%{link: ""}), do: {:error, "the item has no content and no link"}
 

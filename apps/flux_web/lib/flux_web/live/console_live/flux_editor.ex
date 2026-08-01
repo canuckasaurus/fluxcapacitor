@@ -156,6 +156,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
            show_triggers: false,
            triggers: [],
            trigger_type: "webhook",
+           trigger_plugins: [],
            show_site: false,
            show_versions: false,
            versions: [],
@@ -900,11 +901,16 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
 
   def handle_event("toggle_triggers", _params, socket) do
     scope = socket.assigns.current_scope
+    installed = MapSet.new(Flux.Tools.list_installed_plugin_ids(scope))
+
+    trigger_plugins =
+      Enum.filter(plugin_runtime().list_trigger_plugins(), &MapSet.member?(installed, &1.id))
 
     {:noreply,
      assign(socket,
        show_triggers: not socket.assigns.show_triggers,
        trigger_type: "webhook",
+       trigger_plugins: trigger_plugins,
        triggers: Workflows.list_triggers(scope, socket.assigns.workflow.id)
      )}
   end
@@ -922,6 +928,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
              "type" => params["type"],
              "interval_minutes" => params["interval_minutes"],
              "cron" => params["cron"],
+             "plugin_id" => params["plugin_id"],
              "inputs" => inputs
            }) do
       {:noreply,
@@ -932,6 +939,9 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
 
       {:error, :unauthorized} ->
         {:noreply, put_flash(socket, :error, "You don't have permission to manage triggers.")}
+
+      {:error, :plugin_not_installed} ->
+        {:noreply, put_flash(socket, :error, "Install that plugin first (Plugins page).")}
 
       {:error, %Ecto.Changeset{} = changeset} ->
         {:noreply, put_flash(socket, :error, changeset_error(changeset))}
@@ -1877,6 +1887,8 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
   defp flux_bubble_snippet(workflow) do
     ~s(<script src="#{url(~p"/embed.js")}"\n  data-flux-site="#{url(~p"/site/flux/#{workflow.site_token}")}" defer></script>)
   end
+
+  defp plugin_runtime, do: Application.get_env(:flux, :plugin_runtime, Flux.PluginRuntime)
 
   defp parse_trigger_inputs(raw) when raw in [nil, ""], do: {:ok, %{}}
 
@@ -3921,12 +3933,17 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
             <div class="flex items-center gap-2">
               <span class={[
                 "badge badge-sm",
-                (trigger.type == :webhook && "badge-info") || "badge-accent"
+                trigger.type == :webhook && "badge-info",
+                trigger.type == :schedule && "badge-accent",
+                trigger.type == :plugin && "badge-secondary"
               ]}>
                 {trigger.type}
               </span>
               <span :if={trigger.type == :schedule} class="text-xs opacity-70 font-mono">
                 {(trigger.cron && trigger.cron) || "every #{trigger.interval_minutes} min"}
+              </span>
+              <span :if={trigger.type == :plugin} class="text-xs opacity-70 font-mono">
+                {trigger.plugin_id} · polled every {trigger.interval_minutes} min
               </span>
               <span :if={not trigger.enabled} class="badge badge-ghost badge-sm">disabled</span>
               <span class="ml-auto text-xs opacity-60">
@@ -3973,15 +3990,32 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                 <select name="type" class="select select-bordered select-sm">
                   <option value="webhook" selected={@trigger_type == "webhook"}>Webhook</option>
                   <option value="schedule" selected={@trigger_type == "schedule"}>Schedule</option>
+                  <option
+                    :if={@trigger_plugins != []}
+                    value="plugin"
+                    selected={@trigger_type == "plugin"}
+                  >
+                    Plugin
+                  </option>
                 </select>
               </label>
-              <label :if={@trigger_type == "schedule"} class="form-control">
-                <span class="label-text text-xs opacity-70 mb-1">Interval (minutes)</span>
+              <label :if={@trigger_type == "plugin"} class="form-control">
+                <span class="label-text text-xs opacity-70 mb-1">Trigger plugin</span>
+                <select name="plugin_id" class="select select-bordered select-sm">
+                  <option :for={plugin <- @trigger_plugins} value={plugin.id}>
+                    {plugin.name}
+                  </option>
+                </select>
+              </label>
+              <label :if={@trigger_type in ["schedule", "plugin"]} class="form-control">
+                <span class="label-text text-xs opacity-70 mb-1">
+                  {(@trigger_type == "plugin" && "Poll interval (minutes)") || "Interval (minutes)"}
+                </span>
                 <input
                   type="number"
                   name="interval_minutes"
                   min="1"
-                  value="60"
+                  value={(@trigger_type == "plugin" && "5") || "60"}
                   class="input input-bordered input-sm w-32"
                 />
               </label>
@@ -3999,7 +4033,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
             </div>
             <label class="form-control block">
               <span class="label-text text-xs opacity-70 mb-1">
-                Static inputs (JSON object, optional — webhook payloads override these)
+                Static inputs (JSON object, optional — webhook payloads and plugin events override these)
               </span>
               <textarea
                 name="inputs"

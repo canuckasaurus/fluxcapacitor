@@ -2,7 +2,9 @@ defmodule Flux.Workflows.ScheduleWorker do
   @moduledoc """
   Minute tick (Oban cron): starts published runs for every enabled schedule
   trigger that is due — either its interval elapsed, or its cron expression
-  (parsed with Oban's own parser) matches the current minute.
+  (parsed with Oban's own parser) matches the current minute. Also polls
+  due `:plugin` triggers; every event a trigger plugin returns becomes
+  one run with the event merged into the start inputs.
   """
   use Oban.Worker, queue: :triggers, max_attempts: 1
 
@@ -40,8 +42,52 @@ defmodule Flux.Workflows.ScheduleWorker do
       end
     end
 
+    plugin_due =
+      from(t in Trigger,
+        where: t.enabled and t.type == :plugin and not is_nil(t.plugin_id),
+        where:
+          is_nil(t.last_run_at) or
+            t.last_run_at <= datetime_add(^now, fragment("-?", t.interval_minutes), "minute")
+      )
+      |> Repo.all(skip_workspace_guard: true)
+
+    Enum.each(plugin_due, &poll_plugin_trigger(&1, now))
+
     :ok
   end
+
+  # For :plugin triggers `last_run_at` records the last poll (successful or
+  # not) so a quiet or failing source doesn't get hot-polled every minute.
+  defp poll_plugin_trigger(trigger, now) do
+    credentials =
+      case Flux.Providers.fetch_config(trigger.workspace_id, trigger.plugin_id) do
+        {:ok, config} -> config
+        {:error, :not_configured} -> %{}
+      end
+
+    case plugin_runtime().poll_trigger_plugin(
+           trigger.plugin_id,
+           credentials,
+           trigger.plugin_cursor
+         ) do
+      {:ok, events, cursor} ->
+        trigger
+        |> Ecto.Changeset.change(plugin_cursor: cursor, last_run_at: now)
+        |> Repo.update()
+
+        for event <- events, is_map(event) do
+          case Workflows.run_from_trigger(trigger, event) do
+            {:ok, _run} -> :ok
+            {:error, _reason} -> :ok
+          end
+        end
+
+      {:error, _reason} ->
+        trigger |> Ecto.Changeset.change(last_run_at: now) |> Repo.update()
+    end
+  end
+
+  defp plugin_runtime, do: Application.get_env(:flux, :plugin_runtime, Flux.PluginRuntime)
 
   # Fires when the expression matches the current minute, at most once per
   # minute (last_run_at guard covers tick jitter and retries).
