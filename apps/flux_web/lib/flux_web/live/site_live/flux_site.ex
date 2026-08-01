@@ -59,6 +59,21 @@ defmodule FluxWeb.SiteLive.FluxSite do
     {:noreply, socket}
   end
 
+  def handle_event("resume", %{"input" => input}, socket) do
+    with %{status: :paused} = run <- socket.assigns.run,
+         true <-
+           FluxWeb.SiteRateLimit.allow?(
+             socket.assigns.workflow.site_token,
+             socket.assigns.visitor_ip
+           ),
+         {:ok, resumed} <- Workflows.resume_run(socket.assigns.site_scope, run.id, input) do
+      {:noreply, assign(socket, run: resumed, run_text: "")}
+    else
+      false -> {:noreply, put_flash(socket, :error, "Too many requests — please slow down.")}
+      _not_paused_or_error -> {:noreply, put_flash(socket, :error, "Could not resume the run.")}
+    end
+  end
+
   @impl true
   def handle_info({:engine_event, {:node_chunk, %{delta: delta}}}, socket) do
     {:noreply, assign(socket, run_text: socket.assigns.run_text <> delta)}
@@ -147,6 +162,29 @@ defmodule FluxWeb.SiteLive.FluxSite do
         >
           {@run_text}
           <span :if={@run != nil and @run.status == :running} class="animate-pulse">▌</span>
+        </div>
+
+        <div
+          :if={@run != nil and @run.status == :paused and @run.snapshot != nil}
+          class="rounded-box border border-warning/40 bg-warning/5 p-4 space-y-2"
+        >
+          <p class="text-sm font-semibold">Your input is needed</p>
+          <p class="text-sm">{@run.snapshot["prompt"]["prompt"]}</p>
+          <div
+            :if={List.wrap(@run.snapshot["prompt"]["options"]) != []}
+            class="flex flex-wrap gap-1"
+          >
+            <span
+              :for={option <- @run.snapshot["prompt"]["options"]}
+              class="badge badge-ghost badge-sm"
+            >
+              {option}
+            </span>
+          </div>
+          <form phx-submit="resume" class="flex gap-2" id="site-resume-form">
+            <input type="text" name="input" placeholder="Your reply…" class="input input-sm flex-1" />
+            <button class="btn btn-primary btn-sm">Continue</button>
+          </form>
         </div>
 
         <div :if={@run != nil and @run.status not in [nil, :running]} class="space-y-2">

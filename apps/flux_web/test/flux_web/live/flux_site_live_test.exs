@@ -73,6 +73,60 @@ defmodule FluxWeb.FluxSiteLiveTest do
     refute poll_until_gone(lv, "animate-pulse", 50) =~ "animate-pulse"
   end
 
+  test "paused runs prompt the visitor and resume on the public page", %{
+    conn: conn,
+    scope: scope,
+    workflow: workflow
+  } do
+    graph =
+      workflow.graph
+      |> Map.update!("nodes", fn nodes ->
+        nodes ++
+          [
+            %{
+              "id" => "ask",
+              "type" => "human_input",
+              "title" => "Confirm",
+              "position" => %{"x" => 900, "y" => 100},
+              "config" => %{"prompt" => "Proceed?", "options" => ["yes"]}
+            },
+            %{
+              "id" => "t",
+              "type" => "template",
+              "title" => "Done",
+              "position" => %{"x" => 1200, "y" => 100},
+              "config" => %{"template" => "confirmed: {{ask.output}}"}
+            }
+          ]
+      end)
+      |> Map.update!("edges", fn edges ->
+        edges ++
+          [
+            %{
+              "id" => "ea",
+              "source" => "answer_1",
+              "source_handle" => "default",
+              "target" => "ask"
+            },
+            %{"id" => "et", "source" => "ask", "source_handle" => "default", "target" => "t"}
+          ]
+      end)
+
+    {:ok, workflow} = Workflows.update_draft(scope, workflow, graph)
+    {:ok, _version} = Workflows.publish(scope, workflow)
+    {:ok, workflow} = Workflows.enable_site(scope, workflow)
+
+    {:ok, lv, _html} = live(conn, ~p"/site/flux/#{workflow.site_token}")
+    lv |> form("#site-flux-form", %{"inputs" => %{"query" => "go"}}) |> render_submit()
+
+    html = poll_until(lv, "Proceed?", 50)
+    assert html =~ "Your input is needed"
+
+    lv |> form("#site-resume-form", %{"input" => "yes"}) |> render_submit()
+    html = poll_until(lv, "confirmed: yes", 50)
+    assert html =~ "confirmed: yes"
+  end
+
   test "editor site modal publishes and unpublishes", %{
     conn: conn,
     account: account,
