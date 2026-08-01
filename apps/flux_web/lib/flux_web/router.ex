@@ -134,9 +134,8 @@ defmodule FluxWeb.Router do
   # The Swoosh mailbox preview is compiled in for every environment but only
   # answers when :mailbox_enabled is set (dev always; releases opt in with
   # FLUX_MAILBOX=1 — the local-deploy substitute for a real mail adapter).
-  # It sits behind authentication since it exposes every delivered email.
   scope "/dev" do
-    pipe_through [:browser, :require_authenticated_account, :require_mailbox_enabled]
+    pipe_through [:browser, :require_mailbox_access]
 
     forward "/mailbox", Plug.Swoosh.MailboxPreview
   end
@@ -160,11 +159,20 @@ defmodule FluxWeb.Router do
     end
   end
 
-  defp require_mailbox_enabled(conn, _opts) do
-    if Application.get_env(:flux_web, :mailbox_enabled, false) do
-      conn
-    else
-      conn |> send_resp(404, "Not Found") |> halt()
+  # Local dev skips authentication — a brand-new user needs the mailbox
+  # to read their *first* magic link, before they can possibly log in.
+  # Opt-in release mailboxes stay auth-gated: they expose every
+  # delivered email, and the first account there arrives via seeds/SSO.
+  defp require_mailbox_access(conn, opts) do
+    cond do
+      not Application.get_env(:flux_web, :mailbox_enabled, false) ->
+        conn |> send_resp(404, "Not Found") |> halt()
+
+      Application.get_env(:flux_web, :dev_routes, false) ->
+        conn
+
+      true ->
+        require_authenticated_account(conn, opts)
     end
   end
 
