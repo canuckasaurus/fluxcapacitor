@@ -18,10 +18,13 @@ defmodule FluxWeb.Plugs.ServiceAuth do
          {:ok, assigns} <- resolve(raw) do
       workspace_id = assigns[:workspace_id]
 
+      # Token possession grants editor-level authority in the workspace,
+      # so RBAC-checked context functions (datasets, documents) work for
+      # service callers without per-account membership.
       scope = %Scope{
         account: nil,
         workspace: %Flux.Accounts.Workspace{id: workspace_id},
-        membership: nil
+        membership: %Flux.Accounts.Membership{workspace_id: workspace_id, role: :editor}
       }
 
       conn

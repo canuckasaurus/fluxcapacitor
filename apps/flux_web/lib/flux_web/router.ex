@@ -52,6 +52,12 @@ defmodule FluxWeb.Router do
     post "/conversations/:id/name", AppResourceController, :rename_conversation
     delete "/conversations/:id", AppResourceController, :delete_conversation
     get "/spec", AppResourceController, :spec
+
+    get "/datasets", DatasetController, :index
+    post "/datasets", DatasetController, :create
+    post "/datasets/:id/document/create-by-text", DatasetController, :create_by_text
+    get "/datasets/:id/documents", DatasetController, :documents
+    post "/datasets/:id/retrieve", DatasetController, :retrieve
   end
 
   scope "/", FluxWeb do
