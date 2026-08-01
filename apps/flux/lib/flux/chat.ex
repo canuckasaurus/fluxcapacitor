@@ -280,7 +280,18 @@ defmodule Flux.Chat do
     })
     |> order_by([m], desc: fragment("date(?)", m.inserted_at))
     |> Repo.all()
+    |> Enum.map(fn row ->
+      %{
+        row
+        | input_tokens: decimal_to_int(row.input_tokens),
+          output_tokens: decimal_to_int(row.output_tokens)
+      }
+    end)
   end
+
+  defp decimal_to_int(nil), do: 0
+  defp decimal_to_int(%Decimal{} = decimal), do: Decimal.to_integer(decimal)
+  defp decimal_to_int(integer) when is_integer(integer), do: integer
 
   @doc "PubSub topic carrying a message's generation events."
   def topic(message_id), do: "message:#{message_id}"
