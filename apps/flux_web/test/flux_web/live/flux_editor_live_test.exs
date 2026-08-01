@@ -284,6 +284,27 @@ defmodule FluxWeb.FluxEditorLiveTest do
     assert html =~ "You said: debug ping"
   end
 
+  test "auto-layout arranges nodes into depth columns and renders the minimap", %{
+    conn: conn,
+    workflow: workflow,
+    scope: scope
+  } do
+    {:ok, lv, html} = live(conn, ~p"/console/fluxes/#{workflow.id}")
+    assert html =~ "minimap"
+
+    # Scramble a position, then tidy.
+    render_hook(lv, "node_moved", %{"id" => "llm_1", "x" => 40, "y" => 900})
+    lv |> element("button", "Tidy") |> render_click()
+
+    saved = Workflows.get_workflow(scope, workflow.id)
+    positions = Map.new(saved.graph["nodes"], &{&1["id"], &1["position"]})
+
+    # start (depth 0) → llm_1 (depth 1) → answer_1 (depth 2), 300px columns.
+    assert positions["start"]["x"] == 60
+    assert positions["llm_1"]["x"] == 360
+    assert positions["answer_1"]["x"] == 660
+  end
+
   test "palette search filters addable node types", %{conn: conn, workflow: workflow} do
     {:ok, lv, _html} = live(conn, ~p"/console/fluxes/#{workflow.id}")
 

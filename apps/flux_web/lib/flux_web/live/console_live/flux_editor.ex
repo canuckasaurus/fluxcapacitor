@@ -342,6 +342,14 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     {:noreply, assign(socket, palette_query: query)}
   end
 
+  def handle_event("auto_layout", _params, socket) do
+    if socket.assigns.can_edit do
+      update_graph(socket, &auto_layout/1)
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_event("copy_selection", _params, socket) do
     graph = socket.assigns.graph
 
@@ -1587,6 +1595,46 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     end)
   end
 
+  # Layered left-to-right layout: column = longest path from start
+  # (relaxation over the acyclic graph), row order preserves current y.
+  defp auto_layout(graph) do
+    nodes = graph["nodes"] || []
+    edges = graph["edges"] || []
+    start = Enum.find(nodes, &(&1["type"] == "start"))
+
+    depths =
+      Enum.reduce(1..max(length(nodes), 1), %{(start && start["id"]) => 0}, fn _pass, depths ->
+        Enum.reduce(edges, depths, fn edge, depths ->
+          case Map.fetch(depths, edge["source"]) do
+            {:ok, depth} -> Map.update(depths, edge["target"], depth + 1, &max(&1, depth + 1))
+            :error -> depths
+          end
+        end)
+      end)
+
+    max_depth = depths |> Map.values() |> Enum.max(fn -> 0 end)
+
+    columns =
+      nodes
+      |> Enum.group_by(fn node -> Map.get(depths, node["id"], max_depth + 1) end)
+      |> Enum.into(%{}, fn {depth, column} ->
+        {depth, Enum.sort_by(column, &node_y/1)}
+      end)
+
+    positions =
+      for {depth, column} <- columns,
+          {node, row} <- Enum.with_index(column),
+          into: %{} do
+        {node["id"], %{"x" => 60 + depth * 300, "y" => 60 + row * 150}}
+      end
+
+    Map.update(graph, "nodes", [], fn nodes ->
+      Enum.map(nodes, fn node ->
+        Map.put(node, "position", Map.get(positions, node["id"], node["position"]))
+      end)
+    end)
+  end
+
   defp update_if_else(socket, fun) do
     with %{"type" => "if_else"} = node <- selected_node(socket) do
       update_graph(socket, fn graph ->
@@ -1789,6 +1837,14 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
             >
               <.icon name="hero-arrow-up-tray" class="size-4" /> Export
             </.link>
+            <button
+              :if={@can_edit}
+              class="btn btn-sm btn-ghost"
+              phx-click="auto_layout"
+              title="Auto-arrange nodes left to right"
+            >
+              <.icon name="hero-rectangle-group" class="size-4" /> Tidy
+            </button>
             <button class="btn btn-sm btn-ghost" phx-click="toggle_history">
               <.icon name="hero-clock" class="size-4" /> History
             </button>
@@ -1819,6 +1875,38 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
 
         <div class="flex flex-1 min-h-0 gap-3">
           <div class="flex-1 min-w-0 relative rounded-box border border-base-300 bg-base-200/40">
+            <div
+              id="minimap"
+              phx-hook=".Minimap"
+              class="absolute bottom-3 right-3 z-10 rounded-box border border-base-300 bg-base-100/90 shadow overflow-hidden cursor-pointer"
+              style="width: 176px; height: 96px;"
+              title="Minimap — click to jump"
+            >
+              <svg viewBox="0 0 3000 1600" preserveAspectRatio="none" class="w-full h-full">
+                <rect
+                  :for={node <- @graph["nodes"] || []}
+                  x={node_x(node)}
+                  y={node_y(node)}
+                  width="208"
+                  height="90"
+                  rx="20"
+                  class={
+                    (node["id"] in @selected_ids && "fill-primary") ||
+                      "fill-base-content opacity-40"
+                  }
+                />
+                <rect
+                  id="minimap-viewport"
+                  fill="none"
+                  class="stroke-primary"
+                  stroke-width="40"
+                  x="0"
+                  y="0"
+                  width="0"
+                  height="0"
+                />
+              </svg>
+            </div>
             <div id="canvas-scroll" class="absolute inset-0 overflow-auto rounded-box">
               <div
                 id="flux-canvas-surface"
@@ -3654,6 +3742,52 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
         </div>
         <div class="modal-backdrop" phx-click="toggle_triggers"></div>
       </dialog>
+
+      <script :type={Phoenix.LiveView.ColocatedHook} name=".Minimap">
+        export default {
+          mounted() {
+            const scroller = document.getElementById("canvas-scroll")
+            const surface = document.getElementById("flux-canvas-surface")
+            const viewport = this.el.querySelector("#minimap-viewport")
+            const scale = () => (parseFloat(surface?.dataset.scale) || 100) / 100
+
+            this.sync = () => {
+              if (!scroller || !viewport) return
+              const s = scale()
+              viewport.setAttribute("x", scroller.scrollLeft / s)
+              viewport.setAttribute("y", scroller.scrollTop / s)
+              viewport.setAttribute("width", scroller.clientWidth / s)
+              viewport.setAttribute("height", scroller.clientHeight / s)
+            }
+
+            scroller?.addEventListener("scroll", this.sync, {passive: true})
+            window.addEventListener("resize", this.sync)
+
+            this.el.addEventListener("click", (e) => {
+              if (!scroller) return
+              const rect = this.el.getBoundingClientRect()
+              const s = scale()
+              const cx = ((e.clientX - rect.left) / rect.width) * 3000
+              const cy = ((e.clientY - rect.top) / rect.height) * 1600
+              scroller.scrollTo({
+                left: cx * s - scroller.clientWidth / 2,
+                top: cy * s - scroller.clientHeight / 2,
+                behavior: "smooth"
+              })
+            })
+
+            this.sync()
+          },
+          updated() {
+            this.sync && this.sync()
+          },
+          destroyed() {
+            const scroller = document.getElementById("canvas-scroll")
+            scroller?.removeEventListener("scroll", this.sync)
+            window.removeEventListener("resize", this.sync)
+          }
+        }
+      </script>
 
       <script :type={Phoenix.LiveView.ColocatedHook} name=".VariablePicker">
         export default {
