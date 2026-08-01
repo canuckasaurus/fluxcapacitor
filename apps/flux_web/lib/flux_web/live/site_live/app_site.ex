@@ -392,7 +392,7 @@ defmodule FluxWeb.SiteLive.AppSite do
         </div>
 
         <footer class="py-2 text-center text-xs opacity-40">
-          Powered by FluxCapacitor
+          Powered by <span class="flux-wordmark not-italic">FluxCapacitor</span> ⚡
         </footer>
       </div>
     </main>

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="bolt" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffd36b"/>
+      <stop offset="50%" stop-color="#ff8a3d"/>
+      <stop offset="100%" stop-color="#e8471f"/>
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feDropShadow dx="0" dy="0" stdDeviation="2.5" flood-color="#59e0ff" flood-opacity="0.9"/>
+    </filter>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="#101527"/>
+  <path
+    d="M37 6 L16 36 L29 36 L25 58 L48 26 L34 26 Z"
+    fill="url(#bolt)"
+    filter="url(#glow)"
+  />
+</svg>

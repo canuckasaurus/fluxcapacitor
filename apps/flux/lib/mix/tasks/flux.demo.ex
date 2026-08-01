@@ -20,7 +20,7 @@ defmodule Mix.Tasks.Flux.Demo do
     case Flux.Demo.seed() do
       {:ok, %{workspace: workspace, fluxes: fluxes, apps: apps}} ->
         Mix.shell().info("""
-        Seeded "#{workspace.name}":
+        Great Scott! Seeded "#{workspace.name}":
           fluxes: #{Enum.map_join(fluxes, ", ", & &1.name)}
           apps:   #{Enum.map_join(apps, ", ", & &1.name)}
 

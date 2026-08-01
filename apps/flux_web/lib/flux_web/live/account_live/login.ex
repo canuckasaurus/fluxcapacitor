@@ -9,6 +9,10 @@ defmodule FluxWeb.AccountLive.Login do
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <div class="mx-auto max-w-sm space-y-4">
         <div class="text-center">
+          <div class="flex items-center justify-center gap-2 mb-2">
+            <.icon name="hero-bolt-solid" class="size-7 flux-bolt" />
+            <span class="text-2xl flux-wordmark">FluxCapacitor</span>
+          </div>
           <.header>
             <p>Log in</p>
             <:subtitle>

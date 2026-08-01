@@ -21,31 +21,35 @@
   curl -sLO https://github.com/saadeghi/daisyui/releases/latest/download/daisyui-theme.js
   We ship with two themes, a light one inspired on Phoenix colors and a dark one inspired
   on Elixir colors. Build your own at: https://daisyui.com/theme-generator/ */
+/* ── "Time circuits" — the dark theme. Deep night-drive navy with the
+   plasma-orange wordmark color as primary, flux-glow cyan as accent,
+   DeLorean stainless as secondary, and LED green/amber/red status
+   colors straight off the dashboard readouts. */
 @plugin "../vendor/daisyui-theme" {
   name: "dark";
   default: false;
   prefersdark: true;
   color-scheme: "dark";
-  --color-base-100: oklch(30.33% 0.016 252.42);
-  --color-base-200: oklch(25.26% 0.014 253.1);
-  --color-base-300: oklch(20.15% 0.012 254.09);
-  --color-base-content: oklch(97.807% 0.029 256.847);
-  --color-primary: oklch(58% 0.233 277.117);
-  --color-primary-content: oklch(96% 0.018 272.314);
-  --color-secondary: oklch(58% 0.233 277.117);
-  --color-secondary-content: oklch(96% 0.018 272.314);
-  --color-accent: oklch(60% 0.25 292.717);
-  --color-accent-content: oklch(96% 0.016 293.756);
-  --color-neutral: oklch(37% 0.044 257.287);
-  --color-neutral-content: oklch(98% 0.003 247.858);
-  --color-info: oklch(58% 0.158 241.966);
-  --color-info-content: oklch(97% 0.013 236.62);
-  --color-success: oklch(60% 0.118 184.704);
-  --color-success-content: oklch(98% 0.014 180.72);
-  --color-warning: oklch(66% 0.179 58.318);
-  --color-warning-content: oklch(98% 0.022 95.277);
-  --color-error: oklch(58% 0.253 17.585);
-  --color-error-content: oklch(96% 0.015 12.422);
+  --color-base-100: oklch(19% 0.022 262);
+  --color-base-200: oklch(16% 0.02 262);
+  --color-base-300: oklch(13% 0.018 262);
+  --color-base-content: oklch(93% 0.015 90);
+  --color-primary: oklch(72% 0.19 45);
+  --color-primary-content: oklch(18% 0.05 45);
+  --color-secondary: oklch(72% 0.02 250);
+  --color-secondary-content: oklch(18% 0.02 250);
+  --color-accent: oklch(82% 0.13 210);
+  --color-accent-content: oklch(20% 0.06 210);
+  --color-neutral: oklch(28% 0.022 262);
+  --color-neutral-content: oklch(93% 0.01 262);
+  --color-info: oklch(68% 0.15 240);
+  --color-info-content: oklch(16% 0.05 240);
+  --color-success: oklch(76% 0.19 142);
+  --color-success-content: oklch(18% 0.07 142);
+  --color-warning: oklch(80% 0.15 78);
+  --color-warning-content: oklch(22% 0.06 78);
+  --color-error: oklch(62% 0.23 28);
+  --color-error-content: oklch(97% 0.015 20);
   --radius-selector: 0.25rem;
   --radius-field: 0.25rem;
   --radius-box: 0.5rem;
@@ -56,31 +60,33 @@
   --noise: 0;
 }
 
+/* ── "Hill Valley daylight" — warm 1955-paper light theme with the
+   same plasma orange, steel, and flux cyan pulled darker for contrast. */
 @plugin "../vendor/daisyui-theme" {
   name: "light";
   default: true;
   prefersdark: false;
   color-scheme: "light";
-  --color-base-100: oklch(98% 0 0);
-  --color-base-200: oklch(96% 0.001 286.375);
-  --color-base-300: oklch(92% 0.004 286.32);
-  --color-base-content: oklch(21% 0.006 285.885);
-  --color-primary: oklch(70% 0.213 47.604);
-  --color-primary-content: oklch(98% 0.016 73.684);
-  --color-secondary: oklch(55% 0.027 264.364);
-  --color-secondary-content: oklch(98% 0.002 247.839);
-  --color-accent: oklch(0% 0 0);
-  --color-accent-content: oklch(100% 0 0);
-  --color-neutral: oklch(44% 0.017 285.786);
-  --color-neutral-content: oklch(98% 0 0);
-  --color-info: oklch(62% 0.214 259.815);
-  --color-info-content: oklch(97% 0.014 254.604);
-  --color-success: oklch(70% 0.14 182.503);
-  --color-success-content: oklch(98% 0.014 180.72);
-  --color-warning: oklch(66% 0.179 58.318);
-  --color-warning-content: oklch(98% 0.022 95.277);
-  --color-error: oklch(58% 0.253 17.585);
-  --color-error-content: oklch(96% 0.015 12.422);
+  --color-base-100: oklch(97.5% 0.008 85);
+  --color-base-200: oklch(94.5% 0.01 85);
+  --color-base-300: oklch(90% 0.014 85);
+  --color-base-content: oklch(25% 0.02 262);
+  --color-primary: oklch(62% 0.19 42);
+  --color-primary-content: oklch(98% 0.014 75);
+  --color-secondary: oklch(50% 0.024 250);
+  --color-secondary-content: oklch(98% 0.005 250);
+  --color-accent: oklch(55% 0.115 210);
+  --color-accent-content: oklch(98% 0.01 210);
+  --color-neutral: oklch(38% 0.02 262);
+  --color-neutral-content: oklch(97% 0.005 262);
+  --color-info: oklch(56% 0.15 245);
+  --color-info-content: oklch(97% 0.014 245);
+  --color-success: oklch(56% 0.14 150);
+  --color-success-content: oklch(97% 0.014 150);
+  --color-warning: oklch(70% 0.15 78);
+  --color-warning-content: oklch(25% 0.06 78);
+  --color-error: oklch(55% 0.21 28);
+  --color-error-content: oklch(97% 0.015 20);
   --radius-selector: 0.25rem;
   --radius-field: 0.25rem;
   --radius-box: 0.5rem;
@@ -103,3 +109,63 @@
 [data-phx-session], [data-phx-teleported-src] { display: contents }
 
 /* This file is for your main application CSS */
+
+/* ── Back-to-the-future flavor ─────────────────────────────────────── */
+
+/* The wordmark: slanted chrome-orange gradient, logo-style. */
+.flux-wordmark {
+  font-weight: 800;
+  font-style: italic;
+  letter-spacing: -0.02em;
+  background: linear-gradient(
+    180deg,
+    oklch(86% 0.15 85) 0%,
+    oklch(72% 0.19 45) 48%,
+    oklch(56% 0.22 30) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* The bolt icon glows flux-cyan around plasma orange. */
+.flux-bolt {
+  color: oklch(72% 0.19 45);
+  filter: drop-shadow(0 0 5px oklch(82% 0.13 210 / 0.85));
+}
+
+/* Seven-segment "time circuit" readouts: always a dark panel (that's
+   how LED dashboards look), with destination-red / present-green /
+   last-departed-amber values. */
+.circuit-panel {
+  background: oklch(13% 0.015 262);
+  border: 1px solid oklch(32% 0.02 262);
+  border-radius: var(--radius-box);
+}
+.circuit-panel .stat-title,
+.circuit-panel .stat-desc {
+  color: oklch(72% 0.015 262);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.62rem;
+}
+.circuit-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 0.06em;
+}
+.circuit-red {
+  color: oklch(66% 0.24 28);
+  text-shadow: 0 0 8px oklch(66% 0.24 28 / 0.55);
+}
+.circuit-green {
+  color: oklch(78% 0.2 142);
+  text-shadow: 0 0 8px oklch(78% 0.2 142 / 0.55);
+}
+.circuit-amber {
+  color: oklch(82% 0.15 80);
+  text-shadow: 0 0 8px oklch(82% 0.15 80 / 0.55);
+}
+.circuit-cyan {
+  color: oklch(82% 0.13 210);
+  text-shadow: 0 0 8px oklch(82% 0.13 210 / 0.55);
+}

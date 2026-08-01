@@ -102,8 +102,8 @@ defmodule FluxWeb.Layouts do
       <aside class="w-60 shrink-0 border-r border-base-200 flex flex-col">
         <div class="px-4 py-4 border-b border-base-200">
           <.link navigate={~p"/console"} class="flex items-center gap-2">
-            <.icon name="hero-bolt-solid" class="size-6 text-primary" />
-            <span class="font-bold">FluxCapacitor</span>
+            <.icon name="hero-bolt-solid" class="size-6 flux-bolt" />
+            <span class="text-lg flux-wordmark">FluxCapacitor</span>
           </.link>
         </div>
 

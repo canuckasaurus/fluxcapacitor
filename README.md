@@ -1,4 +1,6 @@
-# FluxCapacitor
+# ⚡ FluxCapacitor
+
+*Where we're going, we don't need boilerplate.*
 
 FluxCapacitor is a self-hostable platform for building, running, and publishing
 AI-powered apps on the BEAM. You design **fluxes** — executable workflow graphs —

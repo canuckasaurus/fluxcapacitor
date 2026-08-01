@@ -33,40 +33,53 @@ defmodule FluxWeb.ConsoleLive.Dashboard do
         <p class="opacity-70 mt-1">
           You're signed in as {@current_scope.account.email} ({@current_scope.membership.role}).
         </p>
+        <p class="opacity-50 mt-1 text-sm italic">
+          Where we're going, we don't need boilerplate.
+        </p>
       </div>
 
       <div class="card border border-base-200 p-6 space-y-4" id="workspace-usage">
         <h2 class="font-semibold">Usage (last {@usage.days} days)</h2>
 
-        <div class="stats stats-horizontal flex-wrap">
-          <div class="stat py-1 px-4">
+        <div class="stats stats-horizontal flex-wrap circuit-panel">
+          <div class="stat py-2 px-4">
             <div class="stat-title text-xs">Replies</div>
-            <div class="stat-value text-lg">{@usage.tokens.replies}</div>
+            <div class="stat-value text-lg circuit-value circuit-green">
+              {@usage.tokens.replies}
+            </div>
           </div>
-          <div class="stat py-1 px-4">
+          <div class="stat py-2 px-4">
             <div class="stat-title text-xs">Tokens in</div>
-            <div class="stat-value text-lg">{@usage.tokens.input}</div>
+            <div class="stat-value text-lg circuit-value circuit-amber">
+              {@usage.tokens.input}
+            </div>
           </div>
-          <div class="stat py-1 px-4">
+          <div class="stat py-2 px-4">
             <div class="stat-title text-xs">Tokens out</div>
-            <div class="stat-value text-lg">{@usage.tokens.output}</div>
+            <div class="stat-value text-lg circuit-value circuit-red">
+              {@usage.tokens.output}
+            </div>
           </div>
-          <div class="stat py-1 px-4">
+          <div class="stat py-2 px-4">
             <div class="stat-title text-xs">Runs</div>
-            <div class="stat-value text-lg">
+            <div class="stat-value text-lg circuit-value circuit-green">
               {@usage.runs |> Map.values() |> Enum.sum()}
             </div>
-            <div :if={Map.get(@usage.runs, :failed, 0) > 0} class="stat-desc text-error">
+            <div :if={Map.get(@usage.runs, :failed, 0) > 0} class="stat-desc circuit-red">
               {@usage.runs[:failed]} failed
             </div>
           </div>
-          <div class="stat py-1 px-4">
+          <div class="stat py-2 px-4">
             <div class="stat-title text-xs">Uploads</div>
-            <div class="stat-value text-lg">{humanize_bytes(@usage.storage_bytes)}</div>
+            <div class="stat-value text-lg circuit-value circuit-amber">
+              {humanize_bytes(@usage.storage_bytes)}
+            </div>
           </div>
-          <div class="stat py-1 px-4">
+          <div class="stat py-2 px-4">
             <div class="stat-title text-xs">Knowledge</div>
-            <div class="stat-value text-lg">{@usage.knowledge.segments}</div>
+            <div class="stat-value text-lg circuit-value circuit-cyan">
+              {@usage.knowledge.segments}
+            </div>
             <div class="stat-desc">
               segments · {@usage.knowledge.documents} docs · {@usage.knowledge.datasets} sets
             </div>
