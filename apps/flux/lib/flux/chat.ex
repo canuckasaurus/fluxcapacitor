@@ -343,13 +343,21 @@ defmodule Flux.Chat do
          %{} = version <- Flux.Workflows.latest_version(scope, workflow.id) do
       # The message is offered both as {{sys.query}} (chatflow convention)
       # and as the "query" start variable so the default starter graph
-      # works as a chatflow unchanged.
+      # works as a chatflow unchanged. Prior completed turns arrive as
+      # {{sys.history}} ("user: …\nassistant: …") for multi-turn memory.
+      history_text = chatflow_history(history)
+
       {:ok, _run} =
         Flux.Workflows.start_run(scope, workflow, %{"query" => query},
           graph: version.graph,
           version: version.version,
           source: :api,
-          sys: %{"query" => query, "conversation_id" => conversation.id},
+          sys: %{
+            "query" => query,
+            "conversation_id" => conversation.id,
+            "history" => history_text,
+            "turns" => div(Enum.count(history, &(&1.status == :completed)), 2)
+          },
           conversation: conversation.variables || %{}
         )
 
@@ -396,6 +404,21 @@ defmodule Flux.Chat do
         Phoenix.PubSub.broadcast(Flux.PubSub, topic(assistant_message.id), {:error, message})
         {:error, reason}
     end
+  end
+
+  # Prior turns, oldest first, minus the current user message and the
+  # streaming placeholder.
+  defp chatflow_history(history) do
+    history
+    |> Enum.reject(&(&1.status == :streaming))
+    |> Enum.reverse()
+    |> case do
+      [%Message{role: :user} | prior] -> prior
+      prior -> prior
+    end
+    |> Enum.reverse()
+    |> Enum.filter(&(&1.status == :completed or &1.role == :user))
+    |> Enum.map_join("\n", fn message -> "#{message.role}: #{message.content}" end)
   end
 
   @chatflow_timeout :timer.minutes(5)

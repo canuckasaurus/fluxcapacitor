@@ -217,6 +217,47 @@ defmodule Flux.ChatTest do
       assert updated.variables == %{"last_question" => "what is flux?"}
     end
 
+    test "chatflow turns see prior history as {{sys.history}}", %{scope: scope} do
+      {:ok, workflow} = Flux.Workflows.create_workflow(scope, %{"name" => "Memory Flux"})
+
+      graph =
+        update_in(workflow.graph, ["nodes"], fn nodes ->
+          Enum.map(nodes, fn
+            %{"id" => "llm_1"} = node ->
+              node
+              |> put_in(["config", "provider_plugin_id"], "echo")
+              |> put_in(["config", "model"], "echo-1")
+              |> put_in(["config", "prompt"], "[{{sys.history}}] {{sys.query}}")
+
+            node ->
+              node
+          end)
+        end)
+
+      {:ok, workflow} = Flux.Workflows.update_draft(scope, workflow, graph)
+      {:ok, _version} = Flux.Workflows.publish(scope, workflow)
+
+      {:ok, app} =
+        Chat.create_app(scope, %{
+          "name" => "Memory App",
+          "mode" => "advanced_chat",
+          "workflow_id" => workflow.id
+        })
+
+      conversation = Chat.create_conversation(scope, app)
+
+      {:ok, _u, _a} = Chat.send_message(scope, app, conversation, "first question")
+      assert_receive {:done, first}, 5_000
+      # First turn has no history.
+      assert first.content =~ "You said: [] first question"
+
+      {:ok, _u, _a} = Chat.send_message(scope, app, conversation, "second question")
+      assert_receive {:done, second}, 5_000
+      assert second.content =~ "user: first question"
+      assert second.content =~ "assistant:"
+      assert second.content =~ "second question"
+    end
+
     test "creating a chatflow app requires a flux", %{scope: scope} do
       assert {:error, changeset} =
                Chat.create_app(scope, %{"name" => "No Flux", "mode" => "advanced_chat"})
