@@ -10,6 +10,7 @@ defmodule FluxWeb.Router do
     plug :put_root_layout, html: {FluxWeb.Layouts, :root}
     plug :protect_from_forgery
     plug :put_secure_browser_headers
+    plug FluxWeb.Plugs.Locale
     plug :fetch_current_scope_for_account
   end
 
@@ -229,7 +230,7 @@ defmodule FluxWeb.Router do
     pipe_through [:browser, :auth_rate_limit]
 
     live_session :current_account,
-      on_mount: [{FluxWeb.AccountAuth, :mount_current_scope}] do
+      on_mount: [FluxWeb.Plugs.Locale, {FluxWeb.AccountAuth, :mount_current_scope}] do
       live "/accounts/register", AccountLive.Registration, :new
       live "/accounts/log-in", AccountLive.Login, :new
       live "/accounts/log-in/:token", AccountLive.Confirmation, :new

@@ -1,0 +1,136 @@
+## "msgid"s in this file come from POT (.pot) files.
+###
+### Do not add, change, or remove "msgid"s manually here as
+### they're tied to the ones in the corresponding POT file
+### (with the same domain).
+###
+### Use "mix gettext.extract --merge" or "mix gettext.merge"
+### to merge POT files into PO files.
+msgid ""
+msgstr ""
+"Language: en\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: lib/flux_web/components/core_components.ex:375
+#, elixir-autogen, elixir-format
+msgid "Actions"
+msgstr ""
+
+#: lib/flux_web/live/account_live/registration.ex:76
+#, elixir-autogen, elixir-format
+msgid "An email was sent to %{email}, please access it to confirm your account."
+msgstr ""
+
+#: lib/flux_web/components/layouts.ex:350
+#: lib/flux_web/components/layouts.ex:362
+#, elixir-autogen, elixir-format
+msgid "Attempting to reconnect"
+msgstr ""
+
+#: lib/flux_web/components/layouts.ex:54
+#, elixir-autogen, elixir-format
+msgid "Console"
+msgstr ""
+
+#: lib/flux_web/live/account_live/login.ex:95
+#, elixir-autogen, elixir-format
+msgid "Continue with %{provider}"
+msgstr ""
+
+#: lib/flux_web/live/account_live/registration.ex:38
+#, elixir-autogen, elixir-format
+msgid "Create an account"
+msgstr ""
+
+#: lib/flux_web/live/account_live/registration.ex:18
+#, elixir-autogen, elixir-format
+msgid "Create your account — already registered?"
+msgstr ""
+
+#: lib/flux_web/live/account_live/registration.ex:37
+#, elixir-autogen, elixir-format
+msgid "Creating account..."
+msgstr ""
+
+#: lib/flux_web/components/layouts.ex:49
+#, elixir-autogen, elixir-format
+msgid "Docs"
+msgstr ""
+
+#: lib/flux_web/live/account_live/login.ex:47
+#: lib/flux_web/live/account_live/login.ex:72
+#: lib/flux_web/live/account_live/registration.ex:30
+#, elixir-autogen, elixir-format
+msgid "Email"
+msgstr ""
+
+#: lib/flux_web/live/account_live/login.ex:129
+#, elixir-autogen, elixir-format
+msgid "If your email is in our system, you will receive instructions for logging in shortly."
+msgstr ""
+
+#: lib/flux_web/components/layouts.ex:59
+#: lib/flux_web/live/account_live/registration.ex:20
+#, elixir-autogen, elixir-format
+msgid "Log in"
+msgstr ""
+
+#: lib/flux_web/live/account_live/login.ex:85
+#, elixir-autogen, elixir-format
+msgid "Log in and stay logged in"
+msgstr ""
+
+#: lib/flux_web/live/account_live/login.ex:88
+#, elixir-autogen, elixir-format
+msgid "Log in only this time"
+msgstr ""
+
+#: lib/flux_web/live/account_live/login.ex:20
+#, elixir-autogen, elixir-format
+msgid "Log in to your workspace — or"
+msgstr ""
+
+#: lib/flux_web/live/account_live/login.ex:54
+#, elixir-autogen, elixir-format
+msgid "Log in with email"
+msgstr ""
+
+#: lib/flux_web/live/account_live/login.ex:80
+#, elixir-autogen, elixir-format
+msgid "Password"
+msgstr ""
+
+#: lib/flux_web/live/account_live/login.ex:18
+#, elixir-autogen, elixir-format
+msgid "Reauthenticate to perform sensitive account actions."
+msgstr ""
+
+#: lib/flux_web/components/layouts.ex:357
+#, elixir-autogen, elixir-format
+msgid "Something went wrong!"
+msgstr ""
+
+#: lib/flux_web/components/layouts.ex:345
+#, elixir-autogen, elixir-format
+msgid "We can't find the internet"
+msgstr ""
+
+#: lib/flux_web/live/account_live/registration.ex:41
+#, elixir-autogen, elixir-format
+msgid "We'll email you a magic link — no password needed to start."
+msgstr ""
+
+#: lib/flux_web/components/core_components.ex:81
+#, elixir-autogen, elixir-format
+msgid "close"
+msgstr ""
+
+#: lib/flux_web/live/account_live/login.ex:22
+#, elixir-autogen, elixir-format
+msgid "create an account"
+msgstr ""
+
+#: lib/flux_web/live/account_live/login.ex:58
+#, elixir-autogen, elixir-format
+msgid "or use a password"
+msgstr ""

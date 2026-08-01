@@ -75,3 +75,18 @@ Set `DATABASE_URL`, `SECRET_KEY_BASE`, `PHX_HOST`, and `FLUX_MASTER_KEY`
 Prometheus, `FLUX_LOG_JSON=1` for structured logs,
 `OTEL_EXPORTER_OTLP_ENDPOINT` for traces, `FLUX_OIDC_*` for SSO, and
 `FLUX_ROLE=web|worker` to split serving from queue processing.
+
+## Localization
+
+The web UI resolves its locale per request: an explicit `?locale=xx`
+query parameter wins (and is remembered in the session), then the
+session, then the browser's `Accept-Language` header. Unknown locales
+fall back to English.
+
+To add a language, from `apps/flux_web` run
+`mix gettext.merge priv/gettext --locale <code>` (e.g. `fr`), translate
+the strings in `priv/gettext/<code>/LC_MESSAGES/default.po`, and
+recompile. New translatable strings are wrapped with `gettext("...")`
+in the templates and collected with `mix gettext.extract --merge`. The
+account and landing pages are wrapped today; the console is wrapped
+incrementally.

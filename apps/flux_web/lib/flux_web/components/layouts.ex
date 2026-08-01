@@ -45,15 +45,19 @@ defmodule FluxWeb.Layouts do
       <div class="flex-none">
         <ul class="flex px-1 space-x-2 items-center">
           <li>
-            <a href={FluxWeb.docs_url()} target="_blank" class="btn btn-ghost btn-sm">Docs</a>
+            <a href={FluxWeb.docs_url()} target="_blank" class="btn btn-ghost btn-sm">
+              {gettext("Docs")}
+            </a>
           </li>
           <li :if={@current_scope}>
             <.link navigate={~p"/console"} class="btn btn-primary btn-sm">
-              Console <span aria-hidden="true">&rarr;</span>
+              {gettext("Console")} <span aria-hidden="true">&rarr;</span>
             </.link>
           </li>
           <li :if={is_nil(@current_scope)}>
-            <.link navigate={~p"/accounts/log-in"} class="btn btn-ghost btn-sm">Log in</.link>
+            <.link navigate={~p"/accounts/log-in"} class="btn btn-ghost btn-sm">
+              {gettext("Log in")}
+            </.link>
           </li>
           <li>
             <.theme_toggle />

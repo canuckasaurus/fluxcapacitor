@@ -15,9 +15,9 @@ defmodule FluxWeb.AccountLive.Registration do
             <span class="text-3xl flux-wordmark">FluxCapacitor</span>
           </div>
           <p class="text-sm opacity-60">
-            Create your account — already registered?
+            {gettext("Create your account — already registered?")}
             <.link navigate={~p"/accounts/log-in"} class="link link-primary font-semibold">
-              Log in
+              {gettext("Log in")}
             </.link>
           </p>
         </div>
@@ -27,18 +27,18 @@ defmodule FluxWeb.AccountLive.Registration do
             <.input
               field={@form[:email]}
               type="email"
-              label="Email"
+              label={gettext("Email")}
               autocomplete="username"
               spellcheck="false"
               required
               phx-mounted={JS.focus()}
             />
 
-            <.button phx-disable-with="Creating account..." class="btn btn-primary w-full">
-              Create an account
+            <.button phx-disable-with={gettext("Creating account...")} class="btn btn-primary w-full">
+              {gettext("Create an account")}
             </.button>
             <p class="text-xs opacity-60 mt-3 text-center">
-              We'll email you a magic link — no password needed to start.
+              {gettext("We'll email you a magic link — no password needed to start.")}
             </p>
           </.form>
         </div>
@@ -73,7 +73,9 @@ defmodule FluxWeb.AccountLive.Registration do
          socket
          |> put_flash(
            :info,
-           "An email was sent to #{account.email}, please access it to confirm your account."
+           gettext("An email was sent to %{email}, please access it to confirm your account.",
+             email: account.email
+           )
          )
          |> push_navigate(to: ~p"/accounts/log-in")}
 

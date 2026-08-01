@@ -15,11 +15,11 @@ defmodule FluxWeb.AccountLive.Login do
           </div>
           <p class="text-sm opacity-60">
             <%= if @current_scope do %>
-              Reauthenticate to perform sensitive account actions.
+              {gettext("Reauthenticate to perform sensitive account actions.")}
             <% else %>
-              Log in to your workspace — or
+              {gettext("Log in to your workspace — or")}
               <.link navigate={~p"/accounts/register"} class="link link-primary font-semibold">
-                create an account
+                {gettext("create an account")}
               </.link>
             <% end %>
           </p>
@@ -44,18 +44,18 @@ defmodule FluxWeb.AccountLive.Login do
               readonly={!!@current_scope}
               field={f[:email]}
               type="email"
-              label="Email"
+              label={gettext("Email")}
               autocomplete="username"
               spellcheck="false"
               required
               phx-mounted={JS.focus()}
             />
             <.button class="btn btn-primary w-full">
-              Log in with email <span aria-hidden="true">→</span>
+              {gettext("Log in with email")} <span aria-hidden="true">→</span>
             </.button>
           </.form>
 
-          <div class="divider my-0 text-xs opacity-60">or use a password</div>
+          <div class="divider my-0 text-xs opacity-60">{gettext("or use a password")}</div>
 
           <.form
             :let={f}
@@ -69,7 +69,7 @@ defmodule FluxWeb.AccountLive.Login do
               readonly={!!@current_scope}
               field={f[:email]}
               type="email"
-              label="Email"
+              label={gettext("Email")}
               autocomplete="username"
               spellcheck="false"
               required
@@ -77,22 +77,22 @@ defmodule FluxWeb.AccountLive.Login do
             <.input
               field={@form[:password]}
               type="password"
-              label="Password"
+              label={gettext("Password")}
               autocomplete="current-password"
               spellcheck="false"
             />
             <.button class="btn btn-primary w-full" name={@form[:remember_me].name} value="true">
-              Log in and stay logged in <span aria-hidden="true">→</span>
+              {gettext("Log in and stay logged in")} <span aria-hidden="true">→</span>
             </.button>
             <.button class="btn btn-primary btn-soft w-full mt-2">
-              Log in only this time
+              {gettext("Log in only this time")}
             </.button>
           </.form>
 
           <div :if={FluxWeb.OIDC.configured?()}>
             <div class="divider my-0 text-xs opacity-60">or</div>
             <.link href={~p"/auth/oidc"} class="btn btn-outline w-full mt-3" id="oidc-login">
-              Continue with {FluxWeb.OIDC.provider_name()}
+              {gettext("Continue with %{provider}", provider: FluxWeb.OIDC.provider_name())}
             </.link>
           </div>
         </div>
@@ -126,7 +126,9 @@ defmodule FluxWeb.AccountLive.Login do
     end
 
     info =
-      "If your email is in our system, you will receive instructions for logging in shortly."
+      gettext(
+        "If your email is in our system, you will receive instructions for logging in shortly."
+      )
 
     {:noreply,
      socket
