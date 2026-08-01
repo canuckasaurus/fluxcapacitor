@@ -35,6 +35,7 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
        selected: nil,
        documents: [],
        expanded_document_id: nil,
+       editing_segment_id: nil,
        segments: [],
        hits: nil
      )
@@ -47,6 +48,18 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
   end
 
   defp plugin_runtime, do: Application.get_env(:flux, :plugin_runtime, Flux.PluginRuntime)
+
+  defp refresh_segments(socket) do
+    case socket.assigns.expanded_document_id do
+      nil ->
+        socket
+
+      document_id ->
+        assign(socket,
+          segments: RAG.list_segments(socket.assigns.current_scope, document_id, 50)
+        )
+    end
+  end
 
   defp refresh_documents(socket) do
     case socket.assigns.selected do
@@ -238,9 +251,48 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
       {:noreply,
        assign(socket,
          expanded_document_id: id,
+         editing_segment_id: nil,
          segments: RAG.list_segments(socket.assigns.current_scope, id, 50)
        )}
     end
+  end
+
+  def handle_event("edit_segment", %{"segment-id" => id}, socket) do
+    {:noreply, assign(socket, editing_segment_id: id)}
+  end
+
+  def handle_event("cancel_segment_edit", _params, socket) do
+    {:noreply, assign(socket, editing_segment_id: nil)}
+  end
+
+  def handle_event("save_segment", %{"segment-id" => id, "content" => content}, socket) do
+    case RAG.update_segment(socket.assigns.current_scope, id, content) do
+      {:ok, _segment} ->
+        {:noreply,
+         socket
+         |> put_flash(
+           :info,
+           "Segment re-embedded. (A dataset re-index rebuilds from the original document text.)"
+         )
+         |> assign(editing_segment_id: nil)
+         |> refresh_segments()}
+
+      {:error, :empty} ->
+        {:noreply, put_flash(socket, :error, "Segment text cannot be empty.")}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not update the segment.")}
+    end
+  end
+
+  def handle_event("toggle_segment", %{"segment-id" => id, "enabled" => enabled}, socket) do
+    RAG.set_segment_enabled(socket.assigns.current_scope, id, enabled == "true")
+    {:noreply, refresh_segments(socket)}
+  end
+
+  def handle_event("delete_segment", %{"segment-id" => id}, socket) do
+    RAG.delete_segment(socket.assigns.current_scope, id)
+    {:noreply, socket |> refresh_segments() |> refresh_documents()}
   end
 
   def handle_event("save_dataset_settings", params, socket) do
@@ -534,9 +586,70 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                 <p :if={document.error} class="text-sm text-error">{document.error}</p>
                 <div
                   :for={segment <- @segments}
-                  class="rounded bg-base-200 p-2 text-xs whitespace-pre-wrap max-h-32 overflow-y-auto"
+                  class={["rounded bg-base-200 p-2 text-xs", not segment.enabled && "opacity-50"]}
+                  id={"segment-#{segment.id}"}
                 >
-                  <span class="opacity-50">#{segment.position}</span> {segment.content}
+                  <div
+                    :if={@editing_segment_id != segment.id}
+                    class="whitespace-pre-wrap max-h-32 overflow-y-auto"
+                  >
+                    <span class="opacity-50">#{segment.position}</span>
+                    <span :if={not segment.enabled} class="badge badge-ghost badge-xs">
+                      disabled
+                    </span>
+                    {segment.content}
+                  </div>
+                  <form
+                    :if={@editing_segment_id == segment.id}
+                    phx-submit="save_segment"
+                    id={"segment-form-#{segment.id}"}
+                    class="space-y-1"
+                  >
+                    <input type="hidden" name="segment-id" value={segment.id} />
+                    <textarea
+                      name="content"
+                      rows="4"
+                      class="textarea textarea-bordered textarea-xs w-full"
+                    >{segment.content}</textarea>
+                    <div class="flex gap-1">
+                      <button class="btn btn-primary btn-xs">Save &amp; re-embed</button>
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-xs"
+                        phx-click="cancel_segment_edit"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                  <div
+                    :if={@can_edit and @editing_segment_id != segment.id}
+                    class="mt-1 flex gap-1"
+                  >
+                    <button
+                      class="btn btn-ghost btn-xs"
+                      phx-click="edit_segment"
+                      phx-value-segment-id={segment.id}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      class="btn btn-ghost btn-xs"
+                      phx-click="toggle_segment"
+                      phx-value-segment-id={segment.id}
+                      phx-value-enabled={to_string(not segment.enabled)}
+                    >
+                      {(segment.enabled && "Disable") || "Enable"}
+                    </button>
+                    <button
+                      class="btn btn-ghost btn-xs text-error"
+                      phx-click="delete_segment"
+                      phx-value-segment-id={segment.id}
+                      data-confirm="Delete this segment from the index?"
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

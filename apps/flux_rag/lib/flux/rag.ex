@@ -261,6 +261,48 @@ defmodule Flux.RAG do
     |> Repo.all()
   end
 
+  ## Segment editing
+
+  @doc "Rewrites one segment's text and re-embeds it in place."
+  def update_segment(%Scope{} = scope, segment_id, content) when is_binary(content) do
+    with :ok <- RBAC.authorize(scope, :dataset_edit),
+         %Segment{} = segment <- fetch_segment(scope, segment_id),
+         true <- String.trim(content) != "" || {:error, :empty},
+         dataset = Repo.get!(Dataset, segment.dataset_id, skip_workspace_guard: true),
+         {:ok, [vector]} <- embed(dataset, [content]) do
+      updated =
+        segment
+        |> Ecto.Changeset.change(content: content, embedding: vector)
+        |> Repo.update!()
+
+      :ok = VectorStore.backend().index(dataset.id, [updated])
+      {:ok, updated}
+    end
+  end
+
+  @doc "Disabled segments stay stored but are excluded from retrieval."
+  def set_segment_enabled(%Scope{} = scope, segment_id, enabled) when is_boolean(enabled) do
+    with :ok <- RBAC.authorize(scope, :dataset_edit),
+         %Segment{} = segment <- fetch_segment(scope, segment_id) do
+      segment |> Ecto.Changeset.change(enabled: enabled) |> Repo.update()
+    end
+  end
+
+  def delete_segment(%Scope{} = scope, segment_id) do
+    with :ok <- RBAC.authorize(scope, :dataset_edit),
+         %Segment{} = segment <- fetch_segment(scope, segment_id),
+         {:ok, deleted} <- Repo.delete(segment) do
+      from(d in Document, where: d.id == ^segment.document_id)
+      |> Repo.update_all([inc: [segment_count: -1]], skip_workspace_guard: true)
+
+      {:ok, deleted}
+    end
+  end
+
+  defp fetch_segment(scope, segment_id) do
+    Repo.one(Repo.scoped(where(Segment, id: ^segment_id), scope)) || {:error, :not_found}
+  end
+
   @doc false
   # The ingestion body, called by IndexWorker (and directly by tests):
   # clear old segments → split (dataset chunk settings) → embed →
@@ -360,7 +402,7 @@ defmodule Flux.RAG do
       segments =
         Segment
         |> Repo.scoped(scope)
-        |> where([s], s.id in ^ids)
+        |> where([s], s.id in ^ids and s.enabled)
         |> join(:inner, [s], d in assoc(s, :document))
         |> preload([s, d], document: d)
         |> Repo.all()
@@ -432,7 +474,7 @@ defmodule Flux.RAG do
   defp keyword_hits(scope, dataset_id, query, limit) do
     Segment
     |> Repo.scoped(scope)
-    |> where([s], s.dataset_id == ^dataset_id)
+    |> where([s], s.dataset_id == ^dataset_id and s.enabled)
     |> where(
       [s],
       fragment("to_tsvector('english', ?) @@ plainto_tsquery('english', ?)", s.content, ^query)

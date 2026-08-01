@@ -37,7 +37,7 @@ defmodule Flux.RAG.VectorStore.Naive do
   @impl true
   def search(dataset_id, vector, top_k) do
     from(s in Segment,
-      where: s.dataset_id == ^dataset_id and not is_nil(s.embedding),
+      where: s.dataset_id == ^dataset_id and not is_nil(s.embedding) and s.enabled,
       select: %{id: s.id, embedding: s.embedding}
     )
     |> Repo.all(skip_workspace_guard: true)

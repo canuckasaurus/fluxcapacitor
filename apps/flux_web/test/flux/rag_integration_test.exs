@@ -391,6 +391,38 @@ defmodule FluxWeb.RAGIntegrationTest do
     assert cleared.sync_interval_minutes == nil
   end
 
+  test "segments can be edited, disabled, and deleted", %{scope: scope, dataset: dataset} do
+    document = ingest!(scope, dataset, "policy.md", "Vacation policy: 20 paid days per year.")
+    [segment] = RAG.list_segments(scope, document.id)
+
+    # Edit + re-embed: retrieval sees the corrected text.
+    {:ok, updated} =
+      RAG.update_segment(scope, segment.id, "Vacation policy: 25 paid days per year.")
+
+    assert updated.content =~ "25 paid days"
+    assert updated.embedding != segment.embedding
+
+    {:ok, [hit]} = RAG.retrieve(scope, dataset.id, "how many vacation days?")
+    assert hit.content =~ "25 paid days"
+
+    # Empty edits are refused.
+    assert {:error, :empty} = RAG.update_segment(scope, segment.id, "   ")
+
+    # Disabled → out of retrieval; enabled → back in.
+    {:ok, _} = RAG.set_segment_enabled(scope, segment.id, false)
+    assert {:ok, []} = RAG.retrieve(scope, dataset.id, "how many vacation days?")
+
+    {:ok, _} = RAG.set_segment_enabled(scope, segment.id, true)
+    assert {:ok, [_hit]} = RAG.retrieve(scope, dataset.id, "how many vacation days?")
+
+    # Delete removes the row and keeps the document's count honest.
+    {:ok, _} = RAG.delete_segment(scope, segment.id)
+    assert RAG.list_segments(scope, document.id) == []
+
+    refreshed = Flux.Repo.get!(Flux.RAG.Document, document.id, skip_workspace_guard: true)
+    assert refreshed.segment_count == 0
+  end
+
   test "dataset mutations enforce RBAC", %{workspace: workspace, dataset: dataset} do
     viewer = account_fixture()
 

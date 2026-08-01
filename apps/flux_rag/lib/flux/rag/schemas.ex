@@ -92,6 +92,7 @@ defmodule Flux.RAG.Segment do
     field(:position, :integer)
     field(:content, :string)
     field(:embedding, {:array, :float})
+    field(:enabled, :boolean, default: true)
 
     timestamps(type: :utc_datetime, updated_at: false)
   end
