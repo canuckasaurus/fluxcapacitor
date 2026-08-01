@@ -4,8 +4,18 @@ defmodule FluxWeb.ConsoleLive.Dashboard do
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, assign(socket, page_title: "Dashboard")}
+    {:ok,
+     assign(socket,
+       page_title: "Dashboard",
+       usage: Flux.Usage.workspace_summary(socket.assigns.current_scope)
+     )}
   end
+
+  defp humanize_bytes(bytes) when bytes >= 1_048_576,
+    do: "#{Float.round(bytes / 1_048_576, 1)} MB"
+
+  defp humanize_bytes(bytes) when bytes >= 1_024, do: "#{Float.round(bytes / 1_024, 1)} KB"
+  defp humanize_bytes(bytes), do: "#{bytes} B"
 
   @impl true
   def render(assigns) do
@@ -22,6 +32,94 @@ defmodule FluxWeb.ConsoleLive.Dashboard do
         </h1>
         <p class="opacity-70 mt-1">
           You're signed in as {@current_scope.account.email} ({@current_scope.membership.role}).
+        </p>
+      </div>
+
+      <div class="card border border-base-200 p-6 space-y-4" id="workspace-usage">
+        <h2 class="font-semibold">Usage (last {@usage.days} days)</h2>
+
+        <div class="stats stats-horizontal flex-wrap">
+          <div class="stat py-1 px-4">
+            <div class="stat-title text-xs">Replies</div>
+            <div class="stat-value text-lg">{@usage.tokens.replies}</div>
+          </div>
+          <div class="stat py-1 px-4">
+            <div class="stat-title text-xs">Tokens in</div>
+            <div class="stat-value text-lg">{@usage.tokens.input}</div>
+          </div>
+          <div class="stat py-1 px-4">
+            <div class="stat-title text-xs">Tokens out</div>
+            <div class="stat-value text-lg">{@usage.tokens.output}</div>
+          </div>
+          <div class="stat py-1 px-4">
+            <div class="stat-title text-xs">Runs</div>
+            <div class="stat-value text-lg">
+              {@usage.runs |> Map.values() |> Enum.sum()}
+            </div>
+            <div :if={Map.get(@usage.runs, :failed, 0) > 0} class="stat-desc text-error">
+              {@usage.runs[:failed]} failed
+            </div>
+          </div>
+          <div class="stat py-1 px-4">
+            <div class="stat-title text-xs">Uploads</div>
+            <div class="stat-value text-lg">{humanize_bytes(@usage.storage_bytes)}</div>
+          </div>
+          <div class="stat py-1 px-4">
+            <div class="stat-title text-xs">Knowledge</div>
+            <div class="stat-value text-lg">{@usage.knowledge.segments}</div>
+            <div class="stat-desc">
+              segments · {@usage.knowledge.documents} docs · {@usage.knowledge.datasets} sets
+            </div>
+          </div>
+        </div>
+
+        <div :if={@usage.top_apps != []} class="space-y-1">
+          <p class="text-sm font-semibold">Top apps by tokens</p>
+          <table class="table table-xs max-w-xl">
+            <thead>
+              <tr>
+                <th>App</th>
+                <th>Replies</th>
+                <th>Tokens</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :for={app <- @usage.top_apps}>
+                <td>{app.name}</td>
+                <td>{app.replies}</td>
+                <td>{app.tokens}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div :if={@usage.daily != []} class="space-y-1">
+          <p class="text-sm font-semibold">Daily</p>
+          <table class="table table-xs max-w-xl">
+            <thead>
+              <tr>
+                <th>Day</th>
+                <th>Replies</th>
+                <th>Tokens in</th>
+                <th>Tokens out</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :for={row <- @usage.daily}>
+                <td>{row.day}</td>
+                <td>{row.replies}</td>
+                <td>{row.input}</td>
+                <td>{row.output}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p
+          :if={@usage.tokens.replies == 0 and @usage.runs == %{}}
+          class="text-sm opacity-60"
+        >
+          Nothing to report yet — usage appears here once apps and fluxes run.
         </p>
       </div>
 

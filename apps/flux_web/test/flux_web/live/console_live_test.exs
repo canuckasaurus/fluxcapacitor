@@ -47,6 +47,37 @@ defmodule FluxWeb.ConsoleLiveTest do
       assert html =~ "Members"
     end
 
+    test "dashboard usage rolls up chat and run activity", %{conn: conn, account: account} do
+      scope = Accounts.scope_for(account)
+
+      # Empty workspace: the placeholder shows.
+      {:ok, _lv, html} = live(conn, ~p"/console")
+      assert html =~ "Usage (last 14 days)"
+      assert html =~ "Nothing to report yet"
+
+      {:ok, app} =
+        Flux.Chat.create_app(scope, %{
+          "name" => "Usage App",
+          "provider_plugin_id" => "echo",
+          "model" => "echo-1"
+        })
+
+      conversation = Flux.Chat.create_conversation(scope, app)
+      {:ok, _u, _a} = Flux.Chat.send_message(scope, app, conversation, "count me")
+      assert_receive {:done, _final}, 5_000
+
+      {:ok, _lv, html} = live(conn, ~p"/console")
+      refute html =~ "Nothing to report yet"
+      assert html =~ "Top apps by tokens"
+      assert html =~ "Usage App"
+
+      summary = Flux.Usage.workspace_summary(scope)
+      assert summary.tokens.replies == 1
+      assert summary.tokens.output == 12
+      assert [%{name: "Usage App", replies: 1}] = summary.top_apps
+      assert summary.knowledge == %{datasets: 0, documents: 0, segments: 0}
+    end
+
     test "section screens render", %{conn: conn} do
       for {path, marker} <- [
             {~p"/console/fluxes", "Flux Creator"},
