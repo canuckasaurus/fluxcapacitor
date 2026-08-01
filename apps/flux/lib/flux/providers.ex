@@ -91,11 +91,19 @@ defmodule Flux.Providers do
   keyless plugins (empty credential schema, e.g. the Echo dev provider).
   """
   def available_models(%Scope{} = scope) do
+    workspace_id = Scope.workspace_id(scope)
     configured = MapSet.new(list_credentials(scope), & &1.plugin_id)
 
     for manifest <- list_provider_plugins(),
         manifest.credential_schema == [] or MapSet.member?(configured, manifest.id),
-        {:ok, models} = runtime().models(manifest.id, %{}),
+        # Config-driven catalogs (e.g. openai_compatible) need the stored
+        # credentials to know which models they offer.
+        config =
+          (case fetch_config(workspace_id, manifest.id) do
+             {:ok, config} -> config
+             _not_configured -> %{}
+           end),
+        {:ok, models} = runtime().models(manifest.id, config),
         model <- models do
       %{plugin_id: manifest.id, plugin_name: manifest.name, model: model}
     end

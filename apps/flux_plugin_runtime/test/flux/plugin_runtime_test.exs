@@ -6,7 +6,7 @@ defmodule Flux.PluginRuntimeTest do
 
   test "catalog lists the built-in model providers" do
     ids = PluginRuntime.list_model_providers() |> Enum.map(& &1.id) |> Enum.sort()
-    assert ids == ["anthropic", "echo", "gemini", "openai"]
+    assert ids == ["anthropic", "echo", "gemini", "openai", "openai_compatible"]
   end
 
   test "gemini manifest and model catalog" do

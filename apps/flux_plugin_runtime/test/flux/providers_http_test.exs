@@ -183,4 +183,68 @@ defmodule Flux.ProvidersHTTPTest do
     assert {:error, "Invalid API key."} = Gemini.validate_credentials(%{"api_key" => "bad"})
     assert {:error, "Invalid API key."} = Anthropic.validate_credentials(%{"api_key" => "bad"})
   end
+
+  describe "openai_compatible" do
+    alias Flux.Plugins.OpenAICompatible
+
+    test "models come from the configured list" do
+      specs =
+        OpenAICompatible.models(%{"models" => "grok-3, grok-3-mini|Grok 3 Mini , llama3"})
+
+      assert [
+               %{name: "grok-3", label: "grok-3"},
+               %{name: "grok-3-mini", label: "Grok 3 Mini"},
+               %{name: "llama3", label: "llama3"}
+             ] = specs
+    end
+
+    test "validation requires base_url and models, tolerates missing /models" do
+      assert {:error, "Base URL is required."} =
+               OpenAICompatible.validate_credentials(%{"models" => "m"})
+
+      assert {:error, "List at least one model name."} =
+               OpenAICompatible.validate_credentials(%{"base_url" => "https://example.com/v1"})
+
+      Req.Test.stub(Flux.ProviderStub, fn conn -> Plug.Conn.send_resp(conn, 404, "nope") end)
+
+      assert :ok =
+               OpenAICompatible.validate_credentials(%{
+                 "base_url" => "https://example.com/v1",
+                 "models" => "grok-3"
+               })
+
+      Req.Test.stub(Flux.ProviderStub, fn conn -> Plug.Conn.send_resp(conn, 401, "no") end)
+
+      assert {:error, "Invalid API key."} =
+               OpenAICompatible.validate_credentials(%{
+                 "base_url" => "https://example.com/v1",
+                 "api_key" => "bad",
+                 "models" => "grok-3"
+               })
+    end
+
+    test "invoke_llm speaks the OpenAI wire protocol against the configured base_url" do
+      Req.Test.stub(Flux.ProviderStub, fn conn ->
+        assert conn.host == "grok.example.com"
+
+        sse_response(conn, [
+          ~s({"choices":[{"delta":{"content":"xAI says hi"}}]}),
+          "[DONE]"
+        ])
+      end)
+
+      {result, chunks} =
+        collect_chunks(fn emit ->
+          OpenAICompatible.invoke_llm(
+            %{"base_url" => "https://grok.example.com/v1", "api_key" => "xai-1"},
+            request(),
+            emit
+          )
+        end)
+
+      assert {:ok, final} = result
+      assert final.content == "xAI says hi"
+      assert chunks == ["xAI says hi"]
+    end
+  end
 end
