@@ -395,6 +395,37 @@ defmodule Flux.Accounts do
     end
   end
 
+  @doc "Sets the run/message retention window in days (nil = keep forever)."
+  def set_retention_days(%Scope{} = scope, days) when is_nil(days) or days in 1..3650 do
+    with :ok <- Flux.RBAC.authorize(scope, :customization_manage),
+         %Workspace{} = workspace <- Repo.get(Workspace, Scope.workspace_id(scope)) do
+      custom_config =
+        if days do
+          Map.put(workspace.custom_config || %{}, "retention_days", days)
+        else
+          Map.delete(workspace.custom_config || %{}, "retention_days")
+        end
+
+      with {:ok, updated} <-
+             workspace |> Ecto.Changeset.change(custom_config: custom_config) |> Repo.update() do
+        Flux.Audit.record(scope, "workspace.retention_set",
+          resource_type: "workspace",
+          resource_id: workspace.id,
+          metadata: %{"days" => days}
+        )
+
+        {:ok, updated}
+      end
+    end
+  end
+
+  def retention_days(%Scope{} = scope) do
+    case Repo.get(Workspace, Scope.workspace_id(scope)) do
+      %{custom_config: %{"retention_days" => days}} -> days
+      _none -> nil
+    end
+  end
+
   @doc "Renames the current workspace (customization_manage)."
   def rename_workspace(%Scope{} = scope, name) when is_binary(name) do
     name = String.trim(name)

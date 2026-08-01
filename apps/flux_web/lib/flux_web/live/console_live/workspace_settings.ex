@@ -17,7 +17,8 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
        can_model: RBAC.can?(scope, :plugin_model_config),
        owner?: Flux.Accounts.Scope.role(scope) == :owner,
        models: Providers.available_models(scope),
-       default_model: Providers.default_model(scope)
+       default_model: Providers.default_model(scope),
+       retention_days: Accounts.retention_days(scope)
      )}
   end
 
@@ -56,6 +57,25 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
 
       {:error, :unauthorized} ->
         {:noreply, put_flash(socket, :error, "You don't have permission to set the default.")}
+    end
+  end
+
+  def handle_event("set_retention", %{"days" => days}, socket) do
+    parsed =
+      case Integer.parse(String.trim(days)) do
+        {n, ""} when n in 1..3650 -> n
+        _blank_or_invalid -> nil
+      end
+
+    case Accounts.set_retention_days(socket.assigns.current_scope, parsed) do
+      {:ok, _workspace} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, (parsed && "Retention set to #{parsed} days.") || "Retention off.")
+         |> assign(retention_days: parsed)}
+
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "You don't have permission to change retention.")}
     end
   end
 
@@ -128,6 +148,27 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
               {pname} — {m.label}
             </option>
           </select>
+        </form>
+      </div>
+
+      <div :if={@can_rename} class="card border border-base-200 p-6 space-y-3">
+        <h2 class="font-semibold">Data retention</h2>
+        <p class="text-sm opacity-70">
+          Runs and chat messages older than this are pruned nightly. Blank keeps
+          everything forever; conversations and the audit trail are never pruned.
+        </p>
+        <form phx-submit="set_retention" id="retention-form" class="flex gap-2 items-center">
+          <input
+            type="number"
+            name="days"
+            value={@retention_days}
+            min="1"
+            max="3650"
+            placeholder="∞"
+            class="input input-bordered input-sm w-28"
+          />
+          <span class="text-sm opacity-70">days</span>
+          <button class="btn btn-primary btn-sm">Save</button>
         </form>
       </div>
 

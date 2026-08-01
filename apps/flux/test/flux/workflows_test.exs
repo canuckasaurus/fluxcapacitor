@@ -184,6 +184,46 @@ defmodule Flux.WorkflowsTest do
     assert_receive {:run_finished, %{status: :stopped}}, 2_000
   end
 
+  test "cleanup worker prunes old runs and messages per retention window", %{scope: scope} do
+    {:ok, _workspace} = Flux.Accounts.set_retention_days(scope, 7)
+
+    {:ok, workflow} = Workflows.create_workflow(scope, %{"name" => "Old Flux"})
+
+    old = DateTime.add(DateTime.utc_now(:second), -10, :day)
+
+    stale_run =
+      Flux.Repo.insert!(%Flux.Workflows.WorkflowRun{
+        workspace_id: workflow.workspace_id,
+        workflow_id: workflow.id,
+        status: :succeeded,
+        inserted_at: old,
+        updated_at: old
+      })
+
+    fresh_run =
+      Flux.Repo.insert!(%Flux.Workflows.WorkflowRun{
+        workspace_id: workflow.workspace_id,
+        workflow_id: workflow.id,
+        status: :succeeded
+      })
+
+    # Paused runs survive regardless of age (they hold resume snapshots).
+    paused_run =
+      Flux.Repo.insert!(%Flux.Workflows.WorkflowRun{
+        workspace_id: workflow.workspace_id,
+        workflow_id: workflow.id,
+        status: :paused,
+        inserted_at: old,
+        updated_at: old
+      })
+
+    assert :ok = Flux.Workflows.CleanupWorker.perform(%Oban.Job{})
+
+    refute Flux.Repo.get(Flux.Workflows.WorkflowRun, stale_run.id, skip_workspace_guard: true)
+    assert Flux.Repo.get(Flux.Workflows.WorkflowRun, fresh_run.id, skip_workspace_guard: true)
+    assert Flux.Repo.get(Flux.Workflows.WorkflowRun, paused_run.id, skip_workspace_guard: true)
+  end
+
   test "human_input pauses a run and resume_run completes it", %{scope: scope} do
     {:ok, workflow} = Workflows.create_workflow(scope, %{"name" => "HITL Flux"})
 

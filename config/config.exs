@@ -32,7 +32,12 @@ config :flux, Oban,
   engine: Oban.Engines.Basic,
   repo: Flux.Repo,
   plugins: [
-    {Oban.Plugins.Cron, crontab: [{"* * * * *", Flux.Workflows.ScheduleWorker}]},
+    {Oban.Plugins.Cron,
+     crontab: [
+       {"* * * * *", Flux.Workflows.ScheduleWorker},
+       # Nightly retention sweep at 03:10 UTC.
+       {"10 3 * * *", Flux.Workflows.CleanupWorker}
+     ]},
     {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7},
     {Oban.Plugins.Lifeline, rescue_after: :timer.minutes(30)}
   ],
