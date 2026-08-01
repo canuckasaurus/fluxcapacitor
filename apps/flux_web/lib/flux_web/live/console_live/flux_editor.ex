@@ -1404,6 +1404,8 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
       "query" => Map.get(params, "query", config["query"] || ""),
       "max_iterations" => parse_iterations(Map.get(params, "max_iterations")),
       "output_schema" => parse_output_schema(params["output_schema"], config["output_schema"]),
+      "enable_drive" =>
+        Map.get(params, "enable_drive", to_string(config["enable_drive"] == true)) == "true",
       "agent_toolset_id" => toolset_id,
       "tools" =>
         if toolset_id == config["agent_toolset_id"] do
@@ -2818,6 +2820,21 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                       placeholder={~s({"type": "object", "properties": {...}})}
                       disabled={not @can_edit}
                     >{node["config"]["output_schema"] && Jason.encode!(node["config"]["output_schema"])}</textarea>
+                  </label>
+                  <label class="flex items-center gap-2 text-sm">
+                    <input type="hidden" name="enable_drive" value="false" />
+                    <input
+                      type="checkbox"
+                      name="enable_drive"
+                      value="true"
+                      checked={node["config"]["enable_drive"] == true}
+                      class="checkbox checkbox-sm"
+                      disabled={not @can_edit}
+                    />
+                    <span>
+                      Scratch drive — the agent can save and re-read files during the run
+                      ({"{{node.files}}"} output)
+                    </span>
                   </label>
                 <% "tool" -> %>
                   <label class="floating-label">

@@ -472,6 +472,107 @@ defmodule Flux.EngineTest do
       assert result.outputs["iterations"] == 1
     end
 
+    test "agent drive: write, list, and read files across iterations" do
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("agent_1", "agent", %{
+            "provider_plugin_id" => "p",
+            "model" => "m",
+            "query" => "{{start.query}}",
+            "max_iterations" => 4,
+            "enable_drive" => true,
+            "tools" => []
+          })
+        ],
+        "edges" => [edge!("start", "agent_1")]
+      }
+
+      {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+      host = %Host{
+        emit: fn _e -> :ok end,
+        invoke_llm: fn request, _chunk ->
+          turn = Elixir.Agent.get_and_update(counter, &{&1, &1 + 1})
+
+          case turn do
+            0 ->
+              # The drive tools are offered when enabled.
+              names = Enum.map(request.tools, & &1["name"])
+              assert "drive_write" in names and "drive_read" in names and "drive_list" in names
+
+              {:ok,
+               %{
+                 content: "",
+                 usage: %{},
+                 tool_calls: [
+                   %{
+                     id: "w1",
+                     name: "drive_write",
+                     arguments: %{"name" => "notes.md", "content" => "remember the milk"}
+                   },
+                   %{id: "l1", name: "drive_list", arguments: %{}}
+                 ]
+               }}
+
+            1 ->
+              # Both drive results are in history: the write ack and the listing.
+              tool_contents =
+                for %{role: :tool} = message <- request.messages, do: message.content
+
+              assert Enum.any?(tool_contents, &(&1 =~ "wrote notes.md"))
+              assert Enum.any?(tool_contents, &(&1 =~ "notes.md (17 bytes)"))
+
+              {:ok,
+               %{
+                 content: "",
+                 usage: %{},
+                 tool_calls: [
+                   %{id: "r1", name: "drive_read", arguments: %{"name" => "notes.md"}}
+                 ]
+               }}
+
+            _final ->
+              assert Enum.any?(
+                       request.messages,
+                       &(&1[:role] == :tool and &1.content == "remember the milk")
+                     )
+
+              {:ok, %{content: "done", usage: %{}, tool_calls: []}}
+          end
+        end,
+        invoke_tool: fn _spec -> flunk("drive calls must not reach invoke_tool") end
+      }
+
+      {:ok, built} = Engine.build(graph)
+      assert {:ok, result} = Engine.run(built, %{"query" => "take notes"}, host)
+      assert result.outputs["text"] == "done"
+      assert result.outputs["files"] == %{"notes.md" => "remember the milk"}
+
+      # Without enable_drive the tools are not offered and files stay empty.
+      graph2 =
+        put_in(
+          graph,
+          ["nodes"],
+          List.update_at(graph["nodes"], 1, fn node ->
+            put_in(node, ["config", "enable_drive"], false)
+          end)
+        )
+
+      host2 = %Host{
+        emit: fn _e -> :ok end,
+        invoke_llm: fn request, _chunk ->
+          assert request.tools == []
+          {:ok, %{content: "plain", usage: %{}, tool_calls: []}}
+        end,
+        invoke_tool: fn _spec -> {:ok, %{status: 200, body: %{}, text: ""}} end
+      }
+
+      {:ok, built2} = Engine.build(graph2)
+      assert {:ok, result2} = Engine.run(built2, %{"query" => "q"}, host2)
+      assert result2.outputs["files"] == %{}
+    end
+
     test "agent node defers on a deferred tool and resumes from the snapshot" do
       tools = [
         %{

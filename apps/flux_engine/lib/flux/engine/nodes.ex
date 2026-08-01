@@ -483,9 +483,15 @@ defmodule Flux.Engine.Nodes.Agent do
     * part events — every iteration emits `{:agent_part, ...}` engine
       events with the upstream vocabulary (`part_start`/`part_delta` with
       `kind: thinking`, `function_tool_call`, `function_tool_result`).
+    * `enable_drive` — offers the agent a private scratch drive for the
+      run (`drive_write`/`drive_read`/`drive_list` tools). Files live in
+      loop state only — sandboxed by construction, no filesystem — and
+      come back in the node's `"files"` output (and survive deferred-tool
+      snapshots).
 
-  Outputs `%{"text", "output", "status", "iterations", "tool_calls"}`
-  plus `"deferred_tool_calls"`/`"session_snapshot"` when deferred.
+  Outputs `%{"text", "output", "status", "iterations", "tool_calls",
+  "files"}` plus `"deferred_tool_calls"`/`"session_snapshot"` when
+  deferred.
   """
   @behaviour Flux.Engine.Node
 
@@ -514,8 +520,8 @@ defmodule Flux.Engine.Nodes.Agent do
       max_iterations = node.config["max_iterations"] || 5
 
       case initial_state(node, pool) do
-        {:ok, messages, iteration, calls_so_far} ->
-          loop(context, messages, iteration, max_iterations, calls_so_far)
+        {:ok, messages, iteration, calls_so_far, drive} ->
+          loop(context, messages, iteration, max_iterations, calls_so_far, drive)
 
         {:error, reason} ->
           {:error, reason}
@@ -538,23 +544,24 @@ defmodule Flux.Engine.Nodes.Agent do
           [%{role: :system, content: instructions}, %{role: :user, content: query}]
         end
 
-      {:ok, messages, 1, 0}
+      {:ok, messages, 1, 0, %{}}
     else
       results_json = Template.render(node.config["deferred_tool_results"], pool)
 
       with {:ok, state} <- decode_snapshot(snapshot),
            {:ok, results} <- decode_results(results_json) do
-        {:ok, resolve_pending(state.messages, results), state.iteration, state.tool_calls}
+        {:ok, resolve_pending(state.messages, results), state.iteration, state.tool_calls,
+         state.drive}
       end
     end
   end
 
-  defp loop(_context, _messages, iteration, max_iterations, _calls)
+  defp loop(_context, _messages, iteration, max_iterations, _calls, _drive)
        when iteration > max_iterations do
     {:error, "agent exceeded max_iterations (#{max_iterations}) without a final answer"}
   end
 
-  defp loop(context, messages, iteration, max_iterations, calls_so_far) do
+  defp loop(context, messages, iteration, max_iterations, calls_so_far, drive) do
     emit_part(context, iteration, %{type: "part_start", kind: "thinking"})
 
     chunk_emit = fn delta ->
@@ -579,31 +586,57 @@ defmodule Flux.Engine.Nodes.Agent do
           tool_calls,
           iteration,
           max_iterations,
-          calls_so_far
+          calls_so_far,
+          drive
         )
 
       {:ok, result} ->
-        {:ok, completed(result.content, nil, iteration, calls_so_far)}
+        {:ok, completed(result.content, nil, iteration, calls_so_far, drive)}
 
       {:error, reason} ->
         {:error, reason}
     end
   end
 
-  defp handle_tool_round(context, messages, result, tool_calls, iteration, max, calls_so_far) do
+  defp handle_tool_round(
+         context,
+         messages,
+         result,
+         tool_calls,
+         iteration,
+         max,
+         calls_so_far,
+         drive
+       ) do
     calls_total = calls_so_far + length(tool_calls)
 
     case Enum.find(tool_calls, &(&1.name == @final_output)) do
       %{arguments: arguments} ->
-        {:ok, completed(result.content || "", stringify(arguments), iteration, calls_total)}
+        {:ok,
+         completed(result.content || "", stringify(arguments), iteration, calls_total, drive)}
 
       nil ->
         assistant = %{role: :assistant, content: result.content, tool_calls: tool_calls}
         {deferred, executable} = Enum.split_with(tool_calls, &deferred?(context, &1))
-        tool_messages = Enum.map(executable, &execute_tool(context, &1, iteration))
+
+        {tool_messages, drive} =
+          Enum.map_reduce(executable, drive, fn call, drive ->
+            if drive_call?(context, call) do
+              execute_drive(context, call, iteration, drive)
+            else
+              {execute_tool(context, call, iteration), drive}
+            end
+          end)
 
         if deferred == [] do
-          loop(context, messages ++ [assistant | tool_messages], iteration + 1, max, calls_total)
+          loop(
+            context,
+            messages ++ [assistant | tool_messages],
+            iteration + 1,
+            max,
+            calls_total,
+            drive
+          )
         else
           Enum.each(deferred, fn call ->
             emit_part(context, iteration, %{
@@ -619,7 +652,8 @@ defmodule Flux.Engine.Nodes.Agent do
             encode_snapshot(
               messages ++ [assistant | tool_messages],
               iteration + 1,
-              calls_total
+              calls_total,
+              drive
             )
 
           {:ok,
@@ -633,41 +667,155 @@ defmodule Flux.Engine.Nodes.Agent do
                end),
              "session_snapshot" => snapshot,
              "iterations" => iteration,
-             "tool_calls" => calls_total
+             "tool_calls" => calls_total,
+             "files" => drive
            }}
         end
     end
   end
 
-  defp completed(text, output, iterations, tool_calls) do
+  defp completed(text, output, iterations, tool_calls, drive) do
     %{
       "text" => text,
       "output" => output,
       "status" => "completed",
       "iterations" => iterations,
-      "tool_calls" => tool_calls
+      "tool_calls" => tool_calls,
+      "files" => drive
     }
   end
 
   defp tool_defs(context) do
     defs = Enum.map(context.tools, &Map.take(&1, ["name", "description", "parameters"]))
 
-    case context.output_schema do
-      %{} = schema ->
-        defs ++
-          [
-            %{
-              "name" => @final_output,
-              "description" =>
-                "Call this exactly once to finish and return your final structured answer.",
-              "parameters" => schema
-            }
-          ]
+    defs =
+      case context.output_schema do
+        %{} = schema ->
+          defs ++
+            [
+              %{
+                "name" => @final_output,
+                "description" =>
+                  "Call this exactly once to finish and return your final structured answer.",
+                "parameters" => schema
+              }
+            ]
 
-      _absent ->
-        defs
+        _absent ->
+          defs
+      end
+
+    defs ++ drive_defs(context)
+  end
+
+  ## Scratch drive (enable_drive: true)
+
+  @drive_tools ["drive_write", "drive_read", "drive_list"]
+  @max_drive_files 20
+  @max_drive_bytes 64_000
+
+  defp drive_enabled?(context), do: context.node.config["enable_drive"] == true
+
+  defp drive_call?(context, call),
+    do: call.name in @drive_tools and drive_enabled?(context)
+
+  defp drive_defs(context) do
+    if drive_enabled?(context) do
+      [
+        %{
+          "name" => "drive_write",
+          "description" =>
+            "Save a file to your private scratch drive for this run " <>
+              "(overwrites; max #{@max_drive_files} files, #{@max_drive_bytes} bytes each).",
+          "parameters" => %{
+            "type" => "object",
+            "properties" => %{
+              "name" => %{"type" => "string", "description" => "File name, e.g. notes.md"},
+              "content" => %{"type" => "string"}
+            },
+            "required" => ["name", "content"]
+          }
+        },
+        %{
+          "name" => "drive_read",
+          "description" => "Read a file you previously saved to the scratch drive.",
+          "parameters" => %{
+            "type" => "object",
+            "properties" => %{"name" => %{"type" => "string"}},
+            "required" => ["name"]
+          }
+        },
+        %{
+          "name" => "drive_list",
+          "description" => "List the files on the scratch drive.",
+          "parameters" => %{"type" => "object", "properties" => %{}}
+        }
+      ]
+    else
+      []
     end
   end
+
+  defp execute_drive(context, call, iteration, drive) do
+    emit_part(context, iteration, %{
+      type: "function_tool_call",
+      id: call.id,
+      name: call.name,
+      arguments: call.arguments
+    })
+
+    {content, drive} = run_drive_op(call.name, stringify(call.arguments), drive)
+
+    emit_part(context, iteration, %{
+      type: "function_tool_result",
+      id: call.id,
+      name: call.name,
+      content: content
+    })
+
+    {%{role: :tool, tool_call_id: call.id, name: call.name, content: content}, drive}
+  end
+
+  defp run_drive_op("drive_write", args, drive) do
+    name = sanitize_drive_name(args["name"])
+    content = to_string(args["content"] || "")
+
+    cond do
+      name == "" ->
+        {"error: a file name is required", drive}
+
+      byte_size(content) > @max_drive_bytes ->
+        {"error: file exceeds #{@max_drive_bytes} bytes", drive}
+
+      map_size(drive) >= @max_drive_files and not Map.has_key?(drive, name) ->
+        {"error: the drive is full (#{@max_drive_files} files)", drive}
+
+      true ->
+        {"wrote #{name} (#{byte_size(content)} bytes)", Map.put(drive, name, content)}
+    end
+  end
+
+  defp run_drive_op("drive_read", args, drive) do
+    name = sanitize_drive_name(args["name"])
+
+    case Map.fetch(drive, name) do
+      {:ok, content} -> {content, drive}
+      :error -> {"error: no file named #{name}", drive}
+    end
+  end
+
+  defp run_drive_op("drive_list", _args, drive) do
+    case Enum.sort(Map.keys(drive)) do
+      [] -> {"(the drive is empty)", drive}
+      names -> {Enum.map_join(names, "\n", &"#{&1} (#{byte_size(drive[&1])} bytes)"), drive}
+    end
+  end
+
+  defp sanitize_drive_name(name) when is_binary(name) do
+    name |> Path.basename() |> String.replace(~r/[^\w\.\-]/u, "_") |> String.slice(0, 100)
+  end
+
+  defp sanitize_drive_name(_name), do: ""
 
   defp deferred?(context, call) do
     case Enum.find(context.tools, &(&1["name"] == call.name)) do
@@ -719,11 +867,12 @@ defmodule Flux.Engine.Nodes.Agent do
 
   ## Session snapshots (opaque base64 JSON; the resume contract)
 
-  defp encode_snapshot(messages, iteration, tool_calls) do
+  defp encode_snapshot(messages, iteration, tool_calls, drive) do
     %{
       "messages" => Enum.map(messages, &encode_message/1),
       "iteration" => iteration,
-      "tool_calls" => tool_calls
+      "tool_calls" => tool_calls,
+      "drive" => drive
     }
     |> Jason.encode!()
     |> Base.encode64()
@@ -760,7 +909,8 @@ defmodule Flux.Engine.Nodes.Agent do
        %{
          messages: Enum.map(messages, &decode_message/1),
          iteration: state["iteration"] || 1,
-         tool_calls: state["tool_calls"] || 0
+         tool_calls: state["tool_calls"] || 0,
+         drive: (is_map(state["drive"]) && state["drive"]) || %{}
        }}
     else
       _invalid -> {:error, "invalid session_snapshot"}
