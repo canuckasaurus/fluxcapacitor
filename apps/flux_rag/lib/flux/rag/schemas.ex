@@ -13,14 +13,25 @@ defmodule Flux.RAG.Dataset do
     field(:description, :string)
     field(:embedding_plugin_id, :string)
     field(:embedding_model, :string)
+    field(:chunk_size, :integer, default: 1000)
+    field(:chunk_overlap, :integer, default: 120)
 
     timestamps(type: :utc_datetime)
   end
 
   def changeset(dataset, attrs) do
     dataset
-    |> cast(attrs, [:name, :description, :embedding_plugin_id, :embedding_model])
+    |> cast(attrs, [
+      :name,
+      :description,
+      :embedding_plugin_id,
+      :embedding_model,
+      :chunk_size,
+      :chunk_overlap
+    ])
     |> validate_required([:name, :embedding_plugin_id, :embedding_model])
+    |> validate_number(:chunk_size, greater_than_or_equal_to: 200, less_than_or_equal_to: 4000)
+    |> validate_number(:chunk_overlap, greater_than_or_equal_to: 0, less_than_or_equal_to: 500)
     |> validate_length(:name, min: 1, max: 255)
   end
 end
@@ -40,6 +51,7 @@ defmodule Flux.RAG.Document do
     field(:status, Ecto.Enum, values: [:pending, :indexing, :ready, :error], default: :pending)
     field(:error, :string)
     field(:segment_count, :integer, default: 0)
+    field(:content, :string)
 
     timestamps(type: :utc_datetime)
   end

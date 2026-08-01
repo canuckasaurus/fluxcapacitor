@@ -148,6 +148,27 @@ defmodule FluxWeb.RAGIntegrationTest do
     assert finished.outputs["answer"] =~ "25 paid days"
   end
 
+  test "re-index re-chunks with updated dataset settings", %{scope: scope, dataset: dataset} do
+    long_text = Enum.map_join(1..8, "\n\n", fn n -> String.duplicate("chunkword#{n} ", 30) end)
+    document = ingest!(scope, dataset, "big.md", long_text)
+    original_count = document.segment_count
+
+    # Smaller chunks → more segments after re-index.
+    {:ok, dataset} =
+      RAG.update_dataset(scope, dataset, %{"chunk_size" => 200, "chunk_overlap" => 0})
+
+    {:ok, 1} = RAG.reindex_dataset(scope, dataset)
+    Oban.drain_queue(queue: :ingest)
+
+    reindexed = Flux.Repo.get!(Flux.RAG.Document, document.id, skip_workspace_guard: true)
+    assert reindexed.status == :ready
+    assert reindexed.segment_count > original_count
+
+    # No stale segments left behind.
+    segments = RAG.list_segments(scope, document.id, 500)
+    assert length(segments) == reindexed.segment_count
+  end
+
   test "chatflow answers carry knowledge citations", %{scope: scope, dataset: dataset} do
     ingest!(scope, dataset, "vacation.md", "Vacation policy: 25 paid days per year.")
 

@@ -38,6 +38,36 @@ defmodule Flux.RAG do
     end
   end
 
+  def update_dataset(%Scope{} = scope, %Dataset{} = dataset, attrs) do
+    with :ok <- RBAC.authorize(scope, :dataset_edit),
+         true <- dataset.workspace_id == Scope.workspace_id(scope) || {:error, :not_found} do
+      dataset |> Dataset.changeset(attrs) |> Repo.update()
+    end
+  end
+
+  @doc "Re-chunks and re-embeds every document that retained its source text."
+  def reindex_dataset(%Scope{} = scope, %Dataset{} = dataset) do
+    with :ok <- RBAC.authorize(scope, :dataset_edit),
+         true <- dataset.workspace_id == Scope.workspace_id(scope) || {:error, :not_found} do
+      documents =
+        Document
+        |> Repo.scoped(scope)
+        |> where([d], d.dataset_id == ^dataset.id and not is_nil(d.content))
+        |> Repo.all()
+
+      for document <- documents do
+        document |> Ecto.Changeset.change(status: :pending) |> Repo.update!()
+
+        {:ok, _job} =
+          %{document_id: document.id}
+          |> Flux.RAG.IndexWorker.new()
+          |> Oban.insert()
+      end
+
+      {:ok, length(documents)}
+    end
+  end
+
   def delete_dataset(%Scope{} = scope, %Dataset{} = dataset) do
     with :ok <- RBAC.authorize(scope, :dataset_delete),
          true <- dataset.workspace_id == Scope.workspace_id(scope) || {:error, :not_found},
@@ -63,11 +93,12 @@ defmodule Flux.RAG do
           workspace_id: dataset.workspace_id,
           dataset_id: dataset.id,
           name: name,
-          status: :pending
+          status: :pending,
+          content: content
         })
 
       {:ok, _job} =
-        %{document_id: document.id, content: content}
+        %{document_id: document.id}
         |> Flux.RAG.IndexWorker.new()
         |> Oban.insert()
 
@@ -103,14 +134,23 @@ defmodule Flux.RAG do
 
   @doc false
   # The ingestion body, called by IndexWorker (and directly by tests):
-  # split → embed → insert segments → flip status.
-  def index_document(document_id, content) do
+  # clear old segments → split (dataset chunk settings) → embed →
+  # insert → flip status. Idempotent, so re-index just re-runs it.
+  def index_document(document_id) do
     document = Repo.get!(Document, document_id, skip_workspace_guard: true)
     dataset = Repo.get!(Dataset, document.dataset_id, skip_workspace_guard: true)
 
     document |> Ecto.Changeset.change(status: :indexing) |> Repo.update!()
 
-    chunks = Chunker.split(content)
+    {_count, nil} =
+      from(s in Segment, where: s.document_id == ^document.id)
+      |> Repo.delete_all(skip_workspace_guard: true)
+
+    chunks =
+      Chunker.split(document.content || "",
+        max_chars: dataset.chunk_size || 1000,
+        overlap: dataset.chunk_overlap || 120
+      )
 
     case embed(dataset, chunks) do
       {:ok, vectors} ->
@@ -240,8 +280,8 @@ defmodule Flux.RAG.IndexWorker do
   use Oban.Worker, queue: :ingest, max_attempts: 3
 
   @impl Oban.Worker
-  def perform(%Oban.Job{args: %{"document_id" => document_id, "content" => content}}) do
-    case Flux.RAG.index_document(document_id, content) do
+  def perform(%Oban.Job{args: %{"document_id" => document_id}}) do
+    case Flux.RAG.index_document(document_id) do
       :ok -> :ok
       # Embedding errors are often transient (rate limits) — let Oban retry.
       {:error, reason} -> {:error, reason}

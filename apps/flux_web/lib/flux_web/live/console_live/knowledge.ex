@@ -182,6 +182,34 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
     end
   end
 
+  def handle_event("save_dataset_settings", params, socket) do
+    with %{} = dataset <- socket.assigns.selected,
+         {:ok, updated} <-
+           RAG.update_dataset(socket.assigns.current_scope, dataset, %{
+             "chunk_size" => params["chunk_size"],
+             "chunk_overlap" => params["chunk_overlap"]
+           }) do
+      {:noreply,
+       socket
+       |> put_flash(:info, "Settings saved — re-index to apply to existing documents.")
+       |> assign(selected: updated, datasets: RAG.list_datasets(socket.assigns.current_scope))}
+    else
+      _error -> {:noreply, put_flash(socket, :error, "Could not save the settings.")}
+    end
+  end
+
+  def handle_event("reindex", _params, socket) do
+    with %{} = dataset <- socket.assigns.selected,
+         {:ok, count} <- RAG.reindex_dataset(socket.assigns.current_scope, dataset) do
+      {:noreply,
+       socket
+       |> put_flash(:info, "#{count} document(s) queued for re-indexing.")
+       |> refresh_documents()}
+    else
+      _error -> {:noreply, put_flash(socket, :error, "Could not re-index.")}
+    end
+  end
+
   def handle_event("hit_test", %{"query" => query}, socket) do
     with %{} = dataset <- socket.assigns.selected,
          {:ok, hits} <- RAG.retrieve(socket.assigns.current_scope, dataset.id, query) do
@@ -282,6 +310,47 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                 Delete dataset
               </button>
             </div>
+          </div>
+
+          <div :if={@can_edit} class="card border border-base-200 p-4 space-y-2">
+            <p class="text-sm font-semibold">Chunking</p>
+            <form
+              phx-submit="save_dataset_settings"
+              id="dataset-settings-form"
+              class="flex items-end gap-2 flex-wrap"
+            >
+              <label class="form-control">
+                <span class="label-text text-xs opacity-70 mb-1">Chunk size (200–4000)</span>
+                <input
+                  type="number"
+                  name="chunk_size"
+                  value={@selected.chunk_size}
+                  min="200"
+                  max="4000"
+                  class="input input-bordered input-sm w-32"
+                />
+              </label>
+              <label class="form-control">
+                <span class="label-text text-xs opacity-70 mb-1">Overlap (0–500)</span>
+                <input
+                  type="number"
+                  name="chunk_overlap"
+                  value={@selected.chunk_overlap}
+                  min="0"
+                  max="500"
+                  class="input input-bordered input-sm w-28"
+                />
+              </label>
+              <button class="btn btn-primary btn-sm">Save</button>
+              <button
+                type="button"
+                class="btn btn-outline btn-sm"
+                phx-click="reindex"
+                data-confirm="Re-chunk and re-embed every document in this dataset?"
+              >
+                <.icon name="hero-arrow-path" class="size-4" /> Re-index all
+              </button>
+            </form>
           </div>
 
           <div :if={@can_edit} class="card border border-base-200 p-4 space-y-3">
