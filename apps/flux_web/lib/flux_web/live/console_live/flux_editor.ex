@@ -1741,6 +1741,21 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
 
   defp if_else_cases(config), do: Flux.Engine.Nodes.IfElse.cases(config)
 
+  # Bar width relative to the slowest node in the run (min 2% so instant
+  # nodes stay visible).
+  defp duration_percent(executions, execution) do
+    slowest =
+      executions
+      |> Enum.map(&(&1["elapsed_ms"] || 0))
+      |> Enum.max(fn -> 0 end)
+
+    if slowest == 0 do
+      2
+    else
+      max(round((execution["elapsed_ms"] || 0) / slowest * 100), 2)
+    end
+  end
+
   defp failable?(type), do: type in @failable_types
 
   defp format_debug_error(:unauthorized), do: "You don't have permission to run nodes."
@@ -3567,6 +3582,18 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                         · {execution["node_type"]} · {execution["elapsed_ms"]} ms
                       </span>
                     </p>
+                    <div class="h-1.5 rounded bg-base-200 overflow-hidden mt-0.5">
+                      <div
+                        class={[
+                          "h-full rounded",
+                          (execution["status"] == "succeeded" && "bg-success/70") ||
+                            (execution["status"] == "paused" && "bg-warning/70") ||
+                            "bg-error/70"
+                        ]}
+                        style={"width: #{duration_percent(run.node_executions, execution)}%"}
+                      >
+                      </div>
+                    </div>
                     <p :if={execution["error"]} class="text-error">{execution["error"]}</p>
                     <pre
                       :if={execution["outputs"] not in [nil, %{}]}
