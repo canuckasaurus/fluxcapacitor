@@ -148,6 +148,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
            run: nil,
            node_states: %{},
            run_text: "",
+           agent_activity: [],
            show_api: false,
            tokens: [],
            new_token_raw: nil,
@@ -670,7 +671,14 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
   end
 
   def handle_event("close_run", _params, socket) do
-    {:noreply, assign(socket, show_run: false, node_states: %{}, run: nil, run_text: "")}
+    {:noreply,
+     assign(socket,
+       show_run: false,
+       node_states: %{},
+       run: nil,
+       run_text: "",
+       agent_activity: []
+     )}
   end
 
   def handle_event("start_run", params, socket) do
@@ -680,7 +688,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
 
       case Workflows.start_run(scope, socket.assigns.workflow, inputs) do
         {:ok, run} ->
-          {:noreply, assign(socket, run: run, node_states: %{}, run_text: "")}
+          {:noreply, assign(socket, run: run, node_states: %{}, run_text: "", agent_activity: [])}
 
         {:error, {:invalid_graph, errors}} ->
           {:noreply, put_flash(socket, :error, "Fix the graph first: #{Enum.join(errors, "; ")}")}
@@ -927,6 +935,58 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
 
   def handle_info({:engine_event, {:node_chunk, %{delta: delta}}}, socket) do
     {:noreply, assign(socket, run_text: socket.assigns.run_text <> delta)}
+  end
+
+  # Agent inner-loop activity: thinking deltas fold into the latest
+  # thought entry; tool calls/results append discrete entries.
+  def handle_info({:engine_event, {:agent_part, part}}, socket) do
+    activity =
+      case part do
+        %{type: "part_start"} ->
+          socket.assigns.agent_activity ++
+            [%{kind: :thought, iteration: part.iteration, text: ""}]
+
+        %{type: "part_delta", delta: delta} ->
+          case List.last(socket.assigns.agent_activity) do
+            %{kind: :thought} = thought ->
+              List.replace_at(
+                socket.assigns.agent_activity,
+                -1,
+                %{thought | text: thought.text <> delta}
+              )
+
+            _no_thought_open ->
+              socket.assigns.agent_activity ++
+                [%{kind: :thought, iteration: part.iteration, text: delta}]
+          end
+
+        %{type: "function_tool_call"} ->
+          socket.assigns.agent_activity ++
+            [
+              %{
+                kind: :tool_call,
+                iteration: part.iteration,
+                name: part.name,
+                arguments: part[:arguments] || %{}
+              }
+            ]
+
+        %{type: "function_tool_result"} ->
+          socket.assigns.agent_activity ++
+            [
+              %{
+                kind: :tool_result,
+                iteration: part.iteration,
+                name: part.name,
+                content: String.slice(part[:content] || "", 0, 400)
+              }
+            ]
+
+        _other ->
+          socket.assigns.agent_activity
+      end
+
+    {:noreply, assign(socket, agent_activity: Enum.take(activity, -60))}
   end
 
   def handle_info({:engine_event, _event}, socket), do: {:noreply, socket}
@@ -3355,6 +3415,31 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                 >
                   {node_id}
                 </span>
+              </div>
+            </div>
+
+            <div :if={@agent_activity != []} class="space-y-1">
+              <p class="text-xs font-semibold opacity-70">Agent activity</p>
+              <div class="rounded-box border border-base-200 p-2 space-y-1 max-h-48 overflow-y-auto">
+                <div :for={entry <- @agent_activity} class="text-xs">
+                  <%= case entry.kind do %>
+                    <% :thought -> %>
+                      <p :if={entry.text != ""} class="opacity-70 italic whitespace-pre-wrap">
+                        <.icon name="hero-light-bulb" class="size-3 inline" />
+                        {String.slice(entry.text, 0, 400)}
+                      </p>
+                    <% :tool_call -> %>
+                      <p class="font-mono">
+                        <.icon name="hero-wrench" class="size-3 inline text-info" />
+                        {entry.name}({Jason.encode!(entry.arguments)})
+                      </p>
+                    <% :tool_result -> %>
+                      <p class="font-mono opacity-70">
+                        <.icon name="hero-arrow-uturn-left" class="size-3 inline text-success" />
+                        {entry.content}
+                      </p>
+                  <% end %>
+                </div>
               </div>
             </div>
 
