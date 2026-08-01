@@ -57,6 +57,57 @@ defmodule FluxWeb.V1.ContractTest do
     build_conn() |> put_req_header("authorization", "Bearer #{raw}")
   end
 
+  test "the datasets surface matches its schemas end to end", %{conn: conn, api_spec: spec} do
+    created =
+      conn |> post(~p"/v1/datasets", %{"name" => "Contract KB"}) |> json_response(200)
+
+    assert_schema(created, "DatasetCreated", spec)
+    dataset_id = created["id"]
+
+    body = conn |> get(~p"/v1/datasets") |> json_response(200)
+    assert_schema(body, "DatasetList", spec)
+
+    doc =
+      conn
+      |> post(~p"/v1/datasets/#{dataset_id}/document/create-by-text", %{
+        "name" => "contract.md",
+        "text" => "Contracts protect API consumers."
+      })
+      |> json_response(200)
+
+    assert_schema(doc, "DocumentCreated", spec)
+    Oban.drain_queue(queue: :ingest)
+
+    body = conn |> get(~p"/v1/datasets/#{dataset_id}/documents") |> json_response(200)
+    assert_schema(body, "DocumentList", spec)
+    [%{"id" => document_id}] = body["data"]
+
+    body =
+      conn
+      |> get(~p"/v1/datasets/#{dataset_id}/documents/#{document_id}/segments")
+      |> json_response(200)
+
+    assert_schema(body, "SegmentList", spec)
+
+    body =
+      conn
+      |> post(~p"/v1/datasets/#{dataset_id}/retrieve", %{"query" => "what protects consumers?"})
+      |> json_response(200)
+
+    assert_schema(body, "RetrieveResult", spec)
+    assert body["records"] != []
+
+    body =
+      conn
+      |> delete(~p"/v1/datasets/#{dataset_id}/documents/#{document_id}")
+      |> json_response(200)
+
+    assert_schema(body, "Result", spec)
+
+    body = conn |> delete(~p"/v1/datasets/#{dataset_id}") |> json_response(200)
+    assert_schema(body, "Result", spec)
+  end
+
   test "chat-messages blocking response matches ChatMessage", %{conn: conn, api_spec: spec} do
     body =
       conn

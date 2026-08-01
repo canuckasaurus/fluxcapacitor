@@ -258,6 +258,178 @@ defmodule FluxWeb.V1.ApiSpec do
         additionalProperties: false
       })
     end
+
+    defmodule DatasetCreated do
+      @moduledoc false
+      require OpenApiSpex
+
+      OpenApiSpex.schema(%{
+        title: "DatasetCreated",
+        type: :object,
+        properties: %{
+          id: %Schema{type: :string, format: :uuid},
+          name: %Schema{type: :string}
+        },
+        required: [:id, :name],
+        additionalProperties: false
+      })
+    end
+
+    defmodule DatasetList do
+      @moduledoc false
+      require OpenApiSpex
+
+      OpenApiSpex.schema(%{
+        title: "DatasetList",
+        type: :object,
+        properties: %{
+          data: %Schema{
+            type: :array,
+            items: %Schema{
+              type: :object,
+              properties: %{
+                id: %Schema{type: :string, format: :uuid},
+                name: %Schema{type: :string},
+                description: %Schema{type: :string, nullable: true},
+                embedding_model: %Schema{type: :string, nullable: true},
+                created_at: %Schema{type: :integer}
+              },
+              required: [:id, :name, :created_at],
+              additionalProperties: false
+            }
+          }
+        },
+        required: [:data],
+        additionalProperties: false
+      })
+    end
+
+    defmodule DocumentCreated do
+      @moduledoc false
+      require OpenApiSpex
+
+      OpenApiSpex.schema(%{
+        title: "DocumentCreated",
+        type: :object,
+        properties: %{
+          document: %Schema{
+            type: :object,
+            properties: %{
+              id: %Schema{type: :string, format: :uuid},
+              name: %Schema{type: :string},
+              status: %Schema{type: :string, enum: ["pending", "indexing", "ready", "error"]}
+            },
+            required: [:id, :name, :status],
+            additionalProperties: false
+          }
+        },
+        required: [:document],
+        additionalProperties: false
+      })
+    end
+
+    defmodule DocumentList do
+      @moduledoc false
+      require OpenApiSpex
+
+      OpenApiSpex.schema(%{
+        title: "DocumentList",
+        type: :object,
+        properties: %{
+          data: %Schema{
+            type: :array,
+            items: %Schema{
+              type: :object,
+              properties: %{
+                id: %Schema{type: :string, format: :uuid},
+                name: %Schema{type: :string},
+                status: %Schema{type: :string, enum: ["pending", "indexing", "ready", "error"]},
+                segment_count: %Schema{type: :integer},
+                error: %Schema{type: :string, nullable: true},
+                created_at: %Schema{type: :integer}
+              },
+              required: [:id, :name, :status, :segment_count, :created_at],
+              additionalProperties: false
+            }
+          }
+        },
+        required: [:data],
+        additionalProperties: false
+      })
+    end
+
+    defmodule SegmentList do
+      @moduledoc false
+      require OpenApiSpex
+
+      OpenApiSpex.schema(%{
+        title: "SegmentList",
+        type: :object,
+        properties: %{
+          data: %Schema{
+            type: :array,
+            items: %Schema{
+              type: :object,
+              properties: %{
+                id: %Schema{type: :string, format: :uuid},
+                position: %Schema{type: :integer},
+                content: %Schema{type: :string},
+                enabled: %Schema{type: :boolean}
+              },
+              required: [:id, :position, :content, :enabled],
+              additionalProperties: false
+            }
+          }
+        },
+        required: [:data],
+        additionalProperties: false
+      })
+    end
+
+    defmodule RetrieveResult do
+      @moduledoc false
+      require OpenApiSpex
+
+      OpenApiSpex.schema(%{
+        title: "RetrieveResult",
+        type: :object,
+        properties: %{
+          query: %Schema{type: :string},
+          records: %Schema{
+            type: :array,
+            items: %Schema{
+              type: :object,
+              properties: %{
+                segment: %Schema{
+                  type: :object,
+                  properties: %{
+                    id: %Schema{type: :string, format: :uuid},
+                    content: %Schema{type: :string},
+                    position: %Schema{type: :integer}
+                  },
+                  required: [:id, :content, :position],
+                  additionalProperties: false
+                },
+                document: %Schema{
+                  type: :object,
+                  properties: %{
+                    id: %Schema{type: :string, format: :uuid},
+                    name: %Schema{type: :string}
+                  },
+                  required: [:id, :name],
+                  additionalProperties: false
+                },
+                score: %Schema{type: :number}
+              },
+              required: [:segment, :document, :score],
+              additionalProperties: false
+            }
+          }
+        },
+        required: [:query, :records],
+        additionalProperties: false
+      })
+    end
   end
 
   @schema_modules [
@@ -270,13 +442,33 @@ defmodule FluxWeb.V1.ApiSpec do
     Schemas.Result,
     Schemas.ConversationRenamed,
     Schemas.FileUpload,
-    Schemas.Meta
+    Schemas.Meta,
+    Schemas.DatasetCreated,
+    Schemas.DatasetList,
+    Schemas.DocumentCreated,
+    Schemas.DocumentList,
+    Schemas.SegmentList,
+    Schemas.RetrieveResult
   ]
 
   alias OpenApiSpex.{MediaType, Operation, PathItem, Reference, Response}
 
-  # route → {http method, summary, response schema title}
+  # route → {http method, summary, response schema title} (or a list of
+  # those tuples when several methods share the path)
   @operations %{
+    "/datasets" => [
+      {:get, "List datasets", "DatasetList"},
+      {:post, "Create a dataset", "DatasetCreated"}
+    ],
+    "/datasets/{id}" => {:delete, "Delete a dataset", "Result"},
+    "/datasets/{id}/document/create-by-text" => {:post, "Add a text document", "DocumentCreated"},
+    "/datasets/{id}/document/create-by-url" =>
+      {:post, "Fetch a URL into a document", "DocumentCreated"},
+    "/datasets/{id}/documents" => {:get, "List documents", "DocumentList"},
+    "/datasets/{id}/documents/{document_id}" => {:delete, "Delete a document", "Result"},
+    "/datasets/{id}/documents/{document_id}/segments" =>
+      {:get, "List a document's segments", "SegmentList"},
+    "/datasets/{id}/retrieve" => {:post, "Retrieve matching segments", "RetrieveResult"},
     "/chat-messages" => {:post, "Send a chat message (blocking or SSE)", "ChatMessage"},
     "/completion-messages" => {:post, "Run a completion app", "ChatMessage"},
     "/workflows/run" => {:post, "Run the token's published flux", "WorkflowRun"},
@@ -303,31 +495,13 @@ defmodule FluxWeb.V1.ApiSpec do
             "flux-… tokens for workflows). Wire-compatible with the upstream reference."
       },
       paths:
-        for {path, {method, summary, schema_title}} <- @operations, into: %{} do
-          operation = %Operation{
-            summary: summary,
-            operationId: operation_id(method, path),
-            responses: %{
-              "200" => %Response{
-                description: summary,
-                content: %{
-                  "application/json" => %MediaType{
-                    schema: %Reference{"$ref": "#/components/schemas/#{schema_title}"}
-                  }
-                }
-              },
-              "4XX" => %Response{
-                description: "Error",
-                content: %{
-                  "application/json" => %MediaType{
-                    schema: %Reference{"$ref": "#/components/schemas/Error"}
-                  }
-                }
-              }
-            }
-          }
+        for {path, methods} <- @operations, into: %{} do
+          entries =
+            for {method, summary, schema_title} <- List.wrap(methods) do
+              {method, operation(method, path, summary, schema_title)}
+            end
 
-          {path, struct(PathItem, [{method, operation}])}
+          {path, struct(PathItem, entries)}
         end,
       components: %Components{
         schemas:
@@ -338,6 +512,31 @@ defmodule FluxWeb.V1.ApiSpec do
       }
     }
     |> OpenApiSpex.resolve_schema_modules()
+  end
+
+  defp operation(method, path, summary, schema_title) do
+    %Operation{
+      summary: summary,
+      operationId: operation_id(method, path),
+      responses: %{
+        "200" => %Response{
+          description: summary,
+          content: %{
+            "application/json" => %MediaType{
+              schema: %Reference{"$ref": "#/components/schemas/#{schema_title}"}
+            }
+          }
+        },
+        "4XX" => %Response{
+          description: "Error",
+          content: %{
+            "application/json" => %MediaType{
+              schema: %Reference{"$ref": "#/components/schemas/Error"}
+            }
+          }
+        }
+      }
+    }
   end
 
   defp operation_id(method, path) do
