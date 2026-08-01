@@ -181,6 +181,14 @@ defmodule Flux.Chat do
   """
   def send_message(%Scope{} = scope, %App{} = app, %Conversation{} = conversation, content)
       when is_binary(content) do
+    if quota_exceeded?(app) do
+      {:error, :quota_exceeded}
+    else
+      do_send_message(scope, app, conversation, content)
+    end
+  end
+
+  defp do_send_message(scope, app, conversation, content) do
     workspace_id = Scope.workspace_id(scope)
 
     user_message =
@@ -258,6 +266,32 @@ defmodule Flux.Chat do
 
   defp check_size(bytes) when bytes <= @max_upload_bytes, do: :ok
   defp check_size(_bytes), do: {:error, :too_large}
+
+  @doc "Whether the app's daily token budget (input+output, UTC day) is spent."
+  def quota_exceeded?(%App{daily_token_limit: nil}), do: false
+
+  def quota_exceeded?(%App{daily_token_limit: limit} = app) do
+    today = DateTime.utc_now() |> DateTime.to_date() |> DateTime.new!(~T[00:00:00])
+
+    used =
+      Message
+      |> join(:inner, [m], c in Conversation, on: m.conversation_id == c.id)
+      |> where([m, c], c.app_id == ^app.id and m.workspace_id == ^app.workspace_id)
+      |> where([m], m.role == :assistant and m.inserted_at >= ^today)
+      |> select([m], %{
+        total:
+          sum(
+            fragment(
+              "coalesce((? ->> 'input_tokens')::bigint, 0) + coalesce((? ->> 'output_tokens')::bigint, 0)",
+              m.usage,
+              m.usage
+            )
+          )
+      })
+      |> Repo.one()
+
+    decimal_to_int(used.total) >= limit
+  end
 
   @doc """
   Per-day usage rollups for an app over the trailing `days`: assistant

@@ -22,6 +22,7 @@ defmodule Flux.Chat.App do
     field :params, :map, default: %{}
     field :opening_statement, :string
     field :suggested_questions, {:array, :string}, default: []
+    field :daily_token_limit, :integer
     field :site_token, :string
     field :site_enabled, :boolean, default: false
 
@@ -42,8 +43,10 @@ defmodule Flux.Chat.App do
       :input_form,
       :params,
       :opening_statement,
-      :suggested_questions
+      :suggested_questions,
+      :daily_token_limit
     ])
+    |> validate_number(:daily_token_limit, greater_than: 0)
     |> validate_required([:name])
     |> validate_length(:name, min: 1, max: 255)
     |> validate_mode_requirements()

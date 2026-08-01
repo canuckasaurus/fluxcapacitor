@@ -141,6 +141,24 @@ defmodule Flux.ChatTest do
     refute Enum.any?(models, &(&1.plugin_id == "openai"))
   end
 
+  test "daily token quota refuses sends once spent", %{scope: scope, app: app} do
+    {:ok, app} = Chat.update_app(scope, app, %{"daily_token_limit" => 10})
+    conversation = Chat.create_conversation(scope, app)
+
+    # First message goes through (0 tokens used so far) and records usage.
+    {:ok, _user, _assistant} = Chat.send_message(scope, app, conversation, "hello")
+    assert_receive {:done, final}, 5_000
+    assert final.usage["output_tokens"] > 0
+
+    # Echo replies record 12 output tokens — over the 10-token budget now.
+    assert {:error, :quota_exceeded} = Chat.send_message(scope, app, conversation, "again")
+
+    # Lifting the limit unblocks.
+    {:ok, app} = Chat.update_app(scope, app, %{"daily_token_limit" => nil})
+    assert {:ok, _user, _assistant} = Chat.send_message(scope, app, conversation, "again")
+    assert_receive {:done, _final}, 5_000
+  end
+
   describe "advanced_chat (chatflow) apps" do
     setup %{scope: scope} do
       {:ok, workflow} = Flux.Workflows.create_workflow(scope, %{"name" => "Chatflow Flux"})

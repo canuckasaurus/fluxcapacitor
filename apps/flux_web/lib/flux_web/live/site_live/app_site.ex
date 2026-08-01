@@ -66,16 +66,19 @@ defmodule FluxWeb.SiteLive.AppSite do
         socket.assigns.conversation ||
           Chat.create_conversation(scope, app, %{end_user_ref: socket.assigns.end_user_ref})
 
-      {:ok, user_message, assistant_message} =
-        Chat.send_message(scope, app, conversation, content)
+      case Chat.send_message(scope, app, conversation, content) do
+        {:ok, user_message, assistant_message} ->
+          {:noreply,
+           assign(socket,
+             conversation: conversation,
+             messages: socket.assigns.messages ++ [user_message],
+             streaming_id: assistant_message.id,
+             streaming_text: ""
+           )}
 
-      {:noreply,
-       assign(socket,
-         conversation: conversation,
-         messages: socket.assigns.messages ++ [user_message],
-         streaming_id: assistant_message.id,
-         streaming_text: ""
-       )}
+        {:error, :quota_exceeded} ->
+          {:noreply, put_flash(socket, :error, "This app is over its daily usage limit.")}
+      end
     else
       {:noreply, put_flash(socket, :error, "Too many requests — please slow down.")}
     end
@@ -109,6 +112,9 @@ defmodule FluxWeb.SiteLive.AppSite do
     else
       false ->
         {:noreply, put_flash(socket, :error, "Too many requests — please slow down.")}
+
+      {:error, :quota_exceeded} ->
+        {:noreply, put_flash(socket, :error, "This app is over its daily usage limit.")}
 
       {:error, :not_completion_app} ->
         {:noreply, socket}

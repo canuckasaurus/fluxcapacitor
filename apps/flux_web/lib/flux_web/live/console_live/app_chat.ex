@@ -44,16 +44,20 @@ defmodule FluxWeb.ConsoleLive.AppChat do
     conversation =
       socket.assigns.conversation || Chat.create_conversation(scope, app)
 
-    {:ok, user_message, assistant_message} =
-      Chat.send_message(scope, app, conversation, content)
+    case Chat.send_message(scope, app, conversation, content) do
+      {:ok, user_message, assistant_message} ->
+        {:noreply,
+         assign(socket,
+           conversation: conversation,
+           messages: socket.assigns.messages ++ [user_message],
+           streaming_id: assistant_message.id,
+           streaming_text: ""
+         )}
 
-    {:noreply,
-     assign(socket,
-       conversation: conversation,
-       messages: socket.assigns.messages ++ [user_message],
-       streaming_id: assistant_message.id,
-       streaming_text: ""
-     )}
+      {:error, :quota_exceeded} ->
+        {:noreply,
+         put_flash(socket, :error, "This app's daily token limit is spent — try again tomorrow.")}
+    end
   end
 
   def handle_event("send", _params, socket), do: {:noreply, socket}
@@ -88,6 +92,10 @@ defmodule FluxWeb.ConsoleLive.AppChat do
 
       {:error, :not_completion_app} ->
         {:noreply, put_flash(socket, :error, "This app is not in completion mode.")}
+
+      {:error, :quota_exceeded} ->
+        {:noreply,
+         put_flash(socket, :error, "This app's daily token limit is spent — try again tomorrow.")}
     end
   end
 
@@ -168,7 +176,8 @@ defmodule FluxWeb.ConsoleLive.AppChat do
 
     case Chat.update_app(scope, socket.assigns.app, %{
            "opening_statement" => params["opening_statement"],
-           "suggested_questions" => questions
+           "suggested_questions" => questions,
+           "daily_token_limit" => presence(params["daily_token_limit"])
          }) do
       {:ok, app} ->
         {:noreply, socket |> put_flash(:info, "Chat settings saved.") |> assign(app: app)}
@@ -228,6 +237,9 @@ defmodule FluxWeb.ConsoleLive.AppChat do
        streaming_text: ""
      )}
   end
+
+  defp presence(nil), do: nil
+  defp presence(text), do: if(String.trim(text) == "", do: nil, else: String.trim(text))
 
   defp parse_var_rows(%{"vars" => vars}) when is_map(vars) do
     vars
@@ -378,6 +390,18 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               rows="3"
               class="textarea textarea-bordered w-full"
             >{Enum.join(@app.suggested_questions, "\n")}</textarea>
+          </label>
+          <label class="form-control block">
+            <span class="label-text text-sm mb-1">
+              Daily token limit (blank = unlimited; refusals return 429 on the API)
+            </span>
+            <input
+              type="number"
+              name="daily_token_limit"
+              value={@app.daily_token_limit}
+              min="1"
+              class="input input-bordered input-sm w-48"
+            />
           </label>
           <button class="btn btn-primary btn-sm">Save chat settings</button>
         </form>

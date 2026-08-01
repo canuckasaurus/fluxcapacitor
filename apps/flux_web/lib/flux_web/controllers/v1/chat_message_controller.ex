@@ -41,6 +41,9 @@ defmodule FluxWeb.V1.ChatMessageController do
 
           {:error, :not_completion_app} ->
             error(conn, 400, "invalid_app_mode", "This app is not a completion app")
+
+          {:error, :quota_exceeded} ->
+            error(conn, 429, "quota_exceeded", "This app's daily token limit is spent")
         end
     end
   end
@@ -50,12 +53,15 @@ defmodule FluxWeb.V1.ChatMessageController do
 
     case resolve_conversation(scope, app, params) do
       {:ok, conversation} ->
-        {:ok, _user_message, assistant_message} =
-          Chat.send_message(scope, app, conversation, query)
+        case Chat.send_message(scope, app, conversation, query) do
+          {:ok, _user_message, assistant_message} ->
+            case Map.get(params, "response_mode", "streaming") do
+              "blocking" -> respond_blocking(conn, conversation, assistant_message)
+              _ -> respond_streaming(conn, conversation, assistant_message)
+            end
 
-        case Map.get(params, "response_mode", "streaming") do
-          "blocking" -> respond_blocking(conn, conversation, assistant_message)
-          _ -> respond_streaming(conn, conversation, assistant_message)
+          {:error, :quota_exceeded} ->
+            error(conn, 429, "quota_exceeded", "This app's daily token limit is spent")
         end
 
       {:error, :not_found} ->
