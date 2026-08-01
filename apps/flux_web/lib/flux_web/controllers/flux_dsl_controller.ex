@@ -24,6 +24,37 @@ defmodule FluxWeb.FluxDslController do
     end
   end
 
+  @doc "Bulk export: the selected fluxes as one multi-document YAML file."
+  def export_many(conn, %{"ids" => ids}) when is_list(ids) do
+    scope = conn.assigns.current_scope
+
+    documents =
+      for id <- Enum.take(ids, 100),
+          match?({:ok, _uuid}, Ecto.UUID.cast(id)),
+          %Workflow{} = workflow <- [Workflows.get_workflow(scope, id)] do
+        Flux.Workflows.DSL.export(workflow)
+      end
+
+    case documents do
+      [] ->
+        conn
+        |> put_flash(:error, "Nothing to export.")
+        |> redirect(to: ~p"/console/fluxes")
+
+      documents ->
+        send_download(
+          conn,
+          {:binary, Enum.join(documents, "\n---\n")},
+          filename: "fluxes-export.yml",
+          content_type: "application/yaml"
+        )
+    end
+  end
+
+  def export_many(conn, _params) do
+    conn |> put_flash(:error, "Nothing to export.") |> redirect(to: ~p"/console/fluxes")
+  end
+
   def export_app(conn, %{"id" => id}) do
     scope = conn.assigns.current_scope
 

@@ -17,7 +17,9 @@ defmodule FluxWeb.ConsoleLive.Fluxes do
        creating: false,
        importing: false,
        form: to_form(Workflow.changeset(%Workflow{}, %{})),
-       can_create: RBAC.can?(scope, :app_create_and_management)
+       can_create: RBAC.can?(scope, :app_create_and_management),
+       can_export: RBAC.can?(scope, :app_import_export_dsl),
+       selected: MapSet.new()
      )
      |> load_workflows()}
   end
@@ -99,6 +101,53 @@ defmodule FluxWeb.ConsoleLive.Fluxes do
     end
   end
 
+  ## Bulk selection
+
+  def handle_event("toggle_select", %{"workflow-id" => id}, socket) do
+    selected = socket.assigns.selected
+
+    selected =
+      if MapSet.member?(selected, id),
+        do: MapSet.delete(selected, id),
+        else: MapSet.put(selected, id)
+
+    {:noreply, assign(socket, selected: selected)}
+  end
+
+  def handle_event("select_all", _params, socket) do
+    {:noreply, assign(socket, selected: MapSet.new(socket.assigns.workflows, & &1.id))}
+  end
+
+  def handle_event("clear_selection", _params, socket) do
+    {:noreply, assign(socket, selected: MapSet.new())}
+  end
+
+  def handle_event("bulk_delete", _params, socket) do
+    scope = socket.assigns.current_scope
+
+    {deleted, failed} =
+      Enum.reduce(socket.assigns.selected, {0, 0}, fn id, {deleted, failed} ->
+        with %Workflow{} = workflow <- Workflows.get_workflow(scope, id),
+             {:ok, _deleted} <- Workflows.delete_workflow(scope, workflow) do
+          {deleted + 1, failed}
+        else
+          _error -> {deleted, failed + 1}
+        end
+      end)
+
+    flash =
+      case failed do
+        0 -> "Deleted #{deleted} flux(es)."
+        failed -> "Deleted #{deleted} flux(es); #{failed} could not be deleted."
+      end
+
+    {:noreply,
+     socket
+     |> put_flash((failed == 0 && :info) || :error, flash)
+     |> assign(selected: MapSet.new())
+     |> load_workflows()}
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -175,6 +224,39 @@ defmodule FluxWeb.ConsoleLive.Fluxes do
         </p>
       </div>
 
+      <div
+        :if={@workflows != [] and (@can_create or @can_export)}
+        class="flex items-center gap-2"
+        id="bulk-toolbar"
+      >
+        <button class="btn btn-ghost btn-xs" phx-click="select_all">Select all</button>
+        <button
+          :if={@selected != MapSet.new()}
+          class="btn btn-ghost btn-xs"
+          phx-click="clear_selection"
+        >
+          Clear
+        </button>
+        <span :if={@selected != MapSet.new()} class="text-xs opacity-60">
+          {MapSet.size(@selected)} selected
+        </span>
+        <a
+          :if={@can_export and @selected != MapSet.new()}
+          href={~p"/console/fluxes-export?#{[ids: Enum.to_list(@selected)]}"}
+          class="btn btn-outline btn-xs"
+        >
+          <.icon name="hero-arrow-up-tray" class="size-3" /> Export selected
+        </a>
+        <button
+          :if={@can_create and @selected != MapSet.new()}
+          class="btn btn-outline btn-xs text-error"
+          phx-click="bulk_delete"
+          data-confirm={"Delete #{MapSet.size(@selected)} flux(es)? This cannot be undone."}
+        >
+          Delete selected
+        </button>
+      </div>
+
       <div class="grid gap-4 sm:grid-cols-2">
         <div
           :for={workflow <- @workflows}
@@ -182,7 +264,17 @@ defmodule FluxWeb.ConsoleLive.Fluxes do
           id={"workflow-#{workflow.id}"}
         >
           <div class="flex items-start justify-between">
-            <h2 class="font-semibold">{workflow.name}</h2>
+            <div class="flex items-center gap-2">
+              <input
+                type="checkbox"
+                class="checkbox checkbox-sm"
+                checked={MapSet.member?(@selected, workflow.id)}
+                phx-click="toggle_select"
+                phx-value-workflow-id={workflow.id}
+                id={"select-#{workflow.id}"}
+              />
+              <h2 class="font-semibold">{workflow.name}</h2>
+            </div>
             <button
               :if={@can_create}
               class="btn btn-ghost btn-xs text-error"
