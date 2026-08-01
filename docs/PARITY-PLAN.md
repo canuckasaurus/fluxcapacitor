@@ -146,7 +146,7 @@ Order inside the workstream:
   - Collapse into OTP: the whole HTTP+SSE+Redis-stream transport and the service split exist to escape Python's process model — our supervised runs + PubSub already provide it; keep the cursor/replay property.
   - Scope warning: v2 "agent parity" also includes shell/drive/config-asset ("Agent Soul") capabilities with no v1 analogue — far beyond the loop. Phase those separately.
   - ✅ **Agent node v1 shipped (2026-07-31)**: engine loop (LLM↔toolset tools, role:tool history, agent_tool_call events), max-iteration guard, editor panel snapshotting toolset ops into JSON-schema tool defs. Engine at **11/20 node types**. Remaining for v2: final_output structured output, deferred-tool HITL, streaming thought vocabulary.
-- Plugin SDK: Tool/Datasource/Trigger/Endpoint behaviours; per-workspace installations.
+- Plugin SDK: ✅ Tool (2026-08-01) + ✅ Datasource (2026-08-01, RSS built-in + dataset sync) with per-workspace installations; Trigger/Endpoint behaviours still open.
 
 ### WS7 — Ops & enterprise (ongoing → P5)
 - Near-term: PromEx + OpenTelemetry + logger_json; audit-log context (`Flux.Audit`) so
@@ -194,13 +194,14 @@ Timeline above assumes ~2–3 engineers; single-engineer pace ≈ 2.5× the dura
 10. ~~Canvas copy/paste + searchable node palette~~ ✅ (2026-07-31).
 11a. ~~2026-08-01 batch~~ ✅: multi-case if-else (elif chains, per-case handles/ports, DSL both ways); chatflow memory ({{sys.history}}/{{sys.turns}}); LLM structured output (output_schema → {{node.output}}); public-site conversation persistence (signed-session visitor ref + start-over); **cron schedule triggers** (Oban.Cron.Expression validation + minute-tick matching — Oban is the platform scheduler, no external orchestrator); audit coverage for members/roles/tokens/triggers; canvas **minimap + auto-layout**; per-app usage metering (daily token rollups on the monitor page); **OpenAPI contract published at GET /v1/spec**.
 11. ~~Third 2026-07-31 batch~~ ✅: harness fixtures for the new nodes (classifier routing, extractor+list-op+env); per-node debug run (`Workflows.debug_node` + Test-this-node panel); clickable variable picker; **document-extractor** (native text/HTML, Tika deferred); **iteration node v1** (map list through a published sub-flux — see docs/ITERATION-DESIGN.md; loop/while deferred with rationale); **human-input + run pause/resume** (snapshot on the run row, editor resume form, `POST /v1/workflows/runs/:id/resume`); app monitoring console (`/console/apps/:id/monitor`); opening statement + suggested questions (console, public site, `/v1/parameters`); **custom roles** (roles table, exact-subset grants, Members-page editor). Engine at **19/20 node types** (only knowledge-retrieval remains — RAG/Docker-blocked).
+12. ~~2026-08-01 batch (#56–64)~~ ✅: **Dockerfile + compose stack authored** (multi-stage release image; postgres/minio base, `rag` profile adds arangodb+tika, `full` runs the app — verification still Docker-blocked); **version browser + rollback** (editor Versions modal, restore goes through undo history); **URL ingestion** (`add_document_from_url`: SSRF-guarded fetch, HTML→text, 5MB cap); **multi-dataset retrieval** (`retrieve_many` merge + knowledge node `dataset_ids` checkboxes); **run retention** (per-workspace `retention_days`, nightly CleanupWorker prunes runs/messages, paused/streaming survive); **failure alerting** (per-workspace `alert_url` webhook, SSRF-validated, AlertWorker with retries); **public-site theming** (accent/title/logo URL, strict hex validation before the inline style block); **conversation switcher** on public sites (visitor's last 10 threads, ownership-checked); **datasource plugin behaviour** (`Flux.Plugin.Datasource` SDK + runtime hosting, built-in RSS feed plugin, `RAG.sync_datasource` Oban sync with name-dedupe, Knowledge-page sync form, datasources install/configure through the existing plugin + credential stores).
 
 ### Blocked — external unblocks required
 | Item | Blocked on |
 |---|---|
 | ~~Push to GitHub~~ ✅ (2026-07-31: `canuckasaurus/fluxcapacitor`, folder renamed too — WS0 complete) | CI-green confirmation still needs `gh auth login` (token stale) |
 | flux-coderunner container (code node phase 1: real deps + sandbox) | Docker Desktop |
-| RAG workstream WS3 (ArangoDB + compose stack: postgres/arango/minio/tika) | Docker Desktop |
+| RAG workstream WS3 remainder (ArangoDB backend, Tika formats; compose stack **authored 2026-08-01**, unverified) | Docker Desktop |
 | Golden harness phase 2 (recorded run traces + SSE transcripts) | Docker Desktop (live Reference instance) |
 | Code node phase 2 hardening (network-namespace split) | phase 1 (Docker) |
 | ArangoDB BUSL-1.1 license acceptability review | user/legal decision |
