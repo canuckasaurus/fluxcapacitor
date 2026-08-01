@@ -267,6 +267,28 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
         <a href={~p"/console/workspace-export"} class="btn btn-outline btn-sm w-fit">
           <.icon name="hero-arrow-down-tray" class="size-4" /> Download workspace export
         </a>
+        <form
+          action={~p"/console/workspace-import"}
+          method="post"
+          enctype="multipart/form-data"
+          class="flex items-center gap-2"
+          id="workspace-import-form"
+        >
+          <input type="hidden" name="_csrf_token" value={Plug.CSRFProtection.get_csrf_token()} />
+          <input
+            type="file"
+            name="archive"
+            accept=".json,application/json"
+            required
+            class="file-input file-input-sm"
+          />
+          <button class="btn btn-outline btn-sm">Import archive</button>
+        </form>
+        <p class="text-xs opacity-60">
+          Importing adds the archive's fluxes, apps, and datasets to this
+          workspace (existing data is never touched). Cross-references like a
+          chatflow's flux may need rebinding afterwards.
+        </p>
       </div>
 
       <div :if={@owner?} class="card border border-base-200 p-6 space-y-3" id="plan-card">

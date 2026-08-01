@@ -20,4 +20,38 @@ defmodule FluxWeb.WorkspaceExportController do
         |> redirect(to: ~p"/console/settings")
     end
   end
+
+  def import(conn, %{"archive" => %Plug.Upload{path: path}}) do
+    case Flux.Import.workspace(conn.assigns.current_scope, File.read!(path)) do
+      {:ok, counts} ->
+        summary =
+          "Imported #{counts.fluxes} flux(es), #{counts.apps} app(s), " <>
+            "#{counts.datasets} dataset(s) with #{counts.documents} document(s)."
+
+        summary =
+          case counts.warnings do
+            [] ->
+              summary
+
+            warnings ->
+              summary <> " #{length(warnings)} warning(s): #{Enum.join(warnings, " · ")}"
+          end
+
+        conn |> put_flash(:info, summary) |> redirect(to: ~p"/console/settings")
+
+      {:error, :unauthorized} ->
+        conn
+        |> put_flash(:error, "You don't have permission to import.")
+        |> redirect(to: ~p"/console/settings")
+
+      {:error, message} ->
+        conn |> put_flash(:error, message) |> redirect(to: ~p"/console/settings")
+    end
+  end
+
+  def import(conn, _params) do
+    conn
+    |> put_flash(:error, "Choose an export archive (.json) to import.")
+    |> redirect(to: ~p"/console/settings")
+  end
 end

@@ -58,6 +58,69 @@ defmodule FluxWeb.WorkspaceExportTest do
     assert settings["embedding_model"] == "echo-embed"
   end
 
+  test "an export round-trips into a fresh workspace", %{conn: conn, scope: scope} do
+    {:ok, _workflow} = Flux.Workflows.create_workflow(scope, %{"name" => "Round Trip Flux"})
+
+    {:ok, _app} =
+      Flux.Chat.create_app(scope, %{
+        "name" => "Round Trip App",
+        "provider_plugin_id" => "echo",
+        "model" => "echo-1"
+      })
+
+    {:ok, dataset} =
+      Flux.RAG.create_dataset(scope, %{
+        "name" => "Round Trip KB",
+        "embedding_plugin_id" => "echo",
+        "embedding_model" => "echo-embed"
+      })
+
+    {:ok, _doc} = Flux.RAG.add_document(scope, dataset, %{name: "a.md", content: "round trip"})
+
+    json = conn |> get(~p"/console/workspace-export") |> response(200)
+
+    # A different account imports the archive into a brand-new workspace.
+    other = account_fixture()
+    {:ok, {_ws2, _}} = Accounts.create_workspace(other, %{name: "Target WS"})
+    target_scope = Accounts.scope_for(other)
+
+    assert {:ok, counts} = Flux.Import.workspace(target_scope, json)
+    assert counts.fluxes == 1
+    assert counts.apps == 1
+    assert counts.datasets == 1
+    assert counts.documents == 1
+
+    assert [imported_flux] = Flux.Workflows.list_workflows(target_scope)
+    assert imported_flux.name == "Round Trip Flux"
+    assert [imported_app] = Flux.Chat.list_apps(target_scope)
+    assert imported_app.name == "Round Trip App"
+    assert [imported_dataset] = Flux.RAG.list_datasets(target_scope)
+    assert [document] = Flux.RAG.list_documents(target_scope, imported_dataset.id)
+    assert document.content == "round trip"
+
+    # The upload endpoint reports the same counts through the flash.
+    path = Path.join(System.tmp_dir!(), "ws-export.json")
+    File.write!(path, json)
+
+    upload = %Plug.Upload{
+      path: path,
+      filename: "ws-export.json",
+      content_type: "application/json"
+    }
+
+    other_conn =
+      build_conn()
+      |> log_in_account(other)
+      |> post(~p"/console/workspace-import", %{"archive" => upload})
+
+    assert redirected_to(other_conn) == ~p"/console/settings"
+    assert Phoenix.Flash.get(other_conn.assigns.flash, :info) =~ "Imported 1 flux(es)"
+
+    # Garbage archives are refused, not crashed on.
+    assert {:error, message} = Flux.Import.workspace(target_scope, "{\"nope\": true}")
+    assert message =~ "not a FluxCapacitor"
+  end
+
   test "members without export permission are refused", %{conn: _conn, scope: scope} do
     viewer = account_fixture()
 
