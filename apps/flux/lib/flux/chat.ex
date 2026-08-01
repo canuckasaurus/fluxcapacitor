@@ -322,6 +322,42 @@ defmodule Flux.Chat do
   end
 
   @doc """
+  Rated assistant messages for an app, newest first, each paired with the
+  question that prompted it. `filter` is `:all`, `:like`, or `:dislike`.
+  """
+  def list_feedback(%Scope{} = scope, app_id, filter \\ :all, limit \\ 100) do
+    Message
+    |> Repo.scoped(scope)
+    |> join(:inner, [m], c in Conversation, on: m.conversation_id == c.id)
+    |> where([m, c], c.app_id == ^app_id and not is_nil(m.feedback))
+    |> then(fn query ->
+      case filter do
+        :like -> where(query, [m], m.feedback == :like)
+        :dislike -> where(query, [m], m.feedback == :dislike)
+        _all -> query
+      end
+    end)
+    |> order_by([m], desc: m.inserted_at, desc: m.id)
+    |> limit(^limit)
+    |> Repo.all()
+    |> Enum.map(fn message ->
+      %{message: message, question: preceding_question(scope, message)}
+    end)
+  end
+
+  # The user turn right before the rated answer (UUIDv7 ids order by time).
+  defp preceding_question(scope, message) do
+    Message
+    |> Repo.scoped(scope)
+    |> where([m], m.conversation_id == ^message.conversation_id and m.role == :user)
+    |> where([m], m.id < ^message.id)
+    |> order_by([m], desc: m.id)
+    |> limit(1)
+    |> select([m], m.content)
+    |> Repo.one()
+  end
+
+  @doc """
   Per-day usage rollups for an app over the trailing `days`: assistant
   message count and token sums from the messages' usage maps.
   """

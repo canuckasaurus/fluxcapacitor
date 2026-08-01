@@ -18,6 +18,8 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
          app: app,
          conversations: Chat.list_conversations(scope, app.id, 50),
          usage: Chat.usage_stats(scope, app.id),
+         feedback_filter: :all,
+         feedback: Chat.list_feedback(scope, app.id),
          selected_id: nil,
          messages: []
        )}
@@ -35,6 +37,18 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
   end
 
   @impl true
+  def handle_event("filter_feedback", %{"filter" => filter}, socket)
+      when filter in ~w(all like dislike) do
+    filter = String.to_existing_atom(filter)
+    scope = socket.assigns.current_scope
+
+    {:noreply,
+     assign(socket,
+       feedback_filter: filter,
+       feedback: Chat.list_feedback(scope, socket.assigns.app.id, filter)
+     )}
+  end
+
   def handle_event("select", %{"conversation-id" => id}, socket) do
     scope = socket.assigns.current_scope
 
@@ -106,6 +120,57 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
             </tr>
           </tbody>
         </table>
+      </div>
+
+      <div class="card border border-base-200 p-6 space-y-3" id="feedback-review">
+        <div class="flex items-center gap-3">
+          <h2 class="font-semibold">Feedback</h2>
+          <div class="join">
+            <button
+              :for={filter <- [:all, :like, :dislike]}
+              class={[
+                "btn btn-xs join-item",
+                (@feedback_filter == filter && "btn-primary") || "btn-ghost"
+              ]}
+              phx-click="filter_feedback"
+              phx-value-filter={filter}
+            >
+              {filter}
+            </button>
+          </div>
+          <span class="text-xs opacity-60">{length(@feedback)} rated replies</span>
+        </div>
+        <p :if={@feedback == []} class="text-sm opacity-60">
+          No rated replies{if @feedback_filter != :all, do: " with that rating"} yet.
+        </p>
+        <div
+          :for={%{message: message, question: question} <- @feedback}
+          class="rounded-box border border-base-200 p-3 space-y-1"
+          id={"feedback-#{message.id}"}
+        >
+          <div class="flex items-center gap-2 text-xs opacity-60">
+            <span class={[
+              "badge badge-sm",
+              (message.feedback == :like && "badge-success") || "badge-error"
+            ]}>
+              {(message.feedback == :like && "👍 liked") || "👎 disliked"}
+            </span>
+            <span>{Calendar.strftime(message.inserted_at, "%Y-%m-%d %H:%M")}</span>
+            <button
+              class="btn btn-ghost btn-xs ml-auto"
+              phx-click="select"
+              phx-value-conversation-id={message.conversation_id}
+            >
+              View conversation
+            </button>
+          </div>
+          <p :if={question} class="text-sm opacity-70 truncate">
+            <span class="font-semibold">Q:</span> {question}
+          </p>
+          <p class="text-sm whitespace-pre-wrap break-words max-h-24 overflow-y-auto">
+            {message.content}
+          </p>
+        </div>
       </div>
 
       <p :if={@conversations == []} class="text-sm opacity-60">No conversations yet.</p>

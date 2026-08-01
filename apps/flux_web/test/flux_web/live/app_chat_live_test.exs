@@ -245,6 +245,33 @@ defmodule FluxWeb.AppChatLiveTest do
     assert html =~ "You said: monitor me"
   end
 
+  test "feedback review lists rated replies with their questions", %{
+    conn: conn,
+    app: app,
+    scope: scope
+  } do
+    conversation = Chat.create_conversation(scope, app)
+    {:ok, _user, _assistant} = Chat.send_message(scope, app, conversation, "rate me well")
+    assert_receive {:done, liked}, 5_000
+    {:ok, _user, _assistant} = Chat.send_message(scope, app, conversation, "rate me badly")
+    assert_receive {:done, disliked}, 5_000
+
+    {:ok, _} = Chat.set_feedback(scope, liked.id, :like)
+    {:ok, _} = Chat.set_feedback(scope, disliked.id, :dislike)
+
+    {:ok, lv, html} = live(conn, ~p"/console/apps/#{app.id}/monitor")
+    assert html =~ "2 rated replies"
+    assert html =~ "rate me well"
+    assert html =~ "👍 liked"
+    assert html =~ "👎 disliked"
+
+    # Filter to dislikes only: the liked reply drops out.
+    html = lv |> element("#feedback-review button", "dislike") |> render_click()
+    assert html =~ "1 rated replies"
+    assert html =~ "rate me badly"
+    refute html =~ "👍 liked"
+  end
+
   defp poll_until(lv, needle, retries) do
     html = render(lv)
 
