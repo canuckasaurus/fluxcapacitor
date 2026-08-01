@@ -20,6 +20,8 @@ defmodule Flux.RAG.Dataset do
     field(:sync_plugin_id, :string)
     field(:sync_interval_minutes, :integer)
     field(:last_synced_at, :utc_datetime)
+    field(:retrieval_top_k, :integer)
+    field(:score_threshold, :float)
 
     timestamps(type: :utc_datetime)
   end
@@ -36,12 +38,19 @@ defmodule Flux.RAG.Dataset do
       :rerank_plugin_id,
       :rerank_model,
       :sync_plugin_id,
-      :sync_interval_minutes
+      :sync_interval_minutes,
+      :retrieval_top_k,
+      :score_threshold
     ])
     |> validate_required([:name, :embedding_plugin_id, :embedding_model])
     |> validate_number(:chunk_size, greater_than_or_equal_to: 200, less_than_or_equal_to: 4000)
     |> validate_number(:chunk_overlap, greater_than_or_equal_to: 0, less_than_or_equal_to: 500)
     |> validate_number(:sync_interval_minutes, greater_than_or_equal_to: 5)
+    |> validate_number(:retrieval_top_k, greater_than_or_equal_to: 1, less_than_or_equal_to: 20)
+    |> validate_number(:score_threshold,
+      greater_than_or_equal_to: 0.0,
+      less_than_or_equal_to: 1.0
+    )
     |> validate_length(:name, min: 1, max: 255)
     |> then(fn changeset ->
       # Clearing the plugin clears the schedule with it.

@@ -855,7 +855,8 @@ defmodule Flux.Engine.Nodes.KnowledgeRetrieval do
   Retrieves relevant segments from a dataset through the host's
   `retrieve_knowledge` capability (hybrid semantic + keyword).
 
-  Config: `dataset_id`, `query` (template), `top_k` (default 4).
+  Config: `dataset_id`, `query` (template), `top_k` (blank defers to the
+  dataset's retrieval settings, then 4).
   Outputs `%{"result" => joined text, "citations" => [%{"document",
   "content", "score"}], "count"}` — feed `result` to an LLM prompt and
   `citations` to the answer.
@@ -875,7 +876,8 @@ defmodule Flux.Engine.Nodes.KnowledgeRetrieval do
     with :ok <- require_dataset(dataset_ids),
          {:ok, retrieve} <- capability(host) do
       query = Template.render(node.config["query"], pool)
-      top_k = node.config["top_k"] || 4
+      # nil defers to per-dataset retrieval settings in the capability.
+      top_k = node.config["top_k"]
 
       case retrieve.(%{dataset_ids: dataset_ids, query: query, top_k: top_k}) do
         {:ok, hits} ->

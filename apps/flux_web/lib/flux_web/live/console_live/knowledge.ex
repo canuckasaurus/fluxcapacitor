@@ -300,11 +300,13 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
          {:ok, updated} <-
            RAG.update_dataset(socket.assigns.current_scope, dataset, %{
              "chunk_size" => params["chunk_size"],
-             "chunk_overlap" => params["chunk_overlap"]
+             "chunk_overlap" => params["chunk_overlap"],
+             "retrieval_top_k" => params["retrieval_top_k"],
+             "score_threshold" => params["score_threshold"]
            }) do
       {:noreply,
        socket
-       |> put_flash(:info, "Settings saved — re-index to apply to existing documents.")
+       |> put_flash(:info, "Settings saved — re-index to apply chunking to existing documents.")
        |> assign(selected: updated, datasets: RAG.list_datasets(socket.assigns.current_scope))}
     else
       _error -> {:noreply, put_flash(socket, :error, "Could not save the settings.")}
@@ -426,7 +428,7 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
           </div>
 
           <div :if={@can_edit} class="card border border-base-200 p-4 space-y-2">
-            <p class="text-sm font-semibold">Chunking</p>
+            <p class="text-sm font-semibold">Chunking &amp; retrieval</p>
             <form
               phx-submit="save_dataset_settings"
               id="dataset-settings-form"
@@ -451,6 +453,31 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                   value={@selected.chunk_overlap}
                   min="0"
                   max="500"
+                  class="input input-bordered input-sm w-28"
+                />
+              </label>
+              <label class="form-control">
+                <span class="label-text text-xs opacity-70 mb-1">Top K (default 4)</span>
+                <input
+                  type="number"
+                  name="retrieval_top_k"
+                  value={@selected.retrieval_top_k}
+                  min="1"
+                  max="20"
+                  placeholder="4"
+                  class="input input-bordered input-sm w-24"
+                />
+              </label>
+              <label class="form-control">
+                <span class="label-text text-xs opacity-70 mb-1">Score threshold (0–1)</span>
+                <input
+                  type="number"
+                  name="score_threshold"
+                  value={@selected.score_threshold}
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  placeholder="off"
                   class="input input-bordered input-sm w-28"
                 />
               </label>

@@ -391,6 +391,32 @@ defmodule FluxWeb.RAGIntegrationTest do
     assert cleared.sync_interval_minutes == nil
   end
 
+  test "dataset retrieval settings set the default top_k and threshold", %{
+    scope: scope,
+    dataset: dataset
+  } do
+    ingest!(scope, dataset, "a.md", "Vacation policy: 25 paid vacation days per year.")
+    ingest!(scope, dataset, "b.md", "Vacation requests go through the HR portal.")
+    ingest!(scope, dataset, "c.md", "The dishwasher schedule is on the fridge.")
+
+    # Default: 4 → all three match-ish rows can come back.
+    {:ok, hits} = RAG.retrieve(scope, dataset.id, "vacation days")
+    assert length(hits) >= 2
+
+    # Per-dataset top_k caps the default; explicit opt still wins.
+    {:ok, dataset} = RAG.update_dataset(scope, dataset, %{"retrieval_top_k" => 1})
+    {:ok, [only]} = RAG.retrieve(scope, dataset.id, "vacation days")
+    assert only.document.name == "a.md"
+    {:ok, hits} = RAG.retrieve(scope, dataset.id, "vacation days", top_k: 3)
+    assert length(hits) >= 2
+
+    # An impossible threshold filters everything out.
+    {:ok, _dataset} =
+      RAG.update_dataset(scope, dataset, %{"retrieval_top_k" => "", "score_threshold" => 0.99})
+
+    assert {:ok, []} = RAG.retrieve(scope, dataset.id, "vacation days")
+  end
+
   test "segments can be edited, disabled, and deleted", %{scope: scope, dataset: dataset} do
     document = ingest!(scope, dataset, "policy.md", "Vacation policy: 20 paid days per year.")
     [segment] = RAG.list_segments(scope, document.id)

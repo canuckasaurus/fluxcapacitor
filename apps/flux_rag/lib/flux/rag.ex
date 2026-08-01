@@ -373,11 +373,14 @@ defmodule Flux.RAG do
   Hybrid retrieval: semantic (vector store) and keyword (Postgres
   full-text) rankings merged by reciprocal rank fusion. Returns segments
   with `:score` and preloaded document names, best first.
+
+  `top_k` falls back to the dataset's `retrieval_top_k` (then 4); a
+  dataset `score_threshold` drops hits whose final score (RRF fusion, or
+  the rerank score when a reranker is configured) falls below it.
   """
   def retrieve(%Scope{} = scope, dataset_id, query, opts \\ []) do
-    top_k = Keyword.get(opts, :top_k, 4)
-
     with %Dataset{} = dataset <- get_dataset(scope, dataset_id) do
+      top_k = Keyword.get(opts, :top_k) || dataset.retrieval_top_k || 4
       rerank? = dataset.rerank_plugin_id not in [nil, ""]
       candidates = if rerank?, do: top_k * 3, else: top_k
 
@@ -409,9 +412,19 @@ defmodule Flux.RAG do
         |> Enum.sort_by(&Map.fetch!(scores, &1.id), :desc)
         |> Enum.map(&Map.put(&1, :score, Map.fetch!(scores, &1.id)))
 
-      {:ok, maybe_rerank(dataset, query, segments, top_k, rerank?)}
+      hits =
+        dataset
+        |> maybe_rerank(query, segments, top_k, rerank?)
+        |> apply_threshold(dataset.score_threshold)
+
+      {:ok, hits}
     end
   end
+
+  defp apply_threshold(hits, nil), do: hits
+
+  defp apply_threshold(hits, threshold),
+    do: Enum.filter(hits, &(&1.score >= threshold))
 
   # A configured rerank model reorders the RRF candidates and replaces
   # the scores; failures fall back to the fused ranking untouched.
@@ -443,7 +456,7 @@ defmodule Flux.RAG do
   Unknown dataset ids are skipped.
   """
   def retrieve_many(%Scope{} = scope, dataset_ids, query, opts \\ []) do
-    top_k = Keyword.get(opts, :top_k, 4)
+    top_k = Keyword.get(opts, :top_k) || 4
 
     hits =
       dataset_ids
