@@ -81,26 +81,37 @@ defmodule Flux.RBAC do
   end
 
   def create_role(%Scope{} = scope, attrs) do
-    with :ok <- authorize(scope, :workspace_role_manage) do
-      %Role{workspace_id: Scope.workspace_id(scope)}
-      |> Role.changeset(attrs)
-      |> Repo.insert()
+    with :ok <- authorize(scope, :workspace_role_manage),
+         {:ok, role} <-
+           %Role{workspace_id: Scope.workspace_id(scope)}
+           |> Role.changeset(attrs)
+           |> Repo.insert() do
+      Flux.Audit.record(scope, "role.create",
+        resource: role,
+        metadata: %{"name" => role.name, "permissions" => length(role.permissions)}
+      )
+
+      {:ok, role}
     end
   end
 
   def update_role(%Scope{} = scope, role_id, attrs) do
     with :ok <- authorize(scope, :workspace_role_manage),
-         %Role{} = role <- get_role(scope, role_id) do
-      role |> Role.changeset(attrs) |> Repo.update()
+         %Role{} = role <- get_role(scope, role_id),
+         {:ok, updated} <- role |> Role.changeset(attrs) |> Repo.update() do
+      Flux.Audit.record(scope, "role.update", resource: role, metadata: %{"name" => updated.name})
+      {:ok, updated}
     end
   end
 
   def delete_role(%Scope{} = scope, role_id) do
     with :ok <- authorize(scope, :workspace_role_manage),
-         %Role{} = role <- get_role(scope, role_id) do
-      # Memberships pointing at it fall back to their built-in role
-      # (custom_role_id nilifies on delete).
-      Repo.delete(role)
+         %Role{} = role <- get_role(scope, role_id),
+         # Memberships pointing at it fall back to their built-in role
+         # (custom_role_id nilifies on delete).
+         {:ok, deleted} <- Repo.delete(role) do
+      Flux.Audit.record(scope, "role.delete", resource: role, metadata: %{"name" => role.name})
+      {:ok, deleted}
     end
   end
 
@@ -111,8 +122,16 @@ defmodule Flux.RBAC do
     with :ok <- authorize(scope, :workspace_role_manage),
          true <- membership.workspace_id == workspace_id || {:error, :not_found},
          true <- membership.role != :owner || {:error, :cannot_change_owner_role},
-         :ok <- validate_role_binding(scope, role_id) do
-      membership |> Ecto.Changeset.change(custom_role_id: role_id) |> Repo.update()
+         :ok <- validate_role_binding(scope, role_id),
+         {:ok, updated} <-
+           membership |> Ecto.Changeset.change(custom_role_id: role_id) |> Repo.update() do
+      Flux.Audit.record(scope, "role.assign",
+        resource_type: "membership",
+        resource_id: membership.id,
+        metadata: %{"custom_role_id" => role_id}
+      )
+
+      {:ok, updated}
     end
   end
 

@@ -44,6 +44,48 @@ defmodule Flux.AuditTest do
     assert "workflow.publish" in actions
   end
 
+  test "member, role, token, and trigger mutations are audited", %{
+    scope: scope,
+    workspace: workspace
+  } do
+    # Member role change + removal.
+    member = account_fixture()
+
+    {:ok, membership} =
+      %Flux.Accounts.Membership{}
+      |> Flux.Accounts.Membership.changeset(%{
+        workspace_id: workspace.id,
+        account_id: member.id,
+        role: :normal
+      })
+      |> Flux.Repo.insert()
+
+    {:ok, _} = Accounts.update_member_role(scope, membership, :editor)
+
+    # Custom role lifecycle.
+    {:ok, role} = Flux.RBAC.create_role(scope, %{"name" => "Aud", "permissions" => ["app_edit"]})
+    membership = Flux.Repo.get!(Flux.Accounts.Membership, membership.id)
+    {:ok, _} = Flux.RBAC.assign_custom_role(scope, membership, role.id)
+    {:ok, _} = Flux.RBAC.delete_role(scope, role.id)
+
+    membership = Flux.Repo.get!(Flux.Accounts.Membership, membership.id)
+    {:ok, _} = Accounts.remove_member(scope, membership)
+
+    # API token + trigger lifecycle.
+    {:ok, workflow} = Flux.Workflows.create_workflow(scope, %{"name" => "Aud Flux"})
+    {:ok, token, _raw} = Flux.Workflows.create_api_token(scope, workflow)
+    {:ok, _} = Flux.Workflows.revoke_api_token(scope, token.id)
+    {:ok, trigger} = Flux.Workflows.create_trigger(scope, workflow, %{"type" => "webhook"})
+    {:ok, _} = Flux.Workflows.delete_trigger(scope, trigger.id)
+
+    actions = scope |> Flux.Audit.list(100) |> Enum.map(& &1.action)
+
+    for action <- ~w(member.role_change member.remove role.create role.assign role.delete
+                     api_token.create api_token.revoke trigger.create trigger.delete) do
+      assert action in actions, "expected #{action} to be audited"
+    end
+  end
+
   test "entries are workspace-scoped", %{scope: scope} do
     :ok = Audit.record(scope, "mine.only")
 

@@ -272,13 +272,21 @@ defmodule Flux.Workflows do
           "wht_" <> Base.url_encode64(:crypto.strong_rand_bytes(18), padding: false)
         end
 
-      %Flux.Workflows.Trigger{
-        workspace_id: workflow.workspace_id,
-        workflow_id: workflow.id,
-        token: token
-      }
-      |> Flux.Workflows.Trigger.changeset(attrs)
-      |> Repo.insert()
+      with {:ok, trigger} <-
+             %Flux.Workflows.Trigger{
+               workspace_id: workflow.workspace_id,
+               workflow_id: workflow.id,
+               token: token
+             }
+             |> Flux.Workflows.Trigger.changeset(attrs)
+             |> Repo.insert() do
+        Flux.Audit.record(scope, "trigger.create",
+          resource: trigger,
+          metadata: %{"type" => to_string(trigger.type), "workflow_id" => workflow.id}
+        )
+
+        {:ok, trigger}
+      end
     end
   end
 
@@ -292,8 +300,14 @@ defmodule Flux.Workflows do
   def delete_trigger(%Scope{} = scope, trigger_id) do
     with :ok <- RBAC.authorize(scope, :app_edit) do
       case Repo.one(Repo.scoped(where(Flux.Workflows.Trigger, id: ^trigger_id), scope)) do
-        nil -> {:error, :not_found}
-        trigger -> Repo.delete(trigger)
+        nil ->
+          {:error, :not_found}
+
+        trigger ->
+          with {:ok, deleted} <- Repo.delete(trigger) do
+            Flux.Audit.record(scope, "trigger.delete", resource: trigger)
+            {:ok, deleted}
+          end
       end
     end
   end
@@ -411,6 +425,11 @@ defmodule Flux.Workflows do
           prefix: String.slice(raw, 0, 13) <> "…"
         })
 
+      Flux.Audit.record(scope, "api_token.create",
+        resource: token,
+        metadata: %{"workflow_id" => workflow.id, "prefix" => token.prefix}
+      )
+
       {:ok, token, raw}
     end
   end
@@ -421,8 +440,18 @@ defmodule Flux.Workflows do
 
   def revoke_api_token(%Scope{} = scope, token_id) do
     case Repo.one(Repo.scoped(where(ApiToken, id: ^token_id), scope)) do
-      nil -> {:error, :not_found}
-      token -> Repo.delete(token)
+      nil ->
+        {:error, :not_found}
+
+      token ->
+        with {:ok, deleted} <- Repo.delete(token) do
+          Flux.Audit.record(scope, "api_token.revoke",
+            resource: token,
+            metadata: %{"prefix" => token.prefix}
+          )
+
+          {:ok, deleted}
+        end
     end
   end
 

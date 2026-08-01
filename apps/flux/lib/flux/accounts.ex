@@ -435,10 +435,26 @@ defmodule Flux.Accounts do
   def update_member_role(%Scope{} = scope, %Membership{} = membership, new_role)
       when new_role in [:admin, :editor, :normal, :dataset_operator] do
     cond do
-      not Flux.RBAC.can?(scope, :workspace_member_manage) -> {:error, :unauthorized}
-      membership.workspace_id != Scope.workspace_id(scope) -> {:error, :not_found}
-      membership.role == :owner -> {:error, :cannot_change_owner_role}
-      true -> membership |> Ecto.Changeset.change(role: new_role) |> Repo.update()
+      not Flux.RBAC.can?(scope, :workspace_member_manage) ->
+        {:error, :unauthorized}
+
+      membership.workspace_id != Scope.workspace_id(scope) ->
+        {:error, :not_found}
+
+      membership.role == :owner ->
+        {:error, :cannot_change_owner_role}
+
+      true ->
+        with {:ok, updated} <-
+               membership |> Ecto.Changeset.change(role: new_role) |> Repo.update() do
+          Flux.Audit.record(scope, "member.role_change",
+            resource_type: "membership",
+            resource_id: membership.id,
+            metadata: %{"from" => to_string(membership.role), "to" => to_string(new_role)}
+          )
+
+          {:ok, updated}
+        end
     end
   end
 
@@ -447,11 +463,28 @@ defmodule Flux.Accounts do
   @doc "Removes a member from the workspace. The owner cannot be removed."
   def remove_member(%Scope{} = scope, %Membership{} = membership) do
     cond do
-      not Flux.RBAC.can?(scope, :workspace_member_manage) -> {:error, :unauthorized}
-      membership.workspace_id != Scope.workspace_id(scope) -> {:error, :not_found}
-      membership.role == :owner -> {:error, :cannot_remove_owner}
-      membership.account_id == Scope.account_id(scope) -> {:error, :cannot_remove_self}
-      true -> Repo.delete(membership)
+      not Flux.RBAC.can?(scope, :workspace_member_manage) ->
+        {:error, :unauthorized}
+
+      membership.workspace_id != Scope.workspace_id(scope) ->
+        {:error, :not_found}
+
+      membership.role == :owner ->
+        {:error, :cannot_remove_owner}
+
+      membership.account_id == Scope.account_id(scope) ->
+        {:error, :cannot_remove_self}
+
+      true ->
+        with {:ok, deleted} <- Repo.delete(membership) do
+          Flux.Audit.record(scope, "member.remove",
+            resource_type: "membership",
+            resource_id: membership.id,
+            metadata: %{"account_id" => membership.account_id}
+          )
+
+          {:ok, deleted}
+        end
     end
   end
 

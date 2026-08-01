@@ -294,6 +294,11 @@ defmodule Flux.Chat do
           prefix: String.slice(raw, 0, 12) <> "…"
         })
 
+      Flux.Audit.record(scope, "api_token.create",
+        resource: token,
+        metadata: %{"app_id" => app.id, "prefix" => token.prefix}
+      )
+
       {:ok, token, raw}
     end
   end
@@ -304,8 +309,18 @@ defmodule Flux.Chat do
 
   def revoke_api_token(%Scope{} = scope, token_id) do
     case Repo.one(Repo.scoped(where(ApiToken, id: ^token_id), scope)) do
-      nil -> {:error, :not_found}
-      token -> Repo.delete(token)
+      nil ->
+        {:error, :not_found}
+
+      token ->
+        with {:ok, deleted} <- Repo.delete(token) do
+          Flux.Audit.record(scope, "api_token.revoke",
+            resource: token,
+            metadata: %{"prefix" => token.prefix}
+          )
+
+          {:ok, deleted}
+        end
     end
   end
 
