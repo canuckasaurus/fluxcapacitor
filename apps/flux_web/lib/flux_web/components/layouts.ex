@@ -157,6 +157,12 @@ defmodule FluxWeb.Layouts do
             label="Audit log"
             active={@active == :audit}
           />
+          <.sidebar_link
+            navigate={~p"/console/settings"}
+            icon="hero-cog-6-tooth"
+            label="Settings"
+            active={@active == :settings}
+          />
         </nav>
 
         <div class="px-4 py-4 border-t border-base-200 space-y-3">

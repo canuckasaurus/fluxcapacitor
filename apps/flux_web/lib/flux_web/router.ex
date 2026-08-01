@@ -168,6 +168,7 @@ defmodule FluxWeb.Router do
       live "/tools", ConsoleLive.Tools, :index
       live "/members", ConsoleLive.Members, :index
       live "/audit", ConsoleLive.Audit, :index
+      live "/settings", ConsoleLive.WorkspaceSettings, :edit
     end
 
     # Workspace onboarding sits outside :require_workspace by design.

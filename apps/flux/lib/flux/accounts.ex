@@ -395,6 +395,36 @@ defmodule Flux.Accounts do
     end
   end
 
+  @doc "Renames the current workspace (customization_manage)."
+  def rename_workspace(%Scope{} = scope, name) when is_binary(name) do
+    name = String.trim(name)
+
+    with :ok <- Flux.RBAC.authorize(scope, :customization_manage),
+         true <- name != "" || {:error, :invalid_name},
+         %Workspace{} = workspace <- Repo.get(Workspace, Scope.workspace_id(scope)),
+         {:ok, renamed} <-
+           workspace |> Ecto.Changeset.change(name: name) |> Repo.update() do
+      Flux.Audit.record(scope, "workspace.rename",
+        resource_type: "workspace",
+        resource_id: workspace.id,
+        metadata: %{"from" => workspace.name, "to" => name}
+      )
+
+      {:ok, renamed}
+    end
+  end
+
+  @doc """
+  Deletes the current workspace and everything in it (owner only; FK
+  cascades remove apps, fluxes, datasets, runs, members).
+  """
+  def delete_workspace(%Scope{} = scope) do
+    with true <- Scope.role(scope) == :owner || {:error, :unauthorized},
+         %Workspace{} = workspace <- Repo.get(Workspace, Scope.workspace_id(scope)) do
+      Repo.delete(workspace)
+    end
+  end
+
   @doc "Builds a scope with the account's current (or fallback) workspace attached."
   def scope_for(%Account{} = account) do
     scope = Scope.for_account(account)
