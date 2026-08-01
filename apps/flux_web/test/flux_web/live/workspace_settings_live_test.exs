@@ -30,6 +30,21 @@ defmodule FluxWeb.WorkspaceSettingsLiveTest do
     assert Flux.Repo.get(Flux.Accounts.Workspace, workspace.id) == nil
   end
 
+  test "SCIM card enables, shows the token once, and disables", %{conn: conn} do
+    {:ok, lv, html} = live(conn, ~p"/console/settings")
+    assert html =~ "SCIM provisioning"
+    assert html =~ "/scim/v2"
+
+    html = lv |> element("button", "Enable SCIM") |> render_click()
+    assert html =~ "scim_"
+    assert html =~ "shown once"
+    assert html =~ "Rotate token"
+
+    html = lv |> element("button", "Disable") |> render_click()
+    refute html =~ "Rotate token"
+    assert html =~ "Enable SCIM"
+  end
+
   test "normal members see no rename or danger zone", %{conn: _conn, workspace: workspace} do
     member = account_fixture()
 

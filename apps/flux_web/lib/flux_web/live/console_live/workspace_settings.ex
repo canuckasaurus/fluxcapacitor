@@ -20,7 +20,7 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
        default_model: Providers.default_model(scope),
        retention_days: Accounts.retention_days(scope),
        alert_url: Accounts.alert_url(scope),
-       can_scim: RBAC.can?(scope, :member_invite),
+       can_scim: RBAC.can?(scope, :workspace_member_manage),
        scim_enabled: Accounts.scim_enabled?(scope),
        scim_token: nil
      )}
