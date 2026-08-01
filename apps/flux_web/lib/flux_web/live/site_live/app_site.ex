@@ -11,19 +11,43 @@ defmodule FluxWeb.SiteLive.AppSite do
   alias Flux.Chat.App
 
   @impl true
-  def mount(%{"token" => token}, _session, socket) do
+  def mount(%{"token" => token}, session, socket) do
     case Chat.get_app_by_site_token(token) do
       {:ok, %App{} = app} ->
+        scope = Chat.site_scope(app)
+
+        end_user_ref =
+          session["site_visitor"] ||
+            "web_" <> Base.url_encode64(:crypto.strong_rand_bytes(9), padding: false)
+
+        # Returning visitors resume their last conversation (chat modes).
+        {conversation, messages} =
+          if app.mode in [:chat, :advanced_chat] do
+            case Chat.latest_conversation(scope, app.id, end_user_ref) do
+              nil ->
+                {nil, []}
+
+              conversation ->
+                messages =
+                  scope
+                  |> Chat.list_messages(conversation.id)
+                  |> Enum.filter(&(&1.status in [:completed, :error] or &1.role == :user))
+
+                {conversation, messages}
+            end
+          else
+            {nil, []}
+          end
+
         {:ok,
          assign(socket,
            page_title: app.name,
            app: app,
            visitor_ip: FluxWeb.SiteRateLimit.visitor_ip(socket),
-           site_scope: Chat.site_scope(app),
-           end_user_ref:
-             "web_" <> Base.url_encode64(:crypto.strong_rand_bytes(9), padding: false),
-           conversation: nil,
-           messages: [],
+           site_scope: scope,
+           end_user_ref: end_user_ref,
+           conversation: conversation,
+           messages: messages,
            streaming_id: nil,
            streaming_text: ""
          )}
@@ -61,6 +85,10 @@ defmodule FluxWeb.SiteLive.AppSite do
 
   def handle_event("suggest", %{"question" => question}, socket) do
     handle_event("send", %{"content" => question}, socket)
+  end
+
+  def handle_event("start_over", _params, socket) do
+    {:noreply, assign(socket, conversation: nil, messages: [], streaming_id: nil)}
   end
 
   def handle_event("run_completion", params, socket) do
@@ -217,6 +245,15 @@ defmodule FluxWeb.SiteLive.AppSite do
             <button :if={@streaming_id == nil} class="btn btn-primary">Send</button>
             <button :if={@streaming_id} type="button" class="btn btn-warning" phx-click="stop">
               Stop
+            </button>
+            <button
+              :if={@conversation != nil and @streaming_id == nil}
+              type="button"
+              class="btn btn-ghost"
+              phx-click="start_over"
+              title="Start a new conversation"
+            >
+              <.icon name="hero-arrow-path" class="size-4" />
             </button>
           </form>
         </div>

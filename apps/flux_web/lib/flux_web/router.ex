@@ -62,7 +62,7 @@ defmodule FluxWeb.Router do
   ## Public published app sites (token in path is the authorization)
 
   scope "/site", FluxWeb do
-    pipe_through [:browser, :allow_embedding]
+    pipe_through [:browser, :allow_embedding, :ensure_site_visitor]
 
     live_session :public_site do
       live "/flux/:token", SiteLive.FluxSite, :show
@@ -115,6 +115,17 @@ defmodule FluxWeb.Router do
     conn
     |> delete_resp_header("x-frame-options")
     |> put_resp_header("content-security-policy", "frame-ancestors *")
+  end
+
+  # A stable anonymous visitor ref in the signed session cookie, so
+  # returning visitors get their public-site conversation back.
+  defp ensure_site_visitor(conn, _opts) do
+    if get_session(conn, "site_visitor") do
+      conn
+    else
+      ref = "web_" <> Base.url_encode64(:crypto.strong_rand_bytes(9), padding: false)
+      put_session(conn, "site_visitor", ref)
+    end
   end
 
   defp require_mailbox_enabled(conn, _opts) do

@@ -164,6 +164,29 @@ defmodule FluxWeb.AppSiteLiveTest do
     assert Chat.list_conversations(scope, app.id) == []
   end
 
+  test "returning visitors resume their conversation via the session ref", %{
+    conn: conn,
+    scope: scope,
+    app: app
+  } do
+    {:ok, app} = Chat.enable_site(scope, app)
+
+    # First visit establishes the cookie and sends a message.
+    conn = get(conn, ~p"/site/#{app.site_token}")
+    {:ok, lv, _html} = live(conn)
+    lv |> form("#site-chat-form", %{"content" => "remember me"}) |> render_submit()
+    poll_until(lv, "You said: remember me", 50)
+    refute poll_until_gone(lv, "animate-pulse", 50) =~ "animate-pulse"
+
+    # Same conn (same session cookie): the conversation is restored.
+    {:ok, _lv, html} = live(conn, ~p"/site/#{app.site_token}")
+    assert html =~ "remember me"
+    assert html =~ "You said: remember me"
+
+    [conversation] = Chat.list_conversations(scope, app.id)
+    assert conversation.end_user_ref =~ "web_"
+  end
+
   test "site responses allow cross-origin framing", %{conn: conn, scope: scope, app: app} do
     {:ok, app} = Chat.enable_site(scope, app)
 

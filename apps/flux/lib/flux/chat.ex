@@ -121,6 +121,19 @@ defmodule Flux.Chat do
     Repo.one(Repo.scoped(where(Conversation, id: ^id), scope)) || {:error, :not_found}
   end
 
+  @doc "The visitor's most recent conversation with an app, or nil."
+  def latest_conversation(%Scope{} = scope, app_id, end_user_ref)
+      when is_binary(end_user_ref) and end_user_ref != "" do
+    Conversation
+    |> Repo.scoped(scope)
+    |> where([c], c.app_id == ^app_id and c.end_user_ref == ^end_user_ref)
+    |> order_by([c], desc: c.inserted_at)
+    |> limit(1)
+    |> Repo.one()
+  end
+
+  def latest_conversation(%Scope{}, _app_id, _end_user_ref), do: nil
+
   def list_conversations(%Scope{} = scope, app_id, limit \\ 20) do
     Conversation
     |> Repo.scoped(scope)
