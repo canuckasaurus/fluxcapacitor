@@ -94,6 +94,8 @@ defmodule Flux.Chat.Message do
 
     field :role, Ecto.Enum, values: [:user, :assistant]
     field :content, :string, default: ""
+    # DB-assigned insertion order (UUIDv7 ids tie within a millisecond).
+    field :seq, :integer, read_after_writes: true
 
     field :status, Ecto.Enum,
       values: [:completed, :streaming, :stopped, :error],

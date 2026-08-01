@@ -184,7 +184,7 @@ defmodule Flux.Chat do
     Message
     |> Repo.scoped(scope)
     |> where([m], m.conversation_id == ^conversation_id)
-    |> order_by([m], asc: m.inserted_at, asc: m.id)
+    |> order_by([m], asc: m.seq)
     |> Repo.all()
   end
 
@@ -345,13 +345,13 @@ defmodule Flux.Chat do
     end)
   end
 
-  # The user turn right before the rated answer (UUIDv7 ids order by time).
+  # The user turn right before the rated answer.
   defp preceding_question(scope, message) do
     Message
     |> Repo.scoped(scope)
     |> where([m], m.conversation_id == ^message.conversation_id and m.role == :user)
-    |> where([m], m.id < ^message.id)
-    |> order_by([m], desc: m.id)
+    |> where([m], m.seq < ^message.seq)
+    |> order_by([m], desc: m.seq)
     |> limit(1)
     |> select([m], m.content)
     |> Repo.one()
