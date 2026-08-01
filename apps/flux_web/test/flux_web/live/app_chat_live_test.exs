@@ -173,6 +173,57 @@ defmodule FluxWeb.AppChatLiveTest do
     end
   end
 
+  test "chat-app DSL imports on the Apps page and round-trips through export", %{
+    conn: conn,
+    scope: scope
+  } do
+    dsl = """
+    app:
+      name: Imported Helper
+      description: A helpful bot
+      mode: chat
+    kind: app
+    version: 0.3.1
+    model_config:
+      model:
+        provider: langgenius/openai/openai
+        name: gpt-4o
+        completion_params:
+          temperature: 0.4
+      pre_prompt: You are terse and helpful.
+      opening_statement: Hi! How can I help?
+      suggested_questions:
+        - What can you do?
+      user_input_form:
+        - text-input:
+            label: Name
+            variable: name
+            required: true
+    """
+
+    {:ok, lv, _html} = live(conn, ~p"/console/apps")
+    lv |> element("button", "Import DSL") |> render_click()
+
+    assert {:error, {:live_redirect, %{to: "/console/apps/" <> app_id}}} =
+             lv |> form("#app-import-form", %{"dsl" => dsl}) |> render_submit()
+
+    app = Chat.get_app(scope, app_id)
+    assert app.name == "Imported Helper"
+    assert app.provider_plugin_id == "openai"
+    assert app.model == "gpt-4o"
+    assert app.system_prompt == "You are terse and helpful."
+    assert app.opening_statement == "Hi! How can I help?"
+    assert app.suggested_questions == ["What can you do?"]
+    assert [%{"variable" => "name", "required" => true}] = app.input_form
+
+    # Export → reimport preserves the essentials.
+    exported = Flux.Workflows.DSL.export_app(app)
+    assert {:ok, %{attrs: attrs}} = Flux.Workflows.DSL.parse_app(exported)
+    assert attrs["name"] == "Imported Helper"
+    assert attrs["opening_statement"] == "Hi! How can I help?"
+    assert attrs["model"] == "gpt-4o"
+  end
+
   test "monitor page lists conversations and expands messages", %{
     conn: conn,
     app: app,

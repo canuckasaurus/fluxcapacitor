@@ -150,6 +150,7 @@ defmodule FluxWeb.Router do
 
     post "/workspaces/switch/:id", WorkspaceController, :switch
     get "/fluxes/:id/export", FluxDslController, :export
+    get "/apps/:id/export", FluxDslController, :export_app
 
     live_session :console,
       on_mount: [

@@ -23,4 +23,21 @@ defmodule FluxWeb.FluxDslController do
         conn |> put_flash(:error, "Flux not found.") |> redirect(to: ~p"/console/fluxes")
     end
   end
+
+  def export_app(conn, %{"id" => id}) do
+    scope = conn.assigns.current_scope
+
+    case Flux.Chat.get_app(scope, id) do
+      %Flux.Chat.App{} = app ->
+        send_download(
+          conn,
+          {:binary, Flux.Workflows.DSL.export_app(app)},
+          filename: "#{app.name}.yml",
+          content_type: "application/yaml"
+        )
+
+      {:error, :not_found} ->
+        conn |> put_flash(:error, "App not found.") |> redirect(to: ~p"/console/apps")
+    end
+  end
 end

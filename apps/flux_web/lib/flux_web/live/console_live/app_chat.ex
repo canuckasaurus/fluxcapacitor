@@ -283,6 +283,14 @@ defmodule FluxWeb.ConsoleLive.AppChat do
             New conversation
           </button>
           <.link
+            :if={Flux.RBAC.can?(@current_scope, :app_import_export_dsl)}
+            href={~p"/console/apps/#{@app.id}/export"}
+            class="btn btn-sm btn-ghost"
+            title="Download portable DSL"
+          >
+            <.icon name="hero-arrow-up-tray" class="size-4" /> Export
+          </.link>
+          <.link
             :if={Flux.RBAC.can?(@current_scope, :app_monitor)}
             navigate={~p"/console/apps/#{@app.id}/monitor"}
             class="btn btn-sm btn-ghost"

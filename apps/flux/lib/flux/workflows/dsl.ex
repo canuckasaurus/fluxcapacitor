@@ -442,6 +442,127 @@ defmodule Flux.Workflows.DSL do
     end
   end
 
+  @doc """
+  Parses a chat/completion app DSL (`mode: chat | completion | agent-chat`)
+  into app attributes for `Flux.Chat.create_app/2`. Returns
+  `{:ok, %{attrs, warnings}}` or `{:error, message}`.
+  """
+  def parse_app(yaml) when is_binary(yaml) do
+    with {:ok, doc} <- decode(yaml),
+         :ok <- validate_app(doc) do
+      model_config = doc["model_config"] || %{}
+      model = model_config["model"] || %{}
+      {provider, warnings} = map_provider(model["provider"])
+
+      mode =
+        case get_in(doc, ["app", "mode"]) do
+          "completion" -> "completion"
+          _chat_like -> "chat"
+        end
+
+      warnings =
+        if get_in(doc, ["app", "mode"]) == "agent-chat" do
+          ["agent-chat app imported as a plain chat app (agent tools do not transfer)."]
+        else
+          []
+        end ++ warnings
+
+      input_form =
+        model_config["user_input_form"]
+        |> List.wrap()
+        |> Enum.flat_map(fn control ->
+          case Map.to_list(control) do
+            [{type, %{"variable" => variable} = field}] ->
+              [
+                %{
+                  "type" => type,
+                  "variable" => variable,
+                  "label" => field["label"] || variable,
+                  "required" => field["required"] == true
+                }
+              ]
+
+            _malformed ->
+              []
+          end
+        end)
+
+      {:ok,
+       %{
+         attrs: %{
+           "name" => get_in(doc, ["app", "name"]) || "Imported app",
+           "description" => get_in(doc, ["app", "description"]),
+           "mode" => mode,
+           "provider_plugin_id" => provider,
+           "model" => model["name"] || "",
+           "system_prompt" => (mode == "chat" && model_config["pre_prompt"]) || nil,
+           "prompt_template" => (mode == "completion" && model_config["pre_prompt"]) || nil,
+           "opening_statement" => model_config["opening_statement"],
+           "suggested_questions" => List.wrap(model_config["suggested_questions"]),
+           "input_form" => input_form,
+           "params" =>
+             (model["completion_params"] || %{})
+             |> Map.take(["temperature", "max_tokens", "top_p"])
+         },
+         warnings: warnings
+       }}
+    end
+  end
+
+  @doc "Exports a chat/completion app as portable DSL (JSON-as-YAML)."
+  def export_app(app) do
+    %{
+      "version" => "0.3.1",
+      "kind" => "app",
+      "app" => %{
+        "name" => app.name,
+        "description" => app.description || "",
+        "mode" => (app.mode == :completion && "completion") || "chat",
+        "icon" => "🤖",
+        "icon_background" => "#FFEAD5",
+        "use_icon_as_answer_icon" => false
+      },
+      "model_config" => %{
+        "model" => %{
+          "provider" => app.provider_plugin_id || "",
+          "name" => app.model || "",
+          "mode" => "chat",
+          "completion_params" => app.params || %{}
+        },
+        "pre_prompt" => app.system_prompt || app.prompt_template || "",
+        "opening_statement" => app.opening_statement || "",
+        "suggested_questions" => app.suggested_questions,
+        "user_input_form" =>
+          for field <- app.input_form do
+            %{
+              (field["type"] || "text-input") => %{
+                "label" => field["label"] || field["variable"],
+                "variable" => field["variable"],
+                "required" => field["required"] == true,
+                "default" => ""
+              }
+            }
+          end
+      }
+    }
+    |> Jason.encode!(pretty: true)
+  end
+
+  defp validate_app(doc) do
+    mode = get_in(doc, ["app", "mode"])
+
+    cond do
+      not is_map(doc["app"]) ->
+        {:error, "Missing app section — is this a portable DSL export?"}
+
+      mode not in ["chat", "completion", "agent-chat"] ->
+        {:error, "Not an app DSL (mode #{mode || "none"}); import it on the Fluxes page instead."}
+
+      true ->
+        :ok
+    end
+  end
+
   defp validate(doc) do
     mode = get_in(doc, ["app", "mode"])
 

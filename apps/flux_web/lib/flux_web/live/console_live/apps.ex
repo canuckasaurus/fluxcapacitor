@@ -16,6 +16,7 @@ defmodule FluxWeb.ConsoleLive.Apps do
      |> assign(
        page_title: "Apps",
        creating: false,
+       importing: false,
        form: to_form(App.changeset(%App{}, %{})),
        models: Providers.available_models(scope),
        fluxes: Flux.Workflows.list_workflows(scope),
@@ -26,11 +27,40 @@ defmodule FluxWeb.ConsoleLive.Apps do
 
   @impl true
   def handle_event("new", _params, socket) do
-    {:noreply, assign(socket, creating: true)}
+    {:noreply, assign(socket, creating: true, importing: false)}
+  end
+
+  def handle_event("importing", _params, socket) do
+    {:noreply, assign(socket, importing: true, creating: false)}
+  end
+
+  def handle_event("import", %{"dsl" => dsl}, socket) do
+    scope = socket.assigns.current_scope
+
+    with {:ok, %{attrs: attrs, warnings: warnings}} <- Flux.Workflows.DSL.parse_app(dsl),
+         {:ok, app} <- Chat.create_app(scope, attrs) do
+      socket =
+        if warnings == [] do
+          put_flash(socket, :info, "App \"#{app.name}\" imported.")
+        else
+          put_flash(socket, :info, "Imported with notes: #{Enum.join(warnings, " ")}")
+        end
+
+      {:noreply, push_navigate(socket, to: ~p"/console/apps/#{app.id}")}
+    else
+      {:error, message} when is_binary(message) ->
+        {:noreply, put_flash(socket, :error, message)}
+
+      {:error, %Ecto.Changeset{}} ->
+        {:noreply, put_flash(socket, :error, "The DSL is missing required app fields.")}
+
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "You don't have permission to create apps.")}
+    end
   end
 
   def handle_event("cancel", _params, socket) do
-    {:noreply, assign(socket, creating: false)}
+    {:noreply, assign(socket, creating: false, importing: false)}
   end
 
   def handle_event("validate", %{"app" => params}, socket) do
@@ -96,9 +126,34 @@ defmodule FluxWeb.ConsoleLive.Apps do
           <h1 class="text-2xl font-bold">Apps</h1>
           <p class="opacity-70 mt-1">Chat applications backed by your configured models.</p>
         </div>
-        <button :if={@can_create and not @creating} class="btn btn-primary" phx-click="new">
-          <.icon name="hero-plus" class="size-4" /> New app
-        </button>
+        <div class="flex gap-2">
+          <button
+            :if={@can_create and not @importing}
+            class="btn btn-outline"
+            phx-click="importing"
+          >
+            <.icon name="hero-arrow-down-tray" class="size-4" /> Import DSL
+          </button>
+          <button :if={@can_create and not @creating} class="btn btn-primary" phx-click="new">
+            <.icon name="hero-plus" class="size-4" /> New app
+          </button>
+        </div>
+      </div>
+
+      <div :if={@importing} class="card border border-base-200 p-6 space-y-3">
+        <h2 class="font-semibold">Import an app DSL</h2>
+        <form phx-submit="import" id="app-import-form" class="space-y-3">
+          <textarea
+            name="dsl"
+            rows="8"
+            placeholder="Paste a chat/completion app DSL export (kind: app, mode: chat)…"
+            class="textarea textarea-bordered w-full font-mono text-xs"
+          ></textarea>
+          <div class="flex gap-2">
+            <button class="btn btn-primary btn-sm">Import</button>
+            <button type="button" class="btn btn-ghost btn-sm" phx-click="cancel">Cancel</button>
+          </div>
+        </form>
       </div>
 
       <div :if={@creating} class="card border border-base-200 p-6 space-y-4">
