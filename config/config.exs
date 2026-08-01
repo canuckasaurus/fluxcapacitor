@@ -9,6 +9,9 @@
 # move said applications out of the umbrella.
 import Config
 
+# SCIM clients (Okta, Entra) speak application/scim+json.
+config :mime, :types, %{"application/scim+json" => ["scim+json"]}
+
 config :flux, :scopes,
   account: [
     default: true,

@@ -417,6 +417,153 @@ defmodule Flux.Accounts do
   end
 
   @doc "Sets the run/message retention window in days (nil = keep forever)."
+  ## SCIM provisioning
+
+  @doc """
+  Mints (replacing any prior) the workspace's SCIM bearer token and
+  returns the raw once — only its hash is stored.
+  """
+  def enable_scim(%Scope{} = scope) do
+    with :ok <- Flux.RBAC.authorize(scope, :workspace_member_manage),
+         %Workspace{} = workspace <- Repo.get(Workspace, Scope.workspace_id(scope)) do
+      raw = "scim_" <> Base.url_encode64(:crypto.strong_rand_bytes(24), padding: false)
+
+      custom_config =
+        Map.put(workspace.custom_config || %{}, "scim_token_hash", scim_hash(raw))
+
+      with {:ok, _updated} <-
+             workspace |> Ecto.Changeset.change(custom_config: custom_config) |> Repo.update() do
+        Flux.Audit.record(scope, "workspace.scim_enable",
+          resource_type: "workspace",
+          resource_id: workspace.id
+        )
+
+        {:ok, raw}
+      end
+    end
+  end
+
+  def disable_scim(%Scope{} = scope) do
+    with :ok <- Flux.RBAC.authorize(scope, :workspace_member_manage),
+         %Workspace{} = workspace <- Repo.get(Workspace, Scope.workspace_id(scope)),
+         {:ok, _updated} <-
+           workspace
+           |> Ecto.Changeset.change(
+             custom_config: Map.delete(workspace.custom_config || %{}, "scim_token_hash")
+           )
+           |> Repo.update() do
+      Flux.Audit.record(scope, "workspace.scim_disable",
+        resource_type: "workspace",
+        resource_id: workspace.id
+      )
+
+      :ok
+    end
+  end
+
+  def scim_enabled?(%Scope{} = scope) do
+    match?(
+      %{custom_config: %{"scim_token_hash" => _hash}},
+      Repo.get(Workspace, Scope.workspace_id(scope))
+    )
+  end
+
+  @doc "Resolves a SCIM bearer token to its workspace."
+  def workspace_by_scim_token("scim_" <> _rest = raw) do
+    hash = scim_hash(raw)
+
+    from(w in Workspace, where: fragment("? ->> 'scim_token_hash' = ?", w.custom_config, ^hash))
+    |> Repo.one()
+    |> case do
+      nil -> {:error, :unauthorized}
+      workspace -> {:ok, workspace}
+    end
+  end
+
+  def workspace_by_scim_token(_other), do: {:error, :unauthorized}
+
+  defp scim_hash(raw), do: Base.encode16(:crypto.hash(:sha256, raw), case: :lower)
+
+  # System-level member operations for the SCIM API — the workspace-bound
+  # bearer token is the authorization, so no scope RBAC applies here.
+
+  def scim_list_members(workspace_id) do
+    from(m in Membership,
+      where: m.workspace_id == ^workspace_id,
+      join: a in assoc(m, :account),
+      preload: [account: a],
+      order_by: a.email
+    )
+    |> Repo.all()
+  end
+
+  def scim_find_member(workspace_id, account_id) do
+    case Ecto.UUID.cast(account_id) do
+      {:ok, _uuid} ->
+        from(m in Membership,
+          where: m.workspace_id == ^workspace_id and m.account_id == ^account_id,
+          join: a in assoc(m, :account),
+          preload: [account: a]
+        )
+        |> Repo.one()
+
+      :error ->
+        nil
+    end
+  end
+
+  @doc "Provisions (or 409s on) a member for the email; accounts arrive confirmed."
+  def scim_provision(%Workspace{} = workspace, email) when is_binary(email) do
+    with {:ok, account} <- get_or_register_sso_account(String.downcase(email)) do
+      case scim_find_member(workspace.id, account.id) do
+        nil ->
+          {:ok, membership} =
+            %Membership{}
+            |> Membership.changeset(%{
+              workspace_id: workspace.id,
+              account_id: account.id,
+              role: :normal
+            })
+            |> Repo.insert()
+
+          Flux.Audit.record(scim_scope(workspace), "member.scim_provision",
+            resource_type: "membership",
+            resource_id: membership.id,
+            metadata: %{"email" => account.email}
+          )
+
+          {:ok, %{membership | account: account}}
+
+        _member ->
+          {:error, :conflict}
+      end
+    end
+  end
+
+  @doc "Removes the member (never the global account). Owners are refused."
+  def scim_deprovision(%Workspace{} = workspace, account_id) do
+    case scim_find_member(workspace.id, account_id) do
+      nil ->
+        {:error, :not_found}
+
+      %Membership{role: :owner} ->
+        {:error, :owner}
+
+      %Membership{} = membership ->
+        {:ok, _deleted} = Repo.delete(membership)
+
+        Flux.Audit.record(scim_scope(workspace), "member.scim_deprovision",
+          resource_type: "membership",
+          resource_id: membership.id,
+          metadata: %{"account_id" => account_id}
+        )
+
+        :ok
+    end
+  end
+
+  defp scim_scope(workspace), do: %Scope{account: nil, membership: nil, workspace: workspace}
+
   def set_retention_days(%Scope{} = scope, days) when is_nil(days) or days in 1..3650 do
     with :ok <- Flux.RBAC.authorize(scope, :customization_manage),
          %Workspace{} = workspace <- Repo.get(Workspace, Scope.workspace_id(scope)) do

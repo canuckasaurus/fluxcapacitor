@@ -14,7 +14,7 @@ defmodule FluxWeb.Router do
   end
 
   pipeline :api do
-    plug :accepts, ["json"]
+    plug :accepts, ["json", "scim+json"]
   end
 
   pipeline :service_api do
@@ -87,6 +87,18 @@ defmodule FluxWeb.Router do
     pipe_through :api
 
     post "/webhook/:token", TriggerController, :webhook
+  end
+
+  # SCIM 2.0 provisioning (IdP-driven); the bearer token names the workspace.
+  scope "/scim/v2", FluxWeb do
+    pipe_through :api
+
+    get "/Users", ScimController, :index
+    post "/Users", ScimController, :create
+    get "/Users/:id", ScimController, :show
+    patch "/Users/:id", ScimController, :patch
+    put "/Users/:id", ScimController, :put
+    delete "/Users/:id", ScimController, :delete
   end
 
   # Endpoint plugins: workspace installations serve HTTP under their token.

@@ -19,7 +19,10 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
        models: Providers.available_models(scope),
        default_model: Providers.default_model(scope),
        retention_days: Accounts.retention_days(scope),
-       alert_url: Accounts.alert_url(scope)
+       alert_url: Accounts.alert_url(scope),
+       can_scim: RBAC.can?(scope, :member_invite),
+       scim_enabled: Accounts.scim_enabled?(scope),
+       scim_token: nil
      )}
   end
 
@@ -77,6 +80,29 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
 
       {:error, :unauthorized} ->
         {:noreply, put_flash(socket, :error, "You don't have permission to change retention.")}
+    end
+  end
+
+  def handle_event("enable_scim", _params, socket) do
+    case Accounts.enable_scim(socket.assigns.current_scope) do
+      {:ok, raw} ->
+        {:noreply, assign(socket, scim_enabled: true, scim_token: raw)}
+
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "You don't have permission to manage SCIM.")}
+    end
+  end
+
+  def handle_event("disable_scim", _params, socket) do
+    case Accounts.disable_scim(socket.assigns.current_scope) do
+      :ok ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "SCIM disabled — the token no longer works.")
+         |> assign(scim_enabled: false, scim_token: nil)}
+
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "You don't have permission to manage SCIM.")}
     end
   end
 
@@ -204,6 +230,33 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
           />
           <button class="btn btn-primary btn-sm">Save</button>
         </form>
+      </div>
+
+      <div :if={@can_scim} class="card border border-base-200 p-6 space-y-3" id="scim-card">
+        <h2 class="font-semibold">SCIM provisioning</h2>
+        <p class="text-sm opacity-70">
+          Let your identity provider create and remove members automatically.
+          Base URL: <span class="font-mono text-xs">{url(~p"/scim/v2")}</span>
+          — provisioned users join as <span class="font-mono text-xs">normal</span>
+          members.
+        </p>
+        <div :if={@scim_token} class="space-y-1">
+          <p class="text-sm text-warning">Copy this bearer token now — it is shown once:</p>
+          <pre class="rounded bg-base-200 p-2 text-xs overflow-x-auto" id="scim-token">{@scim_token}</pre>
+        </div>
+        <div class="flex gap-2">
+          <button class="btn btn-primary btn-sm" phx-click="enable_scim">
+            {(@scim_enabled && "Rotate token") || "Enable SCIM"}
+          </button>
+          <button
+            :if={@scim_enabled}
+            class="btn btn-ghost btn-sm text-error"
+            phx-click="disable_scim"
+            data-confirm="Disable SCIM? The current token stops working."
+          >
+            Disable
+          </button>
+        </div>
       </div>
 
       <div :if={@owner?} class="card border border-error/40 p-6 space-y-3">
