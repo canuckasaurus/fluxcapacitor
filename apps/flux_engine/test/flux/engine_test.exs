@@ -183,6 +183,70 @@ defmodule Flux.EngineTest do
                Engine.run(built, %{"query" => "all fine"}, echo_host())
     end
 
+    test "template node renders jinja when the engine mode says so" do
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("t", "template", %{
+            "engine" => "jinja",
+            "template" =>
+              "{% if start.query == 'list' %}{% for n in start.items %}{{ n }}-{% endfor %}" <>
+                "{% else %}{{ start.query | upper }}{% endif %}"
+          })
+        ],
+        "edges" => [edge!("start", "t")]
+      }
+
+      {:ok, built} = Engine.build(graph)
+
+      assert {:ok, %{outputs: %{"output" => "HELLO"}}} =
+               Engine.run(built, %{"query" => "hello"}, echo_host())
+
+      # Jinja syntax errors fail the node loudly.
+      bad =
+        put_in(graph, ["nodes"], [
+          start_node(),
+          node!("t", "template", %{"engine" => "jinja", "template" => "{% if x %}oops"})
+        ])
+
+      {:ok, built} = Engine.build(bad)
+      assert {:error, failure} = Engine.run(built, %{"query" => "q"}, echo_host())
+      assert failure.error =~ "jinja"
+    end
+
+    test "template node pulls a saved doc template through the host" do
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("t", "template", %{"template_id" => "tpl-1"})
+        ],
+        "edges" => [edge!("start", "t")]
+      }
+
+      host = %Host{
+        emit: fn _e -> :ok end,
+        fetch_doc_template: fn
+          "tpl-1" -> {:ok, "Dear {{ start.query | capitalize }}, welcome."}
+          _other -> {:error, "doc template not found"}
+        end
+      }
+
+      {:ok, built} = Engine.build(graph)
+
+      assert {:ok, %{outputs: %{"output" => "Dear Marty, welcome."}}} =
+               Engine.run(built, %{"query" => "marty"}, host)
+
+      missing =
+        put_in(graph, ["nodes"], [
+          start_node(),
+          node!("t", "template", %{"template_id" => "ghost"})
+        ])
+
+      {:ok, built} = Engine.build(missing)
+      assert {:error, failure} = Engine.run(built, %{"query" => "q"}, host)
+      assert failure.error =~ "not found"
+    end
+
     test "end node collects mapped outputs" do
       graph = %{
         "nodes" => [

@@ -319,15 +319,53 @@ defmodule Flux.Engine.Nodes.IfElse do
 end
 
 defmodule Flux.Engine.Nodes.TemplateTransform do
-  @moduledoc ~S(Renders `config["template"]`; outputs `%{"output" => text}`.)
+  @moduledoc ~S"""
+  Renders `config["template"]`; outputs `%{"output" => text}`.
+
+  `config["engine"]` picks the language: `"simple"` (default —
+  `{{node.key}}` interpolation) or `"jinja"` (the Jinja subset:
+  filters, `{% if %}`, `{% for %}`; see `Flux.Engine.Jinja`).
+  `config["template_id"]` swaps the inline text for a saved doc
+  template from the workspace library (always Jinja), fetched through
+  the host's `fetch_doc_template` capability.
+  """
   @behaviour Flux.Engine.Node
 
-  alias Flux.Engine.Template
+  alias Flux.Engine.{Host, Jinja, Template}
 
   @impl true
-  def run(node, pool, _host) do
-    {:ok, %{"output" => Template.render(node.config["template"], pool)}}
+  def run(node, pool, host) do
+    case to_string(node.config["template_id"] || "") do
+      "" ->
+        render_inline(node, pool)
+
+      template_id ->
+        with {:ok, fetch} <- capability(host),
+             {:ok, content} <- fetch.(template_id) do
+          render_jinja(content, pool)
+        else
+          {:error, reason} when is_binary(reason) -> {:error, reason}
+          {:error, reason} -> {:error, inspect(reason)}
+        end
+    end
   end
+
+  defp render_inline(node, pool) do
+    case node.config["engine"] do
+      "jinja" -> render_jinja(node.config["template"], pool)
+      _simple -> {:ok, %{"output" => Template.render(node.config["template"], pool)}}
+    end
+  end
+
+  defp render_jinja(content, pool) do
+    case Jinja.render(content, pool) do
+      {:ok, output} -> {:ok, %{"output" => output}}
+      {:error, message} -> {:error, "jinja: #{message}"}
+    end
+  end
+
+  defp capability(%Host{fetch_doc_template: fun}) when is_function(fun, 1), do: {:ok, fun}
+  defp capability(_host), do: {:error, "this run's host cannot fetch doc templates"}
 end
 
 defmodule Flux.Engine.Nodes.Answer do

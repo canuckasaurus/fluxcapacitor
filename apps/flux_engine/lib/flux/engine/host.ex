@@ -16,6 +16,7 @@ defmodule Flux.Engine.Host do
             read_document: nil,
             run_subflux: nil,
             retrieve_knowledge: nil,
+            fetch_doc_template: nil,
             default_llm: nil
 
   @typedoc """
@@ -36,6 +37,7 @@ defmodule Flux.Engine.Host do
           read_document: (map() -> {:ok, map()} | {:error, term()}) | nil,
           run_subflux: (map() -> {:ok, map()} | {:error, term()}) | nil,
           retrieve_knowledge: (map() -> {:ok, [map()]} | {:error, term()}) | nil,
+          fetch_doc_template: (String.t() -> {:ok, String.t()} | {:error, term()}) | nil,
           default_llm: %{optional(String.t()) => String.t()} | nil
         }
 
