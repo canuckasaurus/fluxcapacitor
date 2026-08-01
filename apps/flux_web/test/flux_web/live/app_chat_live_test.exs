@@ -240,8 +240,8 @@ defmodule FluxWeb.AppChatLiveTest do
     assert html =~ "Usage (last 14 days)"
     assert html =~ "Tokens out"
 
-    html = lv |> element("button", "Untitled conversation") |> render_click()
-    assert html =~ "monitor me"
+    # The conversation is auto-titled from its first question.
+    html = lv |> element("button", "monitor me") |> render_click()
     assert html =~ "You said: monitor me"
   end
 

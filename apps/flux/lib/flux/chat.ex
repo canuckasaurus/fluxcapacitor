@@ -222,6 +222,15 @@ defmodule Flux.Chat do
         files: files
       })
 
+    # Untitled conversations take their first question as the title
+    # (manual renames are never overwritten).
+    if conversation.title in [nil, ""] do
+      from(c in Conversation,
+        where: c.id == ^conversation.id and c.workspace_id == ^workspace_id and is_nil(c.title)
+      )
+      |> Repo.update_all(set: [title: derive_title(content)])
+    end
+
     assistant_message =
       Repo.insert!(%Message{
         workspace_id: workspace_id,
@@ -247,6 +256,16 @@ defmodule Flux.Chat do
       end)
 
     {:ok, user_message, assistant_message}
+  end
+
+  defp derive_title(content) do
+    clean = content |> String.replace(~r/\s+/, " ") |> String.trim()
+
+    cond do
+      clean == "" -> nil
+      String.length(clean) <= 60 -> clean
+      true -> (clean |> String.slice(0, 59) |> String.trim_trailing()) <> "…"
+    end
   end
 
   @doc """

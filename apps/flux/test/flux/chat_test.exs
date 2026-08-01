@@ -46,6 +46,25 @@ defmodule Flux.ChatTest do
     assert length(messages) == 2
   end
 
+  test "the first question titles the conversation, renames stick", %{scope: scope, app: app} do
+    conversation = Chat.create_conversation(scope, app)
+    long = String.duplicate("where is my very large order number 12345? ", 4)
+
+    {:ok, _u, _a} = Chat.send_message(scope, app, conversation, long)
+    assert_receive {:done, _final}, 5_000
+
+    titled = Chat.get_conversation(scope, conversation.id)
+    assert String.length(titled.title) <= 60
+    assert titled.title =~ "where is my very large order"
+    assert String.ends_with?(titled.title, "…")
+
+    # Later messages never retitle; explicit renames survive too.
+    {:ok, _} = Chat.rename_conversation(scope, conversation.id, "Order 12345")
+    {:ok, _u, _a} = Chat.send_message(scope, app, conversation, "second question")
+    assert_receive {:done, _final}, 5_000
+    assert Chat.get_conversation(scope, conversation.id).title == "Order 12345"
+  end
+
   test "conversation history feeds the next turn", %{scope: scope, app: app} do
     conversation = Chat.create_conversation(scope, app)
 

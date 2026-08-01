@@ -220,8 +220,10 @@ defmodule FluxWeb.AppSiteLiveTest do
       |> form("#conversation-switcher", %{"conversation-id" => older.id})
       |> render_change()
 
-    assert html =~ "first thread"
-    refute html =~ "second thread"
+    # The older thread's messages render; the newer thread's do not (its
+    # auto-title still shows in the switcher options).
+    assert html =~ "You said: first thread"
+    refute html =~ "You said: second thread"
   end
 
   test "site theme applies accent, title, and logo", %{
