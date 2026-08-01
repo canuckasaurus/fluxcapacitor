@@ -55,8 +55,12 @@ defmodule FluxWeb.Router do
 
     get "/datasets", DatasetController, :index
     post "/datasets", DatasetController, :create
+    delete "/datasets/:id", DatasetController, :delete
     post "/datasets/:id/document/create-by-text", DatasetController, :create_by_text
+    post "/datasets/:id/document/create-by-url", DatasetController, :create_by_url
     get "/datasets/:id/documents", DatasetController, :documents
+    delete "/datasets/:id/documents/:document_id", DatasetController, :delete_document
+    get "/datasets/:id/documents/:document_id/segments", DatasetController, :segments
     post "/datasets/:id/retrieve", DatasetController, :retrieve
   end
 

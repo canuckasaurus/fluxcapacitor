@@ -1,8 +1,9 @@
 defmodule FluxWeb.V1.DatasetController do
   @moduledoc """
-  `/v1/datasets` subset: list/create datasets, add text documents, list
-  documents, and retrieve — any valid service token (app- or flux-)
-  operates on its workspace's datasets.
+  `/v1/datasets`: list/create/delete datasets, add documents by text or
+  URL, list/delete documents, browse segments, and retrieve — any valid
+  service token (app- or flux-) operates on its workspace's datasets,
+  which makes FluxCapacitor usable as a standalone knowledge API.
   """
   use FluxWeb, :controller
 
@@ -66,6 +67,92 @@ defmodule FluxWeb.V1.DatasetController do
 
   def create_by_text(conn, _params) do
     error(conn, 400, "invalid_param", "name and text are required")
+  end
+
+  def create_by_url(conn, %{"id" => dataset_id, "url" => url}) when is_binary(url) do
+    scope = conn.assigns.service_scope
+
+    with dataset when not is_tuple(dataset) <- RAG.get_dataset(scope, dataset_id),
+         {:ok, document} <- RAG.add_document_from_url(scope, dataset, url) do
+      json(conn, %{
+        document: %{id: document.id, name: document.name, status: document.status}
+      })
+    else
+      {:error, :not_found} ->
+        error(conn, 404, "not_found", "Dataset not found")
+
+      {:error, :unauthorized} ->
+        error(conn, 403, "forbidden", "This token cannot add documents")
+
+      {:error, message} when is_binary(message) ->
+        error(conn, 400, "fetch_failed", message)
+    end
+  end
+
+  def create_by_url(conn, _params), do: error(conn, 400, "invalid_param", "url is required")
+
+  def delete(conn, %{"id" => dataset_id}) do
+    scope = conn.assigns.service_scope
+
+    with dataset when not is_tuple(dataset) <- RAG.get_dataset(scope, dataset_id),
+         {:ok, _deleted} <- RAG.delete_dataset(scope, dataset) do
+      json(conn, %{result: "success"})
+    else
+      {:error, :not_found} ->
+        error(conn, 404, "not_found", "Dataset not found")
+
+      {:error, :unauthorized} ->
+        error(conn, 403, "forbidden", "This token cannot delete datasets")
+    end
+  end
+
+  def delete_document(conn, %{"id" => dataset_id, "document_id" => document_id}) do
+    scope = conn.assigns.service_scope
+
+    with {:ok, _document} <- fetch_dataset_document(scope, dataset_id, document_id),
+         {:ok, _deleted} <- RAG.delete_document(scope, document_id) do
+      json(conn, %{result: "success"})
+    else
+      {:error, :not_found} ->
+        error(conn, 404, "not_found", "Document not found")
+
+      {:error, :unauthorized} ->
+        error(conn, 403, "forbidden", "This token cannot delete documents")
+    end
+  end
+
+  def segments(conn, %{"id" => dataset_id, "document_id" => document_id}) do
+    scope = conn.assigns.service_scope
+
+    case fetch_dataset_document(scope, dataset_id, document_id) do
+      {:ok, _document} ->
+        segments = RAG.list_segments(scope, document_id, 500)
+
+        json(conn, %{
+          data:
+            for segment <- segments do
+              %{
+                id: segment.id,
+                position: segment.position,
+                content: segment.content,
+                enabled: segment.enabled
+              }
+            end
+        })
+
+      {:error, :not_found} ->
+        error(conn, 404, "not_found", "Document not found")
+    end
+  end
+
+  # The document must belong to the named dataset (both workspace-scoped).
+  defp fetch_dataset_document(scope, dataset_id, document_id) do
+    with dataset when not is_tuple(dataset) <- RAG.get_dataset(scope, dataset_id),
+         %{} = document <-
+           Enum.find(RAG.list_documents(scope, dataset.id), &(&1.id == document_id)) ||
+             {:error, :not_found} do
+      {:ok, document}
+    end
   end
 
   def documents(conn, %{"id" => dataset_id}) do
@@ -136,16 +223,17 @@ defmodule FluxWeb.V1.DatasetController do
     end
   end
 
+  # nil defers to the dataset's own retrieval settings.
   defp parse_top_k(top_k) when is_integer(top_k) and top_k in 1..20, do: top_k
 
   defp parse_top_k(top_k) when is_binary(top_k) do
     case Integer.parse(top_k) do
       {n, ""} when n in 1..20 -> n
-      _invalid -> 4
+      _invalid -> nil
     end
   end
 
-  defp parse_top_k(_top_k), do: 4
+  defp parse_top_k(_top_k), do: nil
 
   defp changeset_message(changeset) do
     changeset
