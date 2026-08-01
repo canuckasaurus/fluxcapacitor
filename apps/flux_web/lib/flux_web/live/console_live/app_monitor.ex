@@ -22,6 +22,7 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
          feedback: Chat.list_feedback(scope, app.id),
          annotations: Chat.list_annotations(scope, app.id),
          can_edit: RBAC.can?(scope, :app_edit),
+         search_results: nil,
          selected_id: nil,
          messages: []
        )}
@@ -74,6 +75,19 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
     Chat.delete_annotation(scope, id)
 
     {:noreply, assign(socket, annotations: Chat.list_annotations(scope, socket.assigns.app.id))}
+  end
+
+  def handle_event("search", %{"query" => query}, socket) do
+    results =
+      case String.trim(query) do
+        "" ->
+          nil
+
+        trimmed ->
+          Chat.search_messages(socket.assigns.current_scope, socket.assigns.app.id, trimmed)
+      end
+
+    {:noreply, assign(socket, search_results: results)}
   end
 
   def handle_event("select", %{"conversation-id" => id}, socket) do
@@ -239,6 +253,44 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
           <p class="text-sm font-semibold">{annotation.question}</p>
           <p class="text-sm whitespace-pre-wrap break-words max-h-24 overflow-y-auto">
             {annotation.answer}
+          </p>
+        </div>
+      </div>
+
+      <div class="card border border-base-200 p-6 space-y-3" id="conversation-search">
+        <form phx-submit="search" class="flex gap-2" id="search-form">
+          <input
+            type="text"
+            name="query"
+            placeholder="Search messages…"
+            class="input input-bordered input-sm flex-1 max-w-md"
+          />
+          <button class="btn btn-primary btn-sm">Search</button>
+        </form>
+        <p :if={@search_results == []} class="text-sm opacity-60">No messages matched.</p>
+        <div
+          :for={%{message: message, conversation: conversation} <- @search_results || []}
+          class="rounded-box border border-base-200 p-3 space-y-1"
+        >
+          <div class="flex items-center gap-2 text-xs opacity-60">
+            <span class={[
+              "badge badge-sm",
+              (message.role == :user && "badge-primary") || "badge-ghost"
+            ]}>
+              {message.role}
+            </span>
+            <span>{conversation.title || "Untitled conversation"}</span>
+            <span>{Calendar.strftime(message.inserted_at, "%Y-%m-%d %H:%M")}</span>
+            <button
+              class="btn btn-ghost btn-xs ml-auto"
+              phx-click="select"
+              phx-value-conversation-id={conversation.id}
+            >
+              View conversation
+            </button>
+          </div>
+          <p class="text-sm whitespace-pre-wrap break-words max-h-16 overflow-y-auto">
+            {message.content}
           </p>
         </div>
       </div>

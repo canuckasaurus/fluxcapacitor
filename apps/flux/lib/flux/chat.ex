@@ -180,6 +180,26 @@ defmodule Flux.Chat do
     end
   end
 
+  @doc "Messages matching `query` across an app's conversations, newest first."
+  def search_messages(%Scope{} = scope, app_id, query, limit \\ 20) do
+    case String.trim(to_string(query)) do
+      "" ->
+        []
+
+      trimmed ->
+        pattern = "%" <> String.replace(trimmed, ~r/[\\%_]/, fn c -> "\\" <> c end) <> "%"
+
+        Message
+        |> Repo.scoped(scope)
+        |> join(:inner, [m], c in Conversation, on: m.conversation_id == c.id)
+        |> where([m, c], c.app_id == ^app_id and ilike(m.content, ^pattern))
+        |> order_by([m], desc: m.seq)
+        |> limit(^limit)
+        |> select([m, c], %{message: m, conversation: c})
+        |> Repo.all()
+    end
+  end
+
   def list_messages(%Scope{} = scope, conversation_id) do
     Message
     |> Repo.scoped(scope)

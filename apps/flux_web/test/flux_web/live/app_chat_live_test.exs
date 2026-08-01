@@ -245,6 +245,35 @@ defmodule FluxWeb.AppChatLiveTest do
     assert html =~ "You said: monitor me"
   end
 
+  test "monitor search finds messages across conversations", %{
+    conn: conn,
+    app: app,
+    scope: scope
+  } do
+    first = Chat.create_conversation(scope, app)
+    {:ok, _u, _a} = Chat.send_message(scope, app, first, "the printer is on fire")
+    assert_receive {:done, _}, 5_000
+
+    second = Chat.create_conversation(scope, app)
+    {:ok, _u, _a} = Chat.send_message(scope, app, second, "how do refunds work?")
+    assert_receive {:done, _}, 5_000
+
+    {:ok, lv, _html} = live(conn, ~p"/console/apps/#{app.id}/monitor")
+
+    html = lv |> form("#search-form", %{"query" => "printer"}) |> render_submit()
+    assert html =~ "the printer is on fire"
+    # The other conversation's messages stay out of the results (its
+    # auto-title still shows in the conversation list below).
+    refute html =~ "You said: how do refunds work"
+
+    html = lv |> form("#search-form", %{"query" => "no such phrase"}) |> render_submit()
+    assert html =~ "No messages matched."
+
+    # SQL wildcards in the query are literals, not patterns.
+    html = lv |> form("#search-form", %{"query" => "%"}) |> render_submit()
+    assert html =~ "No messages matched."
+  end
+
   test "annotations answer matching questions instantly", %{
     conn: conn,
     app: app,
