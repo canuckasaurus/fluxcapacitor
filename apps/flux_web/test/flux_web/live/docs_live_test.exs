@@ -21,6 +21,10 @@ defmodule FluxWeb.DocsLiveTest do
     assert html =~ "knowledge_retrieval"
     assert html =~ "max_iterations"
 
+    # Headings get slugified ids so canvas docs links can anchor to them.
+    assert html =~ ~s(<h3 id="llm">)
+    assert html =~ ~s(<h3 id="knowledge_retrieval">)
+
     # Unknown slugs fall back to getting started.
     {:ok, _lv, html} = live(conn, ~p"/console/docs/nope")
     assert html =~ "mix flux.demo"

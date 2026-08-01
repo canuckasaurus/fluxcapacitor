@@ -73,6 +73,22 @@ defmodule FluxWeb.FluxEditorLiveTest do
     assert html =~ "edge-layer"
   end
 
+  test "canvas nodes carry explanatory tooltips and docs links", %{
+    conn: conn,
+    workflow: workflow
+  } do
+    {:ok, lv, html} = live(conn, ~p"/console/fluxes/#{workflow.id}")
+
+    # every node card explains itself and links into the node reference
+    assert html =~ "Calls an AI model with your prompt"
+    assert html =~ "data-docs-link"
+    assert html =~ "/console/docs/node-reference#llm"
+
+    # the config panel repeats the description with a docs link
+    html = render_hook(lv, "select_node", %{"id" => "llm_1", "shift" => false})
+    assert html =~ "Open the node reference for LLM"
+  end
+
   test "selecting a node opens its config panel and edits save", %{
     conn: conn,
     workflow: workflow,

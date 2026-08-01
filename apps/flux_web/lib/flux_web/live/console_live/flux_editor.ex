@@ -109,6 +109,37 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     }
   }
 
+  @node_desc %{
+    "start" => "Where every run begins: declares the input variables the flux expects.",
+    "llm" =>
+      "Calls an AI model with your prompt and streams the reply. Supports structured output and a fallback model.",
+    "if_else" => "Routes the run down different branches based on conditions (if / elif / else).",
+    "template" =>
+      "Renders text from your variables: simple {{refs}}, full Jinja, or a saved doc template.",
+    "answer" => "Streams the user-facing reply in chats. Interpolate anything the flux computed.",
+    "end" => "Maps the flux's final outputs: what API callers and parent fluxes receive.",
+    "tool" => "Calls one operation of an imported API toolset or an installed tool plugin.",
+    "http_request" =>
+      "Calls an external HTTP API (SSRF-guarded). Outputs status, parsed body, and raw text.",
+    "code" => "Runs a code snippet in the sandboxed runner; the returned keys become outputs.",
+    "agent" =>
+      "An autonomous loop: the model picks tools and iterates until it is done or hits the cap.",
+    "variable_aggregator" =>
+      "Takes the first non-empty of several sources, merging branches back into one variable.",
+    "variable_assigner" =>
+      "Writes conversation variables that persist across a chatflow's turns.",
+    "list_operator" => "Filters, sorts, and slices a list from the variable pool without code.",
+    "question_classifier" =>
+      "Asks the model to classify the input; the run continues on that class's branch.",
+    "parameter_extractor" => "Asks the model to pull structured parameters out of free text.",
+    "document_extractor" => "Turns an uploaded file into plain text for downstream nodes.",
+    "iteration" => "Runs a published sub-flux once per item of a list and collects the results.",
+    "loop" => "Repeats a published sub-flux until a break condition matches (a bounded while).",
+    "human_input" => "Pauses the run and asks a person; it resumes with their reply.",
+    "knowledge_retrieval" =>
+      "Searches your knowledge datasets (hybrid retrieval) and returns the best passages with citations."
+  }
+
   @addable_types ~w(llm knowledge_retrieval if_else question_classifier parameter_extractor
                     document_extractor iteration loop human_input template tool http_request code
                     agent variable_aggregator variable_assigner list_operator answer end)
@@ -1719,6 +1750,8 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
   ## Render helpers
 
   defp meta(type), do: Map.get(@node_meta, type, @node_meta["end"])
+  defp desc(type), do: Map.get(@node_desc, type, "")
+  defp node_docs_href(type), do: ~p"/console/docs/node-reference" <> "#" <> type
 
   defp node_x(node), do: round_num(get_in(node, ["position", "x"]) || 0)
   defp node_y(node), do: round_num(get_in(node, ["position", "y"]) || 0)
@@ -2099,7 +2132,12 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
               </button>
             </div>
             <div :if={@can_edit} class="dropdown">
-              <div tabindex="0" role="button" class="btn btn-sm btn-outline">
+              <div
+                tabindex="0"
+                role="button"
+                class="btn btn-sm btn-outline"
+                title="Add a node to the canvas"
+              >
                 <.icon name="hero-plus" class="size-4" /> Add node
               </div>
               <div
@@ -2118,7 +2156,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                 </form>
                 <ul class="menu p-0 max-h-72 overflow-y-auto flex-nowrap">
                   <li :for={type <- filtered_palette(@palette_query)}>
-                    <button phx-click="add_node" phx-value-type={type}>
+                    <button phx-click="add_node" phx-value-type={type} title={desc(type)}>
                       <.icon name={meta(type).icon} class="size-4" /> {meta(type).label}
                     </button>
                   </li>
@@ -2141,36 +2179,67 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
             >
               <.icon name="hero-rectangle-group" class="size-4" /> Tidy
             </button>
-            <button class="btn btn-sm btn-ghost" phx-click="toggle_history">
+            <button
+              class="btn btn-sm btn-ghost"
+              phx-click="toggle_history"
+              title="Browse past runs of this flux"
+            >
               <.icon name="hero-clock" class="size-4" /> History
             </button>
             <button
               :if={@latest_version != nil}
               class="btn btn-sm btn-ghost"
               phx-click="toggle_versions"
+              title="Published versions: view or roll back"
             >
               <.icon name="hero-archive-box" class="size-4" /> Versions
             </button>
-            <button :if={@can_manage_tokens} class="btn btn-sm btn-ghost" phx-click="toggle_api">
+            <button
+              :if={@can_manage_tokens}
+              class="btn btn-sm btn-ghost"
+              phx-click="toggle_api"
+              title="Service tokens and API call snippets"
+            >
               <.icon name="hero-key" class="size-4" /> API
             </button>
-            <button :if={@can_edit} class="btn btn-sm btn-ghost" phx-click="toggle_variables">
+            <button
+              :if={@can_edit}
+              class="btn btn-sm btn-ghost"
+              phx-click="toggle_variables"
+              title="Environment and conversation variables"
+            >
               <.icon name="hero-variable" class="size-4" /> Variables
             </button>
-            <button :if={@can_edit} class="btn btn-sm btn-ghost" phx-click="toggle_triggers">
+            <button
+              :if={@can_edit}
+              class="btn btn-sm btn-ghost"
+              phx-click="toggle_triggers"
+              title="Webhooks and schedules that start this flux"
+            >
               <.icon name="hero-bolt" class="size-4" /> Triggers
             </button>
             <button
               :if={@can_manage_tokens}
               class="btn btn-sm btn-ghost"
               phx-click="toggle_site"
+              title="Publish a public form page for this flux"
             >
               <.icon name="hero-globe-alt" class="size-4" /> Site
             </button>
-            <button :if={@can_publish} class="btn btn-sm btn-outline" phx-click="publish">
+            <button
+              :if={@can_publish}
+              class="btn btn-sm btn-outline"
+              phx-click="publish"
+              title="Snapshot the draft as the live version"
+            >
               <.icon name="hero-rocket-launch" class="size-4" /> Publish
             </button>
-            <button :if={@can_run} class="btn btn-sm btn-primary" phx-click="open_run">
+            <button
+              :if={@can_run}
+              class="btn btn-sm btn-primary"
+              phx-click="open_run"
+              title="Run the current draft"
+            >
               <.icon name="hero-play" class="size-4" /> Run
             </button>
           </div>
@@ -2262,6 +2331,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                     state_ring(@node_states[node["id"]])
                   ]}
                   style={"left: #{node_x(node)}px; top: #{node_y(node)}px;"}
+                  title={"#{meta(node["type"]).label} — #{desc(node["type"])}"}
                 >
                   <div
                     data-drag-handle
@@ -2272,6 +2342,15 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                   >
                     <.icon name={meta(node["type"]).icon} class="size-4 shrink-0" />
                     <span class="text-sm font-semibold truncate">{node["title"]}</span>
+                    <a
+                      data-docs-link
+                      href={node_docs_href(node["type"])}
+                      target="_blank"
+                      class="ml-auto shrink-0 opacity-40 hover:opacity-100"
+                      title={"#{meta(node["type"]).label}: #{desc(node["type"])} Click for the docs."}
+                    >
+                      <.icon name="hero-question-mark-circle" class="size-4" />
+                    </a>
                   </div>
                   <div class="px-3 py-2 text-xs opacity-70 truncate">{node_summary(node)}</div>
 
@@ -2426,6 +2505,18 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                 </button>
               </div>
             </div>
+
+            <p class="text-xs opacity-70">
+              {desc(node["type"])}
+              <a
+                href={node_docs_href(node["type"])}
+                target="_blank"
+                class="link link-primary whitespace-nowrap"
+                title={"Open the node reference for #{meta(node["type"]).label} in a new tab"}
+              >
+                Docs <.icon name="hero-arrow-top-right-on-square" class="size-3 inline" />
+              </a>
+            </p>
 
             <form phx-change="update_node" class="space-y-3">
               <label class="floating-label">
@@ -4504,6 +4595,9 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
             let drag = null
 
             surface.addEventListener("pointerdown", (e) => {
+              // Docs links inside node cards are plain links, not drag handles.
+              if (e.target.closest("[data-docs-link]")) return
+
               const out = e.target.closest("[data-out-port]")
               if (out) {
                 e.preventDefault()

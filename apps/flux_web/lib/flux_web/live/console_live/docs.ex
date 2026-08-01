@@ -20,6 +20,21 @@ defmodule FluxWeb.ConsoleLive.Docs do
     @external_resource Path.join(@guides_dir, slug <> ".md")
   end
 
+  # Slugified ids land on h2/h3 headings so links can anchor into a
+  # guide (the canvas docs links target /console/docs/node-reference#llm).
+  @anchor_headings fn html ->
+    Regex.replace(~r/<(h[23])>(.*?)<\/h[23]>/s, html, fn _full, tag, inner ->
+      id =
+        inner
+        |> String.replace(~r/<[^>]+>/, "")
+        |> String.downcase()
+        |> String.replace(~r/[^a-z0-9_]+/, "-")
+        |> String.trim("-")
+
+      ~s(<#{tag} id="#{id}">#{inner}</#{tag}>)
+    end)
+  end
+
   @rendered Map.new(@guides, fn {slug, title} ->
               markdown = File.read!(Path.join(@guides_dir, slug <> ".md"))
 
@@ -29,7 +44,7 @@ defmodule FluxWeb.ConsoleLive.Docs do
                   {:error, html, _warnings} -> html
                 end
 
-              {slug, {title, html}}
+              {slug, {title, @anchor_headings.(html)}}
             end)
 
   def guides, do: @guides
