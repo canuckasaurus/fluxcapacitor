@@ -1340,9 +1340,18 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
         _other -> {config["provider_plugin_id"], config["model"]}
       end
 
+    {fallback_plugin, fallback_model} =
+      case String.split(Map.get(params, "fallback_choice", "keep"), "|", parts: 2) do
+        [fallback_plugin, fallback_model] -> {fallback_plugin, fallback_model}
+        ["keep"] -> {config["fallback_provider_plugin_id"], config["fallback_model"]}
+        _cleared -> {"", ""}
+      end
+
     %{
       "provider_plugin_id" => plugin_id,
       "model" => model,
+      "fallback_provider_plugin_id" => fallback_plugin,
+      "fallback_model" => fallback_model,
       "system_prompt" => Map.get(params, "system_prompt", ""),
       "prompt" => Map.get(params, "prompt", ""),
       "output_schema" => parse_output_schema(params["output_schema"], config["output_schema"])
@@ -2467,6 +2476,28 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                   <p :if={@models == []} class="text-xs text-warning">
                     No models available — configure a provider under Plugins first.
                   </p>
+                  <label class="floating-label">
+                    <span>Fallback model (tried when the primary errors)</span>
+                    <select
+                      name="fallback_choice"
+                      class="select select-sm w-full"
+                      disabled={not @can_edit}
+                    >
+                      <option value="" selected={node["config"]["fallback_model"] in [nil, ""]}>
+                        No fallback
+                      </option>
+                      <option
+                        :for={%{plugin_id: pid, plugin_name: pname, model: m} <- @models}
+                        value={"#{pid}|#{m.name}"}
+                        selected={
+                          node["config"]["fallback_provider_plugin_id"] == pid and
+                            node["config"]["fallback_model"] == m.name
+                        }
+                      >
+                        {pname} — {m.label}
+                      </option>
+                    </select>
+                  </label>
                   <label class="floating-label">
                     <span>System prompt</span>
                     <textarea

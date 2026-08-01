@@ -114,9 +114,14 @@ defmodule Flux.Engine.Nodes.LLM do
         Host.emit(host, {:node_chunk, %{node_id: node.id, delta: delta}})
       end
 
-      case invoke.(request, chunk_emit) do
-        {:ok, %{content: content} = result} ->
-          outputs = %{"text" => content, "usage" => Map.get(result, :usage, %{})}
+      case invoke_with_fallback(node, host, invoke, request, chunk_emit) do
+        {:ok, %{content: content} = result, model_used, fallback?} ->
+          outputs = %{
+            "text" => content,
+            "usage" => Map.get(result, :usage, %{}),
+            "model_used" => model_used,
+            "fallback_used" => fallback?
+          }
 
           if is_map(schema) do
             {:ok, Map.put(outputs, "output", structured_output(result))}
@@ -127,6 +132,47 @@ defmodule Flux.Engine.Nodes.LLM do
         {:error, reason} ->
           {:error, reason}
       end
+    end
+  end
+
+  # A configured fallback model gets one try when the primary errors; the
+  # original error is what surfaces if both fail. The trace records which
+  # model actually answered.
+  defp invoke_with_fallback(node, host, invoke, request, chunk_emit) do
+    primary = "#{request.provider_plugin_id}/#{request.model}"
+
+    case invoke.(request, chunk_emit) do
+      {:ok, result} ->
+        {:ok, result, primary, false}
+
+      {:error, reason} ->
+        fallback_plugin = to_string(node.config["fallback_provider_plugin_id"] || "")
+        fallback_model = to_string(node.config["fallback_model"] || "")
+
+        if fallback_plugin != "" and fallback_model != "" do
+          Host.emit(
+            host,
+            {:model_fallback,
+             %{
+               node_id: node.id,
+               from: primary,
+               to: "#{fallback_plugin}/#{fallback_model}"
+             }}
+          )
+
+          fallback_request = %{
+            request
+            | provider_plugin_id: fallback_plugin,
+              model: fallback_model
+          }
+
+          case invoke.(fallback_request, chunk_emit) do
+            {:ok, result} -> {:ok, result, "#{fallback_plugin}/#{fallback_model}", true}
+            {:error, _fallback_reason} -> {:error, reason}
+          end
+        else
+          {:error, reason}
+        end
     end
   end
 

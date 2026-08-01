@@ -371,6 +371,50 @@ defmodule Flux.EngineTest do
       assert failure.error =~ "round 2: boom"
     end
 
+    test "llm node falls back to the configured backup model" do
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("llm_1", "llm", %{
+            "provider_plugin_id" => "down",
+            "model" => "primary-1",
+            "fallback_provider_plugin_id" => "backup",
+            "fallback_model" => "backup-1",
+            "prompt" => "{{start.query}}"
+          })
+        ],
+        "edges" => [edge!("start", "llm_1")]
+      }
+
+      host = %Host{
+        emit: fn event -> send(self(), {:event, event}) end,
+        invoke_llm: fn
+          %{provider_plugin_id: "down"}, _chunk ->
+            {:error, "provider outage"}
+
+          %{provider_plugin_id: "backup"} = request, _chunk ->
+            [%{content: prompt} | _] = Enum.reverse(request.messages)
+            {:ok, %{content: "saved: " <> prompt, usage: %{}}}
+        end
+      }
+
+      {:ok, built} = Engine.build(graph)
+      assert {:ok, result} = Engine.run(built, %{"query" => "hi"}, host)
+      assert result.outputs["text"] == "saved: hi"
+      assert result.outputs["fallback_used"] == true
+      assert result.outputs["model_used"] == "backup/backup-1"
+      assert_received {:event, {:model_fallback, %{from: "down/primary-1"}}}
+
+      # Both failing surfaces the primary's error.
+      dead_host = %Host{
+        emit: fn _e -> :ok end,
+        invoke_llm: fn _request, _chunk -> {:error, "provider outage"} end
+      }
+
+      assert {:error, failure} = Engine.run(built, %{"query" => "hi"}, dead_host)
+      assert failure.error =~ "provider outage"
+    end
+
     test "a failing node stops the run with node_failed" do
       graph = %{
         "nodes" => [
