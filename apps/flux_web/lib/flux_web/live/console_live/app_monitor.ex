@@ -20,6 +20,7 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
          usage: Chat.usage_stats(scope, app.id),
          feedback_filter: :all,
          feedback: Chat.list_feedback(scope, app.id),
+         quality: Chat.quality_stats(scope, app.id),
          annotations: Chat.list_annotations(scope, app.id),
          can_edit: RBAC.can?(scope, :app_edit),
          search_results: nil,
@@ -158,6 +159,47 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
               <td>{row.messages}</td>
               <td>{row.input_tokens || 0}</td>
               <td>{row.output_tokens || 0}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div :if={@quality != []} class="card border border-base-200 p-6 space-y-3" id="quality-trends">
+        <h2 class="font-semibold">Quality (last 14 days)</h2>
+        <table class="table table-xs max-w-2xl">
+          <thead>
+            <tr>
+              <th>Day</th>
+              <th>Replies</th>
+              <th>👍</th>
+              <th>👎</th>
+              <th>Annotation hits</th>
+              <th class="w-40">Sentiment</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={row <- @quality}>
+              <td>{row.day}</td>
+              <td class="circuit-value">{row.replies}</td>
+              <td class="circuit-value text-success">{row.likes}</td>
+              <td class="circuit-value text-error">{row.dislikes}</td>
+              <td class="circuit-value text-accent">{row.annotation_hits}</td>
+              <td>
+                <div class="flex h-2 rounded overflow-hidden bg-base-200">
+                  <div
+                    :if={row.likes > 0}
+                    class="bg-success"
+                    style={"width: #{round(row.likes / max(row.replies, 1) * 100)}%"}
+                  >
+                  </div>
+                  <div
+                    :if={row.dislikes > 0}
+                    class="bg-error"
+                    style={"width: #{round(row.dislikes / max(row.replies, 1) * 100)}%"}
+                  >
+                  </div>
+                </div>
+              </td>
             </tr>
           </tbody>
         </table>

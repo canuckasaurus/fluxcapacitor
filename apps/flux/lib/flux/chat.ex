@@ -647,6 +647,30 @@ defmodule Flux.Chat do
   end
 
   @doc """
+  Per-day quality rollups for an app: replies, likes, dislikes, and
+  annotation hits (replies answered from the annotation library instead
+  of the model) over the trailing `days`.
+  """
+  def quality_stats(%Scope{} = scope, app_id, days \\ 14) do
+    since = DateTime.add(DateTime.utc_now(:second), -days, :day)
+
+    Message
+    |> Repo.scoped(scope)
+    |> join(:inner, [m], c in Conversation, on: m.conversation_id == c.id)
+    |> where([m, c], c.app_id == ^app_id and m.role == :assistant and m.inserted_at >= ^since)
+    |> group_by([m], fragment("date(?)", m.inserted_at))
+    |> order_by([m], desc: fragment("date(?)", m.inserted_at))
+    |> select([m], %{
+      day: fragment("date(?)", m.inserted_at),
+      replies: count(m.id),
+      likes: count(fragment("case when ? = 'like' then 1 end", m.feedback)),
+      dislikes: count(fragment("case when ? = 'dislike' then 1 end", m.feedback)),
+      annotation_hits: count(fragment("case when ? \\? 'annotation_id' then 1 end", m.usage))
+    })
+    |> Repo.all()
+  end
+
+  @doc """
   Per-day usage rollups for an app over the trailing `days`: assistant
   message count and token sums from the messages' usage maps.
   """

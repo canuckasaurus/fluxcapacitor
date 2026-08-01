@@ -245,6 +245,33 @@ defmodule FluxWeb.AppChatLiveTest do
     assert html =~ "You said: monitor me"
   end
 
+  test "quality trends roll up feedback and annotation hits", %{
+    conn: conn,
+    app: app,
+    scope: scope
+  } do
+    conversation = Chat.create_conversation(scope, app)
+    {:ok, _u, _a} = Chat.send_message(scope, app, conversation, "good answer please")
+    assert_receive {:done, liked}, 5_000
+    {:ok, _} = Chat.set_feedback(scope, liked.id, :like)
+
+    {:ok, _annotation} =
+      Chat.create_annotation(scope, app, %{question: "canned?", answer: "Yes, canned."})
+
+    {:ok, _u, _a} = Chat.send_message(scope, app, conversation, "canned?")
+    assert_receive {:done, _annotated}, 5_000
+
+    [today] = Chat.quality_stats(scope, app.id)
+    assert today.replies == 2
+    assert today.likes == 1
+    assert today.dislikes == 0
+    assert today.annotation_hits == 1
+
+    {:ok, _lv, html} = live(conn, ~p"/console/apps/#{app.id}/monitor")
+    assert html =~ "Quality (last 14 days)"
+    assert html =~ "Annotation hits"
+  end
+
   test "monitor search finds messages across conversations", %{
     conn: conn,
     app: app,
