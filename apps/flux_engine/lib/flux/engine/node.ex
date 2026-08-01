@@ -33,6 +33,7 @@ defmodule Flux.Engine.Node do
     "parameter_extractor" => Flux.Engine.Nodes.ParameterExtractor,
     "document_extractor" => Flux.Engine.Nodes.DocumentExtractor,
     "iteration" => Flux.Engine.Nodes.Iteration,
+    "loop" => Flux.Engine.Nodes.Loop,
     "human_input" => Flux.Engine.Nodes.HumanInput,
     "knowledge_retrieval" => Flux.Engine.Nodes.KnowledgeRetrieval
   }

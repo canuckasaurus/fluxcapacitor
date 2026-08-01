@@ -302,6 +302,75 @@ defmodule Flux.EngineTest do
       assert failure.error =~ "parallel branches"
     end
 
+    test "loop node repeats the sub-flux until the break condition matches" do
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("refine", "loop", %{
+            "workflow_id" => "wf-sub",
+            "initial" => "{{start.query}}",
+            "max_loops" => 10,
+            "conditions" => [
+              %{"left" => "{{refine.score}}", "operator" => "gte", "right" => "3"}
+            ]
+          }),
+          node!("out", "answer", %{
+            "answer" => "rounds={{refine.rounds}} met={{refine.condition_met}}"
+          })
+        ],
+        "edges" => [edge!("start", "refine"), edge!("refine", "out")]
+      }
+
+      host = %Host{
+        emit: fn _e -> :ok end,
+        # Each round scores index + 1: rounds 1..3 score 1,2,3 → break at 3.
+        run_subflux: fn %{workflow_id: "wf-sub", index: index} ->
+          {:ok, %{"score" => index + 1, "draft" => "v#{index + 1}"}}
+        end
+      }
+
+      {:ok, built} = Engine.build(graph)
+      assert {:ok, result} = Engine.run(built, %{"query" => "polish this"}, host)
+      assert result.outputs["answer"] == "rounds=3 met=true"
+
+      loop_exec = Enum.find(result.node_executions, &(&1["node_id"] == "refine"))
+      assert loop_exec["outputs"]["rounds"] == 3
+      assert loop_exec["outputs"]["output"]["draft"] == "v3"
+      assert length(loop_exec["outputs"]["history"]) == 3
+    end
+
+    test "loop node without conditions runs exactly max_loops rounds" do
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("l", "loop", %{"workflow_id" => "wf-sub", "max_loops" => 4})
+        ],
+        "edges" => [edge!("start", "l")]
+      }
+
+      host = %Host{
+        emit: fn _e -> :ok end,
+        run_subflux: fn %{index: index} -> {:ok, %{"n" => index}} end
+      }
+
+      {:ok, built} = Engine.build(graph)
+      assert {:ok, result} = Engine.run(built, %{"query" => "q"}, host)
+      assert result.outputs["rounds"] == 4
+      assert result.outputs["condition_met"] == false
+
+      # Sub-flux failures halt the loop with the round number.
+      failing_host = %Host{
+        emit: fn _e -> :ok end,
+        run_subflux: fn
+          %{index: 1} -> {:error, "boom"}
+          %{index: index} -> {:ok, %{"n" => index}}
+        end
+      }
+
+      assert {:error, failure} = Engine.run(built, %{"query" => "q"}, failing_host)
+      assert failure.error =~ "round 2: boom"
+    end
+
     test "a failing node stops the run with node_failed" do
       graph = %{
         "nodes" => [

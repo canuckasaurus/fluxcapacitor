@@ -1182,6 +1182,125 @@ defmodule Flux.Engine.Nodes.Iteration do
   defp format(reason), do: inspect(reason)
 end
 
+defmodule Flux.Engine.Nodes.Loop do
+  @moduledoc """
+  Bounded while-loop: runs a published sub-flux repeatedly, feeding each
+  round's outputs in as the next round's `item`, until the break
+  condition matches or `max_loops` caps it. The 21st node type — the
+  construct deliberately deferred in docs/ITERATION-DESIGN.md, kept
+  cycle-free by composing over a sub-flux exactly like iteration.
+
+  Config: `workflow_id`, `initial` (template; round 1's item),
+  `max_loops` (default 5, cap 100), and an if_else-style break check —
+  `conditions`/`logical_operator` evaluated after every round with the
+  round's outputs visible as `{{<node_id>.<key>}}`.
+
+  Outputs `%{"output" => last round outputs, "rounds", "condition_met",
+  "history" => [round outputs...]}`; emits `{:loop_round, %{node_id,
+  round, max}}` per round.
+  """
+  @behaviour Flux.Engine.Node
+
+  alias Flux.Engine.{Host, Template}
+
+  @default_max_loops 5
+  @max_loops_cap 100
+
+  @impl true
+  def run(node, pool, host) do
+    workflow_id = to_string(node.config["workflow_id"] || "")
+
+    with :ok <- require_workflow(workflow_id),
+         {:ok, run_subflux} <- capability(host) do
+      max_loops = normalize_max(node.config["max_loops"])
+      initial = Template.render(node.config["initial"], pool)
+      loop(node, pool, host, run_subflux, workflow_id, initial, 1, max_loops, [])
+    end
+  end
+
+  defp loop(node, pool, host, run_subflux, workflow_id, item, round, max, history) do
+    Host.emit(host, {:loop_round, %{node_id: node.id, round: round, max: max}})
+
+    case run_subflux.(%{workflow_id: workflow_id, item: item, index: round - 1}) do
+      {:error, reason} ->
+        {:error, "round #{round}: #{format(reason)}"}
+
+      {:ok, outputs} ->
+        history = [outputs | history]
+
+        case condition_met?(node, pool, outputs, host) do
+          {:error, reason} ->
+            {:error, "break condition: #{format(reason)}"}
+
+          {:ok, true} ->
+            done(outputs, round, true, history)
+
+          {:ok, false} when round >= max ->
+            done(outputs, round, false, history)
+
+          {:ok, false} ->
+            loop(node, pool, host, run_subflux, workflow_id, outputs, round + 1, max, history)
+        end
+    end
+  end
+
+  defp done(outputs, rounds, met, history) do
+    {:ok,
+     %{
+       "output" => outputs,
+       "rounds" => rounds,
+       "condition_met" => met,
+       "history" => Enum.reverse(history)
+     }}
+  end
+
+  # The break check reuses the if_else evaluator: the round's outputs sit
+  # under this node's id, so conditions read {{<node_id>.<key>}}. No
+  # conditions → a plain bounded for-loop that always runs max rounds.
+  defp condition_met?(node, pool, outputs, host) do
+    case List.wrap(node.config["conditions"]) do
+      [] ->
+        {:ok, false}
+
+      conditions ->
+        check_pool = Map.put(pool, node.id, outputs)
+
+        verdict_node = %{
+          node
+          | config: %{
+              "logical_operator" => node.config["logical_operator"] || "and",
+              "conditions" => conditions
+            }
+        }
+
+        case Flux.Engine.Nodes.IfElse.run(verdict_node, check_pool, host) do
+          {:ok, %{"result" => result}, _handle} -> {:ok, result == true}
+          {:error, reason} -> {:error, reason}
+        end
+    end
+  end
+
+  defp normalize_max(n) when is_integer(n) and n > 0, do: min(n, @max_loops_cap)
+
+  defp normalize_max(n) when is_binary(n) do
+    case Integer.parse(n) do
+      {parsed, ""} when parsed > 0 -> min(parsed, @max_loops_cap)
+      _invalid -> @default_max_loops
+    end
+  end
+
+  defp normalize_max(_absent), do: @default_max_loops
+
+  defp require_workflow(""), do: {:error, "the loop node needs a sub-flux"}
+  defp require_workflow(_id), do: :ok
+
+  defp capability(%Host{run_subflux: fun}) when is_function(fun, 1), do: {:ok, fun}
+  defp capability(_host), do: {:error, "this run's host cannot run sub-fluxes"}
+
+  defp format(reason) when is_binary(reason), do: reason
+  defp format(reason), do: inspect(reason)
+end
+
 defmodule Flux.Engine.Nodes.DocumentExtractor do
   @moduledoc """
   Extracts text from an uploaded file: `config["variable"]` resolves to a

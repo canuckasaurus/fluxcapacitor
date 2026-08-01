@@ -92,6 +92,11 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
       icon: "hero-arrow-path-rounded-square",
       accent: "bg-primary/10 text-primary"
     },
+    "loop" => %{
+      label: "Loop",
+      icon: "hero-arrow-uturn-left",
+      accent: "bg-primary/10 text-primary"
+    },
     "human_input" => %{
       label: "Human Input",
       icon: "hero-hand-raised",
@@ -105,11 +110,11 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
   }
 
   @addable_types ~w(llm knowledge_retrieval if_else question_classifier parameter_extractor
-                    document_extractor iteration human_input template tool http_request code
+                    document_extractor iteration loop human_input template tool http_request code
                     agent variable_aggregator variable_assigner list_operator answer end)
   @zoom_levels [50, 65, 80, 100, 125, 150]
   @failable_types ~w(llm tool http_request code agent question_classifier parameter_extractor
-                     document_extractor iteration knowledge_retrieval)
+                     document_extractor iteration loop knowledge_retrieval)
   @history_cap 50
 
   @impl true
@@ -1274,6 +1279,15 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
   defp default_config("iteration"),
     do: %{"variable" => "", "workflow_id" => "", "max_items" => 50}
 
+  defp default_config("loop"),
+    do: %{
+      "workflow_id" => "",
+      "initial" => "",
+      "max_loops" => 5,
+      "logical_operator" => "and",
+      "conditions" => []
+    }
+
   defp default_config("human_input"),
     do: %{"prompt" => "Please review and reply:", "options" => []}
 
@@ -1523,6 +1537,41 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     |> Map.put("max_items", max_items)
   end
 
+  defp build_config("loop", config, params) do
+    max_loops =
+      case Integer.parse(to_string(Map.get(params, "max_loops", ""))) do
+        {n, ""} when n in 1..100 -> n
+        _invalid -> config["max_loops"] || 5
+      end
+
+    # One break condition from the panel; richer lists come in via DSL.
+    conditions =
+      case {Map.get(params, "break_left"), Map.get(params, "break_right")} do
+        {nil, _right} ->
+          config["conditions"] || []
+
+        {left, right} ->
+          if String.trim(to_string(left)) == "" do
+            []
+          else
+            [
+              %{
+                "left" => left,
+                "operator" => Map.get(params, "break_operator", "equals"),
+                "right" => right || ""
+              }
+            ]
+          end
+      end
+
+    config
+    |> Map.put("workflow_id", Map.get(params, "workflow_id", config["workflow_id"] || ""))
+    |> Map.put("initial", Map.get(params, "initial", config["initial"] || ""))
+    |> Map.put("max_loops", max_loops)
+    |> Map.put("logical_operator", "and")
+    |> Map.put("conditions", conditions)
+  end
+
   defp build_config("variable_aggregator", config, params) do
     variables =
       params
@@ -1741,6 +1790,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     "parameter_extractor" => ~w(is_success reason),
     "document_extractor" => ~w(text name size),
     "iteration" => ~w(output count),
+    "loop" => ~w(output rounds condition_met),
     "human_input" => ~w(output),
     "knowledge_retrieval" => ~w(result citations count)
   }
@@ -3271,6 +3321,88 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                       disabled={not @can_edit}
                     />
                   </label>
+                <% "loop" -> %>
+                  <label class="floating-label">
+                    <span>Sub-flux (published; sees {"{{sys.item}}"} / {"{{sys.index}}"})</span>
+                    <select
+                      name="workflow_id"
+                      class="select select-sm w-full"
+                      disabled={not @can_edit}
+                    >
+                      <option value="" selected={node["config"]["workflow_id"] in [nil, ""]}>
+                        Choose a flux…
+                      </option>
+                      <option
+                        :for={flux <- @fluxes}
+                        :if={flux.id != @workflow.id}
+                        value={flux.id}
+                        selected={node["config"]["workflow_id"] == flux.id}
+                      >
+                        {flux.name}
+                      </option>
+                    </select>
+                  </label>
+                  <label class="floating-label">
+                    <span>Initial item (template; round 1's {"{{sys.item}}"})</span>
+                    <input
+                      type="text"
+                      name="initial"
+                      value={node["config"]["initial"]}
+                      placeholder="{{start.query}}"
+                      class="input input-sm w-full font-mono"
+                      disabled={not @can_edit}
+                    />
+                  </label>
+                  <label class="floating-label">
+                    <span>Max rounds (1–100)</span>
+                    <input
+                      type="number"
+                      name="max_loops"
+                      value={node["config"]["max_loops"] || 5}
+                      min="1"
+                      max="100"
+                      class="input input-sm w-24"
+                      disabled={not @can_edit}
+                    />
+                  </label>
+                  <div class="space-y-1">
+                    <p class="text-xs opacity-70">
+                      Break when (blank = always run max rounds; round outputs are {"{{#{node["id"]}.<key>}}"})
+                    </p>
+                    <div class="flex gap-1">
+                      <input
+                        type="text"
+                        name="break_left"
+                        value={get_in(node, ["config", "conditions", Access.at(0), "left"])}
+                        placeholder={"{{#{node["id"]}.done}}"}
+                        class="input input-sm flex-1 font-mono"
+                        disabled={not @can_edit}
+                      />
+                      <select
+                        name="break_operator"
+                        class="select select-sm w-32"
+                        disabled={not @can_edit}
+                      >
+                        <option
+                          :for={op <- Flux.Engine.Nodes.IfElse.operators()}
+                          value={op}
+                          selected={
+                            get_in(node, ["config", "conditions", Access.at(0), "operator"]) == op
+                          }
+                        >
+                          {op}
+                        </option>
+                      </select>
+                      <input
+                        type="text"
+                        name="break_right"
+                        value={get_in(node, ["config", "conditions", Access.at(0), "right"])}
+                        placeholder="true"
+                        class="input input-sm w-28 font-mono"
+                        disabled={not @can_edit}
+                      />
+                    </div>
+                  </div>
                 <% "document_extractor" -> %>
                   <label class="floating-label">
                     <span>File id variable (an uploaded-file id, e.g. from a start input)</span>

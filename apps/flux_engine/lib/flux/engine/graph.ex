@@ -48,7 +48,7 @@ defmodule Flux.Engine.Graph do
   @node_types ~w(start llm if_else template answer end tool http_request code agent
                  variable_aggregator variable_assigner list_operator
                  question_classifier parameter_extractor document_extractor iteration
-                 human_input knowledge_retrieval)
+                 loop human_input knowledge_retrieval)
 
   def node_types, do: @node_types
 
