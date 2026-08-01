@@ -7,8 +7,11 @@ import Config
 # any compile-time configuration in here, as it won't be applied.
 # The block below contains prod specific runtime configuration.
 
-config :flux_web, FluxWeb.Endpoint,
-  http: [port: String.to_integer(System.get_env("PORT", "4000"))]
+# Only in prod: dev/test set their own ports (dev honors PORT itself).
+if config_env() == :prod do
+  config :flux_web, FluxWeb.Endpoint,
+    http: [port: String.to_integer(System.get_env("PORT", "4000"))]
+end
 
 # Releases don't run `mix phx.server`; PHX_SERVER=true starts the endpoint.
 if System.get_env("PHX_SERVER") do
