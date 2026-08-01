@@ -106,6 +106,51 @@ defmodule Flux.RAG do
     end
   end
 
+  @max_fetch_bytes 5_000_000
+
+  @doc """
+  Fetches a URL (SSRF-guarded), strips HTML to text, and indexes it as a
+  document named after the URL.
+  """
+  def add_document_from_url(%Scope{} = scope, %Dataset{} = dataset, url) when is_binary(url) do
+    with :ok <- RBAC.authorize(scope, :dataset_edit),
+         :ok <- Flux.SSRF.verify_url(url),
+         {:ok, %{status: 200, body: body}} <-
+           Req.get(
+             [
+               url: url,
+               redirect: false,
+               max_retries: 1,
+               receive_timeout: 15_000,
+               decode_body: false
+             ] ++ Application.get_env(:flux_rag, :req_options, [])
+           ),
+         body = to_string(body),
+         :ok <- (byte_size(body) <= @max_fetch_bytes && :ok) || {:error, :too_large} do
+      content =
+        case Floki.parse_document(body) do
+          {:ok, document} ->
+            text = document |> Floki.text(sep: " ") |> String.trim()
+            if text == "", do: body, else: text
+
+          _not_html ->
+            body
+        end
+
+      if String.valid?(content) and String.trim(content) != "" do
+        uri = URI.parse(url)
+        name = String.trim_leading("#{uri.host}#{uri.path}", "/")
+        add_document(scope, dataset, %{name: name, content: content})
+      else
+        {:error, "the URL did not return readable text"}
+      end
+    else
+      {:ok, %{status: status}} -> {:error, "the URL returned HTTP #{status}"}
+      {:error, message} when is_binary(message) -> {:error, message}
+      {:error, reason} -> {:error, inspect(reason)}
+    end
+  end
+
   def list_documents(%Scope{} = scope, dataset_id) do
     Document
     |> Repo.scoped(scope)

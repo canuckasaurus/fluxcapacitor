@@ -130,6 +130,20 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
     end
   end
 
+  def handle_event("add_url", %{"url" => url}, socket) do
+    with %{} = dataset <- socket.assigns.selected,
+         {:ok, _document} <-
+           RAG.add_document_from_url(socket.assigns.current_scope, dataset, String.trim(url)) do
+      {:noreply, socket |> put_flash(:info, "Fetched — indexing started.") |> refresh_documents()}
+    else
+      {:error, message} when is_binary(message) ->
+        {:noreply, put_flash(socket, :error, message)}
+
+      _other ->
+        {:noreply, put_flash(socket, :error, "Could not fetch that URL.")}
+    end
+  end
+
   def handle_event("validate_upload", _params, socket), do: {:noreply, socket}
 
   def handle_event("upload", _params, socket) do
@@ -366,6 +380,15 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
               >
                 Index uploads
               </button>
+            </form>
+            <form phx-submit="add_url" class="flex gap-2" id="url-form">
+              <input
+                type="url"
+                name="url"
+                placeholder="…or fetch a page: https://example.com/docs"
+                class="input input-bordered input-sm flex-1"
+              />
+              <button class="btn btn-outline btn-sm">Fetch &amp; index</button>
             </form>
             <form phx-submit="add_text" class="space-y-2" id="paste-form">
               <input

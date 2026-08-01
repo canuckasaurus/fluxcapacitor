@@ -148,6 +148,31 @@ defmodule FluxWeb.RAGIntegrationTest do
     assert finished.outputs["answer"] =~ "25 paid days"
   end
 
+  test "add_document_from_url fetches, strips, and indexes", %{scope: scope, dataset: dataset} do
+    Application.put_env(:flux_rag, :req_options, plug: {Req.Test, Flux.RAGUrlStub})
+    on_exit(fn -> Application.delete_env(:flux_rag, :req_options) end)
+
+    Req.Test.stub(Flux.RAGUrlStub, fn conn ->
+      conn
+      |> Plug.Conn.put_resp_content_type("text/html")
+      |> Plug.Conn.send_resp(
+        200,
+        "<html><body><h1>Docs</h1><p>Deploys happen every Tuesday.</p></body></html>"
+      )
+    end)
+
+    {:ok, document} =
+      RAG.add_document_from_url(scope, dataset, "https://example.com/docs/deploys")
+
+    assert document.name == "example.com/docs/deploys"
+    Oban.drain_queue(queue: :ingest)
+
+    ready = Flux.Repo.get!(Flux.RAG.Document, document.id, skip_workspace_guard: true)
+    assert ready.status == :ready
+    assert ready.content =~ "Deploys happen every Tuesday."
+    refute ready.content =~ "<p>"
+  end
+
   test "a configured rerank model reorders retrieval results", %{scope: scope, dataset: dataset} do
     ingest!(scope, dataset, "a.md", "Bananas are yellow fruit.")
     ingest!(scope, dataset, "b.md", "Vacation days: employees receive 25 vacation days.")
