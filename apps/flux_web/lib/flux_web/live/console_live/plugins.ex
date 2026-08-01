@@ -23,7 +23,7 @@ defmodule FluxWeb.ConsoleLive.Plugins do
       plugins:
         Providers.list_provider_plugins() ++
           Enum.filter(plugin_runtime().list_datasource_plugins(), &(&1.credential_schema != [])),
-      credentials_by_plugin: Map.new(credentials, &{&1.plugin_id, &1}),
+      credentials_by_plugin: Enum.group_by(credentials, & &1.plugin_id),
       can_manage: RBAC.can?(scope, :plugin_model_config),
       can_install: RBAC.can?(scope, :plugin_install),
       installable_plugins:
@@ -58,10 +58,15 @@ defmodule FluxWeb.ConsoleLive.Plugins do
     {:noreply, assign(socket, editing: nil, form: nil)}
   end
 
-  def handle_event("save", %{"credentials" => params}, socket) do
+  def handle_event("save", %{"credentials" => config} = params, socket) do
     plugin_id = socket.assigns.editing
 
-    case Providers.upsert_credential(socket.assigns.current_scope, plugin_id, params) do
+    case Providers.upsert_credential(
+           socket.assigns.current_scope,
+           plugin_id,
+           config,
+           params["credential_name"]
+         ) do
       {:ok, _credential} ->
         {:noreply,
          socket
@@ -112,6 +117,13 @@ defmodule FluxWeb.ConsoleLive.Plugins do
     case Providers.delete_credential(socket.assigns.current_scope, id) do
       {:ok, _} -> {:noreply, socket |> put_flash(:info, "Credentials removed.") |> refresh()}
       _ -> {:noreply, put_flash(socket, :error, "Could not remove credentials.")}
+    end
+  end
+
+  def handle_event("make_default", %{"credential-id" => id}, socket) do
+    case Providers.set_default_credential(socket.assigns.current_scope, id) do
+      :ok -> {:noreply, socket |> put_flash(:info, "Default credential set.") |> refresh()}
+      _error -> {:noreply, put_flash(socket, :error, "Could not set the default.")}
     end
   end
 
@@ -223,17 +235,40 @@ defmodule FluxWeb.ConsoleLive.Plugins do
             </div>
             <div :if={@can_manage and plugin.credential_schema != []} class="flex gap-2">
               <button class="btn btn-sm" phx-click="edit" phx-value-plugin-id={plugin.id}>
-                {if @credentials_by_plugin[plugin.id], do: "Update", else: "Configure"}
+                {if @credentials_by_plugin[plugin.id], do: "Add key", else: "Configure"}
               </button>
-              <button
-                :if={credential = @credentials_by_plugin[plugin.id]}
-                class="btn btn-sm btn-ghost text-error"
-                phx-click="remove"
-                phx-value-credential-id={credential.id}
-                data-confirm="Remove these credentials?"
-              >
-                Remove
-              </button>
+            </div>
+          </div>
+
+          <div :if={credentials = @credentials_by_plugin[plugin.id]} class="space-y-1">
+            <div
+              :for={credential <- credentials}
+              class="flex items-center gap-2 text-sm"
+              id={"credential-#{credential.id}"}
+            >
+              <span class="font-mono text-xs">{credential.name}</span>
+              <span :if={credential.is_default} class="badge badge-primary badge-xs">default</span>
+              <span :if={credential.validated_at} class="text-xs opacity-50">
+                validated {Calendar.strftime(credential.validated_at, "%Y-%m-%d")}
+              </span>
+              <div :if={@can_manage} class="ml-auto flex gap-1">
+                <button
+                  :if={not credential.is_default}
+                  class="btn btn-ghost btn-xs"
+                  phx-click="make_default"
+                  phx-value-credential-id={credential.id}
+                >
+                  Make default
+                </button>
+                <button
+                  class="btn btn-ghost btn-xs text-error"
+                  phx-click="remove"
+                  phx-value-credential-id={credential.id}
+                  data-confirm={"Remove the #{credential.name} key?"}
+                >
+                  Remove
+                </button>
+              </div>
             </div>
           </div>
 
@@ -244,6 +279,12 @@ defmodule FluxWeb.ConsoleLive.Plugins do
             phx-submit="save"
             class="space-y-3 border-t border-base-200 pt-4"
           >
+            <.input
+              name="credential_name"
+              value="default"
+              type="text"
+              label="Key name (several keys can coexist — rotate without downtime)"
+            />
             <div :for={field <- plugin.credential_schema}>
               <.input
                 field={@form[String.to_atom(field.key)]}

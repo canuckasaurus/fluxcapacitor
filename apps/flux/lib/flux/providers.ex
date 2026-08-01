@@ -30,18 +30,25 @@ defmodule Flux.Providers do
   end
 
   @doc """
-  Saves (upserts) credentials for a plugin after validating them against the
-  provider. Requires the `plugin_model_config` permission.
+  Saves (upserts) named credentials for a plugin after validating them
+  against the provider. Requires the `plugin_model_config` permission.
+  Several named credentials can coexist per plugin (key rotation without
+  downtime); the first one for a plugin becomes the default.
   """
-  def upsert_credential(%Scope{} = scope, plugin_id, config) when is_map(config) do
+  def upsert_credential(%Scope{} = scope, plugin_id, config, name \\ "default")
+      when is_map(config) do
+    workspace_id = Scope.workspace_id(scope)
+    name = presence(name) || "default"
+
     with :ok <- RBAC.authorize(scope, :plugin_model_config),
          :ok <- validate_with_plugin(plugin_id, config),
-         {:ok, encrypted} <- Crypto.encrypt(Scope.workspace_id(scope), Jason.encode!(config)),
+         {:ok, encrypted} <- Crypto.encrypt(workspace_id, Jason.encode!(config)),
          {:ok, credential} <-
            %ProviderCredential{}
            |> ProviderCredential.changeset(%{
-             workspace_id: Scope.workspace_id(scope),
+             workspace_id: workspace_id,
              plugin_id: plugin_id,
+             name: name,
              encrypted_config: encrypted,
              validated_at: DateTime.utc_now(:second)
            })
@@ -49,12 +56,85 @@ defmodule Flux.Providers do
              on_conflict: {:replace, [:encrypted_config, :validated_at, :updated_at]},
              conflict_target: [:workspace_id, :plugin_id, :name]
            ) do
+      ensure_default(workspace_id, plugin_id)
+
       Flux.Audit.record(scope, "provider.credential_upsert",
         resource_type: "provider_credential",
-        resource_id: plugin_id
+        resource_id: plugin_id,
+        metadata: %{"name" => name}
       )
 
       {:ok, credential}
+    end
+  end
+
+  @doc "Makes the credential the one `fetch_config/2` resolves for its plugin."
+  def set_default_credential(%Scope{} = scope, credential_id) do
+    workspace_id = Scope.workspace_id(scope)
+
+    with :ok <- RBAC.authorize(scope, :plugin_model_config),
+         %ProviderCredential{} = credential <-
+           Repo.one(Repo.scoped(where(ProviderCredential, id: ^credential_id), scope)) ||
+             {:error, :not_found} do
+      Repo.transaction(fn ->
+        from(c in ProviderCredential,
+          where: c.workspace_id == ^workspace_id and c.plugin_id == ^credential.plugin_id
+        )
+        |> Repo.update_all(set: [is_default: false])
+
+        from(c in ProviderCredential,
+          where: c.workspace_id == ^workspace_id and c.id == ^credential.id
+        )
+        |> Repo.update_all(set: [is_default: true])
+      end)
+
+      Flux.Audit.record(scope, "provider.default_credential_set",
+        resource_type: "provider_credential",
+        resource_id: credential.id,
+        metadata: %{"plugin_id" => credential.plugin_id, "name" => credential.name}
+      )
+
+      :ok
+    end
+  end
+
+  # Every plugin with credentials keeps exactly one default (oldest wins
+  # when none is flagged — covers first inserts and default deletion).
+  defp ensure_default(workspace_id, plugin_id) do
+    default_exists =
+      from(c in ProviderCredential,
+        where:
+          c.workspace_id == ^workspace_id and c.plugin_id == ^plugin_id and c.is_default == true
+      )
+      |> Repo.exists?()
+
+    unless default_exists do
+      from(c in ProviderCredential,
+        where: c.workspace_id == ^workspace_id and c.plugin_id == ^plugin_id,
+        order_by: [asc: c.inserted_at, asc: c.id],
+        limit: 1,
+        select: c.id
+      )
+      |> Repo.one()
+      |> case do
+        nil ->
+          :ok
+
+        id ->
+          from(c in ProviderCredential, where: c.workspace_id == ^workspace_id and c.id == ^id)
+          |> Repo.update_all(set: [is_default: true])
+      end
+    end
+
+    :ok
+  end
+
+  defp presence(nil), do: nil
+
+  defp presence(text) when is_binary(text) do
+    case String.trim(text) do
+      "" -> nil
+      trimmed -> trimmed
     end
   end
 
@@ -64,20 +144,30 @@ defmodule Flux.Providers do
            Repo.one(Repo.scoped(where(ProviderCredential, id: ^credential_id), scope)) ||
              {:error, :not_found},
          {:ok, deleted} <- Repo.delete(credential) do
+      # Deleting the default promotes the oldest survivor.
+      ensure_default(credential.workspace_id, credential.plugin_id)
+
       Flux.Audit.record(scope, "provider.credential_delete",
         resource_type: "provider_credential",
-        resource_id: credential.plugin_id
+        resource_id: credential.plugin_id,
+        metadata: %{"name" => credential.name}
       )
 
       {:ok, deleted}
     end
   end
 
-  @doc "Decrypted credential config for a plugin, or `{:error, :not_configured}`."
+  @doc """
+  Decrypted credential config for a plugin, or `{:error, :not_configured}`.
+  With several named credentials, the default one wins (oldest as a
+  tiebreak for rows predating the default flag).
+  """
   def fetch_config(workspace_id, plugin_id) do
     query =
       from(c in ProviderCredential,
-        where: c.workspace_id == ^workspace_id and c.plugin_id == ^plugin_id
+        where: c.workspace_id == ^workspace_id and c.plugin_id == ^plugin_id,
+        order_by: [desc: c.is_default, asc: c.inserted_at, asc: c.id],
+        limit: 1
       )
 
     with %ProviderCredential{} = credential <- Repo.one(query) || {:error, :not_configured},

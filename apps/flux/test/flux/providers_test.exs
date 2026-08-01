@@ -36,6 +36,41 @@ defmodule Flux.ProvidersTest do
     assert {:ok, %{"api_key" => "sk-valid"}} = Providers.fetch_config(workspace.id, "openai")
   end
 
+  test "named credentials coexist and the default one resolves", %{
+    scope: scope,
+    workspace: workspace
+  } do
+    # FakeRuntime treats any sk-valid key as valid; store distinct configs.
+    {:ok, first} =
+      Providers.upsert_credential(scope, "openai", %{"api_key" => "sk-valid", "tag" => "one"})
+
+    {:ok, second} =
+      Providers.upsert_credential(
+        scope,
+        "openai",
+        %{"api_key" => "sk-valid", "tag" => "two"},
+        "rotation"
+      )
+
+    assert first.name == "default"
+    assert second.name == "rotation"
+    assert length(Providers.list_credentials(scope)) == 2
+
+    # The first credential became the default and resolves.
+    assert {:ok, %{"tag" => "one"}} = Providers.fetch_config(workspace.id, "openai")
+
+    # Promote the rotation key: resolution flips without touching nodes.
+    :ok = Providers.set_default_credential(scope, second.id)
+    assert {:ok, %{"tag" => "two"}} = Providers.fetch_config(workspace.id, "openai")
+
+    # Deleting the default promotes the survivor.
+    {:ok, _} = Providers.delete_credential(scope, second.id)
+    assert {:ok, %{"tag" => "one"}} = Providers.fetch_config(workspace.id, "openai")
+
+    [survivor] = Providers.list_credentials(scope)
+    assert survivor.is_default
+  end
+
   test "configuring openai unlocks its models", %{scope: scope} do
     refute Enum.any?(Providers.available_models(scope), &(&1.plugin_id == "openai"))
 

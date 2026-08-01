@@ -10,6 +10,7 @@ defmodule Flux.Providers.ProviderCredential do
     belongs_to :workspace, Flux.Accounts.Workspace
     field :plugin_id, :string
     field :name, :string, default: "default"
+    field :is_default, :boolean, default: false
     field :encrypted_config, :string, redact: true
     field :validated_at, :utc_datetime
 
@@ -18,8 +19,16 @@ defmodule Flux.Providers.ProviderCredential do
 
   def changeset(credential, attrs) do
     credential
-    |> cast(attrs, [:workspace_id, :plugin_id, :name, :encrypted_config, :validated_at])
+    |> cast(attrs, [
+      :workspace_id,
+      :plugin_id,
+      :name,
+      :is_default,
+      :encrypted_config,
+      :validated_at
+    ])
     |> validate_required([:workspace_id, :plugin_id, :encrypted_config])
+    |> validate_length(:name, min: 1, max: 100)
     |> unique_constraint([:workspace_id, :plugin_id, :name])
   end
 end
