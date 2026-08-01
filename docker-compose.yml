@@ -1,0 +1,85 @@
+# FluxCapacitor local stack. Copy .env.docker.example to .env first.
+#
+#   docker compose up -d postgres minio        # infra only (app runs on host)
+#   docker compose --profile full up -d        # everything incl. the app
+#   docker compose --profile rag up -d         # + arangodb & tika (WS3)
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: flux_prod
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: fluxminio
+      MINIO_ROOT_PASSWORD: fluxminio123
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # WS3 profile: the ArangoDB vector/graph backend (>= 3.12.4 for
+  # APPROX_NEAR_COSINE) and the Tika sidecar for office-format extraction.
+  arangodb:
+    image: arangodb:3.12
+    profiles: ["rag", "full"]
+    environment:
+      ARANGO_ROOT_PASSWORD: fluxarango
+    command: ["arangod", "--experimental-vector-index"]
+    ports:
+      - "8529:8529"
+    volumes:
+      - arango_data:/var/lib/arangodb3
+
+  tika:
+    image: apache/tika:2.9.2.1
+    profiles: ["rag", "full"]
+    ports:
+      - "9998:9998"
+
+  app:
+    build: .
+    profiles: ["full"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ecto://postgres:postgres@postgres/flux_prod
+      PHX_HOST: ${PHX_HOST:-localhost}
+      PORT: "4000"
+      STORAGE_BACKEND: s3
+      S3_BUCKET: flux
+      S3_ACCESS_KEY_ID: fluxminio
+      S3_SECRET_ACCESS_KEY: fluxminio123
+      S3_ENDPOINT: http://minio:9000
+      FLUX_METRICS: "1"
+    ports:
+      - "4000:4000"
+
+volumes:
+  postgres_data:
+  minio_data:
+  arango_data:
