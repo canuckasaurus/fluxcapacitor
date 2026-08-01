@@ -249,6 +249,18 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
         </form>
       </div>
 
+      <div :if={@can_rename} class="card border border-base-200 p-6 space-y-3" id="export-card">
+        <h2 class="font-semibold">Export</h2>
+        <p class="text-sm opacity-70">
+          Download everything — flux and app DSL, dataset documents and
+          settings, workspace configuration — as one JSON archive. Secrets
+          (provider keys, tokens) are never included.
+        </p>
+        <a href={~p"/console/workspace-export"} class="btn btn-outline btn-sm w-fit">
+          <.icon name="hero-arrow-down-tray" class="size-4" /> Download workspace export
+        </a>
+      </div>
+
       <div :if={@owner?} class="card border border-base-200 p-6 space-y-3" id="plan-card">
         <h2 class="font-semibold">Plan</h2>
         <p class="text-sm opacity-70">
