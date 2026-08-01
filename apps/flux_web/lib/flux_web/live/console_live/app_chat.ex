@@ -190,6 +190,27 @@ defmodule FluxWeb.ConsoleLive.AppChat do
     end
   end
 
+  def handle_event("save_theme", params, socket) do
+    theme =
+      %{
+        "accent" => presence(params["accent"]),
+        "title" => presence(params["title"]),
+        "logo_url" => presence(params["logo_url"])
+      }
+      |> Enum.reject(fn {_key, value} -> value == nil end)
+      |> Map.new()
+
+    case Chat.update_app(socket.assigns.current_scope, socket.assigns.app, %{
+           "site_theme" => theme
+         }) do
+      {:ok, app} ->
+        {:noreply, socket |> put_flash(:info, "Site theme saved.") |> assign(app: app)}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not save the theme.")}
+    end
+  end
+
   def handle_event("create-token", _params, socket) do
     case Chat.create_api_token(socket.assigns.current_scope, socket.assigns.app) do
       {:ok, _token, raw} ->
@@ -576,6 +597,42 @@ defmodule FluxWeb.ConsoleLive.AppChat do
           <pre class="rounded-box bg-base-200 p-3 text-xs overflow-x-auto">{embed_snippet(@app)}</pre>
           <p class="text-xs opacity-60">Or as a floating chat bubble:</p>
           <pre class="rounded-box bg-base-200 p-3 text-xs overflow-x-auto">{bubble_snippet(@app.site_token)}</pre>
+          <form
+            phx-submit="save_theme"
+            id="site-theme-form"
+            class="flex items-end gap-2 flex-wrap border-t border-base-200 pt-3"
+          >
+            <label class="form-control">
+              <span class="label-text text-xs opacity-70 mb-1">Accent</span>
+              <input
+                type="color"
+                name="accent"
+                value={@app.site_theme["accent"] || "#6d28d9"}
+                class="h-8 w-14 cursor-pointer rounded border border-base-300"
+              />
+            </label>
+            <label class="form-control">
+              <span class="label-text text-xs opacity-70 mb-1">Title override</span>
+              <input
+                type="text"
+                name="title"
+                value={@app.site_theme["title"]}
+                placeholder={@app.name}
+                class="input input-bordered input-sm w-44"
+              />
+            </label>
+            <label class="form-control flex-1 min-w-48">
+              <span class="label-text text-xs opacity-70 mb-1">Logo URL (optional)</span>
+              <input
+                type="url"
+                name="logo_url"
+                value={@app.site_theme["logo_url"]}
+                placeholder="https://…/logo.png"
+                class="input input-bordered input-sm w-full"
+              />
+            </label>
+            <button class="btn btn-primary btn-sm">Save theme</button>
+          </form>
         </div>
       </div>
 

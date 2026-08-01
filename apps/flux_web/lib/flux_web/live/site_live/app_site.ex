@@ -152,6 +152,11 @@ defmodule FluxWeb.SiteLive.AppSite do
      )}
   end
 
+  # Strict hex check so the theme value can be inlined into a <style> block.
+  defp valid_accent(accent) do
+    if is_binary(accent) and Regex.match?(~r/^#[0-9a-fA-F]{6}$/, accent), do: accent
+  end
+
   defp allowed?(socket) do
     FluxWeb.SiteRateLimit.allow?(socket.assigns.app.site_token, socket.assigns.visitor_ip)
   end
@@ -179,11 +184,26 @@ defmodule FluxWeb.SiteLive.AppSite do
 
   def render(assigns) do
     ~H"""
+    <style :if={valid_accent(@app.site_theme["accent"])}>
+      .btn-primary, .chat-bubble-primary {
+        background-color: <%= valid_accent(@app.site_theme["accent"]) %> !important;
+        border-color: <%= valid_accent(@app.site_theme["accent"]) %> !important;
+        color: #fff !important;
+      }
+    </style>
     <main class="min-h-screen flex flex-col items-center p-4 sm:p-6">
       <div class="w-full max-w-2xl flex-1 flex flex-col gap-4">
-        <header class="pt-2">
-          <h1 class="text-xl font-bold">{@app.name}</h1>
-          <p :if={@app.description} class="text-sm opacity-70">{@app.description}</p>
+        <header class="pt-2 flex items-center gap-3">
+          <img
+            :if={@app.site_theme["logo_url"]}
+            src={@app.site_theme["logo_url"]}
+            alt=""
+            class="h-9 w-9 rounded object-contain"
+          />
+          <div>
+            <h1 class="text-xl font-bold">{@app.site_theme["title"] || @app.name}</h1>
+            <p :if={@app.description} class="text-sm opacity-70">{@app.description}</p>
+          </div>
         </header>
 
         <div :if={@app.mode in [:chat, :advanced_chat]} class="flex-1 flex flex-col gap-3">

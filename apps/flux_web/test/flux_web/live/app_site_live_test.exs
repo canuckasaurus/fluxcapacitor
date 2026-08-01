@@ -187,6 +187,40 @@ defmodule FluxWeb.AppSiteLiveTest do
     assert conversation.end_user_ref =~ "web_"
   end
 
+  test "site theme applies accent, title, and logo", %{
+    conn: conn,
+    scope: scope,
+    app: app,
+    account: account
+  } do
+    {:ok, app} = Chat.enable_site(scope, app)
+
+    console = log_in_account(conn, account)
+    {:ok, lv, _html} = live(console, ~p"/console/apps/#{app.id}")
+
+    lv
+    |> form("#site-theme-form", %{
+      "accent" => "#ff5500",
+      "title" => "Support Bot",
+      "logo_url" => "https://cdn.example.com/logo.png"
+    })
+    |> render_submit()
+
+    {:ok, _lv, html} = live(conn, ~p"/site/#{app.site_token}")
+    assert html =~ "Support Bot"
+    assert html =~ "#ff5500"
+    assert html =~ "cdn.example.com/logo.png"
+
+    # Malformed accents never reach the style block.
+    {:ok, _} =
+      Chat.update_app(scope, Chat.get_app(scope, app.id), %{
+        "site_theme" => %{"accent" => "red; } body { display:none"}
+      })
+
+    {:ok, _lv, html} = live(conn, ~p"/site/#{app.site_token}")
+    refute html =~ "display:none"
+  end
+
   test "site responses allow cross-origin framing", %{conn: conn, scope: scope, app: app} do
     {:ok, app} = Chat.enable_site(scope, app)
 
