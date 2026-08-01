@@ -233,6 +233,60 @@ defmodule Flux.Workflows.DSLTest do
     assert result.outputs["region"] == "eu-west"
   end
 
+  test "rag_chatflow: knowledge-retrieval chatflow imports and runs with sys vars" do
+    assert {:ok, parsed} = DSL.parse(fixture!("rag_chatflow_with_knowledge.yml"))
+    assert parsed.mode == "advanced-chat"
+    # The importer flags that dataset ids never transfer.
+    assert Enum.any?(parsed.warnings, &(&1 =~ "rebind its dataset"))
+
+    # Conversation variables imported into the graph.
+    assert [%{"name" => "last_topic"}] = parsed.graph["conversation_variables"]
+
+    kb = Enum.find(parsed.graph["nodes"], &(&1["type"] == "knowledge_retrieval"))
+    assert kb["config"]["query"] == "{{sys.query}}"
+    assert kb["config"]["top_k"] == 3
+    assert kb["config"]["dataset_id"] == ""
+
+    # Rebind the dataset (as the warning instructs) and run behaviorally.
+    graph =
+      parsed.graph
+      |> update_in(["nodes"], fn nodes ->
+        Enum.map(nodes, fn
+          %{"type" => "knowledge_retrieval"} = node ->
+            put_in(node, ["config", "dataset_id"], "ds-local")
+
+          %{"type" => "llm"} = node ->
+            node
+            |> put_in(["config", "provider_plugin_id"], "stub")
+            |> put_in(["config", "model"], "stub-1")
+
+          node ->
+            node
+        end)
+      end)
+
+    assert {:ok, built} = Engine.build(graph)
+
+    host = %Host{
+      emit: fn _event -> :ok end,
+      retrieve_knowledge: fn %{dataset_id: "ds-local", query: "refund window?"} ->
+        {:ok, [%{content: "Refunds within 30 days.", document_name: "policy.md", score: 0.9}]}
+      end,
+      invoke_llm: fn request, chunk_emit ->
+        [_system, %{content: user}] = request.messages
+        assert user =~ "Refunds within 30 days."
+        assert user =~ "refund window?"
+        chunk_emit.("Within 30 days.")
+        {:ok, %{content: "Within 30 days.", usage: %{}, tool_calls: []}}
+      end
+    }
+
+    assert {:ok, result} =
+             Engine.run(built, %{}, host, sys: %{"query" => "refund window?"})
+
+    assert result.outputs["answer"] == "Within 30 days."
+  end
+
   test "rejects non-DSL and unsupported app modes" do
     assert {:error, message} = DSL.parse("just: yaml")
     assert message =~ "Missing app section"

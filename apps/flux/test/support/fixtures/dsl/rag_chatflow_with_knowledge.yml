@@ -1,0 +1,100 @@
+app:
+  description: 'Chatflow answering from a knowledge base with citations.'
+  icon: 🤖
+  icon_background: '#FFEAD5'
+  mode: advanced-chat
+  name: rag_chatflow
+kind: app
+version: 0.3.1
+workflow:
+  conversation_variables:
+  - name: last_topic
+    value: ''
+    value_type: string
+  environment_variables: []
+  features: {}
+  graph:
+    edges:
+    - id: edge-start-kb
+      source: '1754000000201'
+      sourceHandle: source
+      target: '1754000000202'
+      targetHandle: target
+      type: custom
+    - id: edge-kb-llm
+      source: '1754000000202'
+      sourceHandle: source
+      target: '1754000000203'
+      targetHandle: target
+      type: custom
+    - id: edge-llm-answer
+      source: '1754000000203'
+      sourceHandle: source
+      target: '1754000000204'
+      targetHandle: target
+      type: custom
+    nodes:
+    - data:
+        desc: ''
+        title: Start
+        type: start
+        variables: []
+      height: 90
+      id: '1754000000201'
+      position:
+        x: 60
+        y: 220
+      type: custom
+    - data:
+        dataset_ids:
+        - remote-dataset-id
+        desc: ''
+        multiple_retrieval_config:
+          top_k: 3
+        query_variable_selector:
+        - sys
+        - query
+        retrieval_mode: multiple
+        title: Knowledge Retrieval
+        type: knowledge-retrieval
+      height: 100
+      id: '1754000000202'
+      position:
+        x: 340
+        y: 220
+      type: custom
+    - data:
+        desc: ''
+        model:
+          completion_params: {}
+          mode: chat
+          name: ''
+          provider: ''
+        prompt_template:
+        - role: system
+          text: Answer strictly from the provided context.
+        - role: user
+          text: 'Context: {{#1754000000202.result#}} Question: {{#sys.query#}}'
+        title: LLM
+        type: llm
+      height: 90
+      id: '1754000000203'
+      position:
+        x: 640
+        y: 220
+      type: custom
+    - data:
+        answer: '{{#1754000000203.text#}}'
+        desc: ''
+        title: Answer
+        type: answer
+      height: 90
+      id: '1754000000204'
+      position:
+        x: 940
+        y: 220
+      type: custom
+    viewport:
+      x: 0
+      y: 0
+      zoom: 1
