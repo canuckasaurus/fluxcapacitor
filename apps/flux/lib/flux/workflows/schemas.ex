@@ -19,6 +19,7 @@ defmodule Flux.Workflows.Workflow do
     field :graph, :map, default: %{}
     field :site_token, :string
     field :site_enabled, :boolean, default: false
+    field :site_theme, :map, default: %{}
 
     timestamps(type: :utc_datetime)
   end

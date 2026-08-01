@@ -897,6 +897,26 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     end
   end
 
+  def handle_event("save_site_theme", params, socket) do
+    theme =
+      %{
+        "accent" => params["accent"],
+        "title" => params["title"],
+        "logo_url" => params["logo_url"]
+      }
+      |> Enum.map(fn {key, value} -> {key, String.trim(to_string(value))} end)
+      |> Enum.reject(fn {_key, value} -> value == "" end)
+      |> Map.new()
+
+    case Workflows.set_site_theme(socket.assigns.current_scope, socket.assigns.workflow, theme) do
+      {:ok, workflow} ->
+        {:noreply, socket |> assign(workflow: workflow) |> put_flash(:info, "Theme saved.")}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not save the theme.")}
+    end
+  end
+
   ## Triggers
 
   def handle_event("toggle_triggers", _params, socket) do
@@ -3897,6 +3917,46 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
             <pre class="rounded-box bg-base-200 p-3 text-xs overflow-x-auto">{flux_embed_snippet(@workflow)}</pre>
             <p class="text-xs opacity-60">Or as a floating bubble:</p>
             <pre class="rounded-box bg-base-200 p-3 text-xs overflow-x-auto">{flux_bubble_snippet(@workflow)}</pre>
+            <form
+              :if={@can_edit}
+              phx-submit="save_site_theme"
+              id="flux-site-theme-form"
+              class="border-t border-base-200 pt-3 space-y-2"
+            >
+              <p class="text-xs font-semibold opacity-70">Appearance</p>
+              <div class="flex items-end gap-2 flex-wrap">
+                <label class="form-control">
+                  <span class="label-text text-xs opacity-70 mb-1">Accent</span>
+                  <input
+                    type="color"
+                    name="accent"
+                    value={@workflow.site_theme["accent"] || "#570df8"}
+                    class="h-8 w-14 cursor-pointer rounded border border-base-300"
+                  />
+                </label>
+                <label class="form-control">
+                  <span class="label-text text-xs opacity-70 mb-1">Title override</span>
+                  <input
+                    type="text"
+                    name="title"
+                    value={@workflow.site_theme["title"]}
+                    placeholder={@workflow.name}
+                    class="input input-bordered input-sm w-44"
+                  />
+                </label>
+                <label class="form-control">
+                  <span class="label-text text-xs opacity-70 mb-1">Logo URL (optional)</span>
+                  <input
+                    type="url"
+                    name="logo_url"
+                    value={@workflow.site_theme["logo_url"]}
+                    placeholder="https://…/logo.png"
+                    class="input input-bordered input-sm w-52"
+                  />
+                </label>
+                <button class="btn btn-primary btn-sm">Save theme</button>
+              </div>
+            </form>
             <button
               class="btn btn-ghost btn-sm text-error"
               phx-click="disable_site"

@@ -377,6 +377,19 @@ defmodule Flux.Workflows do
     end
   end
 
+  @doc "Saves the public form page's theme (accent/title/logo_url)."
+  def set_site_theme(%Scope{} = scope, %Workflow{} = workflow, theme) when is_map(theme) do
+    with :ok <- RBAC.authorize(scope, :app_edit),
+         :ok <- owned(scope, workflow),
+         {:ok, updated} <-
+           workflow
+           |> Ecto.Changeset.change(site_theme: Map.take(theme, ~w(accent title logo_url)))
+           |> Repo.update() do
+      Flux.Audit.record(scope, "workflow.site_theme", resource: workflow)
+      {:ok, updated}
+    end
+  end
+
   @doc "Resolves a public site token to its flux; the token is the authorization."
   def get_workflow_by_site_token("site_" <> _rest = token) do
     case Repo.get_by(Workflow, [site_token: token], skip_workspace_guard: true) do

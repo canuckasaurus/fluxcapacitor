@@ -73,6 +73,43 @@ defmodule FluxWeb.FluxSiteLiveTest do
     refute poll_until_gone(lv, "animate-pulse", 50) =~ "animate-pulse"
   end
 
+  test "site theme applies accent, title, and logo on the form page", %{
+    conn: conn,
+    scope: scope,
+    workflow: workflow,
+    account: account
+  } do
+    {:ok, _version} = Workflows.publish(scope, workflow)
+    {:ok, workflow} = Workflows.enable_site(scope, workflow)
+
+    # Save through the editor's site modal.
+    console = log_in_account(conn, account)
+    {:ok, lv, _html} = live(console, ~p"/console/fluxes/#{workflow.id}")
+    lv |> element("button[phx-click=toggle_site]", "Site") |> render_click()
+
+    lv
+    |> form("#flux-site-theme-form", %{
+      "accent" => "#22cc88",
+      "title" => "Ask the Handbook",
+      "logo_url" => "https://cdn.example.com/flux-logo.png"
+    })
+    |> render_submit()
+
+    {:ok, _lv, html} = live(conn, ~p"/site/flux/#{workflow.site_token}")
+    assert html =~ "Ask the Handbook"
+    assert html =~ "#22cc88"
+    assert html =~ "cdn.example.com/flux-logo.png"
+
+    # Malformed accents never reach the style block.
+    {:ok, _} =
+      Workflows.set_site_theme(scope, Workflows.get_workflow(scope, workflow.id), %{
+        "accent" => "red; } body { display:none"
+      })
+
+    {:ok, _lv, html} = live(conn, ~p"/site/flux/#{workflow.site_token}")
+    refute html =~ "display:none"
+  end
+
   test "paused runs prompt the visitor and resume on the public page", %{
     conn: conn,
     scope: scope,

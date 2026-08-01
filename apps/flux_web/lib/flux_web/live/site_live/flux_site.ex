@@ -107,13 +107,35 @@ defmodule FluxWeb.SiteLive.FluxSite do
     """
   end
 
+  # Strict hex check so the theme value can be inlined into a <style> block.
+  defp valid_accent(accent) do
+    if is_binary(accent) and Regex.match?(~r/^#[0-9a-fA-F]{6}$/, accent), do: accent
+  end
+
   def render(assigns) do
     ~H"""
+    <style :if={valid_accent(@workflow.site_theme["accent"])}>
+      .btn-primary {
+        background-color: <%= valid_accent(@workflow.site_theme["accent"]) %> !important;
+        border-color: <%= valid_accent(@workflow.site_theme["accent"]) %> !important;
+        color: #fff !important;
+      }
+    </style>
     <main class="min-h-screen flex flex-col items-center p-4 sm:p-6">
       <div class="w-full max-w-2xl flex-1 flex flex-col gap-4">
-        <header class="pt-2">
-          <h1 class="text-xl font-bold">{@workflow.name}</h1>
-          <p :if={@workflow.description} class="text-sm opacity-70">{@workflow.description}</p>
+        <header class="pt-2 flex items-center gap-3">
+          <img
+            :if={@workflow.site_theme["logo_url"]}
+            src={@workflow.site_theme["logo_url"]}
+            alt=""
+            class="size-10 rounded object-contain"
+          />
+          <div>
+            <h1 class="text-xl font-bold">
+              {@workflow.site_theme["title"] || @workflow.name}
+            </h1>
+            <p :if={@workflow.description} class="text-sm opacity-70">{@workflow.description}</p>
+          </div>
         </header>
 
         <form phx-submit="run" id="site-flux-form" class="space-y-3">
