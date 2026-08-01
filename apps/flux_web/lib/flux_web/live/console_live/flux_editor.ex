@@ -1186,7 +1186,8 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
       "provider_plugin_id" => plugin_id,
       "model" => model,
       "system_prompt" => Map.get(params, "system_prompt", ""),
-      "prompt" => Map.get(params, "prompt", "")
+      "prompt" => Map.get(params, "prompt", ""),
+      "output_schema" => parse_output_schema(params["output_schema"], config["output_schema"])
     }
   end
 
@@ -1552,7 +1553,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
 
   # Upstream references the panel offers as {{...}} hints.
   @hint_fields %{
-    "llm" => ~w(text),
+    "llm" => ~w(text output),
     "template" => ~w(output),
     "answer" => ~w(answer),
     "tool" => ~w(text status body),
@@ -2153,6 +2154,18 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                       class="textarea textarea-sm w-full"
                       disabled={not @can_edit}
                     >{node["config"]["prompt"]}</textarea>
+                  </label>
+                  <label class="floating-label">
+                    <span>
+                      Output schema (JSON, optional — adds a structured {"{{node.output}}"} )
+                    </span>
+                    <textarea
+                      name="output_schema"
+                      rows="3"
+                      class="textarea textarea-sm w-full font-mono"
+                      placeholder={~s({"type": "object", "properties": {...}})}
+                      disabled={not @can_edit}
+                    >{node["config"]["output_schema"] && Jason.encode!(node["config"]["output_schema"])}</textarea>
                   </label>
                 <% "if_else" -> %>
                   <div

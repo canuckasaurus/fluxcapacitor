@@ -1201,6 +1201,45 @@ defmodule Flux.EngineTest do
                Engine.run(built, %{"query" => "no"}, echo_host())
     end
 
+    test "llm node with output_schema yields structured output via the respond tool" do
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("llm_1", "llm", %{
+            "provider_plugin_id" => "p",
+            "model" => "m",
+            "prompt" => "{{start.query}}",
+            "output_schema" => %{
+              "type" => "object",
+              "properties" => %{"sentiment" => %{"type" => "string"}}
+            }
+          }),
+          node!("t", "template", %{"template" => "got {{llm_1.output.sentiment}}"})
+        ],
+        "edges" => [edge!("start", "llm_1"), edge!("llm_1", "t")]
+      }
+
+      host = %Host{
+        emit: fn _e -> :ok end,
+        invoke_llm: fn request, _chunk ->
+          assert [%{"name" => "respond"}] = request.tools
+
+          {:ok,
+           %{
+             content: "",
+             usage: %{},
+             tool_calls: [
+               %{id: "r1", name: "respond", arguments: %{"sentiment" => "positive"}}
+             ]
+           }}
+        end
+      }
+
+      {:ok, built} = Engine.build(graph)
+      assert {:ok, result} = Engine.run(built, %{"query" => "love it"}, host)
+      assert result.outputs["output"] == "got positive"
+    end
+
     test "unresolved template references render blank" do
       graph = %{
         "nodes" => [

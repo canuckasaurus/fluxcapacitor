@@ -56,9 +56,11 @@ end
 defmodule Flux.Engine.Nodes.LLM do
   @moduledoc """
   Renders the prompt templates and invokes the model through the host.
-  Config: `provider_plugin_id`, `model`, `system_prompt`, `prompt`, `params`.
-  Outputs `%{"text" => content, "usage" => usage}`; streams deltas as
-  `{:node_chunk, %{node_id, delta}}` events.
+  Config: `provider_plugin_id`, `model`, `system_prompt`, `prompt`,
+  `params`, and optional `output_schema` (a JSON schema) — when set, a
+  forced `respond` tool call yields a structured `"output"` map.
+  Outputs `%{"text", "usage"}` (+ `"output"` with a schema); streams
+  deltas as `{:node_chunk, %{node_id, delta}}` events.
   """
   @behaviour Flux.Engine.Node
 
@@ -72,6 +74,14 @@ defmodule Flux.Engine.Nodes.LLM do
          {:ok, invoke} <- fetch_invoker(host) do
       system = Template.render(node.config["system_prompt"], pool)
       prompt = Template.render(node.config["prompt"], pool)
+      schema = node.config["output_schema"]
+
+      system =
+        if is_map(schema) and system == "" do
+          "Answer by calling the respond tool with the structured result."
+        else
+          system
+        end
 
       messages =
         if system == "" do
@@ -87,18 +97,53 @@ defmodule Flux.Engine.Nodes.LLM do
         params: node.config["params"] || %{}
       }
 
+      request =
+        if is_map(schema) do
+          Map.put(request, :tools, [
+            %{
+              "name" => "respond",
+              "description" => "Report the final structured answer.",
+              "parameters" => schema
+            }
+          ])
+        else
+          request
+        end
+
       chunk_emit = fn delta ->
         Host.emit(host, {:node_chunk, %{node_id: node.id, delta: delta}})
       end
 
       case invoke.(request, chunk_emit) do
         {:ok, %{content: content} = result} ->
-          {:ok, %{"text" => content, "usage" => Map.get(result, :usage, %{})}}
+          outputs = %{"text" => content, "usage" => Map.get(result, :usage, %{})}
+
+          if is_map(schema) do
+            {:ok, Map.put(outputs, "output", structured_output(result))}
+          else
+            {:ok, outputs}
+          end
 
         {:error, reason} ->
           {:error, reason}
       end
     end
+  end
+
+  defp structured_output(result) do
+    from_tool =
+      result
+      |> Map.get(:tool_calls, [])
+      |> Enum.find_value(fn
+        %{name: "respond", arguments: %{} = arguments} -> arguments
+        _other -> nil
+      end)
+
+    from_tool ||
+      case Jason.decode(result.content || "") do
+        {:ok, %{} = decoded} -> decoded
+        _not_json -> %{}
+      end
   end
 
   defp require_config(true), do: :ok
