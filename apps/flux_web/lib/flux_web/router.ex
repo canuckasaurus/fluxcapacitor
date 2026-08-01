@@ -194,6 +194,7 @@ defmodule FluxWeb.Router do
       live "/knowledge", ConsoleLive.Knowledge, :index
       live "/plugins", ConsoleLive.Plugins, :index
       live "/tools", ConsoleLive.Tools, :index
+      live "/templates", ConsoleLive.DocTemplates, :index
       live "/members", ConsoleLive.Members, :index
       live "/audit", ConsoleLive.Audit, :index
       live "/settings", ConsoleLive.WorkspaceSettings, :edit

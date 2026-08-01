@@ -128,6 +128,12 @@ defmodule FluxWeb.Layouts do
             label="Apps"
             active={@active == :apps}
           />
+          <.sidebar_link
+            navigate={~p"/console/templates"}
+            icon="hero-document-duplicate"
+            label="Doc templates"
+            active={@active == :templates}
+          />
 
           <.sidebar_section label="Ground" />
           <.sidebar_link

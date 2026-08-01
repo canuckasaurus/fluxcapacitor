@@ -139,6 +139,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
            selected_ids: [],
            selected_edge: nil,
            issues: issues(workflow.graph),
+           doc_templates: Flux.DocTemplates.list(scope),
            models: Providers.available_models(scope),
            toolsets:
              Flux.Tools.list_toolsets(scope) ++ Flux.Tools.installed_plugin_toolsets(scope),
@@ -1399,7 +1400,10 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
   end
 
   defp build_config("template", config, params) do
-    Map.put(config, "template", Map.get(params, "template", ""))
+    config
+    |> Map.put("template", Map.get(params, "template", ""))
+    |> Map.put("engine", Map.get(params, "engine", config["engine"] || "simple"))
+    |> Map.put("template_id", Map.get(params, "template_id", config["template_id"] || ""))
   end
 
   defp build_config("http_request", config, params) do
@@ -2633,6 +2637,36 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                     Unmatched input leaves on the red ELSE port.
                   </p>
                 <% "template" -> %>
+                  <label class="floating-label">
+                    <span>Saved doc template (overrides the inline text)</span>
+                    <select
+                      name="template_id"
+                      class="select select-sm w-full"
+                      disabled={not @can_edit}
+                    >
+                      <option value="" selected={node["config"]["template_id"] in [nil, ""]}>
+                        None — use the inline template below
+                      </option>
+                      <option
+                        :for={doc_template <- @doc_templates}
+                        value={doc_template.id}
+                        selected={node["config"]["template_id"] == doc_template.id}
+                      >
+                        {doc_template.name}
+                      </option>
+                    </select>
+                  </label>
+                  <label class="floating-label">
+                    <span>Engine (inline template only)</span>
+                    <select name="engine" class="select select-sm w-44" disabled={not @can_edit}>
+                      <option value="simple" selected={node["config"]["engine"] in [nil, "simple"]}>
+                        Simple {"{{node.key}}"}
+                      </option>
+                      <option value="jinja" selected={node["config"]["engine"] == "jinja"}>
+                        Jinja (filters, if, for)
+                      </option>
+                    </select>
+                  </label>
                   <label class="floating-label">
                     <span>Template</span>
                     <textarea

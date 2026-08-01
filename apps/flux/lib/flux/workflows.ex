@@ -791,6 +791,9 @@ defmodule Flux.Workflows do
       read_document: fn %{file_id: file_id} -> Flux.Documents.extract(workspace_id, file_id) end,
       run_subflux: build_subflux_runner(workspace_id, depth),
       retrieve_knowledge: build_knowledge_retriever(workspace_id),
+      fetch_doc_template: fn template_id ->
+        Flux.DocTemplates.fetch_content(workspace_id, template_id)
+      end,
       default_llm: Providers.default_model_for_workspace(workspace_id)
     }
   end
