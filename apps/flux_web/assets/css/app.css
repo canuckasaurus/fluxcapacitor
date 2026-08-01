@@ -169,3 +169,46 @@
   color: oklch(82% 0.13 210);
   text-shadow: 0 0 8px oklch(82% 0.13 210 / 0.55);
 }
+
+/* Rendered markdown (in-app docs) */
+.markdown-prose { line-height: 1.65; }
+.markdown-prose h1 { font-size: 1.6rem; font-weight: 800; margin: 0 0 0.75rem; }
+.markdown-prose h2 { font-size: 1.25rem; font-weight: 700; margin: 1.75rem 0 0.5rem; }
+.markdown-prose h3 { font-size: 1.05rem; font-weight: 700; margin: 1.25rem 0 0.4rem; }
+.markdown-prose p { margin: 0.6rem 0; }
+.markdown-prose ul, .markdown-prose ol { margin: 0.6rem 0 0.6rem 1.4rem; }
+.markdown-prose ul { list-style: disc; }
+.markdown-prose ol { list-style: decimal; }
+.markdown-prose li { margin: 0.25rem 0; }
+.markdown-prose a { color: var(--color-primary); text-decoration: underline; }
+.markdown-prose code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85em;
+  background: color-mix(in oklab, var(--color-base-200) 80%, transparent);
+  padding: 0.1em 0.35em;
+  border-radius: 0.25rem;
+}
+.markdown-prose pre {
+  background: oklch(13% 0.015 262);
+  color: oklch(90% 0.02 90);
+  border-radius: var(--radius-box);
+  padding: 0.9rem 1rem;
+  overflow-x: auto;
+  margin: 0.75rem 0;
+}
+.markdown-prose pre code { background: transparent; padding: 0; font-size: 0.8rem; }
+.markdown-prose table { border-collapse: collapse; margin: 0.75rem 0; width: 100%; font-size: 0.875rem; display: block; overflow-x: auto; }
+.markdown-prose th, .markdown-prose td {
+  border: 1px solid color-mix(in oklab, var(--color-base-300) 90%, transparent);
+  padding: 0.4rem 0.65rem;
+  text-align: left;
+  vertical-align: top;
+}
+.markdown-prose th { background: color-mix(in oklab, var(--color-base-200) 85%, transparent); font-weight: 600; }
+.markdown-prose blockquote {
+  border-left: 3px solid var(--color-primary);
+  padding-left: 0.9rem;
+  opacity: 0.85;
+  margin: 0.75rem 0;
+}
+.markdown-prose hr { border-color: var(--color-base-300); margin: 1.5rem 0; }

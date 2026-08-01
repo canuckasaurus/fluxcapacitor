@@ -177,14 +177,12 @@ defmodule FluxWeb.Layouts do
           />
 
           <div class="pt-2">
-            <a
-              href={FluxWeb.docs_url()}
-              target="_blank"
-              class="flex items-center gap-2 rounded-lg px-3 py-2 text-sm opacity-70 hover:bg-base-200 hover:opacity-100"
-            >
-              <.icon name="hero-academic-cap" class="size-4" /> Docs
-              <.icon name="hero-arrow-top-right-on-square" class="size-3 ml-auto opacity-50" />
-            </a>
+            <.sidebar_link
+              navigate={~p"/console/docs"}
+              icon="hero-academic-cap"
+              label="Docs"
+              active={@active == :docs}
+            />
           </div>
         </nav>
 
