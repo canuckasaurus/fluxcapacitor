@@ -106,3 +106,34 @@ defmodule Flux.RAG.Segment do
     timestamps(type: :utc_datetime, updated_at: false)
   end
 end
+
+defmodule Flux.RAG.Entity do
+  @moduledoc "A named thing mentioned in a dataset (GraphRAG groundwork)."
+  use Ecto.Schema
+
+  @primary_key {:id, UUIDv7, autogenerate: true}
+  @foreign_key_type :binary_id
+
+  schema "rag_entities" do
+    belongs_to(:workspace, Flux.Accounts.Workspace)
+    belongs_to(:dataset, Flux.RAG.Dataset)
+    field(:name, :string)
+
+    timestamps(type: :utc_datetime, updated_at: false)
+  end
+end
+
+defmodule Flux.RAG.EntityMention do
+  @moduledoc "Links an entity to a segment that mentions it."
+  use Ecto.Schema
+
+  @primary_key {:id, UUIDv7, autogenerate: true}
+  @foreign_key_type :binary_id
+
+  schema "rag_entity_mentions" do
+    belongs_to(:workspace, Flux.Accounts.Workspace)
+    belongs_to(:dataset, Flux.RAG.Dataset)
+    belongs_to(:entity, Flux.RAG.Entity)
+    belongs_to(:segment, Flux.RAG.Segment)
+  end
+end

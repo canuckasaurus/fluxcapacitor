@@ -1,15 +1,28 @@
 defmodule Flux.RAG do
   @moduledoc """
   Knowledge pillar: datasets → documents → embedded segments, with hybrid
-  retrieval (semantic cosine + Postgres full-text, merged by reciprocal
-  rank fusion). Ingestion runs on Oban (`:ingest` queue); embeddings go
-  through the workspace's configured provider.
+  retrieval (semantic cosine + Postgres full-text + entity mentions,
+  merged by reciprocal rank fusion). Ingestion runs on Oban (`:ingest`
+  queue); embeddings go through the workspace's configured provider;
+  entity extraction (`Flux.RAG.Entities`) builds the GraphRAG groundwork
+  at index time.
   """
 
   import Ecto.Query
 
   alias Flux.Accounts.Scope
-  alias Flux.RAG.{Chunker, Dataset, Document, Segment, VectorStore}
+
+  alias Flux.RAG.{
+    Chunker,
+    Dataset,
+    Document,
+    Entities,
+    Entity,
+    EntityMention,
+    Segment,
+    VectorStore
+  }
+
   alias Flux.RBAC
   alias Flux.Repo
 
@@ -338,6 +351,7 @@ defmodule Flux.RAG do
           end
 
         :ok = VectorStore.backend().index(dataset.id, segments)
+        index_entities(dataset, segments)
 
         document
         |> Ecto.Changeset.change(status: :ready, segment_count: length(segments), error: nil)
@@ -352,6 +366,98 @@ defmodule Flux.RAG do
 
         {:error, reason}
     end
+  end
+
+  # GraphRAG groundwork: every segment's extracted entities land in
+  # rag_entities/rag_entity_mentions (old mentions died with the old
+  # segments via FK cascade). See Flux.RAG.Entities.
+  defp index_entities(dataset, segments) do
+    names_by_segment =
+      for segment <- segments,
+          names = Entities.extract(segment.content),
+          names != [],
+          do: {segment, names}
+
+    all_names =
+      names_by_segment |> Enum.flat_map(fn {_segment, names} -> names end) |> Enum.uniq()
+
+    if all_names != [] do
+      now = DateTime.utc_now(:second)
+
+      Repo.insert_all(
+        Entity,
+        for name <- all_names do
+          %{
+            id: UUIDv7.generate(),
+            workspace_id: dataset.workspace_id,
+            dataset_id: dataset.id,
+            name: name,
+            inserted_at: now
+          }
+        end,
+        on_conflict: :nothing
+      )
+
+      entity_ids =
+        Entity
+        |> where([e], e.dataset_id == ^dataset.id and e.name in ^all_names)
+        |> select([e], {e.name, e.id})
+        |> Repo.all(skip_workspace_guard: true)
+        |> Map.new()
+
+      mentions =
+        for {segment, names} <- names_by_segment,
+            name <- names,
+            entity_id = entity_ids[name],
+            entity_id != nil do
+          %{
+            id: UUIDv7.generate(),
+            workspace_id: dataset.workspace_id,
+            dataset_id: dataset.id,
+            entity_id: entity_id,
+            segment_id: segment.id
+          }
+        end
+
+      Repo.insert_all(EntityMention, mentions, on_conflict: :nothing)
+    end
+
+    :ok
+  end
+
+  @doc "Entities known in a dataset with their mention counts, most-mentioned first."
+  def list_entities(%Scope{} = scope, dataset_id, limit \\ 50) do
+    EntityMention
+    |> Repo.scoped(scope)
+    |> join(:inner, [m], e in Entity, on: m.entity_id == e.id)
+    |> where([m], m.dataset_id == ^dataset_id)
+    |> group_by([m, e], e.name)
+    |> order_by([m, e], desc: count(m.id), asc: e.name)
+    |> limit(^limit)
+    |> select([m, e], %{name: e.name, mentions: count(m.id)})
+    |> Repo.all()
+  end
+
+  @doc """
+  Entities co-occurring with the named one (shared segments), strongest
+  first — the graph-traversal seed an Arango backend will deepen.
+  """
+  def related_entities(%Scope{} = scope, dataset_id, name, limit \\ 10) do
+    normalized = Entities.normalize(name)
+
+    EntityMention
+    |> Repo.scoped(scope)
+    |> join(:inner, [m], e in Entity, on: m.entity_id == e.id)
+    |> join(:inner, [m], m2 in EntityMention,
+      on: m2.segment_id == m.segment_id and m2.entity_id != m.entity_id
+    )
+    |> join(:inner, [m, e, m2], e2 in Entity, on: m2.entity_id == e2.id)
+    |> where([m, e], m.dataset_id == ^dataset_id and e.name == ^normalized)
+    |> group_by([m, e, m2, e2], e2.name)
+    |> order_by([m, e, m2, e2], desc: count(m.id), asc: e2.name)
+    |> limit(^limit)
+    |> select([m, e, m2, e2], %{name: e2.name, shared_segments: count(m.id)})
+    |> Repo.all()
   end
 
   defp embed(_dataset, []), do: {:ok, []}
@@ -386,9 +492,10 @@ defmodule Flux.RAG do
 
       semantic_hits = semantic_hits(dataset, query, top_k * 3)
       keyword_hits = keyword_hits(scope, dataset_id, query, top_k * 3)
+      entity_hits = entity_hits(scope, dataset_id, query, top_k * 3)
 
       ranked =
-        [semantic_hits, keyword_hits]
+        [semantic_hits, keyword_hits, entity_hits]
         |> Enum.reduce(%{}, fn hits, acc ->
           hits
           |> Enum.with_index(1)
@@ -481,6 +588,28 @@ defmodule Flux.RAG do
 
       _no_embeddings ->
         []
+    end
+  end
+
+  # Third RRF source: segments mentioning the entities named in the query,
+  # ranked by how many distinct query entities they share. Queries with no
+  # recognizable entities contribute nothing (empty ranking is a no-op).
+  defp entity_hits(scope, dataset_id, query, limit) do
+    case Entities.extract(query) do
+      [] ->
+        []
+
+      names ->
+        EntityMention
+        |> Repo.scoped(scope)
+        |> join(:inner, [m], e in Entity, on: m.entity_id == e.id)
+        |> join(:inner, [m], s in Segment, on: m.segment_id == s.id)
+        |> where([m, e, s], m.dataset_id == ^dataset_id and e.name in ^names and s.enabled)
+        |> group_by([m], m.segment_id)
+        |> order_by([m, e], desc: count(e.id, :distinct))
+        |> limit(^limit)
+        |> select([m], m.segment_id)
+        |> Repo.all()
     end
   end
 

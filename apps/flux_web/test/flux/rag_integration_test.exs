@@ -449,6 +449,44 @@ defmodule FluxWeb.RAGIntegrationTest do
     assert refreshed.segment_count == 0
   end
 
+  test "indexing extracts entities and retrieval uses the mention graph", %{
+    scope: scope,
+    dataset: dataset
+  } do
+    ingest!(scope, dataset, "acme.md", """
+    Acme Corp manufactures anvils in Toledo. Wile Coyote is the best
+    customer of Acme Corp and orders monthly.
+    """)
+
+    ingest!(scope, dataset, "initech.md", """
+    Initech ships TPS report software. Bill Lumbergh runs Initech.
+    """)
+
+    # Entities landed with mention counts.
+    entities = RAG.list_entities(scope, dataset.id)
+    names = Enum.map(entities, & &1.name)
+    assert "acme corp" in names
+    assert "initech" in names
+    assert "wile coyote" in names
+
+    # Co-occurrence: Wile Coyote shares a segment with Acme Corp, not Initech.
+    related = RAG.related_entities(scope, dataset.id, "Acme Corp")
+    related_names = Enum.map(related, & &1.name)
+    assert "wile coyote" in related_names
+    refute "bill lumbergh" in related_names
+
+    # An entity-bearing query retrieves the segment that mentions it first.
+    {:ok, [top | _rest]} = RAG.retrieve(scope, dataset.id, "who buys from Acme Corp?")
+    assert top.document.name == "acme.md"
+
+    # Re-indexing does not duplicate entities.
+    {:ok, _count} = RAG.reindex_dataset(scope, dataset)
+    Oban.drain_queue(queue: :ingest)
+
+    assert RAG.list_entities(scope, dataset.id) |> Enum.map(& &1.name) |> Enum.uniq() ==
+             RAG.list_entities(scope, dataset.id) |> Enum.map(& &1.name)
+  end
+
   test "dataset mutations enforce RBAC", %{workspace: workspace, dataset: dataset} do
     viewer = account_fixture()
 

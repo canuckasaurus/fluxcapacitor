@@ -16,7 +16,8 @@ defmodule Flux.Repo do
   @tenant_tables MapSet.new(
                    ~w(invitations provider_credentials apps conversations messages api_tokens
                       workflows workflow_versions workflow_runs api_toolsets uploaded_files
-                      workflow_triggers datasets rag_documents rag_segments)
+                      workflow_triggers datasets rag_documents rag_segments rag_entities
+                      rag_entity_mentions)
                  )
 
   @doc """
