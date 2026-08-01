@@ -1116,6 +1116,91 @@ defmodule Flux.EngineTest do
       assert result.outputs["output"] == "human said: yes"
     end
 
+    test "multi-case if_else routes the first matching case, else falls through" do
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("branch", "if_else", %{
+            "cases" => [
+              %{
+                "id" => "greeting",
+                "logical_operator" => "and",
+                "conditions" => [
+                  %{"left" => "{{start.query}}", "operator" => "contains", "right" => "hello"}
+                ]
+              },
+              %{
+                "id" => "farewell",
+                "logical_operator" => "and",
+                "conditions" => [
+                  %{"left" => "{{start.query}}", "operator" => "contains", "right" => "bye"}
+                ]
+              }
+            ]
+          }),
+          node!("t_greet", "template", %{"template" => "greeting branch"}),
+          node!("t_bye", "template", %{"template" => "farewell branch"}),
+          node!("t_else", "template", %{"template" => "else branch"})
+        ],
+        "edges" => [
+          edge!("start", "branch"),
+          %{
+            "id" => "e1",
+            "source" => "branch",
+            "source_handle" => "greeting",
+            "target" => "t_greet"
+          },
+          %{
+            "id" => "e2",
+            "source" => "branch",
+            "source_handle" => "farewell",
+            "target" => "t_bye"
+          },
+          %{"id" => "e3", "source" => "branch", "source_handle" => "false", "target" => "t_else"}
+        ]
+      }
+
+      {:ok, built} = Engine.build(graph)
+
+      assert {:ok, result} = Engine.run(built, %{"query" => "hello there"}, echo_host())
+      assert result.outputs["output"] == "greeting branch"
+
+      assert {:ok, result} = Engine.run(built, %{"query" => "bye now"}, echo_host())
+      assert result.outputs["output"] == "farewell branch"
+
+      assert {:ok, result} = Engine.run(built, %{"query" => "neither"}, echo_host())
+      assert result.outputs["output"] == "else branch"
+    end
+
+    test "legacy flat if_else configs keep the true/false contract" do
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("branch", "if_else", %{
+            "logical_operator" => "and",
+            "conditions" => [
+              %{"left" => "{{start.query}}", "operator" => "contains", "right" => "yes"}
+            ]
+          }),
+          node!("t_true", "template", %{"template" => "T"}),
+          node!("t_false", "template", %{"template" => "F"})
+        ],
+        "edges" => [
+          edge!("start", "branch"),
+          %{"id" => "e1", "source" => "branch", "source_handle" => "true", "target" => "t_true"},
+          %{"id" => "e2", "source" => "branch", "source_handle" => "false", "target" => "t_false"}
+        ]
+      }
+
+      {:ok, built} = Engine.build(graph)
+
+      assert {:ok, %{outputs: %{"output" => "T"}}} =
+               Engine.run(built, %{"query" => "yes"}, echo_host())
+
+      assert {:ok, %{outputs: %{"output" => "F"}}} =
+               Engine.run(built, %{"query" => "no"}, echo_host())
+    end
+
     test "unresolved template references render blank" do
       graph = %{
         "nodes" => [

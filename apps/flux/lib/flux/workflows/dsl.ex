@@ -217,22 +217,24 @@ defmodule Flux.Workflows.DSL do
 
   defp export_data("if_else", config) do
     %{
-      "cases" => [
-        %{
-          "case_id" => "true",
-          "id" => "true",
-          "logical_operator" => config["logical_operator"] || "and",
-          "conditions" =>
-            for condition <- List.wrap(config["conditions"]) do
-              %{
-                "variable_selector" => ref_selector(condition["left"]),
-                "comparison_operator" => Map.get(@reverse_operators, condition["operator"], "is"),
-                "value" => condition["right"] || "",
-                "varType" => "string"
-              }
-            end
-        }
-      ]
+      "cases" =>
+        for kase <- Flux.Engine.Nodes.IfElse.cases(config) do
+          %{
+            "case_id" => kase["id"],
+            "id" => kase["id"],
+            "logical_operator" => kase["logical_operator"] || "and",
+            "conditions" =>
+              for condition <- List.wrap(kase["conditions"]) do
+                %{
+                  "variable_selector" => ref_selector(condition["left"]),
+                  "comparison_operator" =>
+                    Map.get(@reverse_operators, condition["operator"], "is"),
+                  "value" => condition["right"] || "",
+                  "varType" => "string"
+                }
+              end
+          }
+        end
     }
   end
 
@@ -527,15 +529,21 @@ defmodule Flux.Workflows.DSL do
         # Pre-cases DSL: conditions live directly on data.
         {build_conditions(data), []}
 
-      [first | rest] ->
-        warnings =
-          if rest == [] do
-            []
-          else
-            ["if-else node has #{length(rest)} extra case(s); only the first imported."]
-          end
+      # A single case keeps the flat legacy shape (handle "true").
+      [single] ->
+        {build_conditions(single), []}
 
-        {build_conditions(first), warnings}
+      cases ->
+        converted =
+          cases
+          |> Enum.with_index(1)
+          |> Enum.map(fn {kase, index} ->
+            kase
+            |> build_conditions()
+            |> Map.put("id", to_string(kase["case_id"] || kase["id"] || "case_#{index}"))
+          end)
+
+        {%{"cases" => converted}, []}
     end
   end
 
@@ -768,17 +776,23 @@ defmodule Flux.Workflows.DSL do
   defp convert_edges(raw_edges, raw_nodes, kept_ids, warnings) do
     if_else_case_ids = first_case_ids(raw_nodes)
     classifier_class_ids = classifier_class_ids(raw_nodes)
+    multi_case_ids = multi_case_ids(raw_nodes)
 
     Enum.reduce(raw_edges, {[], warnings}, fn raw, {edges, warnings} ->
       source = to_string(raw["source"])
       target = to_string(raw["target"])
       handle = to_string(raw["sourceHandle"] || "")
-      classifier_handles = Map.get(classifier_class_ids, source, MapSet.new())
+
+      verbatim_handles =
+        MapSet.union(
+          Map.get(classifier_class_ids, source, MapSet.new()),
+          Map.get(multi_case_ids, source, MapSet.new())
+        )
 
       if not MapSet.member?(kept_ids, source) or not MapSet.member?(kept_ids, target) do
         {edges, warnings}
       else
-        case (MapSet.member?(classifier_handles, handle) && {:ok, handle}) ||
+        case (MapSet.member?(verbatim_handles, handle) && {:ok, handle}) ||
                map_handle(raw["sourceHandle"], Map.get(if_else_case_ids, source)) do
           {:ok, handle} ->
             edge = %{
@@ -819,12 +833,31 @@ defmodule Flux.Workflows.DSL do
     end
   end
 
+  # Single-case if-else keeps mapping its case handle to "true"; nodes
+  # with 2+ cases keep their case-id handles verbatim.
   defp first_case_ids(raw_nodes) do
     for raw <- raw_nodes,
         get_in(raw, ["data", "type"]) == "if-else",
-        first_case = raw |> get_in(["data", "cases"]) |> List.wrap() |> List.first(),
+        [first_case] <- [raw |> get_in(["data", "cases"]) |> List.wrap()],
         into: %{} do
       {to_string(raw["id"]), to_string(first_case["case_id"] || "true")}
+    end
+  end
+
+  defp multi_case_ids(raw_nodes) do
+    for raw <- raw_nodes,
+        get_in(raw, ["data", "type"]) == "if-else",
+        cases = raw |> get_in(["data", "cases"]) |> List.wrap(),
+        length(cases) > 1,
+        into: %{} do
+      ids =
+        cases
+        |> Enum.with_index(1)
+        |> MapSet.new(fn {kase, index} ->
+          to_string(kase["case_id"] || kase["id"] || "case_#{index}")
+        end)
+
+      {to_string(raw["id"]), ids}
     end
   end
 

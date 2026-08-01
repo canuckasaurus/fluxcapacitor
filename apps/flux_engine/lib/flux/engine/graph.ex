@@ -64,6 +64,10 @@ defmodule Flux.Engine.Graph do
     end
   end
 
+  def handles_for_node(%Node{type: "if_else", config: config}) do
+    Enum.map(Flux.Engine.Nodes.IfElse.cases(config), & &1["id"]) ++ ["false"]
+  end
+
   def handles_for_node(%Node{type: type}), do: handles_for(type)
 
   @doc """

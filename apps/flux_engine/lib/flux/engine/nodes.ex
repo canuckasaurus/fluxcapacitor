@@ -110,9 +110,13 @@ end
 
 defmodule Flux.Engine.Nodes.IfElse do
   @moduledoc """
-  Evaluates rendered conditions and branches on handle `"true"`/`"false"`.
-  Config: `%{"logical_operator" => "and" | "or", "conditions" =>
-  [%{"left", "operator", "right"}]}`.
+  Evaluates case chains (if / elif / …) and branches on the first matching
+  case's handle, or `"false"` (the else branch) when none match.
+
+  Config: `%{"cases" => [%{"id", "logical_operator" => "and" | "or",
+  "conditions" => [%{"left", "operator", "right"}]}]}`. Legacy single-case
+  configs (`logical_operator`/`conditions` at the top level) behave as one
+  case with handle `"true"`, preserving the original true/false contract.
   """
   @behaviour Flux.Engine.Node
 
@@ -125,17 +129,60 @@ defmodule Flux.Engine.Nodes.IfElse do
 
   @impl true
   def run(node, pool, _host) do
-    conditions = List.wrap(node.config["conditions"])
+    node.config
+    |> cases()
+    |> Enum.reduce_while({:ok, nil}, fn kase, {:ok, nil} ->
+      case case_verdict(kase, pool) do
+        {:ok, true} -> {:halt, {:ok, kase["id"]}}
+        {:ok, false} -> {:cont, {:ok, nil}}
+        {:error, message} -> {:halt, {:error, message}}
+      end
+    end)
+    |> case do
+      {:ok, nil} -> {:ok, %{"result" => false, "case_id" => "false"}, "false"}
+      {:ok, case_id} -> {:ok, %{"result" => true, "case_id" => case_id}, case_id}
+      {:error, message} -> {:error, message}
+    end
+  end
 
-    with {:ok, verdicts} <- evaluate_all(conditions, pool) do
+  @doc """
+  Normalized case list (shared with the graph validator for handle
+  derivation). Legacy flat configs become one case with id `"true"`.
+  """
+  def cases(config) do
+    case config["cases"] do
+      [_ | _] = cases ->
+        cases
+        |> Enum.with_index(1)
+        |> Enum.map(fn {kase, index} ->
+          %{
+            "id" => to_string(kase["id"] || "case_#{index}"),
+            "logical_operator" => kase["logical_operator"] || "and",
+            "conditions" => List.wrap(kase["conditions"])
+          }
+        end)
+
+      _legacy ->
+        [
+          %{
+            "id" => "true",
+            "logical_operator" => config["logical_operator"] || "and",
+            "conditions" => List.wrap(config["conditions"])
+          }
+        ]
+    end
+  end
+
+  defp case_verdict(kase, pool) do
+    with {:ok, verdicts} <- evaluate_all(kase["conditions"], pool) do
       result =
-        case {node.config["logical_operator"] || "and", verdicts} do
+        case {kase["logical_operator"], verdicts} do
           {_operator, []} -> false
           {"or", verdicts} -> Enum.any?(verdicts)
           {_and, verdicts} -> Enum.all?(verdicts)
         end
 
-      {:ok, %{"result" => result}, to_string(result)}
+      {:ok, result}
     end
   end
 

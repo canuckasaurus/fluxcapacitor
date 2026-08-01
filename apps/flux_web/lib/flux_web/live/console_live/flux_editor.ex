@@ -563,6 +563,83 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     end
   end
 
+  ## Multi-case if-else editing
+
+  def handle_event("add_case", _params, socket) do
+    update_if_else(socket, fn cases ->
+      taken = MapSet.new(cases, & &1["id"])
+
+      new_id =
+        Enum.find(Stream.map(1..1_000, &"case_#{&1}"), &(not MapSet.member?(taken, &1)))
+
+      cases ++
+        [
+          %{
+            "id" => new_id,
+            "logical_operator" => "and",
+            "conditions" => [empty_row("condition")]
+          }
+        ]
+    end)
+  end
+
+  def handle_event("remove_case", %{"index" => index}, socket) do
+    index = String.to_integer(index)
+
+    with %{"type" => "if_else"} = node <- selected_node(socket) do
+      removed = Enum.at(if_else_cases(node["config"]), index)
+
+      update_graph(socket, fn graph ->
+        graph
+        |> update_node_in(node["id"], fn current ->
+          cases = List.delete_at(if_else_cases(current["config"]), index)
+
+          Map.put(
+            current,
+            "config",
+            current["config"]
+            |> Map.put("cases", cases)
+            |> Map.drop(["logical_operator", "conditions"])
+          )
+        end)
+        |> Map.update("edges", [], fn edges ->
+          Enum.reject(edges, fn edge ->
+            edge["source"] == node["id"] and removed != nil and
+              edge["source_handle"] == removed["id"]
+          end)
+        end)
+      end)
+    else
+      _not_if_else -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("add_case_cond", %{"case-index" => index}, socket) do
+    index = String.to_integer(index)
+
+    update_if_else(socket, fn cases ->
+      List.update_at(cases, index, fn kase ->
+        Map.update(
+          kase,
+          "conditions",
+          [empty_row("condition")],
+          &(&1 ++ [empty_row("condition")])
+        )
+      end)
+    end)
+  end
+
+  def handle_event("remove_case_cond", %{"case-index" => case_index, "index" => index}, socket) do
+    case_index = String.to_integer(case_index)
+    index = String.to_integer(index)
+
+    update_if_else(socket, fn cases ->
+      List.update_at(cases, case_index, fn kase ->
+        Map.update(kase, "conditions", [], &List.delete_at(&1, index))
+      end)
+    end)
+  end
+
   def handle_event("add_row", %{"kind" => kind}, socket) do
     update_selected_rows(socket, kind, &(&1 ++ [empty_row(kind)]))
   end
@@ -1122,9 +1199,28 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
   end
 
   defp build_config("if_else", config, params) do
-    config
-    |> Map.put("logical_operator", Map.get(params, "logical_operator", "and"))
-    |> Map.put("conditions", indexed_rows(params["conds"], ~w(left operator right), %{}))
+    case params["case"] do
+      %{} = case_params ->
+        cases =
+          case_params
+          |> Enum.sort_by(fn {index, _kase} -> String.to_integer(index) end)
+          |> Enum.map(fn {_index, kase} ->
+            %{
+              "id" => to_string(kase["id"] || ""),
+              "logical_operator" => kase["logical_operator"] || "and",
+              "conditions" => indexed_rows(kase["conds"], ~w(left operator right), %{})
+            }
+          end)
+
+        config
+        |> Map.put("cases", cases)
+        |> Map.drop(["logical_operator", "conditions"])
+
+      _no_case_params ->
+        config
+        |> Map.put("logical_operator", Map.get(params, "logical_operator", "and"))
+        |> Map.put("conditions", indexed_rows(params["conds"], ~w(left operator right), %{}))
+    end
   end
 
   defp build_config("template", config, params) do
@@ -1489,6 +1585,28 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     end)
   end
 
+  defp update_if_else(socket, fun) do
+    with %{"type" => "if_else"} = node <- selected_node(socket) do
+      update_graph(socket, fn graph ->
+        update_node_in(graph, node["id"], fn current ->
+          cases = fun.(if_else_cases(current["config"]))
+
+          Map.put(
+            current,
+            "config",
+            current["config"]
+            |> Map.put("cases", cases)
+            |> Map.drop(["logical_operator", "conditions"])
+          )
+        end)
+      end)
+    else
+      _not_if_else -> {:noreply, socket}
+    end
+  end
+
+  defp if_else_cases(config), do: Flux.Engine.Nodes.IfElse.cases(config)
+
   defp failable?(type), do: type in @failable_types
 
   defp format_debug_error(:unauthorized), do: "You don't have permission to run nodes."
@@ -1507,6 +1625,15 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
       |> Enum.find_index(&(&1["id"] == handle))
 
     @port_y + (index || 0) * 28 - 2
+  end
+
+  defp source_handle_offset(%{"type" => "if_else"} = source, handle) do
+    cases = if_else_cases(source["config"])
+
+    case Enum.find_index(cases, &(&1["id"] == handle)) do
+      nil -> @port_y + length(cases) * 28 - 2
+      index -> @port_y + index * 28 - 2
+    end
   end
 
   defp source_handle_offset(_source, "false"), do: @false_port_y
@@ -1806,19 +1933,22 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
 
                   <%= if node["type"] == "if_else" do %>
                     <span
+                      :for={{kase, index} <- Enum.with_index(if_else_cases(node["config"]))}
                       data-out-port
                       data-node-id={node["id"]}
-                      data-handle="true"
-                      class="absolute -right-1.5 top-[22px] size-3 rounded-full bg-success hover:scale-125 transition-transform cursor-crosshair"
-                      title="True branch"
+                      data-handle={kase["id"]}
+                      class="absolute -right-1.5 size-3 rounded-full bg-success hover:scale-125 transition-transform cursor-crosshair"
+                      style={"top: #{22 + index * 28}px"}
+                      title={"Case: #{kase["id"]}"}
                     >
                     </span>
                     <span
                       data-out-port
                       data-node-id={node["id"]}
                       data-handle="false"
-                      class="absolute -right-1.5 top-[50px] size-3 rounded-full bg-error hover:scale-125 transition-transform cursor-crosshair"
-                      title="False branch"
+                      class="absolute -right-1.5 size-3 rounded-full bg-error hover:scale-125 transition-transform cursor-crosshair"
+                      style={"top: #{22 + length(if_else_cases(node["config"])) * 28}px"}
+                      title="ELSE branch"
                     >
                     </span>
                     <div class="absolute -right-8 top-[16px] text-[10px] text-success font-bold">
@@ -2025,31 +2155,42 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                     >{node["config"]["prompt"]}</textarea>
                   </label>
                 <% "if_else" -> %>
-                  <label class="floating-label">
-                    <span>Combine with</span>
-                    <select
-                      name="logical_operator"
-                      class="select select-sm w-full"
-                      disabled={not @can_edit}
-                    >
-                      <option value="and" selected={node["config"]["logical_operator"] != "or"}>
-                        AND
-                      </option>
-                      <option value="or" selected={node["config"]["logical_operator"] == "or"}>
-                        OR
-                      </option>
-                    </select>
-                  </label>
-                  <div class="space-y-2">
+                  <div
+                    :for={{kase, case_index} <- Enum.with_index(if_else_cases(node["config"]))}
+                    class="rounded-box border border-base-300 p-2 space-y-2"
+                  >
+                    <div class="flex items-center gap-2">
+                      <span class="badge badge-warning badge-sm">
+                        {(case_index == 0 && "IF") || "ELIF"} · {kase["id"]}
+                      </span>
+                      <input type="hidden" name={"case[#{case_index}][id]"} value={kase["id"]} />
+                      <select
+                        name={"case[#{case_index}][logical_operator]"}
+                        class="select select-xs w-20"
+                        disabled={not @can_edit}
+                      >
+                        <option value="and" selected={kase["logical_operator"] != "or"}>AND</option>
+                        <option value="or" selected={kase["logical_operator"] == "or"}>OR</option>
+                      </select>
+                      <button
+                        :if={length(if_else_cases(node["config"])) > 1}
+                        type="button"
+                        class="btn btn-ghost btn-xs text-error ml-auto"
+                        phx-click="remove_case"
+                        phx-value-index={case_index}
+                        disabled={not @can_edit}
+                        data-confirm="Remove this case (its edge is removed too)?"
+                      >
+                        ✕
+                      </button>
+                    </div>
                     <div
-                      :for={
-                        {condition, index} <- Enum.with_index(List.wrap(node["config"]["conditions"]))
-                      }
+                      :for={{condition, index} <- Enum.with_index(List.wrap(kase["conditions"]))}
                       class="rounded-box border border-base-200 p-2 space-y-2"
                     >
                       <input
                         type="text"
-                        name={"conds[#{index}][left]"}
+                        name={"case[#{case_index}][conds][#{index}][left]"}
                         value={condition["left"]}
                         placeholder="{{start.query}}"
                         class="input input-xs w-full"
@@ -2057,7 +2198,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                       />
                       <div class="flex gap-2">
                         <select
-                          name={"conds[#{index}][operator]"}
+                          name={"case[#{case_index}][conds][#{index}][operator]"}
                           class="select select-xs flex-1"
                           disabled={not @can_edit}
                         >
@@ -2072,8 +2213,8 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                         <button
                           type="button"
                           class="btn btn-ghost btn-xs text-error"
-                          phx-click="remove_row"
-                          phx-value-kind="condition"
+                          phx-click="remove_case_cond"
+                          phx-value-case-index={case_index}
                           phx-value-index={index}
                           disabled={not @can_edit}
                         >
@@ -2082,7 +2223,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                       </div>
                       <input
                         type="text"
-                        name={"conds[#{index}][right]"}
+                        name={"case[#{case_index}][conds][#{index}][right]"}
                         value={condition["right"]}
                         placeholder="value"
                         class="input input-xs w-full"
@@ -2092,13 +2233,24 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                     <button
                       type="button"
                       class="btn btn-outline btn-xs"
-                      phx-click="add_row"
-                      phx-value-kind="condition"
+                      phx-click="add_case_cond"
+                      phx-value-case-index={case_index}
                       disabled={not @can_edit}
                     >
                       <.icon name="hero-plus" class="size-3" /> Add condition
                     </button>
                   </div>
+                  <button
+                    type="button"
+                    class="btn btn-outline btn-xs"
+                    phx-click="add_case"
+                    disabled={not @can_edit}
+                  >
+                    <.icon name="hero-plus" class="size-3" /> Add ELIF case
+                  </button>
+                  <p class="text-xs opacity-60">
+                    Unmatched input leaves on the red ELSE port.
+                  </p>
                 <% "template" -> %>
                   <label class="floating-label">
                     <span>Template</span>
