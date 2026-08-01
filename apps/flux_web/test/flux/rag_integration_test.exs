@@ -340,6 +340,57 @@ defmodule FluxWeb.RAGIntegrationTest do
     assert length(RAG.list_documents(scope, dataset.id)) == 2
   end
 
+  test "auto-sync sweep enqueues due datasets only", %{scope: scope, dataset: dataset} do
+    feed = """
+    <rss version="2.0"><channel>
+      <item><title>Auto post</title><guid>auto-1</guid>
+      <description>Automatic ingestion works.</description></item>
+    </channel></rss>
+    """
+
+    Application.put_env(:flux_plugin_runtime, :req_options, plug: {Req.Test, Flux.AutoSyncStub})
+    on_exit(fn -> Application.delete_env(:flux_plugin_runtime, :req_options) end)
+    Req.Test.stub(Flux.AutoSyncStub, fn conn -> Plug.Conn.send_resp(conn, 200, feed) end)
+
+    :ok = Flux.Tools.install_plugin(scope, "rss")
+
+    {:ok, _credential} =
+      Flux.Providers.upsert_credential(scope, "rss", %{
+        "feed_url" => "https://feeds.example.com/auto.xml"
+      })
+
+    {:ok, dataset} =
+      RAG.update_dataset(scope, dataset, %{
+        "sync_plugin_id" => "rss",
+        "sync_interval_minutes" => 15
+      })
+
+    # Never synced → due immediately; the sweep enqueues and stamps.
+    assert :ok = Flux.RAG.SyncSweepWorker.perform(%Oban.Job{args: %{}})
+    Oban.drain_queue(queue: :ingest, with_recursion: true)
+
+    assert [%{name: "Auto post", status: :ready}] = RAG.list_documents(scope, dataset.id)
+
+    synced = RAG.get_dataset(scope, dataset.id)
+    assert synced.last_synced_at
+
+    # Within the interval nothing is enqueued again.
+    assert :ok = Flux.RAG.SyncSweepWorker.perform(%Oban.Job{args: %{}})
+
+    assert Oban.drain_queue(queue: :ingest, with_recursion: true) == %{
+             cancelled: 0,
+             discard: 0,
+             failure: 0,
+             snoozed: 0,
+             success: 0
+           }
+
+    # Clearing the plugin clears the schedule.
+    {:ok, cleared} = RAG.update_dataset(scope, synced, %{"sync_plugin_id" => ""})
+    assert cleared.sync_plugin_id == nil
+    assert cleared.sync_interval_minutes == nil
+  end
+
   test "dataset mutations enforce RBAC", %{workspace: workspace, dataset: dataset} do
     viewer = account_fixture()
 

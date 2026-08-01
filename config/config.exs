@@ -35,6 +35,8 @@ config :flux, Oban,
     {Oban.Plugins.Cron,
      crontab: [
        {"* * * * *", Flux.Workflows.ScheduleWorker},
+       # Datasource auto-sync: enqueue due dataset syncs every 5 minutes.
+       {"*/5 * * * *", Flux.RAG.SyncSweepWorker},
        # Nightly retention sweep at 03:10 UTC.
        {"10 3 * * *", Flux.Workflows.CleanupWorker}
      ]},

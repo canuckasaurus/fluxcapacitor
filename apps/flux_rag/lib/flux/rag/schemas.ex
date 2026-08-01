@@ -17,6 +17,9 @@ defmodule Flux.RAG.Dataset do
     field(:chunk_overlap, :integer, default: 120)
     field(:rerank_plugin_id, :string)
     field(:rerank_model, :string)
+    field(:sync_plugin_id, :string)
+    field(:sync_interval_minutes, :integer)
+    field(:last_synced_at, :utc_datetime)
 
     timestamps(type: :utc_datetime)
   end
@@ -31,12 +34,25 @@ defmodule Flux.RAG.Dataset do
       :chunk_size,
       :chunk_overlap,
       :rerank_plugin_id,
-      :rerank_model
+      :rerank_model,
+      :sync_plugin_id,
+      :sync_interval_minutes
     ])
     |> validate_required([:name, :embedding_plugin_id, :embedding_model])
     |> validate_number(:chunk_size, greater_than_or_equal_to: 200, less_than_or_equal_to: 4000)
     |> validate_number(:chunk_overlap, greater_than_or_equal_to: 0, less_than_or_equal_to: 500)
+    |> validate_number(:sync_interval_minutes, greater_than_or_equal_to: 5)
     |> validate_length(:name, min: 1, max: 255)
+    |> then(fn changeset ->
+      # Clearing the plugin clears the schedule with it.
+      case get_field(changeset, :sync_plugin_id) do
+        empty when empty in [nil, ""] ->
+          change(changeset, sync_plugin_id: nil, sync_interval_minutes: nil)
+
+        _plugin ->
+          changeset
+      end
+    end)
   end
 end
 

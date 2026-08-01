@@ -171,6 +171,26 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
     end
   end
 
+  def handle_event("save_auto_sync", params, socket) do
+    scope = socket.assigns.current_scope
+
+    with %{} = dataset <- socket.assigns.selected,
+         {:ok, updated} <-
+           RAG.update_dataset(scope, dataset, %{
+             "sync_plugin_id" => params["sync_plugin_id"],
+             "sync_interval_minutes" => params["sync_interval_minutes"]
+           }) do
+      message =
+        if updated.sync_plugin_id,
+          do: "Auto-sync every #{updated.sync_interval_minutes} minutes.",
+          else: "Auto-sync turned off."
+
+      {:noreply, socket |> put_flash(:info, message) |> assign(selected: updated)}
+    else
+      _error -> {:noreply, put_flash(socket, :error, "Could not save auto-sync settings.")}
+    end
+  end
+
   def handle_event("validate_upload", _params, socket), do: {:noreply, socket}
 
   def handle_event("upload", _params, socket) do
@@ -429,6 +449,37 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                 </option>
               </select>
               <button class="btn btn-outline btn-sm">Sync datasource</button>
+            </form>
+            <form
+              :if={@datasource_plugins != []}
+              phx-submit="save_auto_sync"
+              class="flex items-end gap-2 flex-wrap"
+              id="auto-sync-form"
+            >
+              <label class="form-control">
+                <span class="label-text text-xs opacity-70 mb-1">Auto-sync source</span>
+                <select name="sync_plugin_id" class="select select-bordered select-sm">
+                  <option value="">Off</option>
+                  <option
+                    :for={plugin <- @datasource_plugins}
+                    value={plugin.id}
+                    selected={@selected.sync_plugin_id == plugin.id}
+                  >
+                    {plugin.name}
+                  </option>
+                </select>
+              </label>
+              <label class="form-control">
+                <span class="label-text text-xs opacity-70 mb-1">Every (minutes, ≥ 5)</span>
+                <input
+                  type="number"
+                  name="sync_interval_minutes"
+                  min="5"
+                  value={@selected.sync_interval_minutes || 60}
+                  class="input input-bordered input-sm w-28"
+                />
+              </label>
+              <button class="btn btn-outline btn-sm">Save auto-sync</button>
             </form>
             <form phx-submit="add_text" class="space-y-2" id="paste-form">
               <input

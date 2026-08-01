@@ -454,6 +454,49 @@ defmodule Flux.RAG do
   defp format_error(reason), do: inspect(reason)
 end
 
+defmodule Flux.RAG.SyncSweepWorker do
+  @moduledoc """
+  Oban cron (every 5 minutes): enqueues a datasource sync for every
+  dataset whose auto-sync interval has elapsed. `last_synced_at` marks
+  the enqueue (not completion) so a slow source can't pile up jobs.
+  """
+  use Oban.Worker, queue: :ingest, max_attempts: 1
+
+  import Ecto.Query
+
+  alias Flux.RAG.Dataset
+  alias Flux.Repo
+
+  @impl Oban.Worker
+  def perform(_job) do
+    now = DateTime.utc_now(:second)
+
+    due =
+      from(d in Dataset,
+        where: not is_nil(d.sync_plugin_id) and not is_nil(d.sync_interval_minutes),
+        where:
+          is_nil(d.last_synced_at) or
+            d.last_synced_at <=
+              datetime_add(^now, fragment("-?", d.sync_interval_minutes), "minute")
+      )
+      |> Repo.all(skip_workspace_guard: true)
+
+    for dataset <- due do
+      dataset |> Ecto.Changeset.change(last_synced_at: now) |> Repo.update()
+
+      # An uninstalled plugin pauses the schedule instead of erroring.
+      if Flux.Tools.plugin_installed?(dataset.workspace_id, dataset.sync_plugin_id) do
+        {:ok, _job} =
+          %{dataset_id: dataset.id, plugin_id: dataset.sync_plugin_id}
+          |> Flux.RAG.DatasourceSyncWorker.new()
+          |> Oban.insert()
+      end
+    end
+
+    :ok
+  end
+end
+
 defmodule Flux.RAG.DatasourceSyncWorker do
   @moduledoc "Oban worker: syncs one datasource plugin into one dataset."
   use Oban.Worker, queue: :ingest, max_attempts: 3
