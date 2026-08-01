@@ -109,6 +109,23 @@ defmodule Flux.Providers do
     end
   end
 
+  @doc """
+  Embeds texts with a workspace-configured provider. Returns
+  `{:ok, [[float]]}` in input order.
+  """
+  def embed_texts(workspace_id, plugin_id, model, texts) when is_list(texts) do
+    credentials =
+      case fetch_config(workspace_id, plugin_id) do
+        {:ok, config} -> config
+        {:error, :not_configured} -> %{}
+      end
+
+    case runtime().invoke_embeddings(plugin_id, credentials, model, texts) do
+      {:ok, %{vectors: vectors}} -> {:ok, vectors}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   ## Default model (workspace-level system model)
 
   @doc """

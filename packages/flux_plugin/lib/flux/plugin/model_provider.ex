@@ -87,8 +87,13 @@ defmodule Flux.Plugin.ModelProvider do
 
   @type credentials :: %{optional(String.t()) => String.t()}
   @type emit :: (Chunk.t() -> :ok)
+  @type embeddings :: %{vectors: [[float()]], usage: %{input_tokens: non_neg_integer()}}
 
   @callback models(credentials) :: [Spec.t()]
   @callback validate_credentials(credentials) :: :ok | {:error, String.t()}
   @callback invoke_llm(credentials, Request.t(), emit) :: {:ok, Result.t()} | {:error, term()}
+  @callback invoke_embeddings(credentials, model :: String.t(), texts :: [String.t()]) ::
+              {:ok, embeddings()} | {:error, term()}
+
+  @optional_callbacks invoke_embeddings: 3
 end

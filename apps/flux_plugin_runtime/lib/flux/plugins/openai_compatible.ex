@@ -99,6 +99,11 @@ defmodule Flux.Plugins.OpenAICompatible do
     Flux.Plugins.OpenAI.invoke_llm(credentials, request, emit)
   end
 
+  @impl Flux.Plugin.ModelProvider
+  def invoke_embeddings(credentials, model, texts) do
+    Flux.Plugins.OpenAI.invoke_embeddings(credentials, model, texts)
+  end
+
   defp auth(%{"api_key" => key}) when is_binary(key) and key != "",
     do: [{"authorization", "Bearer #{key}"}]
 

@@ -91,4 +91,31 @@ defmodule Flux.FakeRuntime do
   end
 
   def invoke_llm(_other, _credentials, _request, _emit), do: {:error, :unknown_plugin}
+
+  # Deterministic bag-of-words vectors, mirroring the real Echo plugin so
+  # retrieval tests get meaningful cosine similarity without any API.
+  @embed_dims 16
+
+  def invoke_embeddings("echo", _credentials, _model, texts) do
+    vectors =
+      for text <- texts do
+        text
+        |> String.downcase()
+        |> String.split(~r/\W+/, trim: true)
+        |> Enum.reduce(List.duplicate(0.0, @embed_dims), fn word, acc ->
+          index = rem(:erlang.phash2(word), @embed_dims)
+          List.update_at(acc, index, &(&1 + 1.0))
+        end)
+        |> normalize()
+      end
+
+    {:ok, %{vectors: vectors, usage: %{input_tokens: 0}}}
+  end
+
+  def invoke_embeddings(_other, _credentials, _model, _texts), do: {:error, :not_supported}
+
+  defp normalize(vector) do
+    magnitude = :math.sqrt(Enum.reduce(vector, 0.0, &(&2 + &1 * &1)))
+    if magnitude == 0.0, do: vector, else: Enum.map(vector, &(&1 / magnitude))
+  end
 end

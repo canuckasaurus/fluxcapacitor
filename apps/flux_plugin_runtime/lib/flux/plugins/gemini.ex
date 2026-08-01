@@ -39,8 +39,31 @@ defmodule Flux.Plugins.Gemini do
     [
       %Spec{name: "gemini-2.5-pro", label: "Gemini 2.5 Pro", context_window: 1_048_576},
       %Spec{name: "gemini-2.5-flash", label: "Gemini 2.5 Flash", context_window: 1_048_576},
-      %Spec{name: "gemini-2.0-flash", label: "Gemini 2.0 Flash", context_window: 1_048_576}
+      %Spec{name: "gemini-2.0-flash", label: "Gemini 2.0 Flash", context_window: 1_048_576},
+      %Spec{name: "text-embedding-004", label: "text-embedding-004", type: :text_embedding}
     ]
+  end
+
+  @impl Flux.Plugin.ModelProvider
+  def invoke_embeddings(credentials, model, texts) do
+    url = @base_url <> "/models/#{model}:batchEmbedContents"
+
+    body = %{
+      requests:
+        for text <- texts do
+          %{model: "models/#{model}", content: %{parts: [%{text: text}]}}
+        end
+    }
+
+    with :ok <- Flux.SSRF.verify_url(url),
+         {:ok, %{status: 200, body: response}} <-
+           Req.post(SSE.req_options(url: url, json: body, headers: auth(credentials))) do
+      vectors = response["embeddings"] |> List.wrap() |> Enum.map(& &1["values"])
+      {:ok, %{vectors: vectors, usage: %{input_tokens: 0}}}
+    else
+      {:ok, %{status: status, body: response}} -> {:error, {:http_error, status, response}}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   @impl Flux.Plugin.ModelProvider

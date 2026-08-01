@@ -58,6 +58,20 @@ defmodule Flux.PluginRuntime do
     end
   end
 
+  @doc "Embeds a batch of texts; {:error, :not_supported} when the plugin has no embedding models."
+  def invoke_embeddings(plugin_id, credentials, model, texts) when is_list(texts) do
+    with {:ok, module} <- fetch_plugin(plugin_id) do
+      if function_exported?(module, :invoke_embeddings, 3) do
+        run_supervised(
+          fn -> module.invoke_embeddings(credentials, model, texts) end,
+          @invoke_timeout
+        )
+      else
+        {:error, :not_supported}
+      end
+    end
+  end
+
   defp run_supervised(fun, timeout) do
     task = Task.Supervisor.async_nolink(Flux.PluginRuntime.TaskSupervisor, fun)
 

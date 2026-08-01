@@ -184,6 +184,48 @@ defmodule Flux.ProvidersHTTPTest do
     assert {:error, "Invalid API key."} = Anthropic.validate_credentials(%{"api_key" => "bad"})
   end
 
+  describe "embeddings" do
+    test "openai embeddings parse vectors in input order" do
+      Req.Test.stub(Flux.ProviderStub, fn conn ->
+        Req.Test.json(conn, %{
+          "data" => [
+            %{"index" => 1, "embedding" => [0.3, 0.4]},
+            %{"index" => 0, "embedding" => [0.1, 0.2]}
+          ],
+          "usage" => %{"prompt_tokens" => 5}
+        })
+      end)
+
+      assert {:ok, %{vectors: [[0.1, 0.2], [0.3, 0.4]], usage: %{input_tokens: 5}}} =
+               OpenAI.invoke_embeddings(%{"api_key" => "sk-x"}, "text-embedding-3-small", [
+                 "one",
+                 "two"
+               ])
+    end
+
+    test "echo embeddings are deterministic and similarity-meaningful" do
+      {:ok, %{vectors: [a, b, c]}} =
+        Flux.Plugins.Echo.invoke_embeddings(%{}, "echo-embed", [
+          "elixir runs on the beam",
+          "elixir runs on the beam vm",
+          "quantum flux capacitor"
+        ])
+
+      cosine = fn x, y -> Enum.zip(x, y) |> Enum.reduce(0.0, fn {p, q}, s -> s + p * q end) end
+      assert cosine.(a, b) > cosine.(a, c)
+
+      {:ok, %{vectors: [a2]}} =
+        Flux.Plugins.Echo.invoke_embeddings(%{}, "echo-embed", ["elixir runs on the beam"])
+
+      assert a == a2
+    end
+
+    test "runtime returns not_supported for plugins without embeddings" do
+      assert {:error, :not_supported} =
+               Flux.PluginRuntime.invoke_embeddings("anthropic", %{}, "m", ["x"])
+    end
+  end
+
   describe "openai_compatible" do
     alias Flux.Plugins.OpenAICompatible
 

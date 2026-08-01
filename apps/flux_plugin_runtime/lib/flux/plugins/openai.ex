@@ -37,8 +37,48 @@ defmodule Flux.Plugins.OpenAI do
       %Spec{name: "gpt-4o", label: "GPT-4o", context_window: 128_000},
       %Spec{name: "gpt-4o-mini", label: "GPT-4o mini", context_window: 128_000},
       %Spec{name: "gpt-4.1", label: "GPT-4.1", context_window: 1_000_000},
-      %Spec{name: "o3-mini", label: "o3-mini", context_window: 200_000}
+      %Spec{name: "o3-mini", label: "o3-mini", context_window: 200_000},
+      %Spec{
+        name: "text-embedding-3-small",
+        label: "text-embedding-3-small",
+        type: :text_embedding
+      },
+      %Spec{
+        name: "text-embedding-3-large",
+        label: "text-embedding-3-large",
+        type: :text_embedding
+      }
     ]
+  end
+
+  @impl Flux.Plugin.ModelProvider
+  def invoke_embeddings(credentials, model, texts) do
+    url = base_url(credentials) <> "/embeddings"
+
+    with :ok <- Flux.SSRF.verify_url(url),
+         {:ok, %{status: 200, body: body}} <-
+           Req.post(
+             SSE.req_options(
+               url: url,
+               json: %{model: model, input: texts},
+               headers: auth(credentials)
+             )
+           ) do
+      vectors =
+        body["data"]
+        |> List.wrap()
+        |> Enum.sort_by(& &1["index"])
+        |> Enum.map(& &1["embedding"])
+
+      {:ok,
+       %{
+         vectors: vectors,
+         usage: %{input_tokens: get_in(body, ["usage", "prompt_tokens"]) || 0}
+       }}
+    else
+      {:ok, %{status: status, body: body}} -> {:error, {:http_error, status, body}}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   @impl Flux.Plugin.ModelProvider

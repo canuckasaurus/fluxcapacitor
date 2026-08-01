@@ -22,7 +22,38 @@ defmodule Flux.Plugins.Echo do
   end
 
   @impl Flux.Plugin.ModelProvider
-  def models(_credentials), do: [%Spec{name: "echo-1", label: "Echo v1"}]
+  def models(_credentials) do
+    [
+      %Spec{name: "echo-1", label: "Echo v1"},
+      %Spec{name: "echo-embed", label: "Echo embeddings", type: :text_embedding}
+    ]
+  end
+
+  @dims 16
+
+  @impl Flux.Plugin.ModelProvider
+  def invoke_embeddings(_credentials, _model, texts) do
+    # Deterministic bag-of-words vectors: same words → similar vectors, so
+    # cosine similarity behaves sensibly in tests without any API.
+    vectors =
+      for text <- texts do
+        text
+        |> String.downcase()
+        |> String.split(~r/\W+/, trim: true)
+        |> Enum.reduce(List.duplicate(0.0, @dims), fn word, acc ->
+          index = rem(:erlang.phash2(word), @dims)
+          List.update_at(acc, index, &(&1 + 1.0))
+        end)
+        |> normalize()
+      end
+
+    {:ok, %{vectors: vectors, usage: %{input_tokens: 0}}}
+  end
+
+  defp normalize(vector) do
+    magnitude = :math.sqrt(Enum.reduce(vector, 0.0, &(&2 + &1 * &1)))
+    if magnitude == 0.0, do: vector, else: Enum.map(vector, &(&1 / magnitude))
+  end
 
   @impl Flux.Plugin.ModelProvider
   def validate_credentials(_credentials), do: :ok
