@@ -157,6 +157,8 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
            triggers: [],
            trigger_type: "webhook",
            show_site: false,
+           show_versions: false,
+           versions: [],
            show_variables: false,
            env_rows: [],
            conv_rows: [],
@@ -833,6 +835,39 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
       |> elem(1)
 
     {:noreply, socket |> assign(show_variables: false) |> put_flash(:info, "Variables saved.")}
+  end
+
+  ## Versions
+
+  def handle_event("toggle_versions", _params, socket) do
+    versions =
+      if socket.assigns.show_versions do
+        []
+      else
+        Workflows.list_versions(socket.assigns.current_scope, socket.assigns.workflow.id)
+      end
+
+    {:noreply,
+     assign(socket, show_versions: not socket.assigns.show_versions, versions: versions)}
+  end
+
+  def handle_event("restore_version", %{"version" => version}, socket) do
+    with true <- socket.assigns.can_edit,
+         %{graph: graph} <-
+           Workflows.get_version(
+             socket.assigns.current_scope,
+             socket.assigns.workflow.id,
+             String.to_integer(version)
+           ) do
+      # Restoring goes through update_graph, so undo brings the draft back.
+      socket = assign(socket, show_versions: false)
+      {:noreply, updated} = update_graph(socket, fn _draft -> graph end)
+
+      {:noreply,
+       put_flash(updated, :info, "Draft replaced with v#{version} — publish to ship it.")}
+    else
+      _cannot_restore -> {:noreply, put_flash(socket, :error, "Could not restore that version.")}
+    end
   end
 
   ## Site publishing
@@ -1946,6 +1981,13 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
             </button>
             <button class="btn btn-sm btn-ghost" phx-click="toggle_history">
               <.icon name="hero-clock" class="size-4" /> History
+            </button>
+            <button
+              :if={@latest_version != nil}
+              class="btn btn-sm btn-ghost"
+              phx-click="toggle_versions"
+            >
+              <.icon name="hero-archive-box" class="size-4" /> Versions
             </button>
             <button :if={@can_manage_tokens} class="btn btn-sm btn-ghost" phx-click="toggle_api">
               <.icon name="hero-key" class="size-4" /> API
@@ -3749,6 +3791,41 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
           </form>
         </div>
         <div class="modal-backdrop" phx-click="toggle_variables"></div>
+      </dialog>
+
+      <dialog :if={@show_versions} class="modal modal-open">
+        <div class="modal-box space-y-4">
+          <div class="flex items-center justify-between">
+            <h3 class="font-bold">Published versions</h3>
+            <button class="btn btn-ghost btn-xs" phx-click="toggle_versions">
+              <.icon name="hero-x-mark" class="size-4" />
+            </button>
+          </div>
+          <p :if={@versions == []} class="text-sm opacity-60">Nothing published yet.</p>
+          <div
+            :for={version <- @versions}
+            class="flex items-center gap-3 rounded-box border border-base-200 px-3 py-2"
+            id={"version-#{version.version}"}
+          >
+            <span class="badge badge-primary badge-sm">v{version.version}</span>
+            <span class="text-xs opacity-60">
+              {Calendar.strftime(version.inserted_at, "%Y-%m-%d %H:%M")}
+            </span>
+            <span class="text-xs opacity-60">
+              {length(version.graph["nodes"] || [])} nodes
+            </span>
+            <button
+              :if={@can_edit}
+              class="btn btn-outline btn-xs ml-auto"
+              phx-click="restore_version"
+              phx-value-version={version.version}
+              data-confirm={"Replace the draft with v#{version.version}? (Undo restores it.)"}
+            >
+              Restore to draft
+            </button>
+          </div>
+        </div>
+        <div class="modal-backdrop" phx-click="toggle_versions"></div>
       </dialog>
 
       <dialog :if={@show_site} class="modal modal-open">

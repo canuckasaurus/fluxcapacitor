@@ -266,6 +266,39 @@ defmodule FluxWeb.FluxEditorLiveTest do
            )
   end
 
+  test "version browser restores a published version into the draft", %{
+    conn: conn,
+    workflow: workflow,
+    scope: scope
+  } do
+    wire_echo(scope, workflow)
+    {:ok, lv, _html} = live(conn, ~p"/console/fluxes/#{workflow.id}")
+
+    lv |> element("button", "Publish") |> render_click()
+
+    # Mutate the draft after publishing.
+    render_click(lv, "add_node", %{"type" => "template"})
+
+    assert Enum.any?(
+             Workflows.get_workflow(scope, workflow.id).graph["nodes"],
+             &(&1["type"] == "template")
+           )
+
+    lv |> element("button[phx-click=toggle_versions]") |> render_click()
+    lv |> element("button", "Restore to draft") |> render_click()
+
+    restored = Workflows.get_workflow(scope, workflow.id)
+    refute Enum.any?(restored.graph["nodes"], &(&1["type"] == "template"))
+
+    # Undo brings the mutated draft back.
+    render_hook(lv, "undo", %{})
+
+    assert Enum.any?(
+             Workflows.get_workflow(scope, workflow.id).graph["nodes"],
+             &(&1["type"] == "template")
+           )
+  end
+
   test "per-node debug run executes one node with a mock pool", %{
     conn: conn,
     workflow: workflow,

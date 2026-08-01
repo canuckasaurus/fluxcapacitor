@@ -170,6 +170,22 @@ defmodule Flux.Workflows do
     end
   end
 
+  def list_versions(%Scope{} = scope, workflow_id) do
+    WorkflowVersion
+    |> Repo.scoped(scope)
+    |> where([v], v.workflow_id == ^workflow_id)
+    |> order_by([v], desc: v.version)
+    |> Repo.all()
+  end
+
+  def get_version(%Scope{} = scope, workflow_id, version) do
+    Repo.one(
+      WorkflowVersion
+      |> Repo.scoped(scope)
+      |> where([v], v.workflow_id == ^workflow_id and v.version == ^version)
+    ) || {:error, :not_found}
+  end
+
   def latest_version(%Scope{} = scope, workflow_id) do
     WorkflowVersion
     |> Repo.scoped(scope)
