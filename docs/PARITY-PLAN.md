@@ -79,6 +79,17 @@ status, segments, hit testing), **knowledge-retrieval node → 20/20 node
 types**, `/v1/datasets` subset. Still Docker-bound: ArangoDB backend
 (same behaviour), Tika formats, compose stack, corpus-scale load test.
 
+**2026-08-01 follow-on batch ✅:** citations flow onto chat answers
+(console + site source footnotes); per-dataset chunk settings +
+re-index; **rerank hook** (`invoke_rerank` SDK + optional retrieval
+rerank, Echo lexical reranker for CI); per-app daily token quotas
+(429 on the API); **tool plugins** (Flux.Plugin.Tool behaviour,
+per-workspace installations, built-in Utilities plugin, `plugin:<id>`
+pseudo-toolsets in tool/agent nodes — WS6 GA started); human-input
+pause/resume on public flux sites; workspace settings page
+(rename/default model/owner-only delete); RAG-chatflow harness fixture;
+run-trace duration bars.
+
 ### WS3 (original plan, for reference) — (~8–12 weeks)
 
 **Backend decision (2026-07-30): ArangoDB-first behind a `Flux.RAG.VectorStore`
