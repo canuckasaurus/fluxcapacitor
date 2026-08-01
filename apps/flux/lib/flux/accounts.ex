@@ -416,7 +416,6 @@ defmodule Flux.Accounts do
     end
   end
 
-  @doc "Sets the run/message retention window in days (nil = keep forever)."
   ## SCIM provisioning
 
   @doc """
@@ -565,6 +564,7 @@ defmodule Flux.Accounts do
 
   defp scim_scope(workspace), do: %Scope{account: nil, membership: nil, workspace: workspace}
 
+  @doc "Sets the run/message retention window in days (nil = keep forever)."
   def set_retention_days(%Scope{} = scope, days) when is_nil(days) or days in 1..3650 do
     with :ok <- Flux.RBAC.authorize(scope, :customization_manage),
          %Workspace{} = workspace <- Repo.get(Workspace, Scope.workspace_id(scope)) do

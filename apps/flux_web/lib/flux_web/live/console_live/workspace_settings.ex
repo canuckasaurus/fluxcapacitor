@@ -334,7 +334,7 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
         <h2 class="font-semibold">SCIM provisioning</h2>
         <p class="text-sm opacity-70">
           Let your identity provider create and remove members automatically.
-          Base URL: <span class="font-mono text-xs">{url(~p"/scim/v2")}</span>
+          Base URL: <span class="font-mono text-xs">{url(~p"/") <> "scim/v2"}</span>
           — provisioned users join as <span class="font-mono text-xs">normal</span>
           members.
         </p>

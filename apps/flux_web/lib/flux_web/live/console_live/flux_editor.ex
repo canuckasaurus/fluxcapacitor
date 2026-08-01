@@ -1538,12 +1538,6 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     |> Map.put("top_k", top_k)
   end
 
-  defp knowledge_dataset_ids(config) do
-    (List.wrap(config["dataset_ids"]) ++ List.wrap(config["dataset_id"]))
-    |> Enum.reject(&(&1 in [nil, ""]))
-    |> Enum.uniq()
-  end
-
   defp build_config("iteration", config, params) do
     max_items =
       case Integer.parse(to_string(Map.get(params, "max_items", ""))) do
@@ -1627,6 +1621,12 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
   end
 
   defp build_config(_type, config, _params), do: config
+
+  defp knowledge_dataset_ids(config) do
+    (List.wrap(config["dataset_ids"]) ++ List.wrap(config["dataset_id"]))
+    |> Enum.reject(&(&1 in [nil, ""]))
+    |> Enum.uniq()
+  end
 
   # Rebuilds a config row list from "0"/"1"-indexed form params, keeping
   # string fields and coercing the checkbox keys named in `booleans`.

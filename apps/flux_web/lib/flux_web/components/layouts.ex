@@ -98,145 +98,162 @@ defmodule FluxWeb.Layouts do
 
   def console(assigns) do
     ~H"""
-    <div class="min-h-screen flex bg-base-100">
-      <aside class="w-60 shrink-0 border-r border-base-200 flex flex-col">
-        <div class="px-4 py-4 border-b border-base-200">
+    <div class="drawer lg:drawer-open bg-base-100">
+      <input id="console-drawer" type="checkbox" class="drawer-toggle" />
+
+      <div class="drawer-content min-h-screen min-w-0 flex flex-col">
+        <header class="navbar min-h-12 gap-1 border-b border-base-200 lg:hidden">
+          <label for="console-drawer" class="btn btn-ghost btn-sm btn-square" aria-label="Open menu">
+            <.icon name="hero-bars-3" class="size-5" />
+          </label>
           <.link navigate={~p"/console"} class="flex items-center gap-2">
-            <.icon name="hero-bolt-solid" class="size-6 flux-bolt" />
-            <span class="text-lg flux-wordmark">FluxCapacitor</span>
+            <.icon name="hero-bolt-solid" class="size-5 flux-bolt" />
+            <span class="flux-wordmark">FluxCapacitor</span>
           </.link>
-        </div>
+        </header>
 
-        <nav class="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
-          <.sidebar_link
-            navigate={~p"/console"}
-            icon="hero-home"
-            label="Dashboard"
-            active={@active == :dashboard}
-          />
-
-          <.sidebar_section label="Build" />
-          <.sidebar_link
-            navigate={~p"/console/fluxes"}
-            icon="hero-squares-2x2"
-            label="Flux Creator"
-            active={@active == :fluxes}
-          />
-          <.sidebar_link
-            navigate={~p"/console/apps"}
-            icon="hero-chat-bubble-left-right"
-            label="Apps"
-            active={@active == :apps}
-          />
-          <.sidebar_link
-            navigate={~p"/console/templates"}
-            icon="hero-document-duplicate"
-            label="Doc templates"
-            active={@active == :templates}
-          />
-
-          <.sidebar_section label="Ground" />
-          <.sidebar_link
-            navigate={~p"/console/knowledge"}
-            icon="hero-book-open"
-            label="Knowledge"
-            active={@active == :knowledge}
-          />
-          <.sidebar_link
-            navigate={~p"/console/tools"}
-            icon="hero-wrench-screwdriver"
-            label="Tools"
-            active={@active == :tools}
-          />
-          <.sidebar_link
-            navigate={~p"/console/plugins"}
-            icon="hero-puzzle-piece"
-            label="Plugins"
-            active={@active == :plugins}
-          />
-
-          <.sidebar_section label="Operate" />
-          <.sidebar_link
-            navigate={~p"/console/members"}
-            icon="hero-user-group"
-            label="Members"
-            active={@active == :members}
-          />
-          <.sidebar_link
-            :if={Flux.RBAC.can?(@current_scope, :workspace_member_manage)}
-            navigate={~p"/console/audit"}
-            icon="hero-clipboard-document-list"
-            label="Audit log"
-            active={@active == :audit}
-          />
-          <.sidebar_link
-            navigate={~p"/console/settings"}
-            icon="hero-cog-6-tooth"
-            label="Settings"
-            active={@active == :settings}
-          />
-
-          <div class="pt-2">
-            <.sidebar_link
-              navigate={~p"/console/docs"}
-              icon="hero-academic-cap"
-              label="Docs"
-              active={@active == :docs}
-            />
+        <main class={[
+          "flex-1 min-w-0 overflow-x-auto",
+          (@full_bleed && "p-4") || "px-6 py-8"
+        ]}>
+          <div class={(@full_bleed && "h-full") || "mx-auto max-w-5xl space-y-6"}>
+            {render_slot(@inner_block)}
           </div>
-        </nav>
+        </main>
+      </div>
 
-        <div class="px-4 py-4 border-t border-base-200 space-y-3">
-          <div :if={@current_scope.workspace} class="text-xs">
-            <div class="opacity-60">Workspace</div>
-            <details class="dropdown dropdown-top w-full">
-              <summary class="font-semibold truncate cursor-pointer list-none flex items-center gap-1">
-                {@current_scope.workspace.name}
-                <.icon name="hero-chevron-up-down-micro" class="size-3 opacity-60 shrink-0" />
-              </summary>
-              <ul class="dropdown-content menu bg-base-100 rounded-box z-20 w-52 p-2 shadow border border-base-200">
-                <li :for={{workspace, _membership} <- @workspaces}>
-                  <span :if={workspace.id == @current_scope.workspace.id} class="font-semibold">
-                    {workspace.name} ✓
-                  </span>
-                  <.link
-                    :if={workspace.id != @current_scope.workspace.id}
-                    href={~p"/console/workspaces/switch/#{workspace.id}"}
-                    method="post"
-                  >
-                    {workspace.name}
-                  </.link>
-                </li>
-                <li class="border-t border-base-200 mt-1 pt-1">
-                  <.link navigate={~p"/console/workspaces/new"}>
-                    <.icon name="hero-plus-micro" class="size-3" /> New workspace
-                  </.link>
-                </li>
-              </ul>
-            </details>
-          </div>
-          <div class="text-xs">
-            <div class="opacity-60">Signed in as</div>
-            <div class="font-semibold truncate">{@current_scope.account.email}</div>
-          </div>
-          <div class="flex items-center gap-2">
-            <.link navigate={~p"/accounts/settings"} class="btn btn-ghost btn-xs">Settings</.link>
-            <.link href={~p"/accounts/log-out"} method="delete" class="btn btn-ghost btn-xs">
-              Log out
+      <div class="drawer-side z-30">
+        <label for="console-drawer" aria-label="Close menu" class="drawer-overlay"></label>
+        <aside class="w-60 min-h-full bg-base-100 border-r border-base-200 flex flex-col">
+          <div class="px-4 py-4 border-b border-base-200">
+            <.link navigate={~p"/console"} class="flex items-center gap-2">
+              <.icon name="hero-bolt-solid" class="size-6 flux-bolt" />
+              <span class="text-lg flux-wordmark">FluxCapacitor</span>
             </.link>
           </div>
-          <.theme_toggle />
-        </div>
-      </aside>
 
-      <main class={[
-        "flex-1 min-w-0 overflow-x-auto",
-        (@full_bleed && "p-4") || "px-6 py-8"
-      ]}>
-        <div class={(@full_bleed && "h-full") || "mx-auto max-w-5xl space-y-6"}>
-          {render_slot(@inner_block)}
-        </div>
-      </main>
+          <nav class="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
+            <.sidebar_link
+              navigate={~p"/console"}
+              icon="hero-home"
+              label="Dashboard"
+              active={@active == :dashboard}
+            />
+
+            <.sidebar_section label="Build" />
+            <.sidebar_link
+              navigate={~p"/console/fluxes"}
+              icon="hero-squares-2x2"
+              label="Flux Creator"
+              active={@active == :fluxes}
+            />
+            <.sidebar_link
+              navigate={~p"/console/apps"}
+              icon="hero-chat-bubble-left-right"
+              label="Apps"
+              active={@active == :apps}
+            />
+            <.sidebar_link
+              navigate={~p"/console/templates"}
+              icon="hero-document-duplicate"
+              label="Doc templates"
+              active={@active == :templates}
+            />
+
+            <.sidebar_section label="Ground" />
+            <.sidebar_link
+              navigate={~p"/console/knowledge"}
+              icon="hero-book-open"
+              label="Knowledge"
+              active={@active == :knowledge}
+            />
+            <.sidebar_link
+              navigate={~p"/console/tools"}
+              icon="hero-wrench-screwdriver"
+              label="Tools"
+              active={@active == :tools}
+            />
+            <.sidebar_link
+              navigate={~p"/console/plugins"}
+              icon="hero-puzzle-piece"
+              label="Plugins"
+              active={@active == :plugins}
+            />
+
+            <.sidebar_section label="Operate" />
+            <.sidebar_link
+              navigate={~p"/console/members"}
+              icon="hero-user-group"
+              label="Members"
+              active={@active == :members}
+            />
+            <.sidebar_link
+              :if={Flux.RBAC.can?(@current_scope, :workspace_member_manage)}
+              navigate={~p"/console/audit"}
+              icon="hero-clipboard-document-list"
+              label="Audit log"
+              active={@active == :audit}
+            />
+            <.sidebar_link
+              navigate={~p"/console/settings"}
+              icon="hero-cog-6-tooth"
+              label="Settings"
+              active={@active == :settings}
+            />
+
+            <div class="pt-2">
+              <.sidebar_link
+                navigate={~p"/console/docs"}
+                icon="hero-academic-cap"
+                label="Docs"
+                active={@active == :docs}
+              />
+            </div>
+          </nav>
+
+          <div class="px-4 py-4 border-t border-base-200 space-y-3">
+            <div :if={@current_scope.workspace} class="text-xs">
+              <div class="opacity-60">Workspace</div>
+              <details class="dropdown dropdown-top w-full">
+                <summary class="font-semibold truncate cursor-pointer list-none flex items-center gap-1">
+                  {@current_scope.workspace.name}
+                  <.icon name="hero-chevron-up-down-micro" class="size-3 opacity-60 shrink-0" />
+                </summary>
+                <ul class="dropdown-content menu bg-base-100 rounded-box z-20 w-52 p-2 shadow border border-base-200">
+                  <li :for={{workspace, _membership} <- @workspaces}>
+                    <span :if={workspace.id == @current_scope.workspace.id} class="font-semibold">
+                      {workspace.name} ✓
+                    </span>
+                    <.link
+                      :if={workspace.id != @current_scope.workspace.id}
+                      href={~p"/console/workspaces/switch/#{workspace.id}"}
+                      method="post"
+                    >
+                      {workspace.name}
+                    </.link>
+                  </li>
+                  <li class="border-t border-base-200 mt-1 pt-1">
+                    <.link navigate={~p"/console/workspaces/new"}>
+                      <.icon name="hero-plus-micro" class="size-3" /> New workspace
+                    </.link>
+                  </li>
+                </ul>
+              </details>
+            </div>
+            <div class="text-xs">
+              <div class="opacity-60">Signed in as</div>
+              <div class="font-semibold truncate">{@current_scope.account.email}</div>
+            </div>
+            <div class="flex items-center gap-2">
+              <.link navigate={~p"/accounts/settings"} class="btn btn-ghost btn-xs">Settings</.link>
+              <.link href={~p"/accounts/log-out"} method="delete" class="btn btn-ghost btn-xs">
+                Log out
+              </.link>
+            </div>
+            <.theme_toggle />
+          </div>
+        </aside>
+      </div>
     </div>
 
     <.flash_group flash={@flash} />
