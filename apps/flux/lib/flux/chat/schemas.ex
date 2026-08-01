@@ -111,6 +111,30 @@ defmodule Flux.Chat.Message do
   end
 end
 
+defmodule Flux.Chat.Annotation do
+  @moduledoc """
+  A canonical answer for one question: matching queries (normalized
+  exact match) answer instantly from the annotation instead of calling
+  the model. Typically promoted from a liked reply in feedback review.
+  """
+  use Ecto.Schema
+
+  @primary_key {:id, UUIDv7, autogenerate: true}
+  @foreign_key_type :binary_id
+
+  schema "annotations" do
+    belongs_to :workspace, Flux.Accounts.Workspace
+    belongs_to :app, Flux.Chat.App
+
+    field :question, :string
+    field :answer, :string
+    field :enabled, :boolean, default: true
+    field :hit_count, :integer, default: 0
+
+    timestamps(type: :utc_datetime)
+  end
+end
+
 defmodule Flux.Chat.ApiToken do
   @moduledoc """
   A hashed service-API token bound to one app (`app-…`) or one workflow

@@ -233,11 +233,17 @@ defmodule Flux.Chat do
     :ok = subscribe(assistant_message.id)
 
     history = list_messages(scope, conversation.id)
+    annotation = match_annotation(app, content)
 
     {:ok, _pid} =
       Task.Supervisor.start_child(Flux.GenerationSupervisor, fn ->
         Registry.register(Flux.GenerationRegistry, assistant_message.id, nil)
-        generate(app, history, assistant_message)
+
+        if annotation do
+          answer_from_annotation(annotation, assistant_message)
+        else
+          generate(app, history, assistant_message)
+        end
       end)
 
     {:ok, user_message, assistant_message}
@@ -319,6 +325,108 @@ defmodule Flux.Chat do
       |> Repo.one()
 
     decimal_to_int(used.total) >= limit
+  end
+
+  ## Annotations
+
+  alias Flux.Chat.Annotation
+
+  @doc "Annotations for an app, newest first."
+  def list_annotations(%Scope{} = scope, app_id) do
+    Annotation
+    |> Repo.scoped(scope)
+    |> where([a], a.app_id == ^app_id)
+    |> order_by([a], desc: a.inserted_at, desc: a.id)
+    |> Repo.all()
+  end
+
+  @doc "Creates a canonical question→answer pair for the app."
+  def create_annotation(%Scope{} = scope, %App{} = app, %{question: question, answer: answer})
+      when is_binary(question) and is_binary(answer) do
+    with :ok <- RBAC.authorize(scope, :app_edit),
+         true <- (String.trim(question) != "" and String.trim(answer) != "") || {:error, :empty} do
+      annotation =
+        Repo.insert!(%Annotation{
+          workspace_id: app.workspace_id,
+          app_id: app.id,
+          question: String.trim(question),
+          answer: String.trim(answer)
+        })
+
+      Flux.Audit.record(scope, "annotation.create",
+        resource_type: "annotation",
+        resource_id: annotation.id,
+        metadata: %{"app_id" => app.id}
+      )
+
+      {:ok, annotation}
+    end
+  end
+
+  @doc "Promotes a rated assistant reply into an annotation (feedback review)."
+  def annotate_from_message(%Scope{} = scope, %App{} = app, message_id) do
+    with %Message{role: :assistant} = message <-
+           Repo.one(Repo.scoped(where(Message, id: ^message_id), scope)) ||
+             {:error, :not_found},
+         question when is_binary(question) <-
+           preceding_question(scope, message) || {:error, :no_question} do
+      create_annotation(scope, app, %{question: question, answer: message.content})
+    else
+      %Message{} -> {:error, :not_found}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def delete_annotation(%Scope{} = scope, annotation_id) do
+    with :ok <- RBAC.authorize(scope, :app_edit),
+         %Annotation{} = annotation <-
+           Repo.one(Repo.scoped(where(Annotation, id: ^annotation_id), scope)) ||
+             {:error, :not_found} do
+      Repo.delete(annotation)
+    end
+  end
+
+  # Normalized exact match against the app's enabled annotations.
+  defp match_annotation(app, content) do
+    normalized = normalize_question(content)
+
+    if normalized == "" do
+      nil
+    else
+      Annotation
+      |> where([a], a.workspace_id == ^app.workspace_id and a.app_id == ^app.id and a.enabled)
+      |> Repo.all()
+      |> Enum.find(&(normalize_question(&1.question) == normalized))
+    end
+  end
+
+  defp normalize_question(text) do
+    text
+    |> String.downcase()
+    |> String.replace(~r/[?!.\s]+$/, "")
+    |> String.replace(~r/\s+/, " ")
+    |> String.trim()
+  end
+
+  # The annotation answers instead of the model: streamed as one chunk so
+  # every consumer (console, sites, /v1 SSE) behaves identically.
+  defp answer_from_annotation(annotation, assistant_message) do
+    Flux.StreamBuffers.append(assistant_message.id, annotation.answer)
+
+    Phoenix.PubSub.broadcast(
+      Flux.PubSub,
+      topic(assistant_message.id),
+      {:chunk, annotation.answer}
+    )
+
+    from(a in Annotation, where: a.id == ^annotation.id)
+    |> Repo.update_all([inc: [hit_count: 1]], skip_workspace_guard: true)
+
+    finalize(assistant_message, :completed, annotation.answer, %{
+      "input_tokens" => 0,
+      "output_tokens" => 0,
+      "annotation_id" => annotation.id
+    })
   end
 
   @doc """

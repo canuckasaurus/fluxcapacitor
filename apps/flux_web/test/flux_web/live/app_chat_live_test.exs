@@ -245,6 +245,55 @@ defmodule FluxWeb.AppChatLiveTest do
     assert html =~ "You said: monitor me"
   end
 
+  test "annotations answer matching questions instantly", %{
+    conn: conn,
+    app: app,
+    scope: scope
+  } do
+    conversation = Chat.create_conversation(scope, app)
+
+    {:ok, _user, _assistant} =
+      Chat.send_message(scope, app, conversation, "What is the refund policy?")
+
+    assert_receive {:done, reply}, 5_000
+
+    {:ok, _} = Chat.set_feedback(scope, reply.id, :like)
+
+    # Promote via the monitor page's feedback card.
+    {:ok, lv, _html} = live(conn, ~p"/console/apps/#{app.id}/monitor")
+    html = lv |> element("button", "Save as annotation") |> render_click()
+    assert html =~ "answer instantly"
+    assert html =~ "What is the refund policy?"
+
+    # A matching question (case/punctuation-insensitive) short-circuits
+    # the model: annotation answer, zero token usage.
+    {:ok, _user, _assistant} =
+      Chat.send_message(scope, app, conversation, "what is the refund policy")
+
+    assert_receive {:done, annotated}, 5_000
+    assert annotated.content == String.trim(reply.content)
+    assert annotated.usage["output_tokens"] == 0
+    assert annotated.usage["annotation_id"]
+
+    [annotation] = Chat.list_annotations(scope, app.id)
+    assert annotation.hit_count == 1
+
+    # Different questions still reach the model.
+    {:ok, _user, _assistant} = Chat.send_message(scope, app, conversation, "another question")
+    assert_receive {:done, normal}, 5_000
+    assert normal.content =~ "You said: another question"
+    assert normal.usage["output_tokens"] == 12
+
+    # Deleting the annotation restores model answers for the question.
+    {:ok, _} = Chat.delete_annotation(scope, annotation.id)
+
+    {:ok, _user, _assistant} =
+      Chat.send_message(scope, app, conversation, "What is the refund policy?")
+
+    assert_receive {:done, restored}, 5_000
+    assert restored.content =~ "You said:"
+  end
+
   test "feedback review lists rated replies with their questions", %{
     conn: conn,
     app: app,

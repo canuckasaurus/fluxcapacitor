@@ -20,6 +20,8 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
          usage: Chat.usage_stats(scope, app.id),
          feedback_filter: :all,
          feedback: Chat.list_feedback(scope, app.id),
+         annotations: Chat.list_annotations(scope, app.id),
+         can_edit: RBAC.can?(scope, :app_edit),
          selected_id: nil,
          messages: []
        )}
@@ -47,6 +49,31 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
        feedback_filter: filter,
        feedback: Chat.list_feedback(scope, socket.assigns.app.id, filter)
      )}
+  end
+
+  def handle_event("save_annotation", %{"message-id" => message_id}, socket) do
+    scope = socket.assigns.current_scope
+
+    case Chat.annotate_from_message(scope, socket.assigns.app, message_id) do
+      {:ok, _annotation} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Saved — matching questions now answer instantly.")
+         |> assign(annotations: Chat.list_annotations(scope, socket.assigns.app.id))}
+
+      {:error, :no_question} ->
+        {:noreply, put_flash(socket, :error, "Could not find the question this reply answered.")}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not save the annotation.")}
+    end
+  end
+
+  def handle_event("delete_annotation", %{"annotation-id" => id}, socket) do
+    scope = socket.assigns.current_scope
+    Chat.delete_annotation(scope, id)
+
+    {:noreply, assign(socket, annotations: Chat.list_annotations(scope, socket.assigns.app.id))}
   end
 
   def handle_event("select", %{"conversation-id" => id}, socket) do
@@ -169,6 +196,49 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
           </p>
           <p class="text-sm whitespace-pre-wrap break-words max-h-24 overflow-y-auto">
             {message.content}
+          </p>
+          <button
+            :if={@can_edit and message.feedback == :like and question}
+            class="btn btn-outline btn-xs"
+            phx-click="save_annotation"
+            phx-value-message-id={message.id}
+          >
+            <.icon name="hero-bookmark" class="size-3" /> Save as annotation
+          </button>
+        </div>
+      </div>
+
+      <div class="card border border-base-200 p-6 space-y-3" id="annotations">
+        <div class="flex items-center gap-3">
+          <h2 class="font-semibold">Annotations</h2>
+          <span class="text-xs opacity-60">
+            Matching questions answer instantly without calling the model.
+          </span>
+        </div>
+        <p :if={@annotations == []} class="text-sm opacity-60">
+          No annotations yet — save a liked reply from the feedback list above.
+        </p>
+        <div
+          :for={annotation <- @annotations}
+          class="rounded-box border border-base-200 p-3 space-y-1"
+          id={"annotation-#{annotation.id}"}
+        >
+          <div class="flex items-center gap-2 text-xs opacity-60">
+            <span class="badge badge-ghost badge-sm">{annotation.hit_count} hits</span>
+            <span>{Calendar.strftime(annotation.inserted_at, "%Y-%m-%d %H:%M")}</span>
+            <button
+              :if={@can_edit}
+              class="btn btn-ghost btn-xs text-error ml-auto"
+              phx-click="delete_annotation"
+              phx-value-annotation-id={annotation.id}
+              data-confirm="Delete this annotation?"
+            >
+              Delete
+            </button>
+          </div>
+          <p class="text-sm font-semibold">{annotation.question}</p>
+          <p class="text-sm whitespace-pre-wrap break-words max-h-24 overflow-y-auto">
+            {annotation.answer}
           </p>
         </div>
       </div>
