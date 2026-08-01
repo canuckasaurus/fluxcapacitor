@@ -259,6 +259,29 @@ defmodule Flux.Chat do
   defp check_size(bytes) when bytes <= @max_upload_bytes, do: :ok
   defp check_size(_bytes), do: {:error, :too_large}
 
+  @doc """
+  Per-day usage rollups for an app over the trailing `days`: assistant
+  message count and token sums from the messages' usage maps.
+  """
+  def usage_stats(%Scope{} = scope, app_id, days \\ 14) do
+    since = DateTime.add(DateTime.utc_now(:second), -days, :day)
+
+    Message
+    |> Repo.scoped(scope)
+    |> join(:inner, [m], c in Conversation, on: m.conversation_id == c.id)
+    |> where([m, c], c.app_id == ^app_id and m.role == :assistant)
+    |> where([m], m.inserted_at >= ^since)
+    |> group_by([m], fragment("date(?)", m.inserted_at))
+    |> select([m], %{
+      day: fragment("date(?)", m.inserted_at),
+      messages: count(m.id),
+      input_tokens: sum(fragment("coalesce((? ->> 'input_tokens')::bigint, 0)", m.usage)),
+      output_tokens: sum(fragment("coalesce((? ->> 'output_tokens')::bigint, 0)", m.usage))
+    })
+    |> order_by([m], desc: fragment("date(?)", m.inserted_at))
+    |> Repo.all()
+  end
+
   @doc "PubSub topic carrying a message's generation events."
   def topic(message_id), do: "message:#{message_id}"
 

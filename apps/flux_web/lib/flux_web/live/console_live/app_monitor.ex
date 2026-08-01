@@ -17,6 +17,7 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
          page_title: "#{app.name} — monitoring",
          app: app,
          conversations: Chat.list_conversations(scope, app.id, 50),
+         usage: Chat.usage_stats(scope, app.id),
          selected_id: nil,
          messages: []
        )}
@@ -61,6 +62,50 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
         <.link navigate={~p"/console/apps/#{@app.id}"} class="btn btn-sm btn-ghost">
           &larr; Back to app
         </.link>
+      </div>
+
+      <div :if={@usage != []} class="card border border-base-200 p-6 space-y-3">
+        <div class="flex items-center gap-6">
+          <h2 class="font-semibold">Usage (last 14 days)</h2>
+          <div class="stats stats-horizontal">
+            <div class="stat py-1 px-4">
+              <div class="stat-title text-xs">Replies</div>
+              <div class="stat-value text-lg">
+                {@usage |> Enum.map(& &1.messages) |> Enum.sum()}
+              </div>
+            </div>
+            <div class="stat py-1 px-4">
+              <div class="stat-title text-xs">Tokens in</div>
+              <div class="stat-value text-lg">
+                {@usage |> Enum.map(&(&1.input_tokens || 0)) |> Enum.sum()}
+              </div>
+            </div>
+            <div class="stat py-1 px-4">
+              <div class="stat-title text-xs">Tokens out</div>
+              <div class="stat-value text-lg">
+                {@usage |> Enum.map(&(&1.output_tokens || 0)) |> Enum.sum()}
+              </div>
+            </div>
+          </div>
+        </div>
+        <table class="table table-xs">
+          <thead>
+            <tr>
+              <th>Day</th>
+              <th>Replies</th>
+              <th>Tokens in</th>
+              <th>Tokens out</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={row <- @usage}>
+              <td>{row.day}</td>
+              <td>{row.messages}</td>
+              <td>{row.input_tokens || 0}</td>
+              <td>{row.output_tokens || 0}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
 
       <p :if={@conversations == []} class="text-sm opacity-60">No conversations yet.</p>

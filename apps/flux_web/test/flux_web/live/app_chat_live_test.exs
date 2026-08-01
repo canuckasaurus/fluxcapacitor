@@ -185,6 +185,10 @@ defmodule FluxWeb.AppChatLiveTest do
     {:ok, lv, html} = live(conn, ~p"/console/apps/#{app.id}/monitor")
     assert html =~ "web_test"
 
+    # Usage rollup shows the assistant reply and its echo-provider tokens.
+    assert html =~ "Usage (last 14 days)"
+    assert html =~ "Tokens out"
+
     html = lv |> element("button", "Untitled conversation") |> render_click()
     assert html =~ "monitor me"
     assert html =~ "You said: monitor me"
