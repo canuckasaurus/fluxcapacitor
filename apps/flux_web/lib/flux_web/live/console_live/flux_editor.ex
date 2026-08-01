@@ -1737,6 +1737,48 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     end
   end
 
+  # Branch labels: named handles (true/false/case ids/error) render on
+  # the wire so routing reads at a glance.
+  defp edge_label_svg(assigns, edge) do
+    case edge_label_at(assigns.graph, edge) do
+      nil ->
+        nil
+
+      {x, y} ->
+        assigns = Map.merge(assigns, %{label_x: x, label_y: y, label: edge["source_handle"]})
+
+        ~H"""
+        <text
+          x={@label_x}
+          y={@label_y}
+          class={[
+            "text-[10px] font-semibold uppercase tracking-wide",
+            (@label == "error" && "fill-error") || "fill-current"
+          ]}
+          style="paint-order: stroke; stroke: var(--color-base-100); stroke-width: 3px;"
+        >
+          {@label}
+        </text>
+        """
+    end
+  end
+
+  # Where a branch label sits: the bezier midpoint, biased toward the
+  # source so parallel edges from one node stay readable.
+  defp edge_label_at(graph, edge) do
+    with %{} = source <- find_node(graph, edge["source"]),
+         %{} = target <- find_node(graph, edge["target"]) do
+      y_offset = source_handle_offset(source, edge["source_handle"])
+      x1 = node_x(source) + @node_width
+      y1 = node_y(source) + y_offset
+      x2 = node_x(target)
+      y2 = node_y(target) + @port_y
+      {x1 + (x2 - x1) * 0.35, y1 + (y2 - y1) * 0.35 - 6}
+    else
+      _missing -> nil
+    end
+  end
+
   defp state_ring(nil), do: ""
   defp state_ring(:running), do: "ring-2 ring-info animate-pulse"
   defp state_ring(:done), do: "ring-2 ring-success"
@@ -2202,6 +2244,8 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                         stroke-width={(@selected_edge == edge["id"] && "3") || "2"}
                         fill="none"
                       />
+                      {if edge["source_handle"] not in [nil, "", "default"],
+                        do: edge_label_svg(assigns, edge)}
                     </g>
                   <% end %>
                 </svg>
