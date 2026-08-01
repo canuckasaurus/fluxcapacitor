@@ -69,7 +69,17 @@ Eight workstreams. WS0/WS1/WS2 are immediate; WS3–WS7 sequence after.
 - ✅ Conformance tests over **verbatim Reference fixtures** (copied from `dify/api/tests/fixtures/workflow`) including behavioral runs (if-else routing matches the fixture's documented semantics).
 - ⏳ Phase 2: run live Reference via Docker; record run traces + SSE transcripts for 15–20 workflows; extend the runner to compare traces, not just outputs. Gate stands: every WS4 engine feature lands with harness fixtures.
 
-### WS3 — RAG / Knowledge, the missing pillar (~8–12 weeks)
+### WS3 — RAG / Knowledge — **CORE SHIPPED WITHOUT DOCKER (2026-08-01)**
+
+Datasets/documents/segments schemas, chunker, Oban ingestion (`:ingest`),
+embeddings SDK (OpenAI/Gemini/openai_compatible/Echo), **Naive vector
+backend** (exact Postgres cosine behind the `VectorStore` behaviour) +
+Postgres full-text, hybrid RRF retrieval, Knowledge UI (upload/paste,
+status, segments, hit testing), **knowledge-retrieval node → 20/20 node
+types**, `/v1/datasets` subset. Still Docker-bound: ArangoDB backend
+(same behaviour), Tika formats, compose stack, corpus-scale load test.
+
+### WS3 (original plan, for reference) — (~8–12 weeks)
 
 **Backend decision (2026-07-30): ArangoDB-first behind a `Flux.RAG.VectorStore`
 behaviour.** Postgres stays the system of record (datasets/documents/segments,
