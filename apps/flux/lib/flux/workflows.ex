@@ -455,6 +455,47 @@ defmodule Flux.Workflows do
     end
   end
 
+  @doc """
+  Exports a finished run as a golden fixture: the exact graph it ran,
+  its inputs, and what happened — replayable by the golden test suite
+  (deterministic on the echo provider) to pin graph semantics in CI.
+  """
+  def export_run_fixture(%Scope{} = scope, run_id) do
+    with :ok <- RBAC.authorize(scope, :app_import_export_dsl),
+         %WorkflowRun{} = run <- as_found(get_run(scope, run_id)),
+         true <- run.status in [:succeeded, :failed] || {:error, :not_finished},
+         %Workflow{} = workflow <- as_found(get_workflow(scope, run.workflow_id)) do
+      graph =
+        with version when is_integer(version) <- run.version,
+             %WorkflowVersion{graph: graph} <- get_version(scope, workflow.id, version) do
+          graph
+        else
+          _draft_run -> workflow.graph
+        end
+
+      {:ok,
+       %{
+         "format" => "fluxcapacitor-run-fixture",
+         "version" => 1,
+         "name" => workflow.name,
+         "graph" => graph,
+         "inputs" => run.inputs,
+         "expected" => %{
+           "status" => to_string(run.status),
+           "outputs" => run.outputs,
+           "error" => run.error,
+           "node_sequence" =>
+             Enum.map(run.node_executions, fn execution ->
+               %{"node_id" => execution["node_id"], "status" => execution["status"]}
+             end)
+         }
+       }}
+    end
+  end
+
+  defp as_found(%{} = struct), do: struct
+  defp as_found({:error, reason}), do: {:error, reason}
+
   @doc "Resolves a public site token to its flux; the token is the authorization."
   def get_workflow_by_site_token("site_" <> _rest = token) do
     case Repo.get_by(Workflow, [site_token: token], skip_workspace_guard: true) do

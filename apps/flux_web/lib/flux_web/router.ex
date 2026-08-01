@@ -177,6 +177,7 @@ defmodule FluxWeb.Router do
     get "/workspace-export", WorkspaceExportController, :export
     post "/workspace-import", WorkspaceExportController, :import
     get "/fluxes/:id/export", FluxDslController, :export
+    get "/fluxes/:id/runs/:run_id/fixture", FluxDslController, :run_fixture
     get "/apps/:id/export", FluxDslController, :export_app
 
     live_session :console,

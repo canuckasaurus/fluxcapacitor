@@ -3841,6 +3841,18 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                   {Calendar.strftime(run.inserted_at, "%m-%d %H:%M:%S")}
                 </span>
               </button>
+              <div
+                :if={@can_export and run.status in [:succeeded, :failed]}
+                class="px-3 pb-2"
+              >
+                <a
+                  href={~p"/console/fluxes/#{@workflow.id}/runs/#{run.id}/fixture"}
+                  class="link link-primary text-xs"
+                  title="Download this run as a golden replay fixture"
+                >
+                  Download fixture
+                </a>
+              </div>
 
               <div :if={@selected_run_id == run.id} class="border-t border-base-200 p-3 space-y-2">
                 <p :if={run.error} class="text-sm text-error">{run.error}</p>

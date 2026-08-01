@@ -1,0 +1,49 @@
+{
+  "format": "fluxcapacitor-run-fixture",
+  "version": 1,
+  "name": "Golden: template hello",
+  "graph": {
+    "nodes": [
+      {
+        "id": "start",
+        "type": "start",
+        "title": "Start",
+        "position": {"x": 0, "y": 0},
+        "config": {
+          "variables": [
+            {"name": "query", "label": "Query", "type": "text", "required": true}
+          ]
+        }
+      },
+      {
+        "id": "t",
+        "type": "template",
+        "title": "Greet",
+        "position": {"x": 280, "y": 0},
+        "config": {"template": "Hello {{start.query}}"}
+      },
+      {
+        "id": "answer_1",
+        "type": "answer",
+        "title": "Answer",
+        "position": {"x": 560, "y": 0},
+        "config": {"answer": "{{t.output}}"}
+      }
+    ],
+    "edges": [
+      {"id": "e1", "source": "start", "source_handle": "default", "target": "t"},
+      {"id": "e2", "source": "t", "source_handle": "default", "target": "answer_1"}
+    ]
+  },
+  "inputs": {"query": "golden"},
+  "expected": {
+    "status": "succeeded",
+    "outputs": {"answer": "Hello golden"},
+    "error": null,
+    "node_sequence": [
+      {"node_id": "start", "status": "succeeded"},
+      {"node_id": "t", "status": "succeeded"},
+      {"node_id": "answer_1", "status": "succeeded"}
+    ]
+  }
+}

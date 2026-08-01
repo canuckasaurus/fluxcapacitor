@@ -55,6 +55,27 @@ defmodule FluxWeb.FluxDslController do
     conn |> put_flash(:error, "Nothing to export.") |> redirect(to: ~p"/console/fluxes")
   end
 
+  @doc "Downloads a finished run as a golden replay fixture."
+  def run_fixture(conn, %{"run_id" => run_id}) do
+    case Workflows.export_run_fixture(conn.assigns.current_scope, run_id) do
+      {:ok, fixture} ->
+        send_download(
+          conn,
+          {:binary, Jason.encode!(fixture, pretty: true)},
+          filename: "run-fixture.json",
+          content_type: "application/json"
+        )
+
+      {:error, :not_finished} ->
+        conn
+        |> put_flash(:error, "Only finished runs export as fixtures.")
+        |> redirect(to: ~p"/console/fluxes")
+
+      {:error, _reason} ->
+        conn |> put_flash(:error, "Run not found.") |> redirect(to: ~p"/console/fluxes")
+    end
+  end
+
   def export_app(conn, %{"id" => id}) do
     scope = conn.assigns.current_scope
 
