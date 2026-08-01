@@ -112,6 +112,16 @@ defmodule Flux.Engine.Graph do
     Enum.find(edges, &(&1.source == node_id and &1.source_handle == handle))
   end
 
+  @doc "All edges leaving `node_id` on `handle` (several = parallel fan-out)."
+  def next_edges(%__MODULE__{edges: edges}, node_id, handle) do
+    Enum.filter(edges, &(&1.source == node_id and &1.source_handle == handle))
+  end
+
+  @doc "How many edges point at the node (>1 marks a join candidate)."
+  def in_degree(%__MODULE__{edges: edges}, node_id) do
+    Enum.count(edges, &(&1.target == node_id))
+  end
+
   defp to_node(raw) when is_map(raw) do
     %Node{
       id: to_string(Map.get(raw, "id", "")),
@@ -225,15 +235,9 @@ defmodule Flux.Engine.Graph do
         end
       end)
 
-    edges
-    |> Enum.frequencies_by(&{&1.source, &1.source_handle})
-    |> Enum.reduce(errors, fn
-      {{source, handle}, count}, acc when count > 1 ->
-        ["node #{source} has #{count} edges on handle #{handle}; only one is allowed" | acc]
-
-      _entry, acc ->
-        acc
-    end)
+    # Multiple edges on one handle are legal: they fan out into parallel
+    # branches (see Flux.Engine.Runner).
+    errors
   end
 
   defp check_cycles(errors, nodes, edges) do

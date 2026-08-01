@@ -5,6 +5,14 @@ defmodule Flux.Engine.Runner do
   The embedding application owns process placement (supervised task,
   registry, kill-to-stop) and event delivery; the runner just executes
   nodes, threads the variable pool, and emits events through the host.
+
+  A handle with several outgoing edges fans out into **parallel
+  branches** (one task per edge). Each branch walks until it reaches a
+  join — a node more than one edge points at — or the end of its path;
+  when every branch arrives at the same join, the pools merge and the
+  walk continues there once. Limits: branches must converge on a single
+  join (or all terminate), and human-input pauses inside parallel
+  branches are not supported.
   """
 
   alias Flux.Engine.{Graph, Host, Node}
@@ -60,15 +68,7 @@ defmodule Flux.Engine.Runner do
           Host.emit(host, {:workflow_resumed, %{node_id: node_id}})
           outputs = %{"output" => input}
           pool = Map.put(pool, node_id, outputs)
-
-          case Graph.next_edge(graph, node_id, "default") do
-            nil ->
-              {:ok, outputs, []}
-
-            edge ->
-              next = Map.fetch!(graph.nodes, edge.target)
-              walk(graph, next, pool, host, [], @max_steps)
-          end
+          continue(graph, node_id, "default", outputs, pool, host, [], @max_steps, :root)
       end
 
     case walk_result do
@@ -101,10 +101,22 @@ defmodule Flux.Engine.Runner do
     end
   end
 
-  defp walk(_graph, node, _pool, _host, executions, 0),
+  defp walk(graph, node, pool, host, executions, steps_left, mode \\ :root, skip_join \\ false)
+
+  defp walk(_graph, node, _pool, _host, executions, 0, _mode, _skip_join),
     do: {:error, node.id, "the run exceeded #{@max_steps} steps", executions}
 
-  defp walk(graph, node, pool, host, executions, steps_left) do
+  defp walk(graph, node, pool, host, executions, steps_left, mode, skip_join) do
+    # Inside a parallel branch, a node with several incoming edges is the
+    # join: report back instead of executing (the merge executes it once).
+    if mode == :branch and not skip_join and Graph.in_degree(graph, node.id) > 1 do
+      {:joined, node.id, pool, executions}
+    else
+      execute(graph, node, pool, host, executions, steps_left, mode)
+    end
+  end
+
+  defp execute(graph, node, pool, host, executions, steps_left, mode) do
     Host.emit(host, {:node_started, %{node_id: node.id, node_type: node.type, title: node.title}})
     node_started_at = System.monotonic_time(:millisecond)
 
@@ -132,15 +144,7 @@ defmodule Flux.Engine.Runner do
         )
 
         executions = [execution(node, "succeeded", outputs, nil, node_elapsed) | executions]
-
-        case Graph.next_edge(graph, node.id, branch) do
-          nil ->
-            {:ok, outputs, executions}
-
-          edge ->
-            next = Map.fetch!(graph.nodes, edge.target)
-            walk(graph, next, pool, host, executions, steps_left - 1)
-        end
+        continue(graph, node.id, branch, outputs, pool, host, executions, steps_left, mode)
 
       {:error, reason} ->
         node_elapsed = elapsed(node_started_at)
@@ -150,17 +154,92 @@ defmodule Flux.Engine.Runner do
 
         # An "error" edge turns the failure into a routed branch: downstream
         # nodes see %{"error", "is_error"} as this node's outputs.
-        case Graph.next_edge(graph, node.id, "error") do
-          nil ->
+        case Graph.next_edges(graph, node.id, "error") do
+          [] ->
             {:error, node.id, reason, executions}
 
-          edge ->
-            pool = Map.put(pool, node.id, %{"error" => error, "is_error" => true})
-            next = Map.fetch!(graph.nodes, edge.target)
-            walk(graph, next, pool, host, executions, steps_left - 1)
+          _edges ->
+            outputs = %{"error" => error, "is_error" => true}
+            pool = Map.put(pool, node.id, outputs)
+            continue(graph, node.id, "error", outputs, pool, host, executions, steps_left, mode)
         end
     end
   end
+
+  # Routes from a finished node: end of path, single edge, or fan-out.
+  defp continue(graph, node_id, branch, outputs, pool, host, executions, steps_left, mode) do
+    case Graph.next_edges(graph, node_id, branch) do
+      [] ->
+        {:ok, outputs, executions}
+
+      [edge] ->
+        next = Map.fetch!(graph.nodes, edge.target)
+        walk(graph, next, pool, host, executions, steps_left - 1, mode, false)
+
+      edges ->
+        parallel(graph, edges, pool, host, executions, steps_left - 1, mode)
+    end
+  end
+
+  # One task per edge; branches stop at the first shared join (or path
+  # end), then the merged pool continues through the join exactly once.
+  defp parallel(graph, edges, pool, host, executions, steps_left, mode) do
+    results =
+      edges
+      |> Enum.map(fn edge ->
+        target = Map.fetch!(graph.nodes, edge.target)
+        Task.async(fn -> walk(graph, target, pool, host, [], steps_left, :branch, false) end)
+      end)
+      |> Task.await_many(:infinity)
+
+    executions = Enum.flat_map(results, &result_executions/1) ++ executions
+
+    cond do
+      error = Enum.find(results, &match?({:error, _id, _reason, _ex}, &1)) ->
+        {:error, node_id, reason, _ex} = error
+        {:error, node_id, reason, executions}
+
+      paused = Enum.find(results, &match?({:paused, _id, _prompt, _pool, _ex}, &1)) ->
+        {:paused, node_id, _prompt, _pool, _ex} = paused
+        {:error, node_id, "human input inside parallel branches is not supported", executions}
+
+      true ->
+        merged_pool =
+          Enum.reduce(results, pool, fn
+            {:joined, _id, branch_pool, _ex}, acc -> merge_pool(acc, branch_pool)
+            _done, acc -> acc
+          end)
+
+        joins = for {:joined, id, _pool, _ex} <- results, uniq: true, do: id
+        done_outputs = for {:ok, outputs, _ex} <- results, do: outputs
+
+        case joins do
+          [] ->
+            {:ok, Enum.reduce(done_outputs, %{}, &Map.merge(&2, &1)), executions}
+
+          [join_id] ->
+            join = Map.fetch!(graph.nodes, join_id)
+            walk(graph, join, merged_pool, host, executions, steps_left - 1, mode, true)
+
+          many ->
+            {:error, nil,
+             "parallel branches must converge on a single join node (found #{Enum.join(many, ", ")})",
+             executions}
+        end
+    end
+  end
+
+  defp merge_pool(acc, branch_pool) do
+    Map.merge(acc, branch_pool, fn
+      "conversation", left, right when is_map(left) and is_map(right) -> Map.merge(left, right)
+      _key, _left, right -> right
+    end)
+  end
+
+  defp result_executions({:ok, _outputs, executions}), do: executions
+  defp result_executions({:error, _id, _reason, executions}), do: executions
+  defp result_executions({:paused, _id, _prompt, _pool, executions}), do: executions
+  defp result_executions({:joined, _id, _pool, executions}), do: executions
 
   # Bounded, host-visible retries; the interval is capped so a
   # misconfigured node cannot stall the run for minutes.

@@ -74,7 +74,7 @@ defmodule Flux.EngineTest do
       assert Enum.any?(errors, &(&1 =~ "cycle"))
     end
 
-    test "rejects two edges leaving the same handle, and bad if_else handles" do
+    test "rejects bad if_else handles; multiple edges per handle fan out" do
       graph = %{
         "nodes" => [
           start_node(),
@@ -92,13 +92,13 @@ defmodule Flux.EngineTest do
       assert {:error, errors} = Engine.build(graph)
       assert Enum.any?(errors, &(&1 =~ "handle maybe"))
 
+      # Two edges on one handle are legal now: parallel fan-out.
       graph = %{
         "nodes" => [start_node(), node!("a", "answer"), node!("b", "answer")],
         "edges" => [edge!("start", "a"), %{"id" => "dup", "source" => "start", "target" => "b"}]
       }
 
-      assert {:error, errors} = Engine.build(graph)
-      assert Enum.any?(errors, &(&1 =~ "2 edges on handle default"))
+      assert {:ok, _built} = Engine.build(graph)
     end
   end
 
@@ -199,6 +199,107 @@ defmodule Flux.EngineTest do
 
       assert {:ok, %{outputs: %{"greeting" => "hi world"}}} =
                Engine.run(built, %{"query" => "world"}, echo_host())
+    end
+
+    test "parallel fan-out runs branches concurrently and merges at the join" do
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("a", "llm", %{"provider_plugin_id" => "p", "model" => "m", "prompt" => "left"}),
+          node!("b", "llm", %{"provider_plugin_id" => "p", "model" => "m", "prompt" => "right"}),
+          node!("join", "template", %{"template" => "{{a.text}}+{{b.text}}"})
+        ],
+        "edges" => [
+          edge!("start", "a"),
+          edge!("start", "b"),
+          edge!("a", "join"),
+          edge!("b", "join")
+        ]
+      }
+
+      host = %Host{
+        emit: fn _e -> :ok end,
+        invoke_llm: fn request, _chunk ->
+          Process.sleep(150)
+          [%{content: prompt} | _] = Enum.reverse(request.messages)
+          {:ok, %{content: "r:" <> prompt, usage: %{}}}
+        end
+      }
+
+      {:ok, built} = Engine.build(graph)
+      started = System.monotonic_time(:millisecond)
+      assert {:ok, result} = Engine.run(built, %{"query" => "q"}, host)
+      elapsed = System.monotonic_time(:millisecond) - started
+
+      assert result.outputs == %{"output" => "r:left+r:right"}
+      # Two 150ms model calls in parallel finish well under the 300ms a
+      # sequential walk would need.
+      assert elapsed < 280
+
+      statuses = Enum.map(result.node_executions, &{&1["node_id"], &1["status"]})
+      assert {"a", "succeeded"} in statuses
+      assert {"b", "succeeded"} in statuses
+      assert {"join", "succeeded"} in statuses
+      # The join executed exactly once.
+      assert Enum.count(result.node_executions, &(&1["node_id"] == "join")) == 1
+    end
+
+    test "parallel branches without a join merge their final outputs" do
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("left", "end", %{"outputs" => [%{"key" => "l", "value" => "1"}]}),
+          node!("right", "end", %{"outputs" => [%{"key" => "r", "value" => "2"}]})
+        ],
+        "edges" => [edge!("start", "left"), edge!("start", "right")]
+      }
+
+      {:ok, built} = Engine.build(graph)
+      assert {:ok, result} = Engine.run(built, %{"query" => "q"}, echo_host())
+      assert result.outputs == %{"l" => "1", "r" => "2"}
+    end
+
+    test "an error in one parallel branch fails the run" do
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("ok_branch", "template", %{"template" => "fine"}),
+          node!("bad", "llm", %{"provider_plugin_id" => "", "model" => ""}),
+          node!("join", "template", %{"template" => "{{ok_branch.output}}"})
+        ],
+        "edges" => [
+          edge!("start", "ok_branch"),
+          edge!("start", "bad"),
+          edge!("ok_branch", "join"),
+          edge!("bad", "join")
+        ]
+      }
+
+      {:ok, built} = Engine.build(graph)
+      assert {:error, failure} = Engine.run(built, %{"query" => "q"}, echo_host())
+      assert failure.node_id == "bad"
+      assert failure.error =~ "provider and model"
+    end
+
+    test "human input inside parallel branches is refused" do
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("ask", "human_input", %{"prompt" => "well?"}),
+          node!("calm", "template", %{"template" => "ok"}),
+          node!("join", "template", %{"template" => "{{calm.output}}"})
+        ],
+        "edges" => [
+          edge!("start", "ask"),
+          edge!("start", "calm"),
+          edge!("ask", "join"),
+          edge!("calm", "join")
+        ]
+      }
+
+      {:ok, built} = Engine.build(graph)
+      assert {:error, failure} = Engine.run(built, %{"query" => "q"}, echo_host())
+      assert failure.error =~ "parallel branches"
     end
 
     test "a failing node stops the run with node_failed" do
