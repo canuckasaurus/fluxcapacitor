@@ -22,6 +22,8 @@ defmodule Flux.RAG.Dataset do
     field(:last_synced_at, :utc_datetime)
     field(:retrieval_top_k, :integer)
     field(:score_threshold, :float)
+    field(:entity_plugin_id, :string)
+    field(:entity_model, :string)
 
     timestamps(type: :utc_datetime)
   end
@@ -40,7 +42,9 @@ defmodule Flux.RAG.Dataset do
       :sync_plugin_id,
       :sync_interval_minutes,
       :retrieval_top_k,
-      :score_threshold
+      :score_threshold,
+      :entity_plugin_id,
+      :entity_model
     ])
     |> validate_required([:name, :embedding_plugin_id, :embedding_model])
     |> validate_number(:chunk_size, greater_than_or_equal_to: 200, less_than_or_equal_to: 4000)

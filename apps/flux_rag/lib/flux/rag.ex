@@ -407,7 +407,7 @@ defmodule Flux.RAG do
   defp index_entities(dataset, segments) do
     names_by_segment =
       for segment <- segments,
-          names = Entities.extract(segment.content),
+          names = extract_entities(dataset, segment.content),
           names != [],
           do: {segment, names}
 
@@ -456,6 +456,71 @@ defmodule Flux.RAG do
     end
 
     :ok
+  end
+
+  # Datasets can bind a chat model for extraction quality; the heuristic
+  # stays the default and the fallback on any model error, so indexing
+  # never fails because of the extractor.
+  defp extract_entities(
+         %Dataset{entity_plugin_id: plugin_id, entity_model: model} = dataset,
+         content
+       )
+       when is_binary(plugin_id) and plugin_id != "" and is_binary(model) and model != "" do
+    case llm_extract(dataset, content) do
+      {:ok, names} -> names
+      :error -> Entities.extract(content)
+    end
+  end
+
+  defp extract_entities(_dataset, content), do: Entities.extract(content)
+
+  defp llm_extract(dataset, content) do
+    credentials =
+      case Flux.Providers.fetch_config(dataset.workspace_id, dataset.entity_plugin_id) do
+        {:ok, config} -> config
+        {:error, :not_configured} -> %{}
+      end
+
+    request = %Flux.Plugin.ModelProvider.Request{
+      model: dataset.entity_model,
+      messages: [
+        %{
+          role: :system,
+          content:
+            "Extract the named entities (people, organizations, products, " <>
+              "places, technologies) mentioned in the user's text. Respond " <>
+              "with ONLY a JSON array of entity name strings."
+        },
+        %{role: :user, content: String.slice(content, 0, 6_000)}
+      ]
+    }
+
+    with {:ok, %{content: reply}} <-
+           plugin_runtime().invoke_llm(
+             dataset.entity_plugin_id,
+             credentials,
+             request,
+             fn _chunk -> :ok end
+           ),
+         {:ok, names} when is_list(names) <- Jason.decode(first_json_array(reply)) do
+      {:ok,
+       names
+       |> Enum.filter(&is_binary/1)
+       |> Enum.map(&Entities.normalize/1)
+       |> Enum.reject(&(&1 == ""))
+       |> Enum.uniq()
+       |> Enum.take(50)}
+    else
+      _error_or_invalid -> :error
+    end
+  end
+
+  # Models love prose and code fences around the array; take the array.
+  defp first_json_array(reply) do
+    case Regex.run(~r/\[.*\]/s, reply || "") do
+      [json] -> json
+      nil -> reply || ""
+    end
   end
 
   @doc "Entities known in a dataset with their mention counts, most-mentioned first."

@@ -487,6 +487,44 @@ defmodule FluxWeb.RAGIntegrationTest do
              RAG.list_entities(scope, dataset.id) |> Enum.map(& &1.name)
   end
 
+  test "LLM entity extraction uses the bound model, falls back on errors", %{
+    scope: scope,
+    dataset: dataset
+  } do
+    {:ok, dataset} =
+      RAG.update_dataset(scope, dataset, %{
+        "entity_plugin_id" => "openai",
+        "entity_model" => "gpt-4o"
+      })
+
+    Application.put_env(:flux_plugin_runtime, :req_options, plug: {Req.Test, Flux.EntityStub})
+    on_exit(fn -> Application.delete_env(:flux_plugin_runtime, :req_options) end)
+
+    # The model returns entities the heuristic could never find (lowercase).
+    Req.Test.stub(Flux.EntityStub, fn conn ->
+      frame = ~s({"choices":[{"delta":{"content":"[\\"quantum flux drive\\", \\"zorblax\\"]"}}]})
+
+      conn
+      |> Plug.Conn.put_resp_content_type("text/event-stream")
+      |> Plug.Conn.send_resp(200, "data: #{frame}\n\ndata: [DONE]\n\n")
+    end)
+
+    ingest!(scope, dataset, "sci.md", "the quantum flux drive was patented by zorblax in 2140")
+
+    names = RAG.list_entities(scope, dataset.id) |> Enum.map(& &1.name)
+    assert "quantum flux drive" in names
+    assert "zorblax" in names
+
+    # A failing model degrades to the heuristic instead of failing indexing.
+    Req.Test.stub(Flux.EntityStub, fn conn -> Plug.Conn.send_resp(conn, 500, "boom") end)
+
+    document = ingest!(scope, dataset, "acme.md", "Acme Corp still ships anvils.")
+    assert document.status == :ready
+
+    names = RAG.list_entities(scope, dataset.id) |> Enum.map(& &1.name)
+    assert "acme corp" in names
+  end
+
   test "dataset mutations enforce RBAC", %{workspace: workspace, dataset: dataset} do
     viewer = account_fixture()
 

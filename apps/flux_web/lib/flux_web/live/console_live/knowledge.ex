@@ -14,9 +14,9 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
 
-    embedding_models =
-      for %{model: %{type: :text_embedding}} = entry <- Providers.available_models(scope),
-          do: entry
+    models = Providers.available_models(scope)
+    embedding_models = for %{model: %{type: :text_embedding}} = entry <- models, do: entry
+    chat_models = for %{model: %{type: :llm}} = entry <- models, do: entry
 
     installed = MapSet.new(Flux.Tools.list_installed_plugin_ids(scope))
 
@@ -29,6 +29,7 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
        page_title: "Knowledge",
        creating: false,
        embedding_models: embedding_models,
+       chat_models: chat_models,
        datasource_plugins: datasource_plugins,
        can_edit: RBAC.can?(scope, :dataset_edit),
        can_create: RBAC.can?(scope, :dataset_create_and_management),
@@ -296,13 +297,21 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
   end
 
   def handle_event("save_dataset_settings", params, socket) do
+    {entity_plugin, entity_model} =
+      case String.split(params["entity_choice"] || "", "|", parts: 2) do
+        [plugin_id, model] -> {plugin_id, model}
+        _heuristic -> {"", ""}
+      end
+
     with %{} = dataset <- socket.assigns.selected,
          {:ok, updated} <-
            RAG.update_dataset(socket.assigns.current_scope, dataset, %{
              "chunk_size" => params["chunk_size"],
              "chunk_overlap" => params["chunk_overlap"],
              "retrieval_top_k" => params["retrieval_top_k"],
-             "score_threshold" => params["score_threshold"]
+             "score_threshold" => params["score_threshold"],
+             "entity_plugin_id" => entity_plugin,
+             "entity_model" => entity_model
            }) do
       {:noreply,
        socket
@@ -480,6 +489,23 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                   placeholder="off"
                   class="input input-bordered input-sm w-28"
                 />
+              </label>
+              <label class="form-control">
+                <span class="label-text text-xs opacity-70 mb-1">
+                  Entity extraction (falls back to heuristic on errors)
+                </span>
+                <select name="entity_choice" class="select select-bordered select-sm w-52">
+                  <option value="" selected={@selected.entity_plugin_id in [nil, ""]}>
+                    Heuristic (default)
+                  </option>
+                  <option
+                    :for={%{plugin_id: pid, plugin_name: pname, model: m} <- @chat_models}
+                    value={"#{pid}|#{m.name}"}
+                    selected={@selected.entity_plugin_id == pid and @selected.entity_model == m.name}
+                  >
+                    {pname} — {m.label}
+                  </option>
+                </select>
               </label>
               <button class="btn btn-primary btn-sm">Save</button>
               <button
