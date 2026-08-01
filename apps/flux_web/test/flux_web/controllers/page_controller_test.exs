@@ -7,8 +7,10 @@ defmodule FluxWeb.PageControllerTest do
     conn = get(conn, ~p"/")
     response = html_response(conn, 200)
     assert response =~ "FluxCapacitor"
-    assert response =~ "Build AI-powered workflows"
+    assert response =~ "The AI workflow platform your whole team can run."
     assert response =~ "How it works"
+    assert response =~ "Destination time"
+    assert response =~ "88&nbsp;mph"
     assert response =~ ~p"/accounts/register"
   end
 
