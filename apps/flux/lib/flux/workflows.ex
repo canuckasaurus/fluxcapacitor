@@ -75,11 +75,32 @@ defmodule Flux.Workflows do
   ## Workflows
 
   def list_workflows(%Scope{} = scope) do
-    Workflow |> Repo.scoped(scope) |> order_by([w], desc: w.updated_at) |> Repo.all()
+    Workflow
+    |> Repo.scoped(scope)
+    |> where([w], is_nil(w.deleted_at))
+    |> order_by([w], desc: w.updated_at)
+    |> Repo.all()
   end
 
   def get_workflow(%Scope{} = scope, id) do
-    Repo.one(Repo.scoped(where(Workflow, id: ^id), scope)) || {:error, :not_found}
+    Workflow
+    |> where(id: ^id)
+    |> where([w], is_nil(w.deleted_at))
+    |> Repo.scoped(scope)
+    |> Repo.one()
+    |> case do
+      nil -> {:error, :not_found}
+      workflow -> workflow
+    end
+  end
+
+  @doc "Trashed fluxes, newest deletion first."
+  def list_trashed_workflows(%Scope{} = scope) do
+    Workflow
+    |> Repo.scoped(scope)
+    |> where([w], not is_nil(w.deleted_at))
+    |> order_by([w], desc: w.deleted_at)
+    |> Repo.all()
   end
 
   def create_workflow(%Scope{} = scope, attrs) do
@@ -135,10 +156,43 @@ defmodule Flux.Workflows do
     end
   end
 
+  @doc "Soft delete: the flux moves to the trash (30-day purge, restorable)."
   def delete_workflow(%Scope{} = scope, %Workflow{} = workflow) do
     with :ok <- RBAC.authorize(scope, :app_delete),
-         :ok <- owned(scope, workflow) do
-      Repo.delete(workflow)
+         :ok <- owned(scope, workflow),
+         {:ok, trashed} <-
+           workflow
+           |> Ecto.Changeset.change(deleted_at: DateTime.utc_now(:second), site_enabled: false)
+           |> Repo.update() do
+      Flux.Audit.record(scope, "workflow.trash", resource: workflow)
+      {:ok, trashed}
+    end
+  end
+
+  def restore_workflow(%Scope{} = scope, workflow_id) do
+    with :ok <- RBAC.authorize(scope, :app_delete),
+         %Workflow{} = workflow <-
+           Repo.one(Repo.scoped(where(Workflow, id: ^workflow_id), scope)) ||
+             {:error, :not_found},
+         {:ok, restored} <-
+           workflow |> Ecto.Changeset.change(deleted_at: nil) |> Repo.update() do
+      Flux.Audit.record(scope, "workflow.restore", resource: workflow)
+      {:ok, restored}
+    end
+  end
+
+  @doc "Hard delete from the trash — gone for good."
+  def purge_workflow(%Scope{} = scope, workflow_id) do
+    with :ok <- RBAC.authorize(scope, :app_delete),
+         %Workflow{deleted_at: %DateTime{}} = workflow <-
+           Repo.one(Repo.scoped(where(Workflow, id: ^workflow_id), scope)) ||
+             {:error, :not_found},
+         {:ok, deleted} <- Repo.delete(workflow) do
+      Flux.Audit.record(scope, "workflow.purge", resource: workflow)
+      {:ok, deleted}
+    else
+      %Workflow{} -> {:error, :not_trashed}
+      error -> error
     end
   end
 
@@ -393,8 +447,8 @@ defmodule Flux.Workflows do
   @doc "Resolves a public site token to its flux; the token is the authorization."
   def get_workflow_by_site_token("site_" <> _rest = token) do
     case Repo.get_by(Workflow, [site_token: token], skip_workspace_guard: true) do
-      %Workflow{site_enabled: true} = workflow -> {:ok, workflow}
-      _disabled_or_missing -> {:error, :not_found}
+      %Workflow{site_enabled: true, deleted_at: nil} = workflow -> {:ok, workflow}
+      _disabled_trashed_or_missing -> {:error, :not_found}
     end
   end
 
@@ -438,7 +492,7 @@ defmodule Flux.Workflows do
       workspace: %Flux.Accounts.Workspace{id: trigger.workspace_id}
     }
 
-    with %Workflow{} = workflow <-
+    with %Workflow{deleted_at: nil} = workflow <-
            Repo.get_by(Workflow, [id: trigger.workflow_id], skip_workspace_guard: true) ||
              {:error, :not_found},
          %WorkflowVersion{} = version <-
@@ -511,7 +565,10 @@ defmodule Flux.Workflows do
         |> Ecto.Changeset.change(last_used_at: DateTime.utc_now(:second))
         |> Repo.update()
 
-        {:ok, Repo.get!(Workflow, workflow_id, skip_workspace_guard: true), token}
+        case Repo.get!(Workflow, workflow_id, skip_workspace_guard: true) do
+          %Workflow{deleted_at: nil} = workflow -> {:ok, workflow, token}
+          _trashed -> {:error, :invalid_token}
+        end
 
       _other ->
         {:error, :invalid_token}

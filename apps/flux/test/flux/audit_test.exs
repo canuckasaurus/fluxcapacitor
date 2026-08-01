@@ -40,7 +40,7 @@ defmodule Flux.AuditTest do
 
     assert "app.create" in actions
     assert "app.site_enable" in actions
-    assert "app.delete" in actions
+    assert "app.trash" in actions
     assert "workflow.publish" in actions
   end
 

@@ -49,6 +49,58 @@ defmodule FluxWeb.FluxesBulkTest do
     refute html =~ "selected"
   end
 
+  test "deleted fluxes go to the trash, restore and purge work", %{
+    conn: conn,
+    scope: scope,
+    workflows: [alpha | _rest]
+  } do
+    {:ok, published} = Workflows.publish(scope, put_echo(scope, alpha))
+    assert published
+
+    {:ok, lv, _html} = live(conn, ~p"/console/fluxes")
+    html = lv |> element("#workflow-#{alpha.id} button", "Delete") |> render_click()
+
+    # Gone from the grid, present in the trash; not really deleted.
+    refute html =~ ~s(id="workflow-#{alpha.id}")
+    assert html =~ "Trash (1)"
+    assert {:error, :not_found} = Workflows.get_workflow(scope, alpha.id)
+    assert [%{id: trashed_id}] = Workflows.list_trashed_workflows(scope)
+    assert trashed_id == alpha.id
+
+    # Trashed fluxes stop serving their public site.
+    assert {:error, :not_found} = Workflows.get_workflow_by_site_token(alpha.site_token)
+
+    html = lv |> element("button", "Restore") |> render_click()
+    assert html =~ ~s(id="workflow-#{alpha.id}")
+    assert %Workflows.Workflow{} = Workflows.get_workflow(scope, alpha.id)
+
+    # Purge is final.
+    lv |> element("#workflow-#{alpha.id} button", "Delete") |> render_click()
+    html = lv |> element("button", "Delete forever") |> render_click()
+    refute html =~ "Trash ("
+    assert Workflows.list_trashed_workflows(scope) == []
+    assert {:error, :not_found} = Workflows.get_workflow(scope, alpha.id)
+  end
+
+  defp put_echo(scope, workflow) do
+    graph =
+      update_in(workflow.graph, ["nodes"], fn nodes ->
+        Enum.map(nodes, fn
+          %{"id" => "llm_1"} = node ->
+            node
+            |> put_in(["config", "provider_plugin_id"], "echo")
+            |> put_in(["config", "model"], "echo-1")
+
+          node ->
+            node
+        end)
+      end)
+
+    {:ok, workflow} = Workflows.update_draft(scope, workflow, graph)
+    {:ok, workflow} = Workflows.enable_site(scope, workflow)
+    workflow
+  end
+
   test "bulk export downloads a multi-document YAML", %{
     conn: conn,
     workflows: [alpha, beta, _gamma]

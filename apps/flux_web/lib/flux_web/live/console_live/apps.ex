@@ -22,7 +22,7 @@ defmodule FluxWeb.ConsoleLive.Apps do
        fluxes: Flux.Workflows.list_workflows(scope),
        can_create: RBAC.can?(scope, :app_create_and_management)
      )
-     |> assign(apps: Chat.list_apps(scope))}
+     |> assign(apps: Chat.list_apps(scope), trashed: Chat.list_trashed_apps(scope))}
   end
 
   @impl true
@@ -85,13 +85,45 @@ defmodule FluxWeb.ConsoleLive.Apps do
     end
   end
 
+  def handle_event("restore", %{"app-id" => id}, socket) do
+    scope = socket.assigns.current_scope
+
+    case Chat.restore_app(scope, id) do
+      {:ok, app} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "\"#{app.name}\" restored.")
+         |> assign(apps: Chat.list_apps(scope), trashed: Chat.list_trashed_apps(scope))}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not restore that app.")}
+    end
+  end
+
+  def handle_event("purge", %{"app-id" => id}, socket) do
+    scope = socket.assigns.current_scope
+
+    case Chat.purge_app(scope, id) do
+      {:ok, _deleted} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Deleted forever.")
+         |> assign(trashed: Chat.list_trashed_apps(scope))}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not delete that app.")}
+    end
+  end
+
   def handle_event("delete", %{"app-id" => id}, socket) do
     scope = socket.assigns.current_scope
 
     with %App{} = app <- Chat.get_app(scope, id),
          {:ok, _} <- Chat.delete_app(scope, app) do
       {:noreply,
-       socket |> put_flash(:info, "App deleted.") |> assign(apps: Chat.list_apps(scope))}
+       socket
+       |> put_flash(:info, "App moved to the trash.")
+       |> assign(apps: Chat.list_apps(scope), trashed: Chat.list_trashed_apps(scope))}
     else
       _ -> {:noreply, put_flash(socket, :error, "Could not delete that app.")}
     end
@@ -255,6 +287,37 @@ defmodule FluxWeb.ConsoleLive.Apps do
           </.link>
         </div>
       </div>
+
+      <details :if={@trashed != []} class="card border border-base-200 p-4" id="app-trash">
+        <summary class="cursor-pointer text-sm font-semibold">
+          Trash ({length(@trashed)}) — purged after 30 days
+        </summary>
+        <div class="mt-2 space-y-2">
+          <div
+            :for={app <- @trashed}
+            class="flex items-center gap-2 text-sm"
+            id={"trashed-#{app.id}"}
+          >
+            <span>{app.name}</span>
+            <span class="text-xs opacity-50">
+              deleted {Calendar.strftime(app.deleted_at, "%Y-%m-%d %H:%M")}
+            </span>
+            <div :if={@can_create} class="ml-auto flex gap-1">
+              <button class="btn btn-ghost btn-xs" phx-click="restore" phx-value-app-id={app.id}>
+                Restore
+              </button>
+              <button
+                class="btn btn-ghost btn-xs text-error"
+                phx-click="purge"
+                phx-value-app-id={app.id}
+                data-confirm={"Delete #{app.name} forever? This cannot be undone."}
+              >
+                Delete forever
+              </button>
+            </div>
+          </div>
+        </div>
+      </details>
     </Layouts.console>
     """
   end

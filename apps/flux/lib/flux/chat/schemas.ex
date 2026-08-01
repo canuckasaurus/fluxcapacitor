@@ -27,6 +27,7 @@ defmodule Flux.Chat.App do
     field :site_theme, :map, default: %{}
     field :site_token, :string
     field :site_enabled, :boolean, default: false
+    field :deleted_at, :utc_datetime
 
     timestamps(type: :utc_datetime)
   end

@@ -21,11 +21,32 @@ defmodule Flux.Chat do
   ## Apps
 
   def list_apps(%Scope{} = scope) do
-    App |> Repo.scoped(scope) |> order_by([a], desc: a.inserted_at) |> Repo.all()
+    App
+    |> Repo.scoped(scope)
+    |> where([a], is_nil(a.deleted_at))
+    |> order_by([a], desc: a.inserted_at)
+    |> Repo.all()
   end
 
   def get_app(%Scope{} = scope, id) do
-    Repo.one(Repo.scoped(where(App, id: ^id), scope)) || {:error, :not_found}
+    App
+    |> where(id: ^id)
+    |> where([a], is_nil(a.deleted_at))
+    |> Repo.scoped(scope)
+    |> Repo.one()
+    |> case do
+      nil -> {:error, :not_found}
+      app -> app
+    end
+  end
+
+  @doc "Trashed apps, newest deletion first."
+  def list_trashed_apps(%Scope{} = scope) do
+    App
+    |> Repo.scoped(scope)
+    |> where([a], not is_nil(a.deleted_at))
+    |> order_by([a], desc: a.deleted_at)
+    |> Repo.all()
   end
 
   def create_app(%Scope{} = scope, attrs) do
@@ -39,12 +60,40 @@ defmodule Flux.Chat do
     end
   end
 
+  @doc "Soft delete: the app moves to the trash (30-day purge, restorable)."
   def delete_app(%Scope{} = scope, %App{} = app) do
     with :ok <- RBAC.authorize(scope, :app_delete),
          true <- app.workspace_id == Scope.workspace_id(scope) || {:error, :not_found},
+         {:ok, trashed} <-
+           app
+           |> Ecto.Changeset.change(deleted_at: DateTime.utc_now(:second), site_enabled: false)
+           |> Repo.update() do
+      Flux.Audit.record(scope, "app.trash", resource: app, metadata: %{"name" => app.name})
+      {:ok, trashed}
+    end
+  end
+
+  def restore_app(%Scope{} = scope, app_id) do
+    with :ok <- RBAC.authorize(scope, :app_delete),
+         %App{} = app <-
+           Repo.one(Repo.scoped(where(App, id: ^app_id), scope)) || {:error, :not_found},
+         {:ok, restored} <- app |> Ecto.Changeset.change(deleted_at: nil) |> Repo.update() do
+      Flux.Audit.record(scope, "app.restore", resource: app, metadata: %{"name" => app.name})
+      {:ok, restored}
+    end
+  end
+
+  @doc "Hard delete from the trash — gone for good."
+  def purge_app(%Scope{} = scope, app_id) do
+    with :ok <- RBAC.authorize(scope, :app_delete),
+         %App{deleted_at: %DateTime{}} = app <-
+           Repo.one(Repo.scoped(where(App, id: ^app_id), scope)) || {:error, :not_found},
          {:ok, deleted} <- Repo.delete(app) do
-      Flux.Audit.record(scope, "app.delete", resource: app, metadata: %{"name" => app.name})
+      Flux.Audit.record(scope, "app.purge", resource: app, metadata: %{"name" => app.name})
       {:ok, deleted}
+    else
+      %App{} -> {:error, :not_trashed}
+      error -> error
     end
   end
 
@@ -90,8 +139,8 @@ defmodule Flux.Chat do
   @doc "Resolves a public site token to its app; the token is the authorization."
   def get_app_by_site_token("site_" <> _rest = token) do
     case Repo.get_by(App, [site_token: token], skip_workspace_guard: true) do
-      %App{site_enabled: true} = app -> {:ok, app}
-      _disabled_or_missing -> {:error, :not_found}
+      %App{site_enabled: true, deleted_at: nil} = app -> {:ok, app}
+      _disabled_trashed_or_missing -> {:error, :not_found}
     end
   end
 
@@ -679,7 +728,10 @@ defmodule Flux.Chat do
         |> Ecto.Changeset.change(last_used_at: DateTime.utc_now(:second))
         |> Repo.update()
 
-        {:ok, Repo.get!(App, token.app_id, skip_workspace_guard: true), token}
+        case Repo.get!(App, token.app_id, skip_workspace_guard: true) do
+          %App{deleted_at: nil} = app -> {:ok, app, token}
+          _trashed -> {:error, :invalid_token}
+        end
     end
   end
 

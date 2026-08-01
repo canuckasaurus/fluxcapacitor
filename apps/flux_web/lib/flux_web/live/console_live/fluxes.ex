@@ -33,7 +33,11 @@ defmodule FluxWeb.ConsoleLive.Fluxes do
         {workflow.id, Workflows.latest_version(scope, workflow.id)}
       end)
 
-    assign(socket, workflows: workflows, versions: versions)
+    assign(socket,
+      workflows: workflows,
+      versions: versions,
+      trashed: Workflows.list_trashed_workflows(scope)
+    )
   end
 
   @impl true
@@ -98,6 +102,27 @@ defmodule FluxWeb.ConsoleLive.Fluxes do
       {:noreply, socket |> put_flash(:info, "Flux deleted.") |> load_workflows()}
     else
       _error -> {:noreply, put_flash(socket, :error, "Could not delete that flux.")}
+    end
+  end
+
+  def handle_event("restore", %{"workflow-id" => id}, socket) do
+    case Workflows.restore_workflow(socket.assigns.current_scope, id) do
+      {:ok, workflow} ->
+        {:noreply,
+         socket |> put_flash(:info, "\"#{workflow.name}\" restored.") |> load_workflows()}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not restore that flux.")}
+    end
+  end
+
+  def handle_event("purge", %{"workflow-id" => id}, socket) do
+    case Workflows.purge_workflow(socket.assigns.current_scope, id) do
+      {:ok, _deleted} ->
+        {:noreply, socket |> put_flash(:info, "Deleted forever.") |> load_workflows()}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not delete that flux.")}
     end
   end
 
@@ -303,6 +328,41 @@ defmodule FluxWeb.ConsoleLive.Fluxes do
           </.link>
         </div>
       </div>
+
+      <details :if={@trashed != []} class="card border border-base-200 p-4" id="flux-trash">
+        <summary class="cursor-pointer text-sm font-semibold">
+          Trash ({length(@trashed)}) — purged after 30 days
+        </summary>
+        <div class="mt-2 space-y-2">
+          <div
+            :for={workflow <- @trashed}
+            class="flex items-center gap-2 text-sm"
+            id={"trashed-#{workflow.id}"}
+          >
+            <span>{workflow.name}</span>
+            <span class="text-xs opacity-50">
+              deleted {Calendar.strftime(workflow.deleted_at, "%Y-%m-%d %H:%M")}
+            </span>
+            <div :if={@can_create} class="ml-auto flex gap-1">
+              <button
+                class="btn btn-ghost btn-xs"
+                phx-click="restore"
+                phx-value-workflow-id={workflow.id}
+              >
+                Restore
+              </button>
+              <button
+                class="btn btn-ghost btn-xs text-error"
+                phx-click="purge"
+                phx-value-workflow-id={workflow.id}
+                data-confirm={"Delete #{workflow.name} forever? This cannot be undone."}
+              >
+                Delete forever
+              </button>
+            </div>
+          </div>
+        </div>
+      </details>
     </Layouts.console>
     """
   end

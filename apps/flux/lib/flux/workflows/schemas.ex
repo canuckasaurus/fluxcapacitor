@@ -20,6 +20,7 @@ defmodule Flux.Workflows.Workflow do
     field :site_token, :string
     field :site_enabled, :boolean, default: false
     field :site_theme, :map, default: %{}
+    field :deleted_at, :utc_datetime
 
     timestamps(type: :utc_datetime)
   end
