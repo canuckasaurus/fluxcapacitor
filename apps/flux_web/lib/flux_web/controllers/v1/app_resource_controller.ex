@@ -8,7 +8,12 @@ defmodule FluxWeb.V1.AppResourceController do
 
   alias Flux.Chat
 
-  plug :require_app_token
+  plug :require_app_token when action not in [:spec]
+
+  @doc "The OpenAPI contract for the /v1 surface (any valid service token)."
+  def spec(conn, _params) do
+    json(conn, OpenApiSpex.OpenApi.to_map(FluxWeb.V1.ApiSpec.spec()))
+  end
 
   def parameters(conn, _params) do
     app = conn.assigns.service_app

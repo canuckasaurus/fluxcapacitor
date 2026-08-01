@@ -273,11 +273,62 @@ defmodule FluxWeb.V1.ApiSpec do
     Schemas.Meta
   ]
 
+  alias OpenApiSpex.{MediaType, Operation, PathItem, Reference, Response}
+
+  # route → {http method, summary, response schema title}
+  @operations %{
+    "/chat-messages" => {:post, "Send a chat message (blocking or SSE)", "ChatMessage"},
+    "/completion-messages" => {:post, "Run a completion app", "ChatMessage"},
+    "/workflows/run" => {:post, "Run the token's published flux", "WorkflowRun"},
+    "/workflows/runs/{id}/resume" => {:post, "Resume a paused run", "WorkflowRun"},
+    "/parameters" => {:get, "App configuration for clients", "Parameters"},
+    "/conversations" => {:get, "List conversations", "ConversationList"},
+    "/messages" => {:get, "List a conversation's messages", "MessageList"},
+    "/files/upload" => {:post, "Upload a file", "FileUpload"},
+    "/meta" => {:get, "Tool metadata", "Meta"},
+    "/conversations/{id}/name" => {:post, "Rename a conversation", "ConversationRenamed"},
+    "/conversations/{id}" => {:delete, "Delete a conversation", "Result"},
+    "/chat-messages/{id}/stop" => {:post, "Stop a streaming reply", "Result"},
+    "/messages/{id}/feedbacks" => {:post, "Rate a message", "Result"}
+  }
+
   @impl OpenApiSpex.OpenApi
   def spec do
     %OpenApi{
-      info: %Info{title: "FluxCapacitor Service API", version: "1.0.0"},
-      paths: %{},
+      info: %Info{
+        title: "FluxCapacitor Service API",
+        version: "1.0.0",
+        description:
+          "Bearer-token service API (app-… tokens for chat/completion apps, " <>
+            "flux-… tokens for workflows). Wire-compatible with the upstream reference."
+      },
+      paths:
+        for {path, {method, summary, schema_title}} <- @operations, into: %{} do
+          operation = %Operation{
+            summary: summary,
+            operationId: operation_id(method, path),
+            responses: %{
+              "200" => %Response{
+                description: summary,
+                content: %{
+                  "application/json" => %MediaType{
+                    schema: %Reference{"$ref": "#/components/schemas/#{schema_title}"}
+                  }
+                }
+              },
+              "4XX" => %Response{
+                description: "Error",
+                content: %{
+                  "application/json" => %MediaType{
+                    schema: %Reference{"$ref": "#/components/schemas/Error"}
+                  }
+                }
+              }
+            }
+          }
+
+          {path, struct(PathItem, [{method, operation}])}
+        end,
       components: %Components{
         schemas:
           for module <- @schema_modules, into: %{} do
@@ -287,5 +338,15 @@ defmodule FluxWeb.V1.ApiSpec do
       }
     }
     |> OpenApiSpex.resolve_schema_modules()
+  end
+
+  defp operation_id(method, path) do
+    suffix =
+      path
+      |> String.replace(~r/[{}]/, "")
+      |> String.trim_leading("/")
+      |> String.replace(["/", "-"], "_")
+
+    "#{method}_#{suffix}"
   end
 end

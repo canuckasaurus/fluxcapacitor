@@ -173,6 +173,16 @@ defmodule FluxWeb.V1.ContractTest do
     assert_schema(body, "FileUpload", spec)
   end
 
+  test "GET /v1/spec serves the OpenAPI document", %{conn: conn} do
+    body = conn |> get(~p"/v1/spec") |> json_response(200)
+
+    assert body["openapi"] =~ "3."
+    assert body["info"]["title"] == "FluxCapacitor Service API"
+    assert body["paths"]["/workflows/run"]["post"]["operationId"] == "post_workflows_run"
+    assert body["components"]["schemas"]["WorkflowRun"]
+    assert body["components"]["schemas"]["ChatMessage"]
+  end
+
   test "error responses match Error", %{conn: conn, api_spec: spec} do
     body = conn |> post(~p"/v1/chat-messages", %{}) |> json_response(400)
     assert_schema(body, "Error", spec)

@@ -51,6 +51,7 @@ defmodule FluxWeb.Router do
     get "/meta", AppResourceController, :meta
     post "/conversations/:id/name", AppResourceController, :rename_conversation
     delete "/conversations/:id", AppResourceController, :delete_conversation
+    get "/spec", AppResourceController, :spec
   end
 
   scope "/", FluxWeb do
