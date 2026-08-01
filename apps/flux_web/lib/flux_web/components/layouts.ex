@@ -35,34 +35,34 @@ defmodule FluxWeb.Layouts do
 
   def app(assigns) do
     ~H"""
-    <header class="navbar px-4 sm:px-6 lg:px-8">
+    <header class="navbar px-4 sm:px-6 lg:px-8 border-b border-base-200">
       <div class="flex-1">
-        <a href="/" class="flex-1 flex w-fit items-center gap-2">
-          <img src={~p"/images/logo.svg"} width="36" />
-          <span class="text-sm font-semibold">v{Application.spec(:phoenix, :vsn)}</span>
+        <a href="/" class="flex w-fit items-center gap-2">
+          <.icon name="hero-bolt-solid" class="size-6 flux-bolt" />
+          <span class="text-lg flux-wordmark">FluxCapacitor</span>
         </a>
       </div>
       <div class="flex-none">
-        <ul class="flex flex-column px-1 space-x-4 items-center">
+        <ul class="flex px-1 space-x-2 items-center">
           <li>
-            <a href="https://phoenixframework.org/" class="btn btn-ghost">Website</a>
+            <a href={FluxWeb.docs_url()} target="_blank" class="btn btn-ghost btn-sm">Docs</a>
           </li>
-          <li>
-            <a href="https://github.com/phoenixframework/phoenix" class="btn btn-ghost">GitHub</a>
+          <li :if={@current_scope}>
+            <.link navigate={~p"/console"} class="btn btn-primary btn-sm">
+              Console <span aria-hidden="true">&rarr;</span>
+            </.link>
+          </li>
+          <li :if={is_nil(@current_scope)}>
+            <.link navigate={~p"/accounts/log-in"} class="btn btn-ghost btn-sm">Log in</.link>
           </li>
           <li>
             <.theme_toggle />
-          </li>
-          <li>
-            <a href="https://hexdocs.pm/phoenix/overview.html" class="btn btn-primary">
-              Get Started <span aria-hidden="true">&rarr;</span>
-            </a>
           </li>
         </ul>
       </div>
     </header>
 
-    <main class="px-4 py-20 sm:px-6 lg:px-8">
+    <main class="px-4 py-16 sm:px-6 lg:px-8">
       <div class="mx-auto max-w-2xl space-y-4">
         {render_slot(@inner_block)}
       </div>
@@ -107,19 +107,15 @@ defmodule FluxWeb.Layouts do
           </.link>
         </div>
 
-        <nav class="flex-1 px-2 py-4 space-y-1">
+        <nav class="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
           <.sidebar_link
             navigate={~p"/console"}
             icon="hero-home"
             label="Dashboard"
             active={@active == :dashboard}
           />
-          <.sidebar_link
-            navigate={~p"/console/apps"}
-            icon="hero-chat-bubble-left-right"
-            label="Apps"
-            active={@active == :apps}
-          />
+
+          <.sidebar_section label="Build" />
           <.sidebar_link
             navigate={~p"/console/fluxes"}
             icon="hero-squares-2x2"
@@ -127,16 +123,18 @@ defmodule FluxWeb.Layouts do
             active={@active == :fluxes}
           />
           <.sidebar_link
+            navigate={~p"/console/apps"}
+            icon="hero-chat-bubble-left-right"
+            label="Apps"
+            active={@active == :apps}
+          />
+
+          <.sidebar_section label="Ground" />
+          <.sidebar_link
             navigate={~p"/console/knowledge"}
             icon="hero-book-open"
             label="Knowledge"
             active={@active == :knowledge}
-          />
-          <.sidebar_link
-            navigate={~p"/console/plugins"}
-            icon="hero-puzzle-piece"
-            label="Plugins"
-            active={@active == :plugins}
           />
           <.sidebar_link
             navigate={~p"/console/tools"}
@@ -144,6 +142,14 @@ defmodule FluxWeb.Layouts do
             label="Tools"
             active={@active == :tools}
           />
+          <.sidebar_link
+            navigate={~p"/console/plugins"}
+            icon="hero-puzzle-piece"
+            label="Plugins"
+            active={@active == :plugins}
+          />
+
+          <.sidebar_section label="Operate" />
           <.sidebar_link
             navigate={~p"/console/members"}
             icon="hero-user-group"
@@ -163,6 +169,17 @@ defmodule FluxWeb.Layouts do
             label="Settings"
             active={@active == :settings}
           />
+
+          <div class="pt-2">
+            <a
+              href={FluxWeb.docs_url()}
+              target="_blank"
+              class="flex items-center gap-2 rounded-lg px-3 py-2 text-sm opacity-70 hover:bg-base-200 hover:opacity-100"
+            >
+              <.icon name="hero-academic-cap" class="size-4" /> Docs
+              <.icon name="hero-arrow-top-right-on-square" class="size-3 ml-auto opacity-50" />
+            </a>
+          </div>
         </nav>
 
         <div class="px-4 py-4 border-t border-base-200 space-y-3">
@@ -219,6 +236,16 @@ defmodule FluxWeb.Layouts do
     </div>
 
     <.flash_group flash={@flash} />
+    """
+  end
+
+  attr :label, :string, required: true
+
+  defp sidebar_section(assigns) do
+    ~H"""
+    <div class="px-3 pt-4 pb-1 text-[0.62rem] font-semibold uppercase tracking-[0.14em] opacity-50">
+      {@label}
+    </div>
     """
   end
 

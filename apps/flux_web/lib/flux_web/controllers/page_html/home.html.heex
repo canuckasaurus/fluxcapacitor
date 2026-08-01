@@ -3,12 +3,15 @@
   <header class="navbar px-4 sm:px-6 lg:px-8 border-b border-base-200">
     <div class="flex-1">
       <a href="/" class="flex w-fit items-center gap-2">
-        <.icon name="hero-bolt-solid" class="size-7 text-primary" />
-        <span class="text-lg font-bold">FluxCapacitor</span>
+        <.icon name="hero-bolt-solid" class="size-7 flux-bolt" />
+        <span class="text-xl flux-wordmark">FluxCapacitor</span>
       </a>
     </div>
     <div class="flex-none">
       <ul class="flex px-1 space-x-2 items-center">
+        <li>
+          <a href={FluxWeb.docs_url()} target="_blank" class="btn btn-ghost">Docs</a>
+        </li>
         <li><.link navigate={~p"/accounts/log-in"} class="btn btn-ghost">Log in</.link></li>
         <li>
           <.link navigate={~p"/accounts/register"} class="btn btn-primary">
@@ -25,6 +28,7 @@
         <h1 class="text-4xl sm:text-5xl font-bold leading-tight">
           Build AI-powered workflows<br />your whole team can run
         </h1>
+        <p class="text-sm italic opacity-50">Where we're going, we don't need boilerplate.</p>
         <p class="text-lg opacity-80">
           FluxCapacitor is your enterprise platform for creating <b>Fluxes</b> — AI workflows
           that connect language models, your knowledge bases, and your tools — then publishing
@@ -131,6 +135,8 @@
   </main>
 
   <footer class="px-4 py-8 text-center text-sm opacity-60">
-    FluxCapacitor — internal AI workflow platform
+    <span class="flux-wordmark not-italic">FluxCapacitor</span>
+    ⚡ self-hosted AI workflow platform ·
+    <a href={FluxWeb.docs_url()} target="_blank" class="link">docs</a>
   </footer>
 </div>

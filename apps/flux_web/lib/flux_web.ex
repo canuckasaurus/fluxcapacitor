@@ -19,6 +19,9 @@ defmodule FluxWeb do
 
   def static_paths, do: ~w(assets embed.js fonts images favicon.ico favicon.svg robots.txt)
 
+  @doc "The published user guides (linked from navbars and the console)."
+  def docs_url, do: "https://github.com/canuckasaurus/fluxcapacitor/tree/main/docs/guides"
+
   def router do
     quote do
       use Phoenix.Router, helpers: false

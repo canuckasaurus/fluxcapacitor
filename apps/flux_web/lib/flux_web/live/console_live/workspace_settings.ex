@@ -176,9 +176,27 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
       <div>
         <h1 class="text-2xl font-bold">Workspace settings</h1>
         <p class="opacity-70 mt-1">{@current_scope.workspace.name}</p>
+        <div class="mt-3 flex flex-wrap gap-1">
+          <a :if={@can_rename} href="#name-card" class="badge badge-ghost badge-sm">Name</a>
+          <a :if={@can_model} href="#model-card" class="badge badge-ghost badge-sm">
+            Default model
+          </a>
+          <a :if={@can_rename} href="#retention-card" class="badge badge-ghost badge-sm">
+            Retention
+          </a>
+          <a :if={@can_rename} href="#alerts-card" class="badge badge-ghost badge-sm">Alerts</a>
+          <a :if={@can_rename} href="#export-card" class="badge badge-ghost badge-sm">
+            Export / Import
+          </a>
+          <a :if={@owner?} href="#plan-card" class="badge badge-ghost badge-sm">Plan</a>
+          <a :if={@can_scim} href="#scim-card" class="badge badge-ghost badge-sm">SCIM</a>
+          <a :if={@owner?} href="#danger-card" class="badge badge-ghost badge-sm text-error">
+            Danger zone
+          </a>
+        </div>
       </div>
 
-      <div :if={@can_rename} class="card border border-base-200 p-6 space-y-3">
+      <div :if={@can_rename} class="card border border-base-200 p-6 space-y-3" id="name-card">
         <h2 class="font-semibold">Name</h2>
         <form phx-submit="rename" id="rename-form" class="flex gap-2">
           <input
@@ -192,7 +210,7 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
         </form>
       </div>
 
-      <div :if={@can_model} class="card border border-base-200 p-6 space-y-3">
+      <div :if={@can_model} class="card border border-base-200 p-6 space-y-3" id="model-card">
         <h2 class="font-semibold">Default model</h2>
         <p class="text-sm opacity-70">
           LLM and agent nodes that name no model fall back to this.
@@ -215,7 +233,7 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
         </form>
       </div>
 
-      <div :if={@can_rename} class="card border border-base-200 p-6 space-y-3">
+      <div :if={@can_rename} class="card border border-base-200 p-6 space-y-3" id="retention-card">
         <h2 class="font-semibold">Data retention</h2>
         <p class="text-sm opacity-70">
           Runs and chat messages older than this are pruned nightly. Blank keeps
@@ -236,7 +254,7 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
         </form>
       </div>
 
-      <div :if={@can_rename} class="card border border-base-200 p-6 space-y-3">
+      <div :if={@can_rename} class="card border border-base-200 p-6 space-y-3" id="alerts-card">
         <h2 class="font-semibold">Failure alerts</h2>
         <p class="text-sm opacity-70">
           Failed runs POST a JSON alert to this webhook (blank disables).
@@ -339,7 +357,7 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
         </div>
       </div>
 
-      <div :if={@owner?} class="card border border-error/40 p-6 space-y-3">
+      <div :if={@owner?} class="card border border-error/40 p-6 space-y-3" id="danger-card">
         <h2 class="font-semibold text-error">Danger zone</h2>
         <p class="text-sm opacity-70">
           Deleting the workspace permanently removes every app, flux, dataset,
