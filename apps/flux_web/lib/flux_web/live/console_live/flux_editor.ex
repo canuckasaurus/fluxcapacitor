@@ -1456,10 +1456,26 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
         _invalid -> config["top_k"] || 4
       end
 
+    dataset_ids =
+      case params["ds"] do
+        %{} = checked ->
+          for {dataset_id, "true"} <- checked, do: dataset_id
+
+        _no_checkboxes ->
+          knowledge_dataset_ids(config)
+      end
+
     config
-    |> Map.put("dataset_id", Map.get(params, "dataset_id", config["dataset_id"] || ""))
+    |> Map.put("dataset_ids", dataset_ids)
+    |> Map.delete("dataset_id")
     |> Map.put("query", Map.get(params, "query", config["query"] || ""))
     |> Map.put("top_k", top_k)
+  end
+
+  defp knowledge_dataset_ids(config) do
+    (List.wrap(config["dataset_ids"]) ++ List.wrap(config["dataset_id"]))
+    |> Enum.reject(&(&1 in [nil, ""]))
+    |> Enum.uniq()
   end
 
   defp build_config("iteration", config, params) do
@@ -3119,21 +3135,27 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                     The run pauses here; the reply continues it as <code>{"{{#{node["id"]}.output}}"}</code>.
                   </p>
                 <% "knowledge_retrieval" -> %>
-                  <label class="floating-label">
-                    <span>Dataset</span>
-                    <select name="dataset_id" class="select select-sm w-full" disabled={not @can_edit}>
-                      <option value="" selected={node["config"]["dataset_id"] in [nil, ""]}>
-                        Choose a dataset…
-                      </option>
-                      <option
-                        :for={dataset <- @datasets}
-                        value={dataset.id}
-                        selected={node["config"]["dataset_id"] == dataset.id}
-                      >
-                        {dataset.name}
-                      </option>
-                    </select>
-                  </label>
+                  <div class="space-y-1">
+                    <p class="text-xs font-semibold opacity-70">Datasets</p>
+                    <p :if={@datasets == []} class="text-xs text-warning">
+                      No datasets yet — create one under Knowledge.
+                    </p>
+                    <label
+                      :for={dataset <- @datasets}
+                      class="flex items-center gap-2 text-sm"
+                    >
+                      <input type="hidden" name={"ds[#{dataset.id}]"} value="false" />
+                      <input
+                        type="checkbox"
+                        name={"ds[#{dataset.id}]"}
+                        value="true"
+                        checked={dataset.id in knowledge_dataset_ids(node["config"])}
+                        class="checkbox checkbox-xs"
+                        disabled={not @can_edit}
+                      />
+                      {dataset.name}
+                    </label>
+                  </div>
                   <label class="floating-label">
                     <span>Query</span>
                     <input

@@ -312,6 +312,27 @@ defmodule Flux.RAG do
     end
   end
 
+  @doc """
+  Retrieves across several datasets and merges by score (best first).
+  Unknown dataset ids are skipped.
+  """
+  def retrieve_many(%Scope{} = scope, dataset_ids, query, opts \\ []) do
+    top_k = Keyword.get(opts, :top_k, 4)
+
+    hits =
+      dataset_ids
+      |> Enum.flat_map(fn dataset_id ->
+        case retrieve(scope, dataset_id, query, opts) do
+          {:ok, hits} -> hits
+          _missing -> []
+        end
+      end)
+      |> Enum.sort_by(& &1.score, :desc)
+      |> Enum.take(top_k)
+
+    {:ok, hits}
+  end
+
   defp semantic_hits(dataset, query, limit) do
     case embed(dataset, [query]) do
       {:ok, [vector]} ->

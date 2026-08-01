@@ -1256,7 +1256,7 @@ defmodule Flux.EngineTest do
 
       host = %Host{
         emit: fn _e -> :ok end,
-        retrieve_knowledge: fn %{dataset_id: "ds-1", query: "vacation days", top_k: 2} ->
+        retrieve_knowledge: fn %{dataset_ids: ["ds-1"], query: "vacation days", top_k: 2} ->
           {:ok,
            [
              %{content: "25 paid days per year.", document_name: "handbook.md", score: 0.9},

@@ -633,7 +633,7 @@ defmodule Flux.Workflows do
   # (dependency direction is flux_rag -> flux), mirroring the plugin
   # runtime indirection.
   defp build_knowledge_retriever(workspace_id) do
-    fn %{dataset_id: dataset_id, query: query, top_k: top_k} ->
+    fn %{dataset_ids: dataset_ids, query: query, top_k: top_k} ->
       rag = Application.get_env(:flux, :rag_module, Flux.RAG)
       scope = %Scope{workspace: %Flux.Accounts.Workspace{id: workspace_id}}
 
@@ -642,7 +642,15 @@ defmodule Flux.Workflows do
           {:error, "knowledge retrieval is unavailable in this deployment"}
 
         true ->
-          case rag.retrieve(scope, dataset_id, query, top_k: top_k) do
+          case rag.retrieve_many(scope, dataset_ids, query, top_k: top_k) do
+            {:ok, []} when dataset_ids != [] ->
+              # Distinguish "no matches" from "no such dataset".
+              if Enum.any?(dataset_ids, &match?(%{}, safe_get_dataset(rag, scope, &1))) do
+                {:ok, []}
+              else
+                {:error, "dataset not found"}
+              end
+
             {:ok, hits} ->
               {:ok,
                Enum.map(hits, fn hit ->
@@ -653,13 +661,17 @@ defmodule Flux.Workflows do
                  }
                end)}
 
-            {:error, :not_found} ->
-              {:error, "dataset not found"}
-
             {:error, reason} ->
               {:error, reason}
           end
       end
+    end
+  end
+
+  defp safe_get_dataset(rag, scope, dataset_id) do
+    case rag.get_dataset(scope, dataset_id) do
+      {:error, _reason} -> nil
+      dataset -> dataset
     end
   end
 

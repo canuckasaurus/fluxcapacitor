@@ -866,14 +866,18 @@ defmodule Flux.Engine.Nodes.KnowledgeRetrieval do
 
   @impl true
   def run(node, pool, host) do
-    dataset_id = to_string(node.config["dataset_id"] || "")
+    dataset_ids =
+      (List.wrap(node.config["dataset_ids"]) ++ List.wrap(node.config["dataset_id"]))
+      |> Enum.map(&to_string/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.uniq()
 
-    with :ok <- require_dataset(dataset_id),
+    with :ok <- require_dataset(dataset_ids),
          {:ok, retrieve} <- capability(host) do
       query = Template.render(node.config["query"], pool)
       top_k = node.config["top_k"] || 4
 
-      case retrieve.(%{dataset_id: dataset_id, query: query, top_k: top_k}) do
+      case retrieve.(%{dataset_ids: dataset_ids, query: query, top_k: top_k}) do
         {:ok, hits} ->
           citations =
             Enum.map(hits, fn hit ->
@@ -900,8 +904,8 @@ defmodule Flux.Engine.Nodes.KnowledgeRetrieval do
     end
   end
 
-  defp require_dataset(""), do: {:error, "the knowledge node needs a dataset"}
-  defp require_dataset(_id), do: :ok
+  defp require_dataset([]), do: {:error, "the knowledge node needs a dataset"}
+  defp require_dataset(_ids), do: :ok
 
   defp capability(%Host{retrieve_knowledge: fun}) when is_function(fun, 1), do: {:ok, fun}
   defp capability(_host), do: {:error, "this run's host cannot retrieve knowledge"}

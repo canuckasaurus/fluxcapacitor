@@ -264,6 +264,31 @@ defmodule FluxWeb.RAGIntegrationTest do
     assert citation["document"] == "vacation.md"
   end
 
+  test "retrieve_many merges hits across datasets", %{scope: scope, dataset: dataset} do
+    ingest!(scope, dataset, "vacation.md", "Vacation policy: 25 paid vacation days per year.")
+
+    {:ok, second} =
+      RAG.create_dataset(scope, %{
+        "name" => "IT KB",
+        "embedding_plugin_id" => "echo",
+        "embedding_model" => "echo-embed"
+      })
+
+    ingest!(
+      scope,
+      second,
+      "vpn.md",
+      "VPN setup: install the client and use your vacation... no, your SSO login."
+    )
+
+    {:ok, hits} =
+      RAG.retrieve_many(scope, [dataset.id, second.id], "how many vacation days?", top_k: 3)
+
+    names = hits |> Enum.map(& &1.document.name) |> Enum.uniq()
+    assert "vacation.md" in names
+    assert hd(hits).document.name == "vacation.md"
+  end
+
   test "dataset mutations enforce RBAC", %{workspace: workspace, dataset: dataset} do
     viewer = account_fixture()
 

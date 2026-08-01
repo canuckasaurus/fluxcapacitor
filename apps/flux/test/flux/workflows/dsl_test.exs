@@ -269,7 +269,7 @@ defmodule Flux.Workflows.DSLTest do
 
     host = %Host{
       emit: fn _event -> :ok end,
-      retrieve_knowledge: fn %{dataset_id: "ds-local", query: "refund window?"} ->
+      retrieve_knowledge: fn %{dataset_ids: ["ds-local"], query: "refund window?"} ->
         {:ok, [%{content: "Refunds within 30 days.", document_name: "policy.md", score: 0.9}]}
       end,
       invoke_llm: fn request, chunk_emit ->
