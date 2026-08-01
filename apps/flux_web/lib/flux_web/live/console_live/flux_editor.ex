@@ -3731,6 +3731,12 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                 >
                   Stop
                 </button>
+                <span
+                  :if={@run != nil and @run.status == :running}
+                  class="flex items-center gap-1 text-xs opacity-80"
+                >
+                  <.icon name="hero-bolt-solid" class="size-4 flux-spinner" /> 88&nbsp;mph…
+                </span>
               </div>
             </form>
 

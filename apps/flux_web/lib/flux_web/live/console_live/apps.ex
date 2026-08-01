@@ -249,14 +249,13 @@ defmodule FluxWeb.ConsoleLive.Apps do
         </.form>
       </div>
 
-      <div
+      <Layouts.empty_state
         :if={@apps == [] and not @creating}
-        class="card border border-dashed border-base-300 p-12 text-center space-y-3"
+        icon="hero-chat-bubble-left-right"
+        title="No apps yet"
       >
-        <.icon name="hero-chat-bubble-left-right" class="size-10 text-primary mx-auto" />
-        <h2 class="font-semibold text-lg">No apps yet</h2>
-        <p class="opacity-70 text-sm">Create your first chat app to start talking to a model.</p>
-      </div>
+        <p>Create your first chat app to start talking to a model.</p>
+      </Layouts.empty_state>
 
       <div class="grid gap-4 sm:grid-cols-2">
         <div

@@ -232,16 +232,13 @@ defmodule FluxWeb.ConsoleLive.Fluxes do
         </.form>
       </div>
 
-      <div
+      <Layouts.empty_state
         :if={@workflows == [] and not @creating}
-        class="card border border-dashed border-base-300 p-12 text-center space-y-3"
+        icon="hero-squares-2x2"
+        title="No fluxes yet"
       >
-        <.icon name="hero-squares-2x2" class="size-10 text-primary mx-auto" />
-        <h2 class="font-semibold text-lg">No fluxes yet</h2>
-        <p class="opacity-70 text-sm">
-          Create your first flux to build a workflow on the visual canvas.
-        </p>
-      </div>
+        <p>Create your first flux to build a workflow on the visual canvas.</p>
+      </Layouts.empty_state>
 
       <div
         :if={@workflows != [] and (@can_create or @can_export)}

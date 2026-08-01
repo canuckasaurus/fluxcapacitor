@@ -243,6 +243,34 @@ defmodule FluxWeb.Layouts do
     """
   end
 
+  @doc """
+  A themed empty state. The plate flourish reads OUTATIME by default;
+  pass `plate={nil}` for a plain version.
+
+      <Layouts.empty_state icon="hero-squares-2x2" title="No fluxes yet">
+        <p>Create your first flux…</p>
+      </Layouts.empty_state>
+  """
+  attr :icon, :string, required: true
+  attr :title, :string, required: true
+  attr :plate, :string, default: "OUTATIME"
+  slot :inner_block
+  slot :actions
+
+  def empty_state(assigns) do
+    ~H"""
+    <div class="card border border-dashed border-base-300 p-12 text-center space-y-3">
+      <.icon name={@icon} class="size-10 flux-bolt mx-auto" />
+      <span :if={@plate} class="outatime-plate mx-auto">{@plate}</span>
+      <h2 class="font-semibold text-lg">{@title}</h2>
+      <div class="opacity-70 text-sm">{render_slot(@inner_block)}</div>
+      <div :if={@actions != []} class="flex justify-center gap-2">
+        {render_slot(@actions)}
+      </div>
+    </div>
+    """
+  end
+
   attr :label, :string, required: true
 
   defp sidebar_section(assigns) do
