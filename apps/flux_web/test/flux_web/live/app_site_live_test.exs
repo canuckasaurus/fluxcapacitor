@@ -187,6 +187,43 @@ defmodule FluxWeb.AppSiteLiveTest do
     assert conversation.end_user_ref =~ "web_"
   end
 
+  test "visitors switch between their conversations", %{conn: conn, scope: scope, app: app} do
+    {:ok, app} = Chat.enable_site(scope, app)
+
+    conn = get(conn, ~p"/site/#{app.site_token}")
+    {:ok, lv, _html} = live(conn)
+
+    # First conversation.
+    lv |> form("#site-chat-form", %{"content" => "first thread"}) |> render_submit()
+    poll_until(lv, "You said: first thread", 50)
+    refute poll_until_gone(lv, "animate-pulse", 50) =~ "animate-pulse"
+
+    # Start over → second conversation.
+    lv |> element("button[phx-click=start_over]") |> render_click()
+    lv |> form("#site-chat-form", %{"content" => "second thread"}) |> render_submit()
+    poll_until(lv, "You said: second thread", 50)
+    refute poll_until_gone(lv, "animate-pulse", 50) =~ "animate-pulse"
+
+    # Fresh mount shows the switcher; picking the first restores its messages.
+    {:ok, lv, html} = live(conn, ~p"/site/#{app.site_token}")
+    assert html =~ "conversation-switcher"
+
+    [_newest, older] =
+      Chat.visitor_conversations(
+        scope,
+        app.id,
+        hd(Chat.list_conversations(scope, app.id)).end_user_ref
+      )
+
+    html =
+      lv
+      |> form("#conversation-switcher", %{"conversation-id" => older.id})
+      |> render_change()
+
+    assert html =~ "first thread"
+    refute html =~ "second thread"
+  end
+
   test "site theme applies accent, title, and logo", %{
     conn: conn,
     scope: scope,

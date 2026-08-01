@@ -47,6 +47,7 @@ defmodule FluxWeb.SiteLive.AppSite do
            site_scope: scope,
            end_user_ref: end_user_ref,
            conversation: conversation,
+           conversations: Chat.visitor_conversations(scope, app.id, end_user_ref),
            messages: messages,
            streaming_id: nil,
            streaming_text: ""
@@ -68,9 +69,17 @@ defmodule FluxWeb.SiteLive.AppSite do
 
       case Chat.send_message(scope, app, conversation, content) do
         {:ok, user_message, assistant_message} ->
+          conversations =
+            if socket.assigns.conversation == nil do
+              Chat.visitor_conversations(scope, app.id, socket.assigns.end_user_ref)
+            else
+              socket.assigns.conversations
+            end
+
           {:noreply,
            assign(socket,
              conversation: conversation,
+             conversations: conversations,
              messages: socket.assigns.messages ++ [user_message],
              streaming_id: assistant_message.id,
              streaming_text: ""
@@ -92,6 +101,24 @@ defmodule FluxWeb.SiteLive.AppSite do
 
   def handle_event("start_over", _params, socket) do
     {:noreply, assign(socket, conversation: nil, messages: [], streaming_id: nil)}
+  end
+
+  def handle_event("switch_conversation", %{"conversation-id" => id}, socket) do
+    %{site_scope: scope, end_user_ref: end_user_ref} = socket.assigns
+
+    case Enum.find(socket.assigns.conversations, &(&1.id == id)) do
+      %{end_user_ref: ^end_user_ref} = conversation ->
+        messages =
+          scope
+          |> Chat.list_messages(conversation.id)
+          |> Enum.filter(&(&1.status in [:completed, :error] or &1.role == :user))
+
+        {:noreply,
+         assign(socket, conversation: conversation, messages: messages, streaming_id: nil)}
+
+      _not_yours ->
+        {:noreply, socket}
+    end
   end
 
   def handle_event("run_completion", params, socket) do
@@ -204,6 +231,23 @@ defmodule FluxWeb.SiteLive.AppSite do
             <h1 class="text-xl font-bold">{@app.site_theme["title"] || @app.name}</h1>
             <p :if={@app.description} class="text-sm opacity-70">{@app.description}</p>
           </div>
+          <form
+            :if={@app.mode in [:chat, :advanced_chat] and length(@conversations) > 1}
+            phx-change="switch_conversation"
+            class="ml-auto"
+            id="conversation-switcher"
+          >
+            <select name="conversation-id" class="select select-bordered select-xs max-w-44">
+              <option
+                :for={conversation <- @conversations}
+                value={conversation.id}
+                selected={@conversation != nil and @conversation.id == conversation.id}
+              >
+                {conversation.title ||
+                  Calendar.strftime(conversation.inserted_at, "%b %d %H:%M")}
+              </option>
+            </select>
+          </form>
         </header>
 
         <div :if={@app.mode in [:chat, :advanced_chat]} class="flex-1 flex flex-col gap-3">
