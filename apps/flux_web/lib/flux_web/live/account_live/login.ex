@@ -8,98 +8,93 @@ defmodule FluxWeb.AccountLive.Login do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <div class="mx-auto max-w-sm space-y-4">
-        <div class="text-center">
-          <div class="flex items-center justify-center gap-2 mb-2">
-            <.icon name="hero-bolt-solid" class="size-7 flux-bolt" />
-            <span class="text-2xl flux-wordmark">FluxCapacitor</span>
+        <div class="text-center space-y-1">
+          <div class="flex items-center justify-center gap-2">
+            <.icon name="hero-bolt-solid" class="size-8 flux-bolt" />
+            <span class="text-3xl flux-wordmark">FluxCapacitor</span>
           </div>
-          <.header>
-            <p>Log in</p>
-            <:subtitle>
-              <%= if @current_scope do %>
-                You need to reauthenticate to perform sensitive actions on your account.
-              <% else %>
-                Don't have an account? <.link
-                  navigate={~p"/accounts/register"}
-                  class="font-semibold text-brand hover:underline"
-                  phx-no-format
-                >Sign up</.link> for an account now.
-              <% end %>
-            </:subtitle>
-          </.header>
+          <p class="text-sm opacity-60">
+            <%= if @current_scope do %>
+              Reauthenticate to perform sensitive account actions.
+            <% else %>
+              Log in to your workspace — or
+              <.link navigate={~p"/accounts/register"} class="link link-primary font-semibold">
+                create an account
+              </.link>
+            <% end %>
+          </p>
         </div>
 
-        <div :if={local_mail_adapter?()} class="alert alert-info">
-          <.icon name="hero-information-circle" class="size-6 shrink-0" />
-          <div>
-            <p>You are running the local mail adapter.</p>
-            <p>
-              To see sent emails, visit <.link href="/dev/mailbox" class="underline">the mailbox page</.link>.
-            </p>
-          </div>
+        <div :if={local_mail_adapter?()} class="alert alert-info text-sm">
+          <.icon name="hero-information-circle" class="size-5 shrink-0" />
+          <span>
+            Local mail adapter: magic links land in <.link href="/dev/mailbox" class="underline">the dev mailbox</.link>.
+          </span>
         </div>
 
-        <.form
-          :let={f}
-          for={@form}
-          id="login_form_magic"
-          action={~p"/accounts/log-in"}
-          phx-submit="submit_magic"
-        >
-          <.input
-            readonly={!!@current_scope}
-            field={f[:email]}
-            type="email"
-            label="Email"
-            autocomplete="username"
-            spellcheck="false"
-            required
-            phx-mounted={JS.focus()}
-          />
-          <.button class="btn btn-primary w-full">
-            Log in with email <span aria-hidden="true">→</span>
-          </.button>
-        </.form>
+        <div class="card border border-base-200 bg-base-100 p-6 space-y-4 shadow-sm">
+          <.form
+            :let={f}
+            for={@form}
+            id="login_form_magic"
+            action={~p"/accounts/log-in"}
+            phx-submit="submit_magic"
+          >
+            <.input
+              readonly={!!@current_scope}
+              field={f[:email]}
+              type="email"
+              label="Email"
+              autocomplete="username"
+              spellcheck="false"
+              required
+              phx-mounted={JS.focus()}
+            />
+            <.button class="btn btn-primary w-full">
+              Log in with email <span aria-hidden="true">→</span>
+            </.button>
+          </.form>
 
-        <div class="divider">or</div>
+          <div class="divider my-0 text-xs opacity-60">or use a password</div>
 
-        <.form
-          :let={f}
-          for={@form}
-          id="login_form_password"
-          action={~p"/accounts/log-in"}
-          phx-submit="submit_password"
-          phx-trigger-action={@trigger_submit}
-        >
-          <.input
-            readonly={!!@current_scope}
-            field={f[:email]}
-            type="email"
-            label="Email"
-            autocomplete="username"
-            spellcheck="false"
-            required
-          />
-          <.input
-            field={@form[:password]}
-            type="password"
-            label="Password"
-            autocomplete="current-password"
-            spellcheck="false"
-          />
-          <.button class="btn btn-primary w-full" name={@form[:remember_me].name} value="true">
-            Log in and stay logged in <span aria-hidden="true">→</span>
-          </.button>
-          <.button class="btn btn-primary btn-soft w-full mt-2">
-            Log in only this time
-          </.button>
-        </.form>
+          <.form
+            :let={f}
+            for={@form}
+            id="login_form_password"
+            action={~p"/accounts/log-in"}
+            phx-submit="submit_password"
+            phx-trigger-action={@trigger_submit}
+          >
+            <.input
+              readonly={!!@current_scope}
+              field={f[:email]}
+              type="email"
+              label="Email"
+              autocomplete="username"
+              spellcheck="false"
+              required
+            />
+            <.input
+              field={@form[:password]}
+              type="password"
+              label="Password"
+              autocomplete="current-password"
+              spellcheck="false"
+            />
+            <.button class="btn btn-primary w-full" name={@form[:remember_me].name} value="true">
+              Log in and stay logged in <span aria-hidden="true">→</span>
+            </.button>
+            <.button class="btn btn-primary btn-soft w-full mt-2">
+              Log in only this time
+            </.button>
+          </.form>
 
-        <div :if={FluxWeb.OIDC.configured?()}>
-          <div class="divider">or</div>
-          <.link href={~p"/auth/oidc"} class="btn btn-outline w-full" id="oidc-login">
-            Continue with {FluxWeb.OIDC.provider_name()}
-          </.link>
+          <div :if={FluxWeb.OIDC.configured?()}>
+            <div class="divider my-0 text-xs opacity-60">or</div>
+            <.link href={~p"/auth/oidc"} class="btn btn-outline w-full mt-3" id="oidc-login">
+              Continue with {FluxWeb.OIDC.provider_name()}
+            </.link>
+          </div>
         </div>
       </div>
     </Layouts.app>

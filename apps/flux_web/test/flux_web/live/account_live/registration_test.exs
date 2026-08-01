@@ -8,7 +8,7 @@ defmodule FluxWeb.AccountLive.RegistrationTest do
     test "renders registration page", %{conn: conn} do
       {:ok, _lv, html} = live(conn, ~p"/accounts/register")
 
-      assert html =~ "Register"
+      assert html =~ "Create an account"
       assert html =~ "Log in"
     end
 
@@ -30,7 +30,7 @@ defmodule FluxWeb.AccountLive.RegistrationTest do
         |> element("#registration_form")
         |> render_change(account: %{"email" => "with spaces"})
 
-      assert result =~ "Register"
+      assert result =~ "Create an account"
       assert result =~ "must have the @ sign and no spaces"
     end
   end

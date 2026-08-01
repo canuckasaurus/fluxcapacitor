@@ -9,11 +9,18 @@ defmodule FluxWeb.AccountLive.Settings do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <div class="text-center">
+      <div class="text-center space-y-1">
+        <div class="flex items-center justify-center gap-2">
+          <.icon name="hero-bolt-solid" class="size-7 flux-bolt" />
+          <span class="text-2xl flux-wordmark">FluxCapacitor</span>
+        </div>
         <.header>
-          Account Settings
-          <:subtitle>Manage your account email address and password settings</:subtitle>
+          Account settings
+          <:subtitle>Manage your email address and password</:subtitle>
         </.header>
+        <.link navigate={~p"/console"} class="link link-primary text-sm">
+          ← Back to the console
+        </.link>
       </div>
 
       <.form for={@email_form} id="email_form" phx-submit="update_email" phx-change="validate_email">

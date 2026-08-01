@@ -7,9 +7,13 @@ defmodule FluxWeb.AccountLive.Confirmation do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <div class="mx-auto max-w-sm">
-        <div class="text-center">
-          <.header>Welcome {@account.email}</.header>
+      <div class="mx-auto max-w-sm space-y-4">
+        <div class="text-center space-y-1">
+          <div class="flex items-center justify-center gap-2">
+            <.icon name="hero-bolt-solid" class="size-8 flux-bolt" />
+            <span class="text-3xl flux-wordmark">FluxCapacitor</span>
+          </div>
+          <p class="text-sm opacity-60">Welcome, {@account.email}</p>
         </div>
 
         <.form

@@ -9,7 +9,7 @@ defmodule FluxWeb.AccountLive.LoginTest do
       {:ok, _lv, html} = live(conn, ~p"/accounts/log-in")
 
       assert html =~ "Log in"
-      assert html =~ "Sign up"
+      assert html =~ "create an account"
       assert html =~ "Log in with email"
     end
   end
@@ -81,11 +81,11 @@ defmodule FluxWeb.AccountLive.LoginTest do
 
       {:ok, _login_live, login_html} =
         lv
-        |> element("main a", "Sign up")
+        |> element("main a", "create an account")
         |> render_click()
         |> follow_redirect(conn, ~p"/accounts/register")
 
-      assert login_html =~ "Register"
+      assert login_html =~ "Create an account"
     end
   end
 
@@ -98,8 +98,8 @@ defmodule FluxWeb.AccountLive.LoginTest do
     test "shows login page with email filled in", %{conn: conn, account: account} do
       {:ok, _lv, html} = live(conn, ~p"/accounts/log-in")
 
-      assert html =~ "You need to reauthenticate"
-      refute html =~ "Register"
+      assert html =~ "Reauthenticate to perform sensitive account actions"
+      refute html =~ "create an account"
       assert html =~ "Log in with email"
 
       assert html =~
