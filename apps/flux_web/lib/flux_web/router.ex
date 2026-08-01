@@ -85,6 +85,14 @@ defmodule FluxWeb.Router do
     post "/webhook/:token", TriggerController, :webhook
   end
 
+  # Endpoint plugins: workspace installations serve HTTP under their token.
+  scope "/e", FluxWeb do
+    pipe_through :api
+
+    match :*, "/:token", PluginEndpointController, :handle
+    match :*, "/:token/*path", PluginEndpointController, :handle
+  end
+
   # Other scopes may use custom stacks.
   # scope "/api", FluxWeb do
   #   pipe_through :api

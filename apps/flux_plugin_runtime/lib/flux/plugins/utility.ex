@@ -5,6 +5,7 @@ defmodule Flux.Plugins.Utility do
   """
   @behaviour Flux.Plugin
   @behaviour Flux.Plugin.Tool
+  @behaviour Flux.Plugin.Endpoint
 
   alias Flux.Plugin.Manifest
   alias Flux.Plugin.Tool.Operation
@@ -16,7 +17,10 @@ defmodule Flux.Plugins.Utility do
       name: "Utilities",
       version: "0.1.0",
       category: :tool,
-      description: "Current time and a safe calculator — no credentials needed.",
+      capabilities: [:tool, :endpoint],
+      description:
+        "Current time and a safe calculator — no credentials needed. " <>
+          "Also served over HTTP at the installation's endpoint URL.",
       credential_schema: []
     }
   end
@@ -59,6 +63,28 @@ defmodule Flux.Plugins.Utility do
   end
 
   def invoke(_credentials, operation, _args), do: {:error, "unknown operation #{operation}"}
+
+  # The same two utilities over HTTP: GET <endpoint>/time and
+  # GET <endpoint>/calculate?expression=(2+3)*4
+  @impl Flux.Plugin.Endpoint
+  def handle_request(_credentials, %{path: "time"}) do
+    {:ok, json(200, %{"iso8601" => DateTime.to_iso8601(DateTime.utc_now(:second))})}
+  end
+
+  def handle_request(_credentials, %{path: "calculate"} = request) do
+    case Flux.Plugins.Utility.Calculator.eval(request.query["expression"] || "") do
+      {:ok, value} -> {:ok, json(200, %{"result" => value})}
+      {:error, message} -> {:ok, json(422, %{"error" => message})}
+    end
+  end
+
+  def handle_request(_credentials, _request) do
+    {:ok, json(404, %{"error" => "unknown path — try /time or /calculate"})}
+  end
+
+  defp json(status, payload) do
+    %{status: status, content_type: "application/json", body: Jason.encode!(payload)}
+  end
 
   defp format_number(value) when is_float(value) do
     if Float.round(value) == value and abs(value) < 1.0e15 do

@@ -67,6 +67,24 @@ defmodule Flux.PluginRuntime do
     end
   end
 
+  @doc "Manifests of plugins that serve HTTP endpoints."
+  def list_endpoint_plugins do
+    plugin_modules()
+    |> Enum.filter(&function_exported?(&1, :handle_request, 2))
+    |> Enum.map(& &1.manifest())
+  end
+
+  @doc "Routes one HTTP request into an endpoint plugin."
+  def handle_endpoint(plugin_id, credentials, request) do
+    with {:ok, module} <- fetch_plugin(plugin_id) do
+      if function_exported?(module, :handle_request, 2) do
+        run_supervised(fn -> module.handle_request(credentials, request) end, @invoke_timeout)
+      else
+        {:error, :not_supported}
+      end
+    end
+  end
+
   @doc "Enumerates the documents a datasource currently offers."
   def datasource_documents(plugin_id, credentials) do
     with {:ok, module} <- fetch_plugin(plugin_id) do

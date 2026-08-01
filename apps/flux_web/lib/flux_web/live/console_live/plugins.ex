@@ -29,12 +29,25 @@ defmodule FluxWeb.ConsoleLive.Plugins do
       installable_plugins:
         plugin_runtime().list_tool_plugins() ++ plugin_runtime().list_datasource_plugins(),
       installed_plugin_ids: MapSet.new(Flux.Tools.list_installed_plugin_ids(scope)),
+      endpoint_tokens: endpoint_tokens(scope),
       models: Providers.available_models(scope),
       default_model: Providers.default_model(scope)
     )
   end
 
   defp plugin_runtime, do: Application.get_env(:flux, :plugin_runtime, Flux.PluginRuntime)
+
+  # Installed plugins that serve HTTP → their /e/:token base URLs.
+  defp endpoint_tokens(scope) do
+    installed = MapSet.new(Flux.Tools.list_installed_plugin_ids(scope))
+
+    for manifest <- plugin_runtime().list_endpoint_plugins(),
+        MapSet.member?(installed, manifest.id),
+        token = Flux.Tools.endpoint_token(scope, manifest.id),
+        into: %{} do
+      {manifest.id, token}
+    end
+  end
 
   @impl true
   def handle_event("edit", %{"plugin-id" => plugin_id}, socket) do
@@ -158,6 +171,10 @@ defmodule FluxWeb.ConsoleLive.Plugins do
               <span class="badge badge-ghost badge-xs align-middle">{plugin.category}</span>
             </p>
             <p class="text-xs opacity-70">{plugin.description}</p>
+            <pre
+              :if={token = @endpoint_tokens[plugin.id]}
+              class="mt-1 rounded bg-base-200 px-2 py-1 text-xs overflow-x-auto"
+            >{url(~p"/e/#{token}")}</pre>
           </div>
           <span
             :if={MapSet.member?(@installed_plugin_ids, plugin.id)}

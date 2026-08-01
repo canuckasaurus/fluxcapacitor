@@ -177,6 +177,8 @@ defmodule Flux.Tools do
             id: Ecto.UUID.bingenerate(),
             workspace_id: Ecto.UUID.dump!(Scope.workspace_id(scope)),
             plugin_id: plugin_id,
+            endpoint_token:
+              "ep_" <> Base.url_encode64(:crypto.strong_rand_bytes(18), padding: false),
             inserted_at: DateTime.utc_now(:second)
           }
         ],
@@ -191,6 +193,32 @@ defmodule Flux.Tools do
       :ok
     end
   end
+
+  @doc "The installation's endpoint token for display, or nil when not installed."
+  def endpoint_token(%Scope{} = scope, plugin_id) do
+    workspace_id = Scope.workspace_id(scope)
+
+    from(i in "plugin_installations",
+      where: i.workspace_id == type(^workspace_id, :binary_id) and i.plugin_id == ^plugin_id,
+      select: i.endpoint_token
+    )
+    |> Repo.one()
+  end
+
+  @doc "Resolves an endpoint token to `%{workspace_id, plugin_id}` for routing."
+  def installation_by_endpoint_token("ep_" <> _rest = token) do
+    from(i in "plugin_installations",
+      where: i.endpoint_token == ^token,
+      select: %{workspace_id: type(i.workspace_id, :binary_id), plugin_id: i.plugin_id}
+    )
+    |> Repo.one()
+    |> case do
+      nil -> {:error, :not_found}
+      installation -> {:ok, installation}
+    end
+  end
+
+  def installation_by_endpoint_token(_token), do: {:error, :not_found}
 
   def uninstall_plugin(%Scope{} = scope, plugin_id) do
     with :ok <- RBAC.authorize(scope, :plugin_install) do
