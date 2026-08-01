@@ -53,8 +53,21 @@ defmodule Flux.RAG do
 
   def update_dataset(%Scope{} = scope, %Dataset{} = dataset, attrs) do
     with :ok <- RBAC.authorize(scope, :dataset_edit),
-         true <- dataset.workspace_id == Scope.workspace_id(scope) || {:error, :not_found} do
-      dataset |> Dataset.changeset(attrs) |> Repo.update()
+         true <- dataset.workspace_id == Scope.workspace_id(scope) || {:error, :not_found},
+         {:ok, updated} <- dataset |> Dataset.changeset(attrs) |> Repo.update() do
+      # Auto-sync binds an external source to the dataset — worth a trail.
+      if updated.sync_plugin_id != dataset.sync_plugin_id or
+           updated.sync_interval_minutes != dataset.sync_interval_minutes do
+        Flux.Audit.record(scope, "dataset.auto_sync_config",
+          resource: updated,
+          metadata: %{
+            "sync_plugin_id" => updated.sync_plugin_id,
+            "sync_interval_minutes" => updated.sync_interval_minutes
+          }
+        )
+      end
+
+      {:ok, updated}
     end
   end
 
@@ -289,6 +302,13 @@ defmodule Flux.RAG do
         |> Repo.update!()
 
       :ok = VectorStore.backend().index(dataset.id, [updated])
+
+      Flux.Audit.record(scope, "segment.update",
+        resource_type: "segment",
+        resource_id: segment.id,
+        metadata: %{"dataset_id" => segment.dataset_id}
+      )
+
       {:ok, updated}
     end
   end
@@ -296,8 +316,15 @@ defmodule Flux.RAG do
   @doc "Disabled segments stay stored but are excluded from retrieval."
   def set_segment_enabled(%Scope{} = scope, segment_id, enabled) when is_boolean(enabled) do
     with :ok <- RBAC.authorize(scope, :dataset_edit),
-         %Segment{} = segment <- fetch_segment(scope, segment_id) do
-      segment |> Ecto.Changeset.change(enabled: enabled) |> Repo.update()
+         %Segment{} = segment <- fetch_segment(scope, segment_id),
+         {:ok, updated} <- segment |> Ecto.Changeset.change(enabled: enabled) |> Repo.update() do
+      Flux.Audit.record(scope, "segment.set_enabled",
+        resource_type: "segment",
+        resource_id: segment.id,
+        metadata: %{"dataset_id" => segment.dataset_id, "enabled" => enabled}
+      )
+
+      {:ok, updated}
     end
   end
 
@@ -307,6 +334,12 @@ defmodule Flux.RAG do
          {:ok, deleted} <- Repo.delete(segment) do
       from(d in Document, where: d.id == ^segment.document_id)
       |> Repo.update_all([inc: [segment_count: -1]], skip_workspace_guard: true)
+
+      Flux.Audit.record(scope, "segment.delete",
+        resource_type: "segment",
+        resource_id: segment.id,
+        metadata: %{"dataset_id" => segment.dataset_id}
+      )
 
       {:ok, deleted}
     end

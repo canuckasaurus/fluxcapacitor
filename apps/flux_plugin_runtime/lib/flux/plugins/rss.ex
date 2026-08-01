@@ -14,6 +14,8 @@ defmodule Flux.Plugins.RSS do
   alias Flux.Plugins.SSE
 
   @max_body_bytes 5_000_000
+  @max_feed_items 100
+  @max_poll_events 50
 
   @impl Flux.Plugin
   def manifest do
@@ -91,6 +93,8 @@ defmodule Flux.Plugins.RSS do
           events =
             items
             |> Enum.take_while(&(&1.id != cursor))
+            # A run per event: cap a storm (feed rotated, cursor lost).
+            |> Enum.take(@max_poll_events)
             # Oldest first, so runs start in publication order.
             |> Enum.reverse()
             |> Enum.map(
@@ -123,6 +127,8 @@ defmodule Flux.Plugins.RSS do
     |> Regex.scan(body)
     |> Enum.map(fn [block | _tag] -> parse_item(block) end)
     |> Enum.reject(&(&1.id == ""))
+    # Bound work on unbounded feeds.
+    |> Enum.take(@max_feed_items)
   end
 
   defp parse_item(block) do
