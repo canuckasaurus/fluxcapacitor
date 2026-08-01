@@ -1105,11 +1105,17 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     end
   end
 
+  # Hard build errors plus advisory reference lint (typo'd {{refs}} render
+  # empty at run time — worth a warning, never a block).
   defp issues(graph) do
-    case Engine.build(graph) do
-      {:ok, _graph} -> []
-      {:error, errors} -> errors
-    end
+    build_errors =
+      case Engine.build(graph) do
+        {:ok, _graph} -> []
+        {:error, errors} -> errors
+      end
+
+    warnings = Enum.map(Flux.Engine.Lint.reference_warnings(graph), &("warning: " <> &1))
+    build_errors ++ warnings
   end
 
   defp drop_nodes(graph, ids) do
