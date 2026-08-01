@@ -124,12 +124,115 @@ defmodule Flux.Tools do
   decrypted here, injected into the request, and `{{vars.name}}` references
   in argument values are substituted server-side.
   """
+  # `plugin:<id>` toolset ids route to installed tool plugins.
+  def invoke_for_workspace(workspace_id, "plugin:" <> plugin_id, operation_id, args)
+      when is_map(args) do
+    if plugin_installed?(workspace_id, plugin_id) do
+      case plugin_runtime().invoke_tool_plugin(plugin_id, %{}, operation_id, args) do
+        {:ok, %{text: _text} = result} -> {:ok, Map.put_new(result, :status, 200)}
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      {:error, :plugin_not_installed}
+    end
+  end
+
   def invoke_for_workspace(workspace_id, toolset_id, operation_id, args)
       when is_map(args) do
     with {:ok, uuid} <- cast_uuid(toolset_id),
          %ApiToolset{} = toolset <- fetch_workspace_toolset(workspace_id, uuid),
          %{} = operation <- find_operation(toolset, operation_id) do
       request(toolset, operation, args)
+    end
+  end
+
+  ## Tool-plugin installations
+
+  defp plugin_runtime, do: Application.get_env(:flux, :plugin_runtime, Flux.PluginRuntime)
+
+  def list_installed_plugin_ids(%Scope{} = scope) do
+    workspace_id = Scope.workspace_id(scope)
+
+    from(i in "plugin_installations",
+      where: i.workspace_id == type(^workspace_id, :binary_id),
+      select: i.plugin_id
+    )
+    |> Repo.all()
+  end
+
+  def plugin_installed?(workspace_id, plugin_id) do
+    from(i in "plugin_installations",
+      where: i.workspace_id == type(^workspace_id, :binary_id) and i.plugin_id == ^plugin_id,
+      select: i.plugin_id
+    )
+    |> Repo.exists?()
+  end
+
+  def install_plugin(%Scope{} = scope, plugin_id) do
+    with :ok <- RBAC.authorize(scope, :plugin_install) do
+      Repo.insert_all(
+        "plugin_installations",
+        [
+          %{
+            id: Ecto.UUID.bingenerate(),
+            workspace_id: Ecto.UUID.dump!(Scope.workspace_id(scope)),
+            plugin_id: plugin_id,
+            inserted_at: DateTime.utc_now(:second)
+          }
+        ],
+        on_conflict: :nothing
+      )
+
+      Flux.Audit.record(scope, "plugin.install",
+        resource_type: "plugin",
+        resource_id: plugin_id
+      )
+
+      :ok
+    end
+  end
+
+  def uninstall_plugin(%Scope{} = scope, plugin_id) do
+    with :ok <- RBAC.authorize(scope, :plugin_install) do
+      from(i in "plugin_installations",
+        where:
+          i.workspace_id == type(^Scope.workspace_id(scope), :binary_id) and
+            i.plugin_id == ^plugin_id
+      )
+      |> Repo.delete_all()
+
+      Flux.Audit.record(scope, "plugin.uninstall",
+        resource_type: "plugin",
+        resource_id: plugin_id
+      )
+
+      :ok
+    end
+  end
+
+  @doc """
+  Installed tool plugins presented as pseudo-toolsets (`plugin:<id>`),
+  merged with API toolsets in the editor's toolset pickers.
+  """
+  def installed_plugin_toolsets(%Scope{} = scope) do
+    installed = MapSet.new(list_installed_plugin_ids(scope))
+
+    for manifest <- plugin_runtime().list_tool_plugins(),
+        MapSet.member?(installed, manifest.id),
+        {:ok, operations} = plugin_runtime().tool_operations(manifest.id, %{}) do
+      %{
+        id: "plugin:" <> manifest.id,
+        name: manifest.name <> " (plugin)",
+        operations:
+          for operation <- operations do
+            %{
+              "operation_id" => operation.id,
+              "name" => operation.name,
+              "description" => operation.description,
+              "parameters" => operation.parameters
+            }
+          end
+      }
     end
   end
 

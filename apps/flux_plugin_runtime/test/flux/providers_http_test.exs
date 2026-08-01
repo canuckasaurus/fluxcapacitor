@@ -226,6 +226,35 @@ defmodule Flux.ProvidersHTTPTest do
     end
   end
 
+  describe "utility tool plugin" do
+    alias Flux.Plugins.Utility
+
+    test "calculator evaluates arithmetic safely" do
+      assert {:ok, %{text: "22"}} =
+               Utility.invoke(%{}, "calculate", %{"expression" => "(2 + 3) * 4 + 2"})
+
+      assert {:ok, %{data: %{"result" => result}}} =
+               Utility.invoke(%{}, "calculate", %{"expression" => "-3.5 / 2"})
+
+      assert_in_delta result, -1.75, 0.0001
+
+      assert {:error, message} = Utility.invoke(%{}, "calculate", %{"expression" => "1 / 0"})
+      assert message =~ "division by zero"
+
+      assert {:error, _} =
+               Utility.invoke(%{}, "calculate", %{"expression" => "System.cmd(\"rm\")"})
+    end
+
+    test "current_time returns ISO 8601 and operations are listed" do
+      assert {:ok, %{text: text}} = Utility.invoke(%{}, "current_time", %{})
+      assert {:ok, _dt, 0} = DateTime.from_iso8601(text)
+
+      operations = Utility.operations(%{})
+      assert Enum.map(operations, & &1.id) == ["current_time", "calculate"]
+      assert {:ok, _ops} = Flux.PluginRuntime.tool_operations("utility", %{})
+    end
+  end
+
   describe "openai_compatible" do
     alias Flux.Plugins.OpenAICompatible
 

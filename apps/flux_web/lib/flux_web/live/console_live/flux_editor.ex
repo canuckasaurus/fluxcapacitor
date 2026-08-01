@@ -135,7 +135,8 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
            selected_edge: nil,
            issues: issues(workflow.graph),
            models: Providers.available_models(scope),
-           toolsets: Flux.Tools.list_toolsets(scope),
+           toolsets:
+             Flux.Tools.list_toolsets(scope) ++ Flux.Tools.installed_plugin_toolsets(scope),
            fluxes: Workflows.list_workflows(scope),
            datasets: Flux.RAG.list_datasets(scope),
            latest_version: Workflows.latest_version(scope, workflow.id),

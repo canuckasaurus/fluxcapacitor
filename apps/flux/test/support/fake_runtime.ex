@@ -114,6 +114,33 @@ defmodule Flux.FakeRuntime do
 
   def invoke_embeddings(_other, _credentials, _model, _texts), do: {:error, :not_supported}
 
+  ## Tool plugins (mirrors the real utility plugin's surface)
+
+  def list_tool_plugins do
+    [%{id: "utility", name: "Utilities", category: :tool, credential_schema: []}]
+  end
+
+  def tool_operations("utility", _credentials) do
+    {:ok,
+     [
+       %{
+         id: "current_time",
+         name: "current_time",
+         description: "UTC now",
+         parameters: %{"type" => "object", "properties" => %{}}
+       }
+     ]}
+  end
+
+  def tool_operations(_other, _credentials), do: {:error, :unknown_plugin}
+
+  def invoke_tool_plugin("utility", _credentials, "current_time", _args) do
+    {:ok, %{text: DateTime.to_iso8601(DateTime.utc_now(:second)), data: %{}}}
+  end
+
+  def invoke_tool_plugin(_plugin, _credentials, _operation, _args),
+    do: {:error, :unknown_plugin}
+
   defp normalize(vector) do
     magnitude = :math.sqrt(Enum.reduce(vector, 0.0, &(&2 + &1 * &1)))
     if magnitude == 0.0, do: vector, else: Enum.map(vector, &(&1 / magnitude))

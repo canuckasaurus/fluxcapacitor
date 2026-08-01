@@ -21,10 +21,15 @@ defmodule FluxWeb.ConsoleLive.Plugins do
       plugins: Providers.list_provider_plugins(),
       credentials_by_plugin: Map.new(credentials, &{&1.plugin_id, &1}),
       can_manage: RBAC.can?(scope, :plugin_model_config),
+      can_install: RBAC.can?(scope, :plugin_install),
+      tool_plugins: plugin_runtime().list_tool_plugins(),
+      installed_plugin_ids: MapSet.new(Flux.Tools.list_installed_plugin_ids(scope)),
       models: Providers.available_models(scope),
       default_model: Providers.default_model(scope)
     )
   end
+
+  defp plugin_runtime, do: Application.get_env(:flux, :plugin_runtime, Flux.PluginRuntime)
 
   @impl true
   def handle_event("edit", %{"plugin-id" => plugin_id}, socket) do
@@ -68,6 +73,20 @@ defmodule FluxWeb.ConsoleLive.Plugins do
       {:error, :unauthorized} ->
         {:noreply,
          put_flash(socket, :error, "You don't have permission to set the default model.")}
+    end
+  end
+
+  def handle_event("install_plugin", %{"plugin-id" => plugin_id}, socket) do
+    case Flux.Tools.install_plugin(socket.assigns.current_scope, plugin_id) do
+      :ok -> {:noreply, socket |> put_flash(:info, "Plugin installed.") |> refresh()}
+      _error -> {:noreply, put_flash(socket, :error, "Could not install the plugin.")}
+    end
+  end
+
+  def handle_event("uninstall_plugin", %{"plugin-id" => plugin_id}, socket) do
+    case Flux.Tools.uninstall_plugin(socket.assigns.current_scope, plugin_id) do
+      :ok -> {:noreply, socket |> put_flash(:info, "Plugin uninstalled.") |> refresh()}
+      _error -> {:noreply, put_flash(socket, :error, "Could not uninstall the plugin.")}
     end
   end
 
@@ -115,6 +134,45 @@ defmodule FluxWeb.ConsoleLive.Plugins do
             </option>
           </select>
         </form>
+      </div>
+
+      <div :if={@tool_plugins != []} class="card border border-base-200 p-6 space-y-3">
+        <h2 class="font-semibold">Tool plugins</h2>
+        <p class="text-sm opacity-70">
+          Installed tool plugins appear as toolsets in tool and agent nodes.
+        </p>
+        <div
+          :for={plugin <- @tool_plugins}
+          class="flex items-center gap-3"
+          id={"tool-plugin-#{plugin.id}"}
+        >
+          <div class="flex-1">
+            <p class="font-semibold text-sm">{plugin.name}</p>
+            <p class="text-xs opacity-70">{plugin.description}</p>
+          </div>
+          <span
+            :if={MapSet.member?(@installed_plugin_ids, plugin.id)}
+            class="badge badge-success badge-sm"
+          >
+            installed
+          </span>
+          <button
+            :if={@can_install and not MapSet.member?(@installed_plugin_ids, plugin.id)}
+            class="btn btn-sm btn-primary"
+            phx-click="install_plugin"
+            phx-value-plugin-id={plugin.id}
+          >
+            Install
+          </button>
+          <button
+            :if={@can_install and MapSet.member?(@installed_plugin_ids, plugin.id)}
+            class="btn btn-sm btn-ghost text-error"
+            phx-click="uninstall_plugin"
+            phx-value-plugin-id={plugin.id}
+          >
+            Uninstall
+          </button>
+        </div>
       </div>
 
       <div class="space-y-4">

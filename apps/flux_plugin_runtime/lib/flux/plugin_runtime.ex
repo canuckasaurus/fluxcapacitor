@@ -12,7 +12,8 @@ defmodule Flux.PluginRuntime do
     Flux.Plugins.Anthropic,
     Flux.Plugins.Gemini,
     Flux.Plugins.OpenAICompatible,
-    Flux.Plugins.Echo
+    Flux.Plugins.Echo,
+    Flux.Plugins.Utility
   ]
 
   @invoke_timeout :timer.minutes(5)
@@ -25,6 +26,22 @@ defmodule Flux.PluginRuntime do
 
   def list_model_providers do
     Enum.filter(list_plugins(), &(&1.category == :model))
+  end
+
+  def list_tool_plugins do
+    Enum.filter(list_plugins(), &(&1.category == :tool))
+  end
+
+  def tool_operations(plugin_id, credentials) do
+    with {:ok, module} <- fetch_plugin(plugin_id) do
+      {:ok, module.operations(credentials)}
+    end
+  end
+
+  def invoke_tool_plugin(plugin_id, credentials, operation_id, args) do
+    with {:ok, module} <- fetch_plugin(plugin_id) do
+      run_supervised(fn -> module.invoke(credentials, operation_id, args) end, @invoke_timeout)
+    end
   end
 
   @doc "Resolves a plugin module by manifest id."
