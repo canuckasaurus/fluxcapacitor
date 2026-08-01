@@ -1,4 +1,6 @@
-ExUnit.start()
+# Perf guards seed thousands of rows — run them on demand with
+# `mix test --include perf test/perf`.
+ExUnit.start(exclude: [:perf])
 Ecto.Adapters.SQL.Sandbox.mode(Flux.Repo, :manual)
 Application.put_env(:flux, :code_runner, Flux.FakeCodeRunner)
 
