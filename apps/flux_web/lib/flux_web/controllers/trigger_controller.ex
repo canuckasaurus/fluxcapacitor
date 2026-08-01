@@ -10,9 +10,15 @@ defmodule FluxWeb.TriggerController do
 
   def webhook(conn, %{"token" => token} = params) do
     with {:ok, trigger} <- Workflows.fetch_trigger_by_token(token),
+         :ok <- verify_secret(conn, trigger),
          {:ok, run} <- Workflows.run_from_trigger(trigger, extract_inputs(params)) do
       conn |> put_status(202) |> json(%{workflow_run_id: run.id, status: "running"})
     else
+      {:error, :bad_secret} ->
+        conn
+        |> put_status(401)
+        |> json(%{code: "invalid_secret", message: "x-flux-token does not match"})
+
       {:error, :not_found} ->
         conn |> put_status(404) |> json(%{code: "not_found", message: "Unknown trigger"})
 
@@ -25,6 +31,24 @@ defmodule FluxWeb.TriggerController do
         conn
         |> put_status(400)
         |> json(%{code: "invalid_graph", message: Enum.join(errors, "; ")})
+    end
+  end
+
+  # A configured trigger secret must arrive as x-flux-token (constant-time
+  # compared); triggers without one keep the token-in-URL contract.
+  defp verify_secret(conn, trigger) do
+    case trigger.webhook_secret do
+      empty when empty in [nil, ""] ->
+        :ok
+
+      secret ->
+        case get_req_header(conn, "x-flux-token") do
+          [provided] ->
+            if Plug.Crypto.secure_compare(provided, secret), do: :ok, else: {:error, :bad_secret}
+
+          _missing ->
+            {:error, :bad_secret}
+        end
     end
   end
 

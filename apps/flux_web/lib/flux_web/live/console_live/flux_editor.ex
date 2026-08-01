@@ -954,6 +954,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
              "interval_minutes" => params["interval_minutes"],
              "cron" => params["cron"],
              "plugin_id" => params["plugin_id"],
+             "webhook_secret" => params["webhook_secret"],
              "inputs" => inputs
            }) do
       {:noreply,
@@ -4244,6 +4245,17 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                     Plugin
                   </option>
                 </select>
+              </label>
+              <label :if={@trigger_type == "webhook"} class="form-control">
+                <span class="label-text text-xs opacity-70 mb-1">
+                  Shared secret (optional — callers must send it as x-flux-token)
+                </span>
+                <input
+                  type="text"
+                  name="webhook_secret"
+                  placeholder="leave blank for token-only auth"
+                  class="input input-bordered input-sm w-64 font-mono"
+                />
               </label>
               <label :if={@trigger_type == "plugin"} class="form-control">
                 <span class="label-text text-xs opacity-70 mb-1">Trigger plugin</span>

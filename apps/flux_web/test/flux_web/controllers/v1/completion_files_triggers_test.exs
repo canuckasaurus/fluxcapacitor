@@ -117,6 +117,55 @@ defmodule FluxWeb.V1.CompletionFilesTriggersTest do
     assert run.outputs["answer"] =~ "You said: from hook"
   end
 
+  test "webhook triggers with a shared secret require x-flux-token", %{scope: scope} do
+    {:ok, workflow} = Workflows.create_workflow(scope, %{"name" => "Secret Hook"})
+
+    graph =
+      update_in(workflow.graph, ["nodes"], fn nodes ->
+        Enum.map(nodes, fn
+          %{"id" => "llm_1"} = node ->
+            node
+            |> put_in(["config", "provider_plugin_id"], "echo")
+            |> put_in(["config", "model"], "echo-1")
+
+          node ->
+            node
+        end)
+      end)
+
+    {:ok, workflow} = Workflows.update_draft(scope, workflow, graph)
+    {:ok, _version} = Workflows.publish(scope, workflow)
+
+    {:ok, trigger} =
+      Workflows.create_trigger(scope, workflow, %{
+        "type" => "webhook",
+        "webhook_secret" => "hush-hush"
+      })
+
+    # Missing or wrong secrets are refused before any run starts.
+    refused =
+      build_conn()
+      |> post(~p"/triggers/webhook/#{trigger.token}", %{"inputs" => %{"query" => "x"}})
+
+    assert json_response(refused, 401)["code"] == "invalid_secret"
+
+    wrong =
+      build_conn()
+      |> put_req_header("x-flux-token", "guess")
+      |> post(~p"/triggers/webhook/#{trigger.token}", %{"inputs" => %{"query" => "x"}})
+
+    assert json_response(wrong, 401)["code"] == "invalid_secret"
+    assert Workflows.list_runs(scope, workflow.id) == []
+
+    accepted =
+      build_conn()
+      |> put_req_header("x-flux-token", "hush-hush")
+      |> post(~p"/triggers/webhook/#{trigger.token}", %{"inputs" => %{"query" => "go"}})
+
+    assert %{"workflow_run_id" => run_id} = json_response(accepted, 202)
+    assert poll_run(scope, run_id, 50).status == :succeeded
+  end
+
   test "webhook 404s on unknown token and 400s when unpublished", %{scope: scope} do
     assert build_conn()
            |> post(~p"/triggers/webhook/wht_nope", %{})

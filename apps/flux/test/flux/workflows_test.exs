@@ -192,7 +192,8 @@ defmodule Flux.WorkflowsTest do
 
     Req.Test.stub(Flux.AlertStub, fn conn ->
       {:ok, body, conn} = Plug.Conn.read_body(conn)
-      send(parent, {:alert_body, Jason.decode!(body)})
+      [signature] = Plug.Conn.get_req_header(conn, "x-flux-signature")
+      send(parent, {:alert_body, Jason.decode!(body), body, signature})
       Plug.Conn.send_resp(conn, 200, "ok")
     end)
 
@@ -214,10 +215,19 @@ defmodule Flux.WorkflowsTest do
     assert_receive {:run_finished, %{status: :failed}}, 2_000
 
     assert %{success: 1} = Oban.drain_queue(queue: :default)
-    assert_receive {:alert_body, body}, 1_000
+    assert_receive {:alert_body, body, raw_body, signature}, 1_000
     assert body["event"] == "run.failed"
     assert body["workflow_name"] == "Alerting Flux"
     assert body["error"] =~ "provider"
+
+    # The delivery is signed over the exact body bytes with the minted secret.
+    secret = Flux.Accounts.alert_secret(scope)
+    assert String.starts_with?(secret, "whsec_")
+
+    expected =
+      "sha256=" <> Base.encode16(:crypto.mac(:hmac, :sha256, secret, raw_body), case: :lower)
+
+    assert signature == expected
   end
 
   test "cleanup worker prunes old runs and messages per retention window", %{scope: scope} do

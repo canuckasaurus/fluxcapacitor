@@ -606,7 +606,13 @@ defmodule Flux.Accounts do
         if url in [nil, ""] do
           Map.delete(workspace.custom_config || %{}, "alert_url")
         else
-          Map.put(workspace.custom_config || %{}, "alert_url", url)
+          # A signing secret is minted with the first URL so receivers can
+          # verify the x-flux-signature header on every alert.
+          (workspace.custom_config || %{})
+          |> Map.put("alert_url", url)
+          |> Map.put_new_lazy("alert_secret", fn ->
+            "whsec_" <> Base.url_encode64(:crypto.strong_rand_bytes(24), padding: false)
+          end)
         end
 
       with {:ok, updated} <-
@@ -624,6 +630,14 @@ defmodule Flux.Accounts do
   def alert_url(%Scope{} = scope) do
     case Repo.get(Workspace, Scope.workspace_id(scope)) do
       %{custom_config: %{"alert_url" => url}} -> url
+      _none -> nil
+    end
+  end
+
+  @doc "The HMAC secret alert deliveries are signed with (nil until a URL is set)."
+  def alert_secret(%Scope{} = scope) do
+    case Repo.get(Workspace, Scope.workspace_id(scope)) do
+      %{custom_config: %{"alert_secret" => secret}} -> secret
       _none -> nil
     end
   end

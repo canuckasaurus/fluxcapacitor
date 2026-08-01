@@ -24,6 +24,7 @@ defmodule Flux.Workflows.Trigger do
     field :cron, :string
     field :plugin_id, :string
     field :plugin_cursor, :string
+    field :webhook_secret, :string, redact: true
     field :inputs, :map, default: %{}
     field :enabled, :boolean, default: true
     field :last_run_at, :utc_datetime
@@ -33,7 +34,15 @@ defmodule Flux.Workflows.Trigger do
 
   def changeset(trigger, attrs) do
     trigger
-    |> cast(attrs, [:type, :interval_minutes, :cron, :inputs, :enabled, :plugin_id])
+    |> cast(attrs, [
+      :type,
+      :interval_minutes,
+      :cron,
+      :inputs,
+      :enabled,
+      :plugin_id,
+      :webhook_secret
+    ])
     |> validate_required([:type])
     |> validate_number(:interval_minutes, greater_than_or_equal_to: 1)
     |> update_change(:cron, fn cron ->

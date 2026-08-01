@@ -20,6 +20,7 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
        default_model: Providers.default_model(scope),
        retention_days: Accounts.retention_days(scope),
        alert_url: Accounts.alert_url(scope),
+       alert_secret: Accounts.alert_secret(scope),
        can_scim: RBAC.can?(scope, :workspace_member_manage),
        scim_enabled: Accounts.scim_enabled?(scope),
        scim_token: nil,
@@ -129,7 +130,10 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
         {:noreply,
          socket
          |> put_flash(:info, "Alert webhook saved.")
-         |> assign(alert_url: Accounts.alert_url(socket.assigns.current_scope))}
+         |> assign(
+           alert_url: Accounts.alert_url(socket.assigns.current_scope),
+           alert_secret: Accounts.alert_secret(socket.assigns.current_scope)
+         )}
 
       {:error, :unauthorized} ->
         {:noreply, put_flash(socket, :error, "You don't have permission to change alerts.")}
@@ -247,6 +251,10 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
           />
           <button class="btn btn-primary btn-sm">Save</button>
         </form>
+        <p :if={@alert_secret} class="text-xs opacity-70">
+          Deliveries are signed: <span class="font-mono">x-flux-signature: sha256=HMAC(body)</span>
+          with secret <span class="font-mono select-all">{@alert_secret}</span>
+        </p>
       </div>
 
       <div :if={@can_rename} class="card border border-base-200 p-6 space-y-3" id="export-card">

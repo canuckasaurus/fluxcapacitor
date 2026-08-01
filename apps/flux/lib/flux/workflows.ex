@@ -709,6 +709,7 @@ defmodule Flux.Workflows do
 
       %{
         "url" => url,
+        "secret" => workspace.custom_config["alert_secret"],
         "payload" => %{
           "event" => "run.failed",
           "run_id" => run.id,
