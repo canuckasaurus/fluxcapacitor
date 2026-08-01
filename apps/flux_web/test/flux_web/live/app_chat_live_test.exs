@@ -294,6 +294,43 @@ defmodule FluxWeb.AppChatLiveTest do
     assert restored.content =~ "You said:"
   end
 
+  test "fuzzy annotation matching answers near-duplicate questions", %{
+    app: app,
+    scope: scope
+  } do
+    {:ok, app} = Chat.update_app(scope, app, %{"annotation_threshold" => 0.6})
+
+    {:ok, annotation} =
+      Chat.create_annotation(scope, app, %{
+        question: "What is the refund policy?",
+        answer: "Refunds within 30 days."
+      })
+
+    # The question embedded at creation (echo embeddings are keyless).
+    assert is_list(annotation.embedding)
+    assert annotation.embedding_plugin_id == "echo"
+
+    conversation = Chat.create_conversation(scope, app)
+
+    # Same words, different order: not an exact normalized match, but
+    # similar enough to clear the threshold.
+    {:ok, _u, _a} = Chat.send_message(scope, app, conversation, "refund policy: what is it?")
+    assert_receive {:done, fuzzy}, 5_000
+    assert fuzzy.content == "Refunds within 30 days."
+    assert fuzzy.usage["annotation_id"] == annotation.id
+
+    # An unrelated question falls through to the model.
+    {:ok, _u, _a} = Chat.send_message(scope, app, conversation, "weather in toledo today")
+    assert_receive {:done, other}, 5_000
+    assert other.content =~ "You said:"
+
+    # Without a threshold only exact matches short-circuit.
+    {:ok, app} = Chat.update_app(scope, app, %{"annotation_threshold" => nil})
+    {:ok, _u, _a} = Chat.send_message(scope, app, conversation, "refund policy: what is it?")
+    assert_receive {:done, exact_only}, 5_000
+    assert exact_only.content =~ "You said:"
+  end
+
   test "feedback review lists rated replies with their questions", %{
     conn: conn,
     app: app,

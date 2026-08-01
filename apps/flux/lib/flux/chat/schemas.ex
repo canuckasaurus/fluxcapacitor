@@ -23,6 +23,7 @@ defmodule Flux.Chat.App do
     field :opening_statement, :string
     field :suggested_questions, {:array, :string}, default: []
     field :daily_token_limit, :integer
+    field :annotation_threshold, :float
     field :site_theme, :map, default: %{}
     field :site_token, :string
     field :site_enabled, :boolean, default: false
@@ -46,9 +47,14 @@ defmodule Flux.Chat.App do
       :opening_statement,
       :suggested_questions,
       :daily_token_limit,
+      :annotation_threshold,
       :site_theme
     ])
     |> validate_number(:daily_token_limit, greater_than: 0)
+    |> validate_number(:annotation_threshold,
+      greater_than_or_equal_to: 0.0,
+      less_than_or_equal_to: 1.0
+    )
     |> validate_required([:name])
     |> validate_length(:name, min: 1, max: 255)
     |> validate_mode_requirements()
@@ -130,6 +136,11 @@ defmodule Flux.Chat.Annotation do
     field :answer, :string
     field :enabled, :boolean, default: true
     field :hit_count, :integer, default: 0
+    # Set when an embedding model was available at creation; powers the
+    # app's optional similarity matching (annotation_threshold).
+    field :embedding, {:array, :float}
+    field :embedding_plugin_id, :string
+    field :embedding_model, :string
 
     timestamps(type: :utc_datetime)
   end

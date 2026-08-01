@@ -177,7 +177,8 @@ defmodule FluxWeb.ConsoleLive.AppChat do
     case Chat.update_app(scope, socket.assigns.app, %{
            "opening_statement" => params["opening_statement"],
            "suggested_questions" => questions,
-           "daily_token_limit" => presence(params["daily_token_limit"])
+           "daily_token_limit" => presence(params["daily_token_limit"]),
+           "annotation_threshold" => presence(params["annotation_threshold"])
          }) do
       {:ok, app} ->
         {:noreply, socket |> put_flash(:info, "Chat settings saved.") |> assign(app: app)}
@@ -421,6 +422,21 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               name="daily_token_limit"
               value={@app.daily_token_limit}
               min="1"
+              class="input input-bordered input-sm w-48"
+            />
+          </label>
+          <label class="form-control block">
+            <span class="label-text text-sm mb-1">
+              Annotation similarity threshold (0–1, blank = exact matches only)
+            </span>
+            <input
+              type="number"
+              name="annotation_threshold"
+              value={@app.annotation_threshold}
+              min="0"
+              max="1"
+              step="0.01"
+              placeholder="exact only"
               class="input input-bordered input-sm w-48"
             />
           </label>

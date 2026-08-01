@@ -345,13 +345,20 @@ defmodule Flux.Chat do
       when is_binary(question) and is_binary(answer) do
     with :ok <- RBAC.authorize(scope, :app_edit),
          true <- (String.trim(question) != "" and String.trim(answer) != "") || {:error, :empty} do
+      question = String.trim(question)
+
       annotation =
-        Repo.insert!(%Annotation{
-          workspace_id: app.workspace_id,
-          app_id: app.id,
-          question: String.trim(question),
-          answer: String.trim(answer)
-        })
+        Repo.insert!(
+          struct!(
+            %Annotation{
+              workspace_id: app.workspace_id,
+              app_id: app.id,
+              question: question,
+              answer: String.trim(answer)
+            },
+            annotation_embedding(scope, app.workspace_id, question)
+          )
+        )
 
       Flux.Audit.record(scope, "annotation.create",
         resource_type: "annotation",
@@ -360,6 +367,19 @@ defmodule Flux.Chat do
       )
 
       {:ok, annotation}
+    end
+  end
+
+  # Embed the question with the workspace's first embedding model so
+  # similarity matching can work; without one, exact matching still does.
+  defp annotation_embedding(scope, workspace_id, question) do
+    with %{plugin_id: plugin_id, model: model} <-
+           Enum.find(Providers.available_models(scope), &(&1.model.type == :text_embedding)),
+         {:ok, [vector]} <-
+           Providers.embed_texts(workspace_id, plugin_id, model.name, [question]) do
+      %{embedding: vector, embedding_plugin_id: plugin_id, embedding_model: model.name}
+    else
+      _unavailable -> %{}
     end
   end
 
@@ -386,19 +406,60 @@ defmodule Flux.Chat do
     end
   end
 
-  # Normalized exact match against the app's enabled annotations.
+  # Exact (normalized) match first — free — then, when the app sets an
+  # annotation_threshold, embedding similarity against annotations that
+  # carry a vector (grouped by their embedding model).
   defp match_annotation(app, content) do
     normalized = normalize_question(content)
 
     if normalized == "" do
       nil
     else
-      Annotation
-      |> where([a], a.workspace_id == ^app.workspace_id and a.app_id == ^app.id and a.enabled)
-      |> Repo.all()
-      |> Enum.find(&(normalize_question(&1.question) == normalized))
+      annotations =
+        Annotation
+        |> where([a], a.workspace_id == ^app.workspace_id and a.app_id == ^app.id and a.enabled)
+        |> Repo.all()
+
+      Enum.find(annotations, &(normalize_question(&1.question) == normalized)) ||
+        fuzzy_match(app, content, annotations)
     end
   end
+
+  defp fuzzy_match(%App{annotation_threshold: threshold} = app, content, annotations)
+       when is_float(threshold) do
+    annotations
+    |> Enum.filter(&is_list(&1.embedding))
+    |> Enum.group_by(&{&1.embedding_plugin_id, &1.embedding_model})
+    |> Enum.flat_map(fn {{plugin_id, model}, group} ->
+      case Providers.embed_texts(app.workspace_id, plugin_id, model, [content]) do
+        {:ok, [query_vector]} ->
+          Enum.map(group, &{&1, cosine(query_vector, &1.embedding)})
+
+        {:error, _reason} ->
+          []
+      end
+    end)
+    |> Enum.max_by(fn {_annotation, score} -> score end, fn -> nil end)
+    |> case do
+      {annotation, score} when score >= threshold -> annotation
+      _below_or_none -> nil
+    end
+  end
+
+  defp fuzzy_match(_app, _content, _annotations), do: nil
+
+  defp cosine(a, b) when length(a) == length(b) do
+    {dot, mag_a, mag_b} =
+      Enum.zip(a, b)
+      |> Enum.reduce({0.0, 0.0, 0.0}, fn {x, y}, {dot, ma, mb} ->
+        {dot + x * y, ma + x * x, mb + y * y}
+      end)
+
+    denominator = :math.sqrt(mag_a) * :math.sqrt(mag_b)
+    if denominator == 0.0, do: 0.0, else: dot / denominator
+  end
+
+  defp cosine(_a, _b), do: 0.0
 
   defp normalize_question(text) do
     text
