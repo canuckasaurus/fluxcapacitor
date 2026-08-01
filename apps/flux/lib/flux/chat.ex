@@ -584,23 +584,54 @@ defmodule Flux.Chat do
   question that prompted it. `filter` is `:all`, `:like`, or `:dislike`.
   """
   def list_feedback(%Scope{} = scope, app_id, filter \\ :all, limit \\ 100) do
+    messages =
+      Message
+      |> Repo.scoped(scope)
+      |> join(:inner, [m], c in Conversation, on: m.conversation_id == c.id)
+      |> where([m, c], c.app_id == ^app_id and not is_nil(m.feedback))
+      |> then(fn query ->
+        case filter do
+          :like -> where(query, [m], m.feedback == :like)
+          :dislike -> where(query, [m], m.feedback == :dislike)
+          _all -> query
+        end
+      end)
+      |> order_by([m], desc: m.inserted_at, desc: m.id)
+      |> limit(^limit)
+      |> Repo.all()
+
+    # One query for every candidate question instead of one per rated reply.
+    questions = user_messages_by_conversation(scope, messages)
+
+    Enum.map(messages, fn message ->
+      question =
+        questions
+        |> Map.get(message.conversation_id, [])
+        |> Enum.filter(fn {seq, _content} -> seq < message.seq end)
+        |> Enum.max_by(fn {seq, _content} -> seq end, fn -> nil end)
+        |> case do
+          {_seq, content} -> content
+          nil -> nil
+        end
+
+      %{message: message, question: question}
+    end)
+  end
+
+  defp user_messages_by_conversation(_scope, []), do: %{}
+
+  defp user_messages_by_conversation(scope, messages) do
+    conversation_ids = messages |> Enum.map(& &1.conversation_id) |> Enum.uniq()
+
     Message
     |> Repo.scoped(scope)
-    |> join(:inner, [m], c in Conversation, on: m.conversation_id == c.id)
-    |> where([m, c], c.app_id == ^app_id and not is_nil(m.feedback))
-    |> then(fn query ->
-      case filter do
-        :like -> where(query, [m], m.feedback == :like)
-        :dislike -> where(query, [m], m.feedback == :dislike)
-        _all -> query
-      end
-    end)
-    |> order_by([m], desc: m.inserted_at, desc: m.id)
-    |> limit(^limit)
+    |> where([m], m.conversation_id in ^conversation_ids and m.role == :user)
+    |> select([m], {m.conversation_id, m.seq, m.content})
     |> Repo.all()
-    |> Enum.map(fn message ->
-      %{message: message, question: preceding_question(scope, message)}
-    end)
+    |> Enum.group_by(
+      fn {conversation_id, _seq, _content} -> conversation_id end,
+      fn {_conversation_id, seq, content} -> {seq, content} end
+    )
   end
 
   # The user turn right before the rated answer.
@@ -756,7 +787,7 @@ defmodule Flux.Chat do
     conversation =
       Repo.get!(Conversation, assistant_message.conversation_id, skip_workspace_guard: true)
 
-    with %Flux.Workflows.Workflow{} = workflow <-
+    with %Flux.Workflows.Workflow{deleted_at: nil} = workflow <-
            app.workflow_id &&
              Repo.get_by(Flux.Workflows.Workflow, [id: app.workflow_id],
                skip_workspace_guard: true

@@ -94,6 +94,17 @@ defmodule Flux.Workflows do
     end
   end
 
+  @doc "Latest published version per workflow in one query (fluxes listing)."
+  def latest_versions(%Scope{} = scope) do
+    from(v in WorkflowVersion,
+      distinct: v.workflow_id,
+      order_by: [asc: v.workflow_id, desc: v.version]
+    )
+    |> Repo.scoped(scope)
+    |> Repo.all()
+    |> Map.new(&{&1.workflow_id, &1})
+  end
+
   @doc "Trashed fluxes, newest deletion first."
   def list_trashed_workflows(%Scope{} = scope) do
     Workflow
@@ -796,7 +807,7 @@ defmodule Flux.Workflows do
       scope = %Scope{workspace: %Flux.Accounts.Workspace{id: workspace_id}}
 
       with :ok <- (depth < 1 && :ok) || {:error, "sub-fluxes cannot start their own sub-fluxes"},
-           %Workflow{workspace_id: ^workspace_id} = workflow <-
+           %Workflow{workspace_id: ^workspace_id, deleted_at: nil} = workflow <-
              Repo.get_by(Workflow, [id: workflow_id], skip_workspace_guard: true) ||
                {:error, "sub-flux not found"},
            %WorkflowVersion{} = version <-

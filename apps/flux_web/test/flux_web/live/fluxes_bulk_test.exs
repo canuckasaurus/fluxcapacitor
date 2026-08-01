@@ -101,6 +101,28 @@ defmodule FluxWeb.FluxesBulkTest do
     workflow
   end
 
+  test "trashed workflows refuse chatflow turns and sub-flux calls", %{
+    scope: scope,
+    workflows: [alpha | _rest]
+  } do
+    alpha = put_echo(scope, alpha)
+    {:ok, _version} = Workflows.publish(scope, alpha)
+
+    {:ok, app} =
+      Flux.Chat.create_app(scope, %{
+        "name" => "Chatflow On Trash",
+        "mode" => "advanced_chat",
+        "workflow_id" => alpha.id
+      })
+
+    {:ok, _trashed} = Workflows.delete_workflow(scope, alpha)
+
+    conversation = Flux.Chat.create_conversation(scope, app)
+    {:ok, _u, _a} = Flux.Chat.send_message(scope, app, conversation, "anyone home?")
+    assert_receive {:error, failed}, 5_000
+    assert failed.error =~ "no published flux"
+  end
+
   test "bulk export downloads a multi-document YAML", %{
     conn: conn,
     workflows: [alpha, beta, _gamma]

@@ -26,16 +26,10 @@ defmodule FluxWeb.ConsoleLive.Fluxes do
 
   defp load_workflows(socket) do
     scope = socket.assigns.current_scope
-    workflows = Workflows.list_workflows(scope)
-
-    versions =
-      Map.new(workflows, fn workflow ->
-        {workflow.id, Workflows.latest_version(scope, workflow.id)}
-      end)
 
     assign(socket,
-      workflows: workflows,
-      versions: versions,
+      workflows: Workflows.list_workflows(scope),
+      versions: Workflows.latest_versions(scope),
       trashed: Workflows.list_trashed_workflows(scope)
     )
   end
