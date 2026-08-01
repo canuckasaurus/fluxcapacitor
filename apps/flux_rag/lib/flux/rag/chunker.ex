@@ -1,0 +1,67 @@
+defmodule Flux.RAG.Chunker do
+  @moduledoc """
+  Splits document text into overlapping segments. Paragraphs are packed
+  greedily up to `max_chars`; oversized paragraphs fall back to sentence
+  packing, then to a hard split. `overlap` characters of the previous
+  chunk's tail prefix each following chunk for context continuity.
+  """
+
+  @default_max 1_000
+  @default_overlap 120
+
+  def split(text, opts \\ []) do
+    max_chars = Keyword.get(opts, :max_chars, @default_max)
+    overlap = Keyword.get(opts, :overlap, @default_overlap)
+
+    text
+    |> String.replace("\r\n", "\n")
+    |> String.split(~r/\n{2,}/, trim: true)
+    |> Enum.flat_map(&explode(&1, max_chars))
+    |> pack([], "", max_chars)
+    |> apply_overlap(overlap)
+    |> Enum.reject(&(String.trim(&1) == ""))
+  end
+
+  # A paragraph larger than max_chars splits on sentences, then hard-wraps.
+  defp explode(paragraph, max_chars) do
+    if String.length(paragraph) <= max_chars do
+      [paragraph]
+    else
+      paragraph
+      |> String.split(~r/(?<=[.!?])\s+/, trim: true)
+      |> Enum.flat_map(fn sentence ->
+        if String.length(sentence) <= max_chars do
+          [sentence]
+        else
+          sentence |> String.codepoints() |> Enum.chunk_every(max_chars) |> Enum.map(&Enum.join/1)
+        end
+      end)
+    end
+  end
+
+  defp pack([], chunks, "", _max), do: Enum.reverse(chunks)
+  defp pack([], chunks, current, _max), do: Enum.reverse([current | chunks])
+
+  defp pack([piece | rest], chunks, current, max_chars) do
+    candidate = if current == "", do: piece, else: current <> "\n\n" <> piece
+
+    if String.length(candidate) <= max_chars do
+      pack(rest, chunks, candidate, max_chars)
+    else
+      pack(rest, [current | chunks], piece, max_chars)
+    end
+  end
+
+  defp apply_overlap(chunks, overlap) when overlap <= 0, do: chunks
+  defp apply_overlap([], _overlap), do: []
+
+  defp apply_overlap([first | rest], overlap) do
+    {reversed, _previous} =
+      Enum.reduce(rest, {[first], first}, fn chunk, {acc, previous} ->
+        tail = String.slice(previous, -overlap, overlap) || ""
+        {["…" <> tail <> "\n" <> chunk | acc], chunk}
+      end)
+
+    Enum.reverse(reversed)
+  end
+end

@@ -25,7 +25,10 @@ defmodule Flux.RAG.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:flux, in_umbrella: true}
+      {:flux, in_umbrella: true},
+      {:ecto_sql, "~> 3.13"},
+      {:oban, "~> 2.20"},
+      {:uuidv7, "~> 1.0"}
     ]
   end
 end
