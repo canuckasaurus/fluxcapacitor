@@ -81,7 +81,8 @@ defmodule Flux.RBAC do
   end
 
   def create_role(%Scope{} = scope, attrs) do
-    with :ok <- authorize(scope, :workspace_role_manage),
+    with :ok <- Flux.Features.authorize(scope, :custom_roles),
+         :ok <- authorize(scope, :workspace_role_manage),
          {:ok, role} <-
            %Role{workspace_id: Scope.workspace_id(scope)}
            |> Role.changeset(attrs)

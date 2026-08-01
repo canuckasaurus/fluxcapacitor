@@ -424,7 +424,8 @@ defmodule Flux.Accounts do
   returns the raw once — only its hash is stored.
   """
   def enable_scim(%Scope{} = scope) do
-    with :ok <- Flux.RBAC.authorize(scope, :workspace_member_manage),
+    with :ok <- Flux.Features.authorize(scope, :scim),
+         :ok <- Flux.RBAC.authorize(scope, :workspace_member_manage),
          %Workspace{} = workspace <- Repo.get(Workspace, Scope.workspace_id(scope)) do
       raw = "scim_" <> Base.url_encode64(:crypto.strong_rand_bytes(24), padding: false)
 

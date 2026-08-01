@@ -183,7 +183,8 @@ defmodule Flux.RAG do
   already hold (by name) is fetched and indexed.
   """
   def sync_datasource(%Scope{} = scope, %Dataset{} = dataset, plugin_id) do
-    with :ok <- RBAC.authorize(scope, :dataset_edit),
+    with :ok <- Flux.Features.authorize(scope, :datasource_sync),
+         :ok <- RBAC.authorize(scope, :dataset_edit),
          true <- dataset.workspace_id == Scope.workspace_id(scope) || {:error, :not_found},
          true <-
            Flux.Tools.plugin_installed?(dataset.workspace_id, plugin_id) ||
@@ -466,9 +467,13 @@ defmodule Flux.RAG do
          content
        )
        when is_binary(plugin_id) and plugin_id != "" and is_binary(model) and model != "" do
-    case llm_extract(dataset, content) do
-      {:ok, names} -> names
-      :error -> Entities.extract(content)
+    with true <-
+           Flux.Features.enabled_for_workspace?(dataset.workspace_id, :llm_entity_extraction),
+         {:ok, names} <- llm_extract(dataset, content) do
+      names
+    else
+      # Plan-gated or model error: the heuristic still indexes.
+      _fallback -> Entities.extract(content)
     end
   end
 

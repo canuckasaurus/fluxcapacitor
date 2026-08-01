@@ -22,7 +22,8 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
        alert_url: Accounts.alert_url(scope),
        can_scim: RBAC.can?(scope, :workspace_member_manage),
        scim_enabled: Accounts.scim_enabled?(scope),
-       scim_token: nil
+       scim_token: nil,
+       plan: Flux.Features.plan(scope)
      )}
   end
 
@@ -80,6 +81,22 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
 
       {:error, :unauthorized} ->
         {:noreply, put_flash(socket, :error, "You don't have permission to change retention.")}
+    end
+  end
+
+  def handle_event("set_plan", %{"plan" => plan}, socket) do
+    case Flux.Features.set_plan(socket.assigns.current_scope, plan) do
+      {:ok, _workspace} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Plan set to #{plan}.")
+         |> assign(plan: plan)}
+
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "Only the owner can change the plan.")}
+
+      {:error, :unknown_plan} ->
+        {:noreply, put_flash(socket, :error, "Unknown plan.")}
     end
   end
 
@@ -229,6 +246,27 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
             class="input input-bordered input-sm w-full max-w-md"
           />
           <button class="btn btn-primary btn-sm">Save</button>
+        </form>
+      </div>
+
+      <div :if={@owner?} class="card border border-base-200 p-6 space-y-3" id="plan-card">
+        <h2 class="font-semibold">Plan</h2>
+        <p class="text-sm opacity-70">
+          Self-hosted deployments run as <span class="font-mono text-xs">enterprise</span>
+          (everything on). Lower plans gate custom roles, annotations, datasource
+          sync, SCIM, and LLM entity extraction — the hook a licensing backend
+          plugs into.
+        </p>
+        <form phx-change="set_plan" id="plan-form">
+          <select name="plan" class="select select-bordered select-sm w-48">
+            <option
+              :for={plan <- Enum.sort(Flux.Features.plans())}
+              value={plan}
+              selected={@plan == plan}
+            >
+              {plan}
+            </option>
+          </select>
         </form>
       </div>
 

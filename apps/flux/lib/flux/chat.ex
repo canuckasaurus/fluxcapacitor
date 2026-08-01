@@ -343,7 +343,8 @@ defmodule Flux.Chat do
   @doc "Creates a canonical question→answer pair for the app."
   def create_annotation(%Scope{} = scope, %App{} = app, %{question: question, answer: answer})
       when is_binary(question) and is_binary(answer) do
-    with :ok <- RBAC.authorize(scope, :app_edit),
+    with :ok <- Flux.Features.authorize(scope, :annotations),
+         :ok <- RBAC.authorize(scope, :app_edit),
          true <- (String.trim(question) != "" and String.trim(answer) != "") || {:error, :empty} do
       question = String.trim(question)
 
