@@ -426,6 +426,39 @@ defmodule Flux.Accounts do
     end
   end
 
+  @doc "Sets (or with nil/blank, clears) the failed-run alert webhook URL."
+  def set_alert_url(%Scope{} = scope, url) do
+    url = url && String.trim(url)
+
+    with :ok <- Flux.RBAC.authorize(scope, :customization_manage),
+         :ok <- (url in [nil, ""] && :ok) || Flux.SSRF.verify_url(url),
+         %Workspace{} = workspace <- Repo.get(Workspace, Scope.workspace_id(scope)) do
+      custom_config =
+        if url in [nil, ""] do
+          Map.delete(workspace.custom_config || %{}, "alert_url")
+        else
+          Map.put(workspace.custom_config || %{}, "alert_url", url)
+        end
+
+      with {:ok, updated} <-
+             workspace |> Ecto.Changeset.change(custom_config: custom_config) |> Repo.update() do
+        Flux.Audit.record(scope, "workspace.alert_url_set",
+          resource_type: "workspace",
+          resource_id: workspace.id
+        )
+
+        {:ok, updated}
+      end
+    end
+  end
+
+  def alert_url(%Scope{} = scope) do
+    case Repo.get(Workspace, Scope.workspace_id(scope)) do
+      %{custom_config: %{"alert_url" => url}} -> url
+      _none -> nil
+    end
+  end
+
   @doc "Renames the current workspace (customization_manage)."
   def rename_workspace(%Scope{} = scope, name) when is_binary(name) do
     name = String.trim(name)

@@ -609,8 +609,35 @@ defmodule Flux.Workflows do
       %{status: run.status, source: run.source, workspace_id: run.workspace_id}
     )
 
+    if run.status == :failed, do: enqueue_alert(run)
+
     Phoenix.PubSub.broadcast(Flux.PubSub, topic(run.id), {:run_finished, run})
     {:ok, run}
+  end
+
+  defp enqueue_alert(run) do
+    workspace = Repo.get(Flux.Accounts.Workspace, run.workspace_id)
+
+    with %{custom_config: %{"alert_url" => url}} when is_binary(url) <- workspace do
+      workflow = Repo.get(Workflow, run.workflow_id, skip_workspace_guard: true)
+
+      %{
+        "url" => url,
+        "payload" => %{
+          "event" => "run.failed",
+          "run_id" => run.id,
+          "workflow_id" => run.workflow_id,
+          "workflow_name" => workflow && workflow.name,
+          "error" => run.error,
+          "source" => to_string(run.source),
+          "failed_at" => DateTime.to_iso8601(run.updated_at)
+        }
+      }
+      |> Flux.Workflows.AlertWorker.new()
+      |> Oban.insert()
+    end
+
+    :ok
   end
 
   defp build_host(workspace_id, emit, depth \\ 0) do

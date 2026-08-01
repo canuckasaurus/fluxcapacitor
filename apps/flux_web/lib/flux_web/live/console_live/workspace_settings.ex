@@ -18,7 +18,8 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
        owner?: Flux.Accounts.Scope.role(scope) == :owner,
        models: Providers.available_models(scope),
        default_model: Providers.default_model(scope),
-       retention_days: Accounts.retention_days(scope)
+       retention_days: Accounts.retention_days(scope),
+       alert_url: Accounts.alert_url(scope)
      )}
   end
 
@@ -76,6 +77,22 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
 
       {:error, :unauthorized} ->
         {:noreply, put_flash(socket, :error, "You don't have permission to change retention.")}
+    end
+  end
+
+  def handle_event("set_alert_url", %{"url" => url}, socket) do
+    case Accounts.set_alert_url(socket.assigns.current_scope, url) do
+      {:ok, _workspace} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Alert webhook saved.")
+         |> assign(alert_url: Accounts.alert_url(socket.assigns.current_scope))}
+
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "You don't have permission to change alerts.")}
+
+      {:error, message} when is_binary(message) ->
+        {:noreply, put_flash(socket, :error, message)}
     end
   end
 
@@ -168,6 +185,23 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
             class="input input-bordered input-sm w-28"
           />
           <span class="text-sm opacity-70">days</span>
+          <button class="btn btn-primary btn-sm">Save</button>
+        </form>
+      </div>
+
+      <div :if={@can_rename} class="card border border-base-200 p-6 space-y-3">
+        <h2 class="font-semibold">Failure alerts</h2>
+        <p class="text-sm opacity-70">
+          Failed runs POST a JSON alert to this webhook (blank disables).
+        </p>
+        <form phx-submit="set_alert_url" id="alert-url-form" class="flex gap-2">
+          <input
+            type="url"
+            name="url"
+            value={@alert_url}
+            placeholder="https://hooks.example.com/flux-alerts"
+            class="input input-bordered input-sm w-full max-w-md"
+          />
           <button class="btn btn-primary btn-sm">Save</button>
         </form>
       </div>

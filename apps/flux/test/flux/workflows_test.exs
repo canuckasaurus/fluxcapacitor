@@ -184,6 +184,42 @@ defmodule Flux.WorkflowsTest do
     assert_receive {:run_finished, %{status: :stopped}}, 2_000
   end
 
+  test "failed runs enqueue an alert and the worker delivers it", %{scope: scope} do
+    Application.put_env(:flux, :alert_req_options, plug: {Req.Test, Flux.AlertStub})
+    on_exit(fn -> Application.delete_env(:flux, :alert_req_options) end)
+
+    parent = self()
+
+    Req.Test.stub(Flux.AlertStub, fn conn ->
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+      send(parent, {:alert_body, Jason.decode!(body)})
+      Plug.Conn.send_resp(conn, 200, "ok")
+    end)
+
+    {:ok, _workspace} = Flux.Accounts.set_alert_url(scope, "https://hooks.example.com/alerts")
+
+    # A run that fails: LLM node with no provider configured.
+    {:ok, workflow} = Workflows.create_workflow(scope, %{"name" => "Alerting Flux"})
+
+    graph =
+      update_in(workflow.graph, ["nodes"], fn nodes ->
+        Enum.map(nodes, fn
+          %{"id" => "llm_1"} = node -> put_in(node, ["config", "provider_plugin_id"], "")
+          node -> node
+        end)
+      end)
+
+    {:ok, workflow} = Workflows.update_draft(scope, workflow, graph)
+    {:ok, _run} = Workflows.start_run(scope, workflow, %{"query" => "boom"})
+    assert_receive {:run_finished, %{status: :failed}}, 2_000
+
+    assert %{success: 1} = Oban.drain_queue(queue: :default)
+    assert_receive {:alert_body, body}, 1_000
+    assert body["event"] == "run.failed"
+    assert body["workflow_name"] == "Alerting Flux"
+    assert body["error"] =~ "provider"
+  end
+
   test "cleanup worker prunes old runs and messages per retention window", %{scope: scope} do
     {:ok, _workspace} = Flux.Accounts.set_retention_days(scope, 7)
 
