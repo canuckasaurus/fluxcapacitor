@@ -225,6 +225,15 @@ defmodule FluxWeb.SiteLive.AppSite do
               ]}>
                 {if message.status == :error, do: message.error, else: message.content}
               </div>
+              <div
+                :if={message.role == :assistant and message.citations != []}
+                class="chat-footer opacity-60 text-xs mt-0.5"
+              >
+                Sources: {message.citations
+                |> Enum.map(& &1["document"])
+                |> Enum.uniq()
+                |> Enum.join(", ")}
+              </div>
             </div>
             <div :if={@streaming_id} class="chat chat-start" id="site-streaming">
               <div class="chat-bubble whitespace-pre-wrap">

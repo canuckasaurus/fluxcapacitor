@@ -485,18 +485,24 @@ defmodule Flux.Chat do
 
   @chatflow_timeout :timer.minutes(5)
 
-  defp bridge_run(assistant_message, conversation, variables) do
+  defp bridge_run(assistant_message, conversation, variables, citations \\ []) do
     receive do
       {:engine_event, {:node_chunk, %{delta: delta}}} ->
         Flux.StreamBuffers.append(assistant_message.id, delta)
         Phoenix.PubSub.broadcast(Flux.PubSub, topic(assistant_message.id), {:chunk, delta})
-        bridge_run(assistant_message, conversation, variables)
+        bridge_run(assistant_message, conversation, variables, citations)
 
       {:engine_event, {:conversation_var_set, %{name: name, value: value}}} ->
-        bridge_run(assistant_message, conversation, Map.put(variables, name, value))
+        bridge_run(assistant_message, conversation, Map.put(variables, name, value), citations)
+
+      # Knowledge nodes expose their sources in outputs["citations"];
+      # collect them so the answer can show where it came from.
+      {:engine_event, {:node_finished, %{outputs: %{"citations" => node_citations}}}}
+      when is_list(node_citations) ->
+        bridge_run(assistant_message, conversation, variables, citations ++ node_citations)
 
       {:engine_event, _other} ->
-        bridge_run(assistant_message, conversation, variables)
+        bridge_run(assistant_message, conversation, variables, citations)
 
       {:run_finished, run} ->
         if variables != %{} do
@@ -513,7 +519,7 @@ defmodule Flux.Chat do
                 streamed -> streamed
               end
 
-            finalize(assistant_message, :completed, answer, %{})
+            finalize(assistant_message, :completed, answer, %{}, citations)
 
           _failed_or_stopped ->
             fail_generation(assistant_message, run.error || "The flux run failed.")
@@ -536,16 +542,23 @@ defmodule Flux.Chat do
     {:error, error}
   end
 
-  defp finalize(message, status, content, usage) do
+  defp finalize(message, status, content, usage, citations \\ []) do
     Flux.StreamBuffers.delete(message.id)
 
     message =
       message
       |> Ecto.Changeset.change(status: status, content: content, usage: usage)
+      |> Ecto.Changeset.change(citations: dedupe_citations(citations))
       |> Repo.update!()
 
     Phoenix.PubSub.broadcast(Flux.PubSub, topic(message.id), {:done, message})
     {:ok, message}
+  end
+
+  defp dedupe_citations(citations) do
+    citations
+    |> Enum.uniq_by(&{&1["document"], &1["content"]})
+    |> Enum.take(10)
   end
 
   defp build_prompt(app, history) do

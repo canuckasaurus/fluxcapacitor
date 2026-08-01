@@ -148,6 +148,60 @@ defmodule FluxWeb.RAGIntegrationTest do
     assert finished.outputs["answer"] =~ "25 paid days"
   end
 
+  test "chatflow answers carry knowledge citations", %{scope: scope, dataset: dataset} do
+    ingest!(scope, dataset, "vacation.md", "Vacation policy: 25 paid days per year.")
+
+    {:ok, workflow} = Flux.Workflows.create_workflow(scope, %{"name" => "Cited Chatflow"})
+
+    graph = %{
+      "nodes" => [
+        %{
+          "id" => "start",
+          "type" => "start",
+          "title" => "Start",
+          "position" => %{"x" => 0, "y" => 0},
+          "config" => %{"variables" => []}
+        },
+        %{
+          "id" => "kb",
+          "type" => "knowledge_retrieval",
+          "title" => "Knowledge",
+          "position" => %{"x" => 300, "y" => 0},
+          "config" => %{"dataset_id" => dataset.id, "query" => "{{sys.query}}", "top_k" => 2}
+        },
+        %{
+          "id" => "answer_1",
+          "type" => "answer",
+          "title" => "Answer",
+          "position" => %{"x" => 600, "y" => 0},
+          "config" => %{"answer" => "According to the handbook: {{kb.result}}"}
+        }
+      ],
+      "edges" => [
+        %{"id" => "e1", "source" => "start", "source_handle" => "default", "target" => "kb"},
+        %{"id" => "e2", "source" => "kb", "source_handle" => "default", "target" => "answer_1"}
+      ]
+    }
+
+    {:ok, workflow} = Flux.Workflows.update_draft(scope, workflow, graph)
+    {:ok, _version} = Flux.Workflows.publish(scope, workflow)
+
+    {:ok, app} =
+      Flux.Chat.create_app(scope, %{
+        "name" => "Cited App",
+        "mode" => "advanced_chat",
+        "workflow_id" => workflow.id
+      })
+
+    conversation = Flux.Chat.create_conversation(scope, app)
+    {:ok, _u, _a} = Flux.Chat.send_message(scope, app, conversation, "vacation days?")
+
+    assert_receive {:done, final}, 5_000
+    assert final.content =~ "25 paid days"
+    assert [citation | _] = final.citations
+    assert citation["document"] == "vacation.md"
+  end
+
   test "dataset mutations enforce RBAC", %{workspace: workspace, dataset: dataset} do
     viewer = account_fixture()
 

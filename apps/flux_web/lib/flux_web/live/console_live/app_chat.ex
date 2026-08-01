@@ -321,6 +321,16 @@ defmodule FluxWeb.ConsoleLive.AppChat do
             ]}>
               {if message.status == :error, do: message.error, else: message.content}
             </div>
+            <div
+              :if={message.role == :assistant and message.citations != []}
+              class="chat-footer opacity-60 text-xs mt-0.5"
+            >
+              <.icon name="hero-book-open-micro" class="size-3 inline" />
+              Sources: {message.citations
+              |> Enum.map(& &1["document"])
+              |> Enum.uniq()
+              |> Enum.join(", ")}
+            </div>
           </div>
           <div :if={@streaming_id} class="chat chat-start" id="streaming-bubble">
             <div class="chat-bubble whitespace-pre-wrap">
