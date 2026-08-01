@@ -96,15 +96,20 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
       label: "Human Input",
       icon: "hero-hand-raised",
       accent: "bg-warning/10 text-warning"
+    },
+    "knowledge_retrieval" => %{
+      label: "Knowledge",
+      icon: "hero-book-open",
+      accent: "bg-success/10 text-success"
     }
   }
 
-  @addable_types ~w(llm if_else question_classifier parameter_extractor document_extractor
-                    iteration human_input template tool http_request code agent
-                    variable_aggregator variable_assigner list_operator answer end)
+  @addable_types ~w(llm knowledge_retrieval if_else question_classifier parameter_extractor
+                    document_extractor iteration human_input template tool http_request code
+                    agent variable_aggregator variable_assigner list_operator answer end)
   @zoom_levels [50, 65, 80, 100, 125, 150]
   @failable_types ~w(llm tool http_request code agent question_classifier parameter_extractor
-                     document_extractor iteration)
+                     document_extractor iteration knowledge_retrieval)
   @history_cap 50
 
   @impl true
@@ -132,6 +137,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
            models: Providers.available_models(scope),
            toolsets: Flux.Tools.list_toolsets(scope),
            fluxes: Workflows.list_workflows(scope),
+           datasets: Flux.RAG.list_datasets(scope),
            latest_version: Workflows.latest_version(scope, workflow.id),
            can_edit: RBAC.can?(scope, :app_edit),
            can_export: RBAC.can?(scope, :app_import_export_dsl),
@@ -1145,6 +1151,9 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
   defp default_config("human_input"),
     do: %{"prompt" => "Please review and reply:", "options" => []}
 
+  defp default_config("knowledge_retrieval"),
+    do: %{"dataset_id" => "", "query" => "{{start.query}}", "top_k" => 4}
+
   defp default_config("variable_aggregator"), do: %{"variables" => []}
 
   defp default_config("variable_assigner"),
@@ -1342,6 +1351,19 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     config
     |> Map.put("prompt", Map.get(params, "prompt", config["prompt"] || ""))
     |> Map.put("options", options)
+  end
+
+  defp build_config("knowledge_retrieval", config, params) do
+    top_k =
+      case Integer.parse(to_string(Map.get(params, "top_k", ""))) do
+        {n, ""} when n in 1..20 -> n
+        _invalid -> config["top_k"] || 4
+      end
+
+    config
+    |> Map.put("dataset_id", Map.get(params, "dataset_id", config["dataset_id"] || ""))
+    |> Map.put("query", Map.get(params, "query", config["query"] || ""))
+    |> Map.put("top_k", top_k)
   end
 
   defp build_config("iteration", config, params) do
@@ -1575,7 +1597,8 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     "parameter_extractor" => ~w(is_success reason),
     "document_extractor" => ~w(text name size),
     "iteration" => ~w(output count),
-    "human_input" => ~w(output)
+    "human_input" => ~w(output),
+    "knowledge_retrieval" => ~w(result citations count)
   }
 
   defp variable_hints(graph, selected_id) do
@@ -2977,6 +3000,44 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                   <p class="text-xs opacity-60">
                     The run pauses here; the reply continues it as <code>{"{{#{node["id"]}.output}}"}</code>.
                   </p>
+                <% "knowledge_retrieval" -> %>
+                  <label class="floating-label">
+                    <span>Dataset</span>
+                    <select name="dataset_id" class="select select-sm w-full" disabled={not @can_edit}>
+                      <option value="" selected={node["config"]["dataset_id"] in [nil, ""]}>
+                        Choose a dataset…
+                      </option>
+                      <option
+                        :for={dataset <- @datasets}
+                        value={dataset.id}
+                        selected={node["config"]["dataset_id"] == dataset.id}
+                      >
+                        {dataset.name}
+                      </option>
+                    </select>
+                  </label>
+                  <label class="floating-label">
+                    <span>Query</span>
+                    <input
+                      type="text"
+                      name="query"
+                      value={node["config"]["query"]}
+                      class="input input-sm w-full font-mono"
+                      disabled={not @can_edit}
+                    />
+                  </label>
+                  <label class="floating-label">
+                    <span>Top K (1–20)</span>
+                    <input
+                      type="number"
+                      name="top_k"
+                      value={node["config"]["top_k"] || 4}
+                      min="1"
+                      max="20"
+                      class="input input-sm w-24"
+                      disabled={not @can_edit}
+                    />
+                  </label>
                 <% "iteration" -> %>
                   <label class="floating-label">
                     <span>List variable (one sub-flux run per item)</span>

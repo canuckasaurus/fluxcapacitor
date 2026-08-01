@@ -26,7 +26,8 @@ defmodule Flux.Workflows.DSL do
     "list-operator" => "list_operator",
     "question-classifier" => "question_classifier",
     "parameter-extractor" => "parameter_extractor",
-    "document-extractor" => "document_extractor"
+    "document-extractor" => "document_extractor",
+    "knowledge-retrieval" => "knowledge_retrieval"
   }
 
   @operator_map %{
@@ -287,6 +288,15 @@ defmodule Flux.Workflows.DSL do
   # Tool nodes have no the reference platform equivalent (ours bind to imported toolsets);
   # exported under a vendor key so reimport can round-trip later.
   defp export_data("tool", config), do: %{"flux_toolset" => config}
+
+  defp export_data("knowledge_retrieval", config) do
+    %{
+      "dataset_ids" => (config["dataset_id"] not in [nil, ""] && [config["dataset_id"]]) || [],
+      "query_variable_selector" => ref_selector(config["query"]),
+      "retrieval_mode" => "multiple",
+      "multiple_retrieval_config" => %{"top_k" => config["top_k"] || 4}
+    }
+  end
 
   defp export_data("document_extractor", config) do
     %{
@@ -639,6 +649,21 @@ defmodule Flux.Workflows.DSL do
 
   defp convert_config("document_extractor", data) do
     {%{"variable" => data["variable_selector"] |> List.wrap() |> Enum.join(".")}, []}
+  end
+
+  defp convert_config("knowledge_retrieval", data) do
+    # Dataset ids never transfer across installations — rebind after import.
+    warnings =
+      case List.wrap(data["dataset_ids"]) do
+        [] -> []
+        _ids -> ["knowledge-retrieval node imported; rebind its dataset in the editor."]
+      end
+
+    {%{
+       "dataset_id" => "",
+       "query" => selector_ref(data["query_variable_selector"]),
+       "top_k" => get_in(data, ["multiple_retrieval_config", "top_k"]) || 4
+     }, warnings}
   end
 
   defp convert_config("variable_aggregator", data) do

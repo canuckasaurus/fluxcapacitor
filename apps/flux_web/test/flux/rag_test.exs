@@ -90,6 +90,64 @@ defmodule Flux.RAGTest do
     assert updated.error =~ "not_supported"
   end
 
+  test "a flux run retrieves through the knowledge node end-to-end", %{
+    scope: scope,
+    dataset: dataset
+  } do
+    ingest!(scope, dataset, "vacation.md", """
+    Vacation policy: employees receive 25 paid days of vacation per year.
+    """)
+
+    {:ok, workflow} = Flux.Workflows.create_workflow(scope, %{"name" => "KB Flux"})
+
+    graph = %{
+      "nodes" => [
+        %{
+          "id" => "start",
+          "type" => "start",
+          "title" => "Start",
+          "position" => %{"x" => 0, "y" => 0},
+          "config" => %{
+            "variables" => [
+              %{"name" => "query", "label" => "Query", "type" => "text", "required" => true}
+            ]
+          }
+        },
+        %{
+          "id" => "kb",
+          "type" => "knowledge_retrieval",
+          "title" => "Knowledge",
+          "position" => %{"x" => 300, "y" => 0},
+          "config" => %{"dataset_id" => dataset.id, "query" => "{{start.query}}", "top_k" => 2}
+        },
+        %{
+          "id" => "answer_1",
+          "type" => "answer",
+          "title" => "Answer",
+          "position" => %{"x" => 600, "y" => 0},
+          "config" => %{"answer" => "From the handbook: {{kb.result}}"}
+        }
+      ],
+      "edges" => [
+        %{"id" => "e1", "source" => "start", "source_handle" => "default", "target" => "kb"},
+        %{"id" => "e2", "source" => "kb", "source_handle" => "default", "target" => "answer_1"}
+      ]
+    }
+
+    {:ok, workflow} = Flux.Workflows.update_draft(scope, workflow, graph)
+    {:ok, _run} = Flux.Workflows.start_run(scope, workflow, %{"query" => "vacation days"})
+
+    finished =
+      receive do
+        {:run_finished, finished} -> finished
+      after
+        5_000 -> flunk("run did not finish")
+      end
+
+    assert finished.status == :succeeded
+    assert finished.outputs["answer"] =~ "25 paid days"
+  end
+
   test "dataset mutations enforce RBAC", %{workspace: workspace, dataset: dataset} do
     viewer = account_fixture()
 

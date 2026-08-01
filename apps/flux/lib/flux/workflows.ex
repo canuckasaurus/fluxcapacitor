@@ -601,8 +601,43 @@ defmodule Flux.Workflows do
       run_code: &Flux.CodeRunner.run/1,
       read_document: fn %{file_id: file_id} -> Flux.Documents.extract(workspace_id, file_id) end,
       run_subflux: build_subflux_runner(workspace_id, depth),
+      retrieve_knowledge: build_knowledge_retriever(workspace_id),
       default_llm: Providers.default_model_for_workspace(workspace_id)
     }
+  end
+
+  # Resolved at call time: core does not compile-depend on flux_rag
+  # (dependency direction is flux_rag -> flux), mirroring the plugin
+  # runtime indirection.
+  defp build_knowledge_retriever(workspace_id) do
+    fn %{dataset_id: dataset_id, query: query, top_k: top_k} ->
+      rag = Application.get_env(:flux, :rag_module, Flux.RAG)
+      scope = %Scope{workspace: %Flux.Accounts.Workspace{id: workspace_id}}
+
+      cond do
+        not Code.ensure_loaded?(rag) ->
+          {:error, "knowledge retrieval is unavailable in this deployment"}
+
+        true ->
+          case rag.retrieve(scope, dataset_id, query, top_k: top_k) do
+            {:ok, hits} ->
+              {:ok,
+               Enum.map(hits, fn hit ->
+                 %{
+                   content: hit.content,
+                   document_name: hit.document.name,
+                   score: hit.score
+                 }
+               end)}
+
+            {:error, :not_found} ->
+              {:error, "dataset not found"}
+
+            {:error, reason} ->
+              {:error, reason}
+          end
+      end
+    end
   end
 
   # Iteration items run the sub-flux's published version inline (no run

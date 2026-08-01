@@ -1240,6 +1240,41 @@ defmodule Flux.EngineTest do
       assert result.outputs["output"] == "got positive"
     end
 
+    test "knowledge retrieval node joins hits and exposes citations" do
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("kb", "knowledge_retrieval", %{
+            "dataset_id" => "ds-1",
+            "query" => "{{start.query}}",
+            "top_k" => 2
+          }),
+          node!("a", "answer", %{"answer" => "Context:\n{{kb.result}}"})
+        ],
+        "edges" => [edge!("start", "kb"), edge!("kb", "a")]
+      }
+
+      host = %Host{
+        emit: fn _e -> :ok end,
+        retrieve_knowledge: fn %{dataset_id: "ds-1", query: "vacation days", top_k: 2} ->
+          {:ok,
+           [
+             %{content: "25 paid days per year.", document_name: "handbook.md", score: 0.9},
+             %{content: "Days roll over one quarter.", document_name: "handbook.md", score: 0.5}
+           ]}
+        end
+      }
+
+      {:ok, built} = Engine.build(graph)
+      assert {:ok, result} = Engine.run(built, %{"query" => "vacation days"}, host)
+      assert result.outputs["answer"] =~ "25 paid days per year."
+      assert result.outputs["answer"] =~ "Days roll over"
+
+      kb = Enum.find(result.node_executions, &(&1["node_id"] == "kb"))
+      assert kb["outputs"]["count"] == 2
+      assert [%{"document" => "handbook.md"} | _] = kb["outputs"]["citations"]
+    end
+
     test "unresolved template references render blank" do
       graph = %{
         "nodes" => [

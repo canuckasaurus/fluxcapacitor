@@ -850,6 +850,63 @@ defmodule Flux.Engine.Nodes.Agent do
   end
 end
 
+defmodule Flux.Engine.Nodes.KnowledgeRetrieval do
+  @moduledoc """
+  Retrieves relevant segments from a dataset through the host's
+  `retrieve_knowledge` capability (hybrid semantic + keyword).
+
+  Config: `dataset_id`, `query` (template), `top_k` (default 4).
+  Outputs `%{"result" => joined text, "citations" => [%{"document",
+  "content", "score"}], "count"}` — feed `result` to an LLM prompt and
+  `citations` to the answer.
+  """
+  @behaviour Flux.Engine.Node
+
+  alias Flux.Engine.{Host, Template}
+
+  @impl true
+  def run(node, pool, host) do
+    dataset_id = to_string(node.config["dataset_id"] || "")
+
+    with :ok <- require_dataset(dataset_id),
+         {:ok, retrieve} <- capability(host) do
+      query = Template.render(node.config["query"], pool)
+      top_k = node.config["top_k"] || 4
+
+      case retrieve.(%{dataset_id: dataset_id, query: query, top_k: top_k}) do
+        {:ok, hits} ->
+          citations =
+            Enum.map(hits, fn hit ->
+              %{
+                "document" => hit.document_name,
+                "content" => hit.content,
+                "score" => hit.score
+              }
+            end)
+
+          {:ok,
+           %{
+             "result" => Enum.map_join(hits, "\n\n---\n\n", & &1.content),
+             "citations" => citations,
+             "count" => length(hits)
+           }}
+
+        {:error, reason} when is_binary(reason) ->
+          {:error, reason}
+
+        {:error, reason} ->
+          {:error, inspect(reason)}
+      end
+    end
+  end
+
+  defp require_dataset(""), do: {:error, "the knowledge node needs a dataset"}
+  defp require_dataset(_id), do: :ok
+
+  defp capability(%Host{retrieve_knowledge: fun}) when is_function(fun, 1), do: {:ok, fun}
+  defp capability(_host), do: {:error, "this run's host cannot retrieve knowledge"}
+end
+
 defmodule Flux.Engine.Nodes.HumanInput do
   @moduledoc """
   Pauses the run for a human: returns `{:pause, prompt}` — the runner
