@@ -85,6 +85,11 @@ defmodule FluxWeb.SiteLive.FluxSite do
     {:noreply, assign(socket, run: run)}
   end
 
+  # Strict hex check so the theme value can be inlined into a <style> block.
+  defp valid_accent(accent) do
+    if is_binary(accent) and Regex.match?(~r/^#[0-9a-fA-F]{6}$/, accent), do: accent
+  end
+
   defp start_variables(graph) do
     case Enum.find(graph["nodes"] || [], &(&1["type"] == "start")) do
       nil -> []
@@ -105,11 +110,6 @@ defmodule FluxWeb.SiteLive.FluxSite do
       </div>
     </main>
     """
-  end
-
-  # Strict hex check so the theme value can be inlined into a <style> block.
-  defp valid_accent(accent) do
-    if is_binary(accent) and Regex.match?(~r/^#[0-9a-fA-F]{6}$/, accent), do: accent
   end
 
   def render(assigns) do

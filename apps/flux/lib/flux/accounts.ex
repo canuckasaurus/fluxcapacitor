@@ -80,6 +80,27 @@ defmodule Flux.Accounts do
     |> Repo.insert()
   end
 
+  @doc """
+  Fetches or provisions the account for an SSO-verified email. The
+  identity provider owns email verification, so new accounts arrive
+  confirmed.
+  """
+  def get_or_register_sso_account(email) when is_binary(email) do
+    case get_account_by_email(email) do
+      %Account{} = account ->
+        {:ok, account}
+
+      nil ->
+        %Account{}
+        |> Account.email_changeset(%{email: email})
+        |> Ecto.Changeset.put_change(
+          :confirmed_at,
+          NaiveDateTime.truncate(NaiveDateTime.utc_now(), :second)
+        )
+        |> Repo.insert()
+    end
+  end
+
   ## Settings
 
   @doc """

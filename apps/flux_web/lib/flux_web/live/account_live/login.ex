@@ -90,6 +90,13 @@ defmodule FluxWeb.AccountLive.Login do
             Log in only this time
           </.button>
         </.form>
+
+        <div :if={FluxWeb.OIDC.configured?()}>
+          <div class="divider">or</div>
+          <.link href={~p"/auth/oidc"} class="btn btn-outline w-full" id="oidc-login">
+            Continue with {FluxWeb.OIDC.provider_name()}
+          </.link>
+        </div>
       </div>
     </Layouts.app>
     """

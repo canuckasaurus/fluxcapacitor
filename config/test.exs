@@ -61,6 +61,13 @@ config :phoenix,
 # Keep tests hermetic: no DNS resolution in the SSRF guard.
 config :flux, Flux.SSRF, enabled: false
 
+# OIDC pointed at a stubbed provider (see oidc_controller_test.exs).
+config :flux_web, FluxWeb.OIDC,
+  issuer: "https://sso.example.com",
+  client_id: "flux-client",
+  client_secret: "flux-secret",
+  name: "Example SSO"
+
 # No rate limiting in tests.
 config :flux_web, rate_limit_enabled: false
 

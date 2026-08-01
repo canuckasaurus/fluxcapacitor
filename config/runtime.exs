@@ -31,6 +31,18 @@ if url = System.get_env("CODE_RUNNER_URL") do
     api_key: System.get_env("CODE_RUNNER_API_KEY")
 end
 
+# FLUX_OIDC_ISSUER enables single sign-on: the login page gains a
+# "Continue with <FLUX_OIDC_NAME>" button running the OIDC authorization
+# code flow against any compliant provider. Register the redirect URI
+# https://<host>/auth/oidc/callback with the provider.
+if issuer = System.get_env("FLUX_OIDC_ISSUER") do
+  config :flux_web, FluxWeb.OIDC,
+    issuer: String.trim_trailing(issuer, "/"),
+    client_id: System.fetch_env!("FLUX_OIDC_CLIENT_ID"),
+    client_secret: System.fetch_env!("FLUX_OIDC_CLIENT_SECRET"),
+    name: System.get_env("FLUX_OIDC_NAME", "SSO")
+end
+
 # FLUX_MAILBOX=1 keeps delivered email in memory and serves the
 # authenticated /dev/mailbox preview — for local deploys without a real
 # mail adapter. Leave unset in any real production environment.

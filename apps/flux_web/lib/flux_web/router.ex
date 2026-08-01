@@ -218,5 +218,9 @@ defmodule FluxWeb.Router do
 
     post "/accounts/log-in", AccountSessionController, :create
     delete "/accounts/log-out", AccountSessionController, :delete
+
+    # OIDC single sign-on (no-ops unless FLUX_OIDC_* is configured).
+    get "/auth/oidc", OIDCController, :request
+    get "/auth/oidc/callback", OIDCController, :callback
   end
 end
