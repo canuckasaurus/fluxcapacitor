@@ -13,7 +13,8 @@ defmodule Flux.PluginRuntime do
     Flux.Plugins.Gemini,
     Flux.Plugins.OpenAICompatible,
     Flux.Plugins.Echo,
-    Flux.Plugins.Utility
+    Flux.Plugins.Utility,
+    Flux.Plugins.RSS
   ]
 
   @invoke_timeout :timer.minutes(5)
@@ -41,6 +42,24 @@ defmodule Flux.PluginRuntime do
   def invoke_tool_plugin(plugin_id, credentials, operation_id, args) do
     with {:ok, module} <- fetch_plugin(plugin_id) do
       run_supervised(fn -> module.invoke(credentials, operation_id, args) end, @invoke_timeout)
+    end
+  end
+
+  def list_datasource_plugins do
+    Enum.filter(list_plugins(), &(&1.category == :datasource))
+  end
+
+  @doc "Enumerates the documents a datasource currently offers."
+  def datasource_documents(plugin_id, credentials) do
+    with {:ok, module} <- fetch_plugin(plugin_id) do
+      run_supervised(fn -> module.list_documents(credentials) end, @invoke_timeout)
+    end
+  end
+
+  @doc "Fetches one datasource document's text for indexing."
+  def fetch_datasource_document(plugin_id, credentials, doc_id) do
+    with {:ok, module} <- fetch_plugin(plugin_id) do
+      run_supervised(fn -> module.fetch_document(credentials, doc_id) end, @invoke_timeout)
     end
   end
 

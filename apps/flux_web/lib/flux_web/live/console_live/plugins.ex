@@ -18,11 +18,16 @@ defmodule FluxWeb.ConsoleLive.Plugins do
     credentials = Providers.list_credentials(scope)
 
     assign(socket,
-      plugins: Providers.list_provider_plugins(),
+      # Datasource plugins with credential schemas (e.g. a feed URL) are
+      # configured through the same credential store as model providers.
+      plugins:
+        Providers.list_provider_plugins() ++
+          Enum.filter(plugin_runtime().list_datasource_plugins(), &(&1.credential_schema != [])),
       credentials_by_plugin: Map.new(credentials, &{&1.plugin_id, &1}),
       can_manage: RBAC.can?(scope, :plugin_model_config),
       can_install: RBAC.can?(scope, :plugin_install),
-      tool_plugins: plugin_runtime().list_tool_plugins(),
+      installable_plugins:
+        plugin_runtime().list_tool_plugins() ++ plugin_runtime().list_datasource_plugins(),
       installed_plugin_ids: MapSet.new(Flux.Tools.list_installed_plugin_ids(scope)),
       models: Providers.available_models(scope),
       default_model: Providers.default_model(scope)
@@ -136,18 +141,22 @@ defmodule FluxWeb.ConsoleLive.Plugins do
         </form>
       </div>
 
-      <div :if={@tool_plugins != []} class="card border border-base-200 p-6 space-y-3">
-        <h2 class="font-semibold">Tool plugins</h2>
+      <div :if={@installable_plugins != []} class="card border border-base-200 p-6 space-y-3">
+        <h2 class="font-semibold">Tool &amp; datasource plugins</h2>
         <p class="text-sm opacity-70">
-          Installed tool plugins appear as toolsets in tool and agent nodes.
+          Installed tool plugins appear as toolsets in tool and agent nodes;
+          installed datasources can sync documents into knowledge datasets.
         </p>
         <div
-          :for={plugin <- @tool_plugins}
+          :for={plugin <- @installable_plugins}
           class="flex items-center gap-3"
           id={"tool-plugin-#{plugin.id}"}
         >
           <div class="flex-1">
-            <p class="font-semibold text-sm">{plugin.name}</p>
+            <p class="font-semibold text-sm">
+              {plugin.name}
+              <span class="badge badge-ghost badge-xs align-middle">{plugin.category}</span>
+            </p>
             <p class="text-xs opacity-70">{plugin.description}</p>
           </div>
           <span

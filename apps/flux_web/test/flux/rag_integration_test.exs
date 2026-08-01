@@ -289,6 +289,57 @@ defmodule FluxWeb.RAGIntegrationTest do
     assert hd(hits).document.name == "vacation.md"
   end
 
+  test "datasource sync pulls feed items into the dataset once", %{
+    scope: scope,
+    dataset: dataset
+  } do
+    feed = """
+    <rss version="2.0"><channel>
+      <item>
+        <title>Release notes</title>
+        <link>https://blog.example.com/release</link>
+        <guid>rel-1</guid>
+        <description>Version 2 ships multi-dataset retrieval.</description>
+      </item>
+      <item>
+        <title>Hiring update</title>
+        <link>https://blog.example.com/hiring</link>
+        <guid>hire-1</guid>
+        <description>We are hiring two Elixir engineers.</description>
+      </item>
+    </channel></rss>
+    """
+
+    Application.put_env(:flux_plugin_runtime, :req_options, plug: {Req.Test, Flux.RSSSyncStub})
+    on_exit(fn -> Application.delete_env(:flux_plugin_runtime, :req_options) end)
+    Req.Test.stub(Flux.RSSSyncStub, fn conn -> Plug.Conn.send_resp(conn, 200, feed) end)
+
+    # Not installed yet → refused.
+    assert {:error, :plugin_not_installed} = RAG.sync_datasource(scope, dataset, "rss")
+
+    :ok = Flux.Tools.install_plugin(scope, "rss")
+
+    {:ok, _credential} =
+      Flux.Providers.upsert_credential(scope, "rss", %{
+        "feed_url" => "https://feeds.example.com/blog.xml"
+      })
+
+    {:ok, _job} = RAG.sync_datasource(scope, dataset, "rss")
+    Oban.drain_queue(queue: :ingest, with_recursion: true)
+
+    documents = RAG.list_documents(scope, dataset.id)
+    assert documents |> Enum.map(& &1.name) |> Enum.sort() == ["Hiring update", "Release notes"]
+    assert Enum.all?(documents, &(&1.status == :ready))
+
+    {:ok, hits} = RAG.retrieve(scope, dataset.id, "are we hiring engineers?")
+    assert hd(hits).document.name == "Hiring update"
+
+    # Re-sync is idempotent: already-synced names are skipped.
+    {:ok, _job} = RAG.sync_datasource(scope, dataset, "rss")
+    Oban.drain_queue(queue: :ingest, with_recursion: true)
+    assert length(RAG.list_documents(scope, dataset.id)) == 2
+  end
+
   test "dataset mutations enforce RBAC", %{workspace: workspace, dataset: dataset} do
     viewer = account_fixture()
 

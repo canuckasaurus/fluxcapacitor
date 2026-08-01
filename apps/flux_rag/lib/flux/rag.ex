@@ -151,6 +151,90 @@ defmodule Flux.RAG do
     end
   end
 
+  @doc """
+  Starts a background sync of an installed datasource plugin into the
+  dataset: every document the source offers that the dataset doesn't
+  already hold (by name) is fetched and indexed.
+  """
+  def sync_datasource(%Scope{} = scope, %Dataset{} = dataset, plugin_id) do
+    with :ok <- RBAC.authorize(scope, :dataset_edit),
+         true <- dataset.workspace_id == Scope.workspace_id(scope) || {:error, :not_found},
+         true <-
+           Flux.Tools.plugin_installed?(dataset.workspace_id, plugin_id) ||
+             {:error, :plugin_not_installed},
+         {:ok, job} <-
+           %{dataset_id: dataset.id, plugin_id: plugin_id}
+           |> Flux.RAG.DatasourceSyncWorker.new()
+           |> Oban.insert() do
+      Flux.Audit.record(scope, "dataset.sync",
+        resource: dataset,
+        metadata: %{"plugin_id" => plugin_id}
+      )
+
+      {:ok, job}
+    end
+  end
+
+  @doc false
+  # The sync body, called by DatasourceSyncWorker: list what the source
+  # offers, skip names already in the dataset, fetch + index the rest.
+  # A vanished dataset is a no-op (deleted between enqueue and run).
+  def sync_dataset_from_datasource(dataset_id, plugin_id) do
+    case Repo.get(Dataset, dataset_id, skip_workspace_guard: true) do
+      nil ->
+        {:ok, 0}
+
+      dataset ->
+        credentials =
+          case Flux.Providers.fetch_config(dataset.workspace_id, plugin_id) do
+            {:ok, config} -> config
+            {:error, :not_configured} -> %{}
+          end
+
+        with {:ok, offered} <- plugin_runtime().datasource_documents(plugin_id, credentials) do
+          existing =
+            Document
+            |> where([d], d.dataset_id == ^dataset.id)
+            |> select([d], d.name)
+            |> Repo.all(skip_workspace_guard: true)
+            |> MapSet.new()
+
+          added =
+            for source_doc <- offered, not MapSet.member?(existing, source_doc.name) do
+              case plugin_runtime().fetch_datasource_document(
+                     plugin_id,
+                     credentials,
+                     source_doc.id
+                   ) do
+                {:ok, %{content: content}} when is_binary(content) and content != "" ->
+                  document =
+                    Repo.insert!(%Document{
+                      workspace_id: dataset.workspace_id,
+                      dataset_id: dataset.id,
+                      name: source_doc.name,
+                      status: :pending,
+                      content: content
+                    })
+
+                  {:ok, _job} =
+                    %{document_id: document.id}
+                    |> Flux.RAG.IndexWorker.new()
+                    |> Oban.insert()
+
+                  1
+
+                _empty_or_error ->
+                  0
+              end
+            end
+
+          {:ok, Enum.sum(added)}
+        end
+    end
+  end
+
+  defp plugin_runtime, do: Application.get_env(:flux, :plugin_runtime, Flux.PluginRuntime)
+
   def list_documents(%Scope{} = scope, dataset_id) do
     Document
     |> Repo.scoped(scope)
@@ -368,6 +452,20 @@ defmodule Flux.RAG do
 
   defp format_error(reason) when is_binary(reason), do: reason
   defp format_error(reason), do: inspect(reason)
+end
+
+defmodule Flux.RAG.DatasourceSyncWorker do
+  @moduledoc "Oban worker: syncs one datasource plugin into one dataset."
+  use Oban.Worker, queue: :ingest, max_attempts: 3
+
+  @impl Oban.Worker
+  def perform(%Oban.Job{args: %{"dataset_id" => dataset_id, "plugin_id" => plugin_id}}) do
+    case Flux.RAG.sync_dataset_from_datasource(dataset_id, plugin_id) do
+      {:ok, _added} -> :ok
+      # Feed/API errors are often transient — let Oban retry.
+      {:error, reason} -> {:error, reason}
+    end
+  end
 end
 
 defmodule Flux.RAG.IndexWorker do

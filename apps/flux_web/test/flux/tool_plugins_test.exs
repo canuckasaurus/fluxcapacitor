@@ -29,7 +29,7 @@ defmodule FluxWeb.ToolPluginsTest do
              })
 
     {:ok, lv, _html} = live(conn, ~p"/console/plugins")
-    html = lv |> element("button", "Install") |> render_click()
+    html = lv |> element("#tool-plugin-utility button", "Install") |> render_click()
     assert html =~ "installed"
 
     assert [%{id: "plugin:utility", operations: operations}] =

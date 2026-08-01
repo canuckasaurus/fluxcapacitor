@@ -2,8 +2,9 @@ defmodule Flux.Plugin do
   @moduledoc """
   The FluxCapacitor plugin contract. A plugin is an Elixir module (usually
   its own hex package) that returns a `Flux.Plugin.Manifest` and implements
-  one or more capability behaviours (`Flux.Plugin.ModelProvider` today;
-  Tool/Datasource/Trigger/AgentStrategy/Endpoint arrive with plugin GA).
+  one or more capability behaviours (`Flux.Plugin.ModelProvider`,
+  `Flux.Plugin.Tool`, and `Flux.Plugin.Datasource` today;
+  Trigger/AgentStrategy/Endpoint arrive with plugin GA).
   """
 
   alias Flux.Plugin.Manifest

@@ -18,12 +18,18 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
       for %{model: %{type: :text_embedding}} = entry <- Providers.available_models(scope),
           do: entry
 
+    installed = MapSet.new(Flux.Tools.list_installed_plugin_ids(scope))
+
+    datasource_plugins =
+      Enum.filter(plugin_runtime().list_datasource_plugins(), &MapSet.member?(installed, &1.id))
+
     {:ok,
      socket
      |> assign(
        page_title: "Knowledge",
        creating: false,
        embedding_models: embedding_models,
+       datasource_plugins: datasource_plugins,
        can_edit: RBAC.can?(scope, :dataset_edit),
        can_create: RBAC.can?(scope, :dataset_create_and_management),
        selected: nil,
@@ -39,6 +45,8 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
      )
      |> assign(datasets: RAG.list_datasets(scope))}
   end
+
+  defp plugin_runtime, do: Application.get_env(:flux, :plugin_runtime, Flux.PluginRuntime)
 
   defp refresh_documents(socket) do
     case socket.assigns.selected do
@@ -141,6 +149,25 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
 
       _other ->
         {:noreply, put_flash(socket, :error, "Could not fetch that URL.")}
+    end
+  end
+
+  def handle_event("sync_datasource", %{"plugin_id" => plugin_id}, socket) do
+    with %{} = dataset <- socket.assigns.selected,
+         {:ok, _job} <- RAG.sync_datasource(socket.assigns.current_scope, dataset, plugin_id) do
+      {:noreply,
+       socket
+       |> put_flash(:info, "Sync started — refresh to see new documents.")
+       |> refresh_documents()}
+    else
+      {:error, :plugin_not_installed} ->
+        {:noreply, put_flash(socket, :error, "That datasource is not installed.")}
+
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "No permission.")}
+
+      _other ->
+        {:noreply, put_flash(socket, :error, "Could not start the sync.")}
     end
   end
 
@@ -389,6 +416,19 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                 class="input input-bordered input-sm flex-1"
               />
               <button class="btn btn-outline btn-sm">Fetch &amp; index</button>
+            </form>
+            <form
+              :if={@datasource_plugins != []}
+              phx-submit="sync_datasource"
+              class="flex gap-2"
+              id="datasource-sync-form"
+            >
+              <select name="plugin_id" class="select select-bordered select-sm flex-1">
+                <option :for={plugin <- @datasource_plugins} value={plugin.id}>
+                  {plugin.name}
+                </option>
+              </select>
+              <button class="btn btn-outline btn-sm">Sync datasource</button>
             </form>
             <form phx-submit="add_text" class="space-y-2" id="paste-form">
               <input
