@@ -1,4 +1,4 @@
-defmodule Flux.RAGTest do
+defmodule FluxWeb.RAGIntegrationTest do
   use FluxWeb.ConnCase, async: false
 
   import Flux.AccountsFixtures

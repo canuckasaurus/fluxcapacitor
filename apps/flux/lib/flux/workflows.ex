@@ -586,6 +586,13 @@ defmodule Flux.Workflows do
 
   defp finalize(run, changes) do
     run = run |> Ecto.Changeset.change(changes) |> Repo.update!()
+
+    :telemetry.execute(
+      [:flux, :workflow, :run, :finished],
+      %{duration_ms: run.elapsed_ms || 0},
+      %{status: run.status, source: run.source, workspace_id: run.workspace_id}
+    )
+
     Phoenix.PubSub.broadcast(Flux.PubSub, topic(run.id), {:run_finished, run})
     {:ok, run}
   end

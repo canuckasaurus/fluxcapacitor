@@ -14,7 +14,8 @@ defmodule FluxWeb.PromEx do
       {PromEx.Plugins.Phoenix, router: FluxWeb.Router, endpoint: FluxWeb.Endpoint},
       {PromEx.Plugins.Ecto, repos: [Flux.Repo]},
       PromEx.Plugins.Oban,
-      PromEx.Plugins.PhoenixLiveView
+      PromEx.Plugins.PhoenixLiveView,
+      FluxWeb.PromEx.FluxRuns
     ]
   end
 
