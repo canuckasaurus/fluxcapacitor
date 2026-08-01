@@ -124,6 +124,13 @@ Two edges deserve explanation:
 | `packages/flux_plugin` | The plugin SDK — implement a behaviour, return a manifest, and the runtime hosts it |
 | `docs/` | Architecture decisions and the development plan/ledger |
 
+## Documentation
+
+- [Getting started](docs/guides/getting-started.md) — clone to published app, including `mix flux.demo`
+- [Node reference](docs/guides/node-reference.md) — all 21 node types, branching, parallel fan-out, sub-fluxes
+- [Plugin SDK](docs/guides/plugin-sdk.md) — the five capability behaviours with a worked example
+- [Service API](docs/guides/service-api.md) — the `/v1` surface, SSE framing, webhooks, SCIM
+
 ## Getting started
 
 ```bash
