@@ -148,6 +148,22 @@ defmodule FluxWeb.RAGIntegrationTest do
     assert finished.outputs["answer"] =~ "25 paid days"
   end
 
+  test "a configured rerank model reorders retrieval results", %{scope: scope, dataset: dataset} do
+    ingest!(scope, dataset, "a.md", "Bananas are yellow fruit.")
+    ingest!(scope, dataset, "b.md", "Vacation days: employees receive 25 vacation days.")
+    ingest!(scope, dataset, "c.md", "The dishwasher schedule is on the fridge.")
+
+    {:ok, dataset} =
+      RAG.update_dataset(scope, dataset, %{
+        "rerank_plugin_id" => "echo",
+        "rerank_model" => "echo-rerank"
+      })
+
+    {:ok, [top | _]} = RAG.retrieve(scope, dataset.id, "how many vacation days", top_k: 2)
+    assert top.document.name == "b.md"
+    assert top.score > 0
+  end
+
   test "re-index re-chunks with updated dataset settings", %{scope: scope, dataset: dataset} do
     long_text = Enum.map_join(1..8, "\n\n", fn n -> String.duplicate("chunkword#{n} ", 30) end)
     document = ingest!(scope, dataset, "big.md", long_text)

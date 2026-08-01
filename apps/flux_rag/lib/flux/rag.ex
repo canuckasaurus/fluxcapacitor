@@ -207,6 +207,9 @@ defmodule Flux.RAG do
     top_k = Keyword.get(opts, :top_k, 4)
 
     with %Dataset{} = dataset <- get_dataset(scope, dataset_id) do
+      rerank? = dataset.rerank_plugin_id not in [nil, ""]
+      candidates = if rerank?, do: top_k * 3, else: top_k
+
       semantic_hits = semantic_hits(dataset, query, top_k * 3)
       keyword_hits = keyword_hits(scope, dataset_id, query, top_k * 3)
 
@@ -220,7 +223,7 @@ defmodule Flux.RAG do
           end)
         end)
         |> Enum.sort_by(fn {_segment_id, score} -> score end, :desc)
-        |> Enum.take(top_k)
+        |> Enum.take(candidates)
 
       ids = Enum.map(ranked, fn {segment_id, _score} -> segment_id end)
       scores = Map.new(ranked)
@@ -233,8 +236,34 @@ defmodule Flux.RAG do
         |> preload([s, d], document: d)
         |> Repo.all()
         |> Enum.sort_by(&Map.fetch!(scores, &1.id), :desc)
+        |> Enum.map(&Map.put(&1, :score, Map.fetch!(scores, &1.id)))
 
-      {:ok, Enum.map(segments, &Map.put(&1, :score, Map.fetch!(scores, &1.id)))}
+      {:ok, maybe_rerank(dataset, query, segments, top_k, rerank?)}
+    end
+  end
+
+  # A configured rerank model reorders the RRF candidates and replaces
+  # the scores; failures fall back to the fused ranking untouched.
+  defp maybe_rerank(_dataset, _query, segments, top_k, false), do: Enum.take(segments, top_k)
+
+  defp maybe_rerank(dataset, query, segments, top_k, true) do
+    case Flux.Providers.rerank_texts(
+           dataset.workspace_id,
+           dataset.rerank_plugin_id,
+           dataset.rerank_model,
+           query,
+           Enum.map(segments, & &1.content)
+         ) do
+      {:ok, ranking} ->
+        ranking
+        |> Enum.take(top_k)
+        |> Enum.map(fn %{index: index, score: score} ->
+          segments |> Enum.at(index) |> Map.put(:score, score)
+        end)
+        |> Enum.reject(&is_nil/1)
+
+      {:error, _reason} ->
+        Enum.take(segments, top_k)
     end
   end
 

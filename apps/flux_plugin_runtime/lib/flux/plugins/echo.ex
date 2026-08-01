@@ -25,8 +25,31 @@ defmodule Flux.Plugins.Echo do
   def models(_credentials) do
     [
       %Spec{name: "echo-1", label: "Echo v1"},
-      %Spec{name: "echo-embed", label: "Echo embeddings", type: :text_embedding}
+      %Spec{name: "echo-embed", label: "Echo embeddings", type: :text_embedding},
+      %Spec{name: "echo-rerank", label: "Echo rerank", type: :rerank}
     ]
+  end
+
+  @impl Flux.Plugin.ModelProvider
+  def invoke_rerank(_credentials, _model, query, documents) do
+    # Deterministic lexical rerank: score = shared distinct words with
+    # the query — enough signal for hermetic retrieval tests.
+    query_words = words(query)
+
+    scores =
+      documents
+      |> Enum.with_index()
+      |> Enum.map(fn {document, index} ->
+        overlap = MapSet.intersection(query_words, words(document)) |> MapSet.size()
+        %{index: index, score: overlap / max(MapSet.size(query_words), 1)}
+      end)
+      |> Enum.sort_by(& &1.score, :desc)
+
+    {:ok, scores}
+  end
+
+  defp words(text) do
+    text |> String.downcase() |> String.split(~r/\W+/, trim: true) |> MapSet.new()
   end
 
   @dims 16

@@ -15,6 +15,8 @@ defmodule Flux.RAG.Dataset do
     field(:embedding_model, :string)
     field(:chunk_size, :integer, default: 1000)
     field(:chunk_overlap, :integer, default: 120)
+    field(:rerank_plugin_id, :string)
+    field(:rerank_model, :string)
 
     timestamps(type: :utc_datetime)
   end
@@ -27,7 +29,9 @@ defmodule Flux.RAG.Dataset do
       :embedding_plugin_id,
       :embedding_model,
       :chunk_size,
-      :chunk_overlap
+      :chunk_overlap,
+      :rerank_plugin_id,
+      :rerank_model
     ])
     |> validate_required([:name, :embedding_plugin_id, :embedding_model])
     |> validate_number(:chunk_size, greater_than_or_equal_to: 200, less_than_or_equal_to: 4000)

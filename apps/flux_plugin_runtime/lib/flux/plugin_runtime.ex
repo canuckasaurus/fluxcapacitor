@@ -89,6 +89,20 @@ defmodule Flux.PluginRuntime do
     end
   end
 
+  @doc "Reranks documents against a query; {:error, :not_supported} without the callback."
+  def invoke_rerank(plugin_id, credentials, model, query, documents) do
+    with {:ok, module} <- fetch_plugin(plugin_id) do
+      if function_exported?(module, :invoke_rerank, 4) do
+        run_supervised(
+          fn -> module.invoke_rerank(credentials, model, query, documents) end,
+          @invoke_timeout
+        )
+      else
+        {:error, :not_supported}
+      end
+    end
+  end
+
   defp run_supervised(fun, timeout) do
     task = Task.Supervisor.async_nolink(Flux.PluginRuntime.TaskSupervisor, fun)
 

@@ -114,6 +114,27 @@ defmodule Flux.FakeRuntime do
 
   def invoke_embeddings(_other, _credentials, _model, _texts), do: {:error, :not_supported}
 
+  def invoke_rerank("echo", _credentials, _model, query, documents) do
+    query_words = query |> String.downcase() |> String.split(~r/\W+/, trim: true) |> MapSet.new()
+
+    scores =
+      documents
+      |> Enum.with_index()
+      |> Enum.map(fn {document, index} ->
+        document_words =
+          document |> String.downcase() |> String.split(~r/\W+/, trim: true) |> MapSet.new()
+
+        overlap = MapSet.intersection(query_words, document_words) |> MapSet.size()
+        %{index: index, score: overlap / max(MapSet.size(query_words), 1)}
+      end)
+      |> Enum.sort_by(& &1.score, :desc)
+
+    {:ok, scores}
+  end
+
+  def invoke_rerank(_other, _credentials, _model, _query, _documents),
+    do: {:error, :not_supported}
+
   ## Tool plugins (mirrors the real utility plugin's surface)
 
   def list_tool_plugins do

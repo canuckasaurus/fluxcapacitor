@@ -126,6 +126,17 @@ defmodule Flux.Providers do
     end
   end
 
+  @doc "Reranks documents against a query with a workspace-configured provider."
+  def rerank_texts(workspace_id, plugin_id, model, query, documents) do
+    credentials =
+      case fetch_config(workspace_id, plugin_id) do
+        {:ok, config} -> config
+        {:error, :not_configured} -> %{}
+      end
+
+    runtime().invoke_rerank(plugin_id, credentials, model, query, documents)
+  end
+
   ## Default model (workspace-level system model)
 
   @doc """

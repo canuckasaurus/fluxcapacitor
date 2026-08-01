@@ -95,5 +95,12 @@ defmodule Flux.Plugin.ModelProvider do
   @callback invoke_embeddings(credentials, model :: String.t(), texts :: [String.t()]) ::
               {:ok, embeddings()} | {:error, term()}
 
-  @optional_callbacks invoke_embeddings: 3
+  @callback invoke_rerank(
+              credentials,
+              model :: String.t(),
+              query :: String.t(),
+              documents :: [String.t()]
+            ) :: {:ok, [%{index: non_neg_integer(), score: float()}]} | {:error, term()}
+
+  @optional_callbacks invoke_embeddings: 3, invoke_rerank: 4
 end
