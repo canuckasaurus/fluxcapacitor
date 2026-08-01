@@ -863,6 +863,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
            Workflows.create_trigger(scope, socket.assigns.workflow, %{
              "type" => params["type"],
              "interval_minutes" => params["interval_minutes"],
+             "cron" => params["cron"],
              "inputs" => inputs
            }) do
       {:noreply,
@@ -3563,8 +3564,8 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
               ]}>
                 {trigger.type}
               </span>
-              <span :if={trigger.type == :schedule} class="text-xs opacity-70">
-                every {trigger.interval_minutes} min
+              <span :if={trigger.type == :schedule} class="text-xs opacity-70 font-mono">
+                {(trigger.cron && trigger.cron) || "every #{trigger.interval_minutes} min"}
               </span>
               <span :if={not trigger.enabled} class="badge badge-ghost badge-sm">disabled</span>
               <span class="ml-auto text-xs opacity-60">
@@ -3621,6 +3622,17 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                   min="1"
                   value="60"
                   class="input input-bordered input-sm w-32"
+                />
+              </label>
+              <label :if={@trigger_type == "schedule"} class="form-control">
+                <span class="label-text text-xs opacity-70 mb-1">
+                  Cron (optional, UTC — overrides the interval)
+                </span>
+                <input
+                  type="text"
+                  name="cron"
+                  placeholder="*/15 9-17 * * mon-fri"
+                  class="input input-bordered input-sm w-52 font-mono"
                 />
               </label>
             </div>

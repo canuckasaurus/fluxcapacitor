@@ -171,6 +171,63 @@ defmodule FluxWeb.V1.CompletionFilesTriggersTest do
     assert poll_run(scope, run.id, 50).status == :succeeded
   end
 
+  test "cron triggers fire on matching minutes, at most once per minute", %{scope: scope} do
+    {:ok, workflow} = Workflows.create_workflow(scope, %{"name" => "Cron Scheduled"})
+
+    graph =
+      update_in(workflow.graph, ["nodes"], fn nodes ->
+        Enum.map(nodes, fn
+          %{"id" => "llm_1"} = node ->
+            node
+            |> put_in(["config", "provider_plugin_id"], "echo")
+            |> put_in(["config", "model"], "echo-1")
+
+          node ->
+            node
+        end)
+      end)
+
+    {:ok, workflow} = Workflows.update_draft(scope, workflow, graph)
+    {:ok, _version} = Workflows.publish(scope, workflow)
+
+    # Invalid expressions are rejected at creation.
+    assert {:error, changeset} =
+             Workflows.create_trigger(scope, workflow, %{
+               "type" => "schedule",
+               "cron" => "not a cron"
+             })
+
+    assert {message, _opts} = changeset.errors[:cron]
+    assert message =~ "invalid cron"
+
+    # Every-minute cron fires now, but only once within the same minute.
+    {:ok, matching} =
+      Workflows.create_trigger(scope, workflow, %{
+        "type" => "schedule",
+        "cron" => "* * * * *",
+        "inputs" => %{"query" => "cron run"}
+      })
+
+    # A cron bound to a different minute than now, so it never fires here.
+    other_minute = rem(DateTime.utc_now().minute + 30, 60)
+
+    {:ok, _never} =
+      Workflows.create_trigger(scope, workflow, %{
+        "type" => "schedule",
+        "cron" => "#{other_minute} * * * *"
+      })
+
+    assert :ok = Flux.Workflows.ScheduleWorker.perform(%Oban.Job{})
+    assert [run] = Workflows.list_runs(scope, workflow.id)
+
+    assert :ok = Flux.Workflows.ScheduleWorker.perform(%Oban.Job{})
+    assert length(Workflows.list_runs(scope, workflow.id)) == 1
+
+    updated = Flux.Repo.get!(Flux.Workflows.Trigger, matching.id, skip_workspace_guard: true)
+    assert updated.last_run_at
+    assert poll_run(scope, run.id, 50).status == :succeeded
+  end
+
   defp poll_run(scope, run_id, retries) do
     case Workflows.get_run(scope, run_id) do
       %{status: :running} when retries > 0 ->
