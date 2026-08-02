@@ -20,7 +20,11 @@ orchestrator, no queue infrastructure beyond Postgres.
   or reusable **doc templates** from a workspace library. **Document
   assembly**, docassemble-style: upload Word templates with Jinja tags, run
   stored **interviews** (reusable question forms that pause a run), and the
-  document node fills the template into a downloadable .docx or PDF.
+  document node fills the template into a downloadable .docx or PDF. An **AI
+  helper** drafts a flux from a plain-language description (engine-validated
+  before it touches the canvas), and code nodes run in a **sandboxed runner**
+  with a pre-installed ML toolkit (numpy, pandas, scikit-learn, xgboost,
+  lightgbm, and friends — zero-install imports).
 - **Apps on top of fluxes** — chat, completion (form), and chatflow modes;
   published to logged-out visitors at a public URL, embedded via iframe or a
   floating chat bubble, or consumed through the `/v1` service API with

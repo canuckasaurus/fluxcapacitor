@@ -43,7 +43,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 PORT = int(os.environ.get("RUNNER_PORT", "8194"))
 API_KEY = os.environ.get("CODE_RUNNER_API_KEY") or ""
 VENV_ROOT = os.environ.get("RUNNER_VENV_ROOT", "/cache/venvs")
-MEMORY_MB = int(os.environ.get("RUNNER_MEMORY_MB", "512"))
+MEMORY_MB = int(os.environ.get("RUNNER_MEMORY_MB", "1024"))
+# BLAS libraries size thread pools (and address-space reservations) by
+# core count; unbounded on a big host they blow through RLIMIT_AS and
+# numpy imports hang. Single-threaded by default — the right shape for
+# a multi-tenant snippet runner; raise RUNNER_BLAS_THREADS (and
+# RUNNER_MEMORY_MB with it) for heavy numeric workloads.
+BLAS_THREADS = os.environ.get("RUNNER_BLAS_THREADS", "1")
 MAX_TIMEOUT_MS = int(os.environ.get("RUNNER_MAX_TIMEOUT_MS", "120000"))
 MAX_BODY_BYTES = 2 * 1024 * 1024
 MAX_STDOUT_BYTES = 64 * 1024
@@ -84,6 +90,21 @@ _venv_locks: dict[str, threading.Lock] = {}
 _venv_locks_guard = threading.Lock()
 
 
+def preinstalled_libraries():
+    """The pinned ML toolkit baked into the image (requirements-ml.txt)."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "requirements-ml.txt")
+    if not os.path.exists(path):
+        return []
+    libraries = []
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#") and "==" in line:
+                name, _, version = line.partition("==")
+                libraries.append({"name": name, "version": version})
+    return libraries
+
+
 class RunError(Exception):
     """User-visible execution failure -> 422 {"error": str(exc)}."""
 
@@ -93,11 +114,18 @@ def run_subprocess(argv, cwd, timeout_ms, cpu_seconds, limit_as=True):
         import resource
 
         if limit_as:
-            # V8 (Deno) reserves TBs of virtual address space, so RLIMIT_AS
-            # only applies to python; JS is capped via --max-old-space-size.
+            # RLIMIT_DATA, not RLIMIT_AS: it caps anonymous allocations
+            # (heap + private mmap, enforced since Linux 4.7) without
+            # counting the GBs of file-backed virtual mappings a loaded
+            # ML stack carries. V8 (Deno) is capped separately via
+            # --max-old-space-size.
             mem = MEMORY_MB * 1024 * 1024
-            resource.setrlimit(resource.RLIMIT_AS, (mem, mem))
-        resource.setrlimit(resource.RLIMIT_NPROC, (128, 128))
+            resource.setrlimit(resource.RLIMIT_DATA, (mem, mem))
+        # NPROC counts every process/thread of this uid on the SHARED
+        # kernel (all containers under Docker Desktop/WSL2) — a tight
+        # cap here trips on other containers' uid collisions. 1024
+        # still stops fork bombs cold.
+        resource.setrlimit(resource.RLIMIT_NPROC, (1024, 1024))
         resource.setrlimit(resource.RLIMIT_NOFILE, (256, 256))
         resource.setrlimit(resource.RLIMIT_FSIZE, (16 * 1024 * 1024, 16 * 1024 * 1024))
         resource.setrlimit(resource.RLIMIT_CPU, (cpu_seconds, cpu_seconds))
@@ -109,6 +137,11 @@ def run_subprocess(argv, cwd, timeout_ms, cpu_seconds, limit_as=True):
         "LANG": "C.UTF-8",
         "PYTHONDONTWRITEBYTECODE": "1",
         "NO_COLOR": "1",
+        "OMP_NUM_THREADS": BLAS_THREADS,
+        "OPENBLAS_NUM_THREADS": BLAS_THREADS,
+        "MKL_NUM_THREADS": BLAS_THREADS,
+        "NUMEXPR_NUM_THREADS": BLAS_THREADS,
+        "POLARS_MAX_THREADS": BLAS_THREADS,
     }
 
     proc = subprocess.Popen(
@@ -291,6 +324,8 @@ class Handler(BaseHTTPRequestHandler):
             deno = shutil.which("deno") is not None
             uv = shutil.which("uv") is not None
             self.reply(200, {"status": "up", "deno": deno, "uv": uv})
+        elif self.path == "/libraries":
+            self.reply(200, {"python3": preinstalled_libraries()})
         else:
             self.reply(404, {"error": "not found"})
 

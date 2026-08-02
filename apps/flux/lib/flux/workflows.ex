@@ -1019,6 +1019,33 @@ defmodule Flux.Workflows do
   defp debug_error(reason) when is_binary(reason), do: reason
   defp debug_error(reason), do: inspect(reason)
 
+  @doc """
+  One-shot call to the workspace default model (no streaming, no tools) —
+  the Copilot's path to a completion. `{:error, :no_default_model}` when
+  the workspace has none configured.
+  """
+  def invoke_default_llm(%Scope{} = scope, messages) do
+    workspace_id = Scope.workspace_id(scope)
+
+    case Providers.default_model_for_workspace(workspace_id) do
+      %{"provider_plugin_id" => plugin_id, "model" => model} ->
+        request = %{
+          provider_plugin_id: plugin_id,
+          model: model,
+          messages: messages,
+          params: %{}
+        }
+
+        case build_llm_invoker(workspace_id).(request, fn _chunk -> :ok end) do
+          {:ok, %{content: content}} -> {:ok, content}
+          {:error, reason} -> {:error, "the default model errored: #{inspect(reason)}"}
+        end
+
+      nil ->
+        {:error, :no_default_model}
+    end
+  end
+
   defp build_llm_invoker(workspace_id) do
     fn request, chunk_emit ->
       credentials =

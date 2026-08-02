@@ -72,6 +72,42 @@ defmodule FluxWeb.ConsoleLive.Fluxes do
     end
   end
 
+  def handle_event("ai_draft", %{"description" => description}, socket) do
+    scope = socket.assigns.current_scope
+
+    with {:ok, %{name: name, graph: graph, warnings: warnings}} <-
+           Flux.Workflows.Copilot.draft(scope, description),
+         {:ok, workflow} <-
+           Workflows.create_workflow(scope, %{
+             "name" => name,
+             "description" => String.slice(String.trim(description), 0, 500)
+           }),
+         {:ok, workflow} <- Workflows.update_draft(scope, workflow, graph) do
+      flash =
+        case warnings do
+          [] ->
+            "Drafted \"#{workflow.name}\" — review it on the canvas before publishing."
+
+          warnings ->
+            "Drafted \"#{workflow.name}\" with #{length(warnings)} reference warning(s)."
+        end
+
+      {:noreply,
+       socket
+       |> put_flash(:info, flash)
+       |> push_navigate(to: ~p"/console/fluxes/#{workflow.id}")}
+    else
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "You don't have permission to create fluxes.")}
+
+      {:error, message} when is_binary(message) ->
+        {:noreply, put_flash(socket, :error, message)}
+
+      {:error, _invalid} ->
+        {:noreply, put_flash(socket, :error, "Could not save the drafted flux.")}
+    end
+  end
+
   def handle_event("save", %{"workflow" => params}, socket) do
     case Workflows.create_workflow(socket.assigns.current_scope, params) do
       {:ok, workflow} ->
@@ -230,6 +266,28 @@ defmodule FluxWeb.ConsoleLive.Fluxes do
             <button type="button" class="btn btn-ghost" phx-click="cancel">Cancel</button>
           </div>
         </.form>
+
+        <div class="divider text-xs opacity-60">or let the AI helper draft it</div>
+
+        <form phx-submit="ai_draft" class="space-y-3">
+          <label class="floating-label">
+            <span>Describe what the flux should do</span>
+            <textarea
+              name="description"
+              rows="3"
+              class="textarea w-full"
+              placeholder="Take a customer complaint, classify its urgency, draft a reply with the LLM, and return both."
+            ></textarea>
+          </label>
+          <p class="text-xs opacity-60">
+            Uses the workspace default model to draft nodes and wiring; the
+            graph is engine-validated before it becomes a draft, and nothing
+            is published without you.
+          </p>
+          <button class="btn btn-secondary" phx-disable-with="Drafting…">
+            <.icon name="hero-sparkles" class="size-4" /> Draft with AI
+          </button>
+        </form>
       </div>
 
       <Layouts.empty_state

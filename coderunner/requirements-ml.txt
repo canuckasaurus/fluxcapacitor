@@ -1,0 +1,50 @@
+# Libraries pre-installed in the flux-coderunner image: code blocks can
+# import these with no per-block dependency install. Pinned so runs are
+# reproducible across image builds; bump deliberately.
+#
+# Anything NOT on this list still works — declare it as a block
+# dependency and uv installs it into a cached venv on first use.
+
+# --- numerics & dataframes ---------------------------------------------------
+numpy==2.2.6
+pandas==2.2.3
+polars==1.30.0
+pyarrow==20.0.0
+scipy==1.15.3
+
+# --- classic machine learning ------------------------------------------------
+scikit-learn==1.6.1
+xgboost==3.0.2
+lightgbm==4.6.0
+statsmodels==0.14.4
+
+# --- NLP / text --------------------------------------------------------------
+nltk==3.9.1
+rapidfuzz==3.13.0
+tiktoken==0.9.0
+
+# --- plotting (headless) -----------------------------------------------------
+matplotlib==3.10.3
+
+# --- images ------------------------------------------------------------------
+pillow==11.2.1
+opencv-python-headless==4.11.0.86
+
+# --- data wrangling & formats ------------------------------------------------
+beautifulsoup4==4.13.4
+lxml==5.4.0
+openpyxl==3.1.5
+python-dateutil==2.9.0.post0
+pyyaml==6.0.2
+jsonschema==4.24.0
+sympy==1.14.0
+
+# --- http (NOTE: python blocks keep network access until the phase-2
+#     namespace split; JS blocks are already network-free) ---------------------
+requests==2.32.4
+httpx==0.28.1
+
+# Deep learning (torch, transformers, sentence-transformers) is NOT
+# baked in — the CPU wheels alone add multiple GB to the image. Add a
+# block dependency, or extend this file in your own build:
+#   docker compose --profile code build coderunner

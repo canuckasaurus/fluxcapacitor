@@ -237,3 +237,16 @@ dodge WSL2 hex stalls, docs compiled in; release migrated the compose DB and
 serves landing/login/v1); **harness phase 2 authored** (recorder script + parity
 replay test, activates when traces land — Reference stack boot itself was blocked
 by the session's permission layer).
+
+22. ~~ML toolkit + AI flux drafting (#132-133, 2026-08-02)~~ ✅: **pre-installed ML
+toolkit** (24 pinned libraries baked into the coderunner image — numpy/pandas/
+polars/scipy, scikit-learn/xgboost/lightgbm/statsmodels, nltk/rapidfuzz/tiktoken,
+matplotlib/pillow/opencv, bs4/lxml/openpyxl… — zero-install imports, reported at
+GET /libraries; hardening fallout fixed en route: RLIMIT_DATA instead of
+RLIMIT_AS so loaded libraries don't count against the cap, BLAS/OpenMP pools
+pinned to 1, NPROC raised for the shared WSL2 kernel, libgomp/libglib added);
+**AI flux drafting** (`Flux.Workflows.Copilot`: description → workspace default
+model → graph JSON → `Engine.build` validation with one corrective retry →
+draft; node catalog embedded from the node-reference guide, auto layout,
+reference-lint warnings surfaced, "Draft with AI" in the New Flux flow; 7 tests
+via injected fake model).

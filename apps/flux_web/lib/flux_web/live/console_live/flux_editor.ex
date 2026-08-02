@@ -3112,6 +3112,12 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                     >
                       <.icon name="hero-plus" class="size-3" /> Add dependency
                     </button>
+                    <p class="text-xs opacity-60">
+                      The ML toolkit is pre-installed — numpy, pandas, polars,
+                      scipy, scikit-learn, xgboost, lightgbm, statsmodels, nltk,
+                      matplotlib, pillow, opencv, requests and more import with
+                      no dependency entry. Add entries only for anything else.
+                    </p>
                   </div>
                   <label class="floating-label">
                     <span>Code — define main(...) returning a dict</span>

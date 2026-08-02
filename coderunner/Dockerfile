@@ -5,8 +5,19 @@ FROM python:3.12-slim-bookworm
 COPY --from=ghcr.io/astral-sh/uv:0.7.13 /uv /usr/local/bin/uv
 COPY --from=denoland/deno:bin-2.3.6 /deno /usr/local/bin/deno
 
+# libgomp: the OpenMP runtime lightgbm/xgboost/scikit-learn link
+# against; libglib2.0: opencv-headless's remaining system dependency.
+RUN apt-get update -y && \
+    apt-get install -y --no-install-recommends libgomp1 libglib2.0-0 && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
 RUN useradd --create-home runner && \
     mkdir -p /cache/venvs /cache/uv && chown -R runner /cache
+
+# The ML toolkit ships in the image: blocks import these with no
+# per-block install. See requirements-ml.txt for the list.
+COPY requirements-ml.txt /srv/requirements-ml.txt
+RUN uv pip install --system --no-cache -r /srv/requirements-ml.txt
 
 COPY server.py /srv/server.py
 

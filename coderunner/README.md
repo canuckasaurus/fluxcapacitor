@@ -19,11 +19,28 @@ bearer auth on `/run`.
 | `python3` | CPython 3.12 in a uv-managed venv | per-block, cached by dependency-set hash |
 | `javascript` | Deno, **no permissions** (no network/env/write) | not yet |
 
+## Pre-installed ML toolkit
+
+Python blocks import these with **no** per-block install (pinned in
+`requirements-ml.txt`, reported live at `GET /libraries`):
+
+numpy, pandas, polars, pyarrow, scipy · scikit-learn, xgboost,
+lightgbm, statsmodels · nltk, rapidfuzz, tiktoken · matplotlib
+(headless), pillow, opencv · beautifulsoup4, lxml, openpyxl, pyyaml,
+jsonschema, sympy, python-dateutil · requests, httpx
+
+Deep learning stacks (torch, transformers…) are deliberately not baked
+in — CPU wheels add multiple GB. Declare them as block dependencies or
+extend `requirements-ml.txt` in your own build.
+
 ## Isolation (phase 1)
 
 - unprivileged user, throwaway working directory per run
-- rlimits: CPU = timeout, memory 512 MB (`RUNNER_MEMORY_MB`), 16 MB file
-  size, 256 fds; JS memory capped via V8 `--max-old-space-size`
+- rlimits: CPU = timeout, allocations 1 GB (`RUNNER_MEMORY_MB`, via
+  RLIMIT_DATA so loaded ML libraries don't count), 16 MB file size,
+  256 fds; JS memory capped via V8 `--max-old-space-size`
+- BLAS/OpenMP thread pools pinned to 1 (`RUNNER_BLAS_THREADS`) —
+  unbounded they size themselves by host cores and starve the limits
 - process-group kill on timeout; stdout capped at 64 KB, results at 5 MB
 - dependency names validated before ever reaching a shell
 
