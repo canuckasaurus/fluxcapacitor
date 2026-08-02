@@ -54,10 +54,41 @@ defmodule Flux.DocumentsTest do
   end
 
   test "rejects binary formats until Tika", %{scope: scope, app: app, workspace: workspace} do
-    file = upload!(scope, app, "report.docx", <<0, 1, 2, 3>>, "application/vnd.ms-word")
+    file = upload!(scope, app, "report.xlsx", <<0, 1, 2, 3>>, "application/vnd.ms-excel")
 
     assert {:error, message} = Documents.extract(workspace.id, file.id)
     assert message =~ "Tika"
+  end
+
+  test "reads Word documents natively", %{scope: scope, app: app, workspace: workspace} do
+    document = """
+    <?xml version="1.0"?>
+    <w:document xmlns:w="wns"><w:body>\
+    <w:p><w:r><w:t>First paragraph &amp; more.</w:t></w:r></w:p>\
+    <w:p><w:r><w:t xml:space="preserve">Second </w:t></w:r><w:r><w:t>paragraph.</w:t></w:r></w:p>\
+    </w:body></w:document>
+    """
+
+    {:ok, {_name, binary}} =
+      :zip.create(~c"d.docx", [{~c"word/document.xml", document}], [:memory])
+
+    file =
+      upload!(
+        scope,
+        app,
+        "letter.docx",
+        binary,
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      )
+
+    assert {:ok, %{text: text}} = Documents.extract(workspace.id, file.id)
+    assert text =~ "First paragraph & more."
+    assert text =~ "Second paragraph."
+
+    # Corrupt zips fail with a clear message, not a crash.
+    bad = upload!(scope, app, "broken.docx", <<0, 1, 2>>, nil)
+    assert {:error, message} = Documents.extract(workspace.id, bad.id)
+    assert message =~ "Word"
   end
 
   test "workspace-checks the file id", %{scope: scope, app: app} do

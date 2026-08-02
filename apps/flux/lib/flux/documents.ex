@@ -38,6 +38,9 @@ defmodule Flux.Documents do
 
   defp to_text(file, binary) do
     cond do
+      docx?(file) ->
+        docx_text(binary)
+
       html?(file) ->
         case Floki.parse_document(binary) do
           {:ok, document} -> {:ok, document |> Floki.text(sep: " ") |> String.trim()}
@@ -60,6 +63,54 @@ defmodule Flux.Documents do
 
   defp html?(%{content_type: type, name: name}) do
     (type || "") =~ "html" or Path.extname(name || "") in [".html", ".htm"]
+  end
+
+  @docx_type "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+  defp docx?(%{content_type: type, name: name}) do
+    type == @docx_type or String.downcase(Path.extname(name || "")) == ".docx"
+  end
+
+  # Native .docx text: a docx is zipped XML — paragraphs become lines,
+  # runs concatenate. No Tika needed for Word files.
+  defp docx_text(binary) do
+    with {:ok, entries} <- unzip_docx(binary),
+         {_name, xml} <- List.keyfind(entries, ~c"word/document.xml", 0) do
+      text =
+        xml
+        |> to_string()
+        |> String.replace(~r{</w:p>}, "\n")
+        |> then(fn with_breaks ->
+          ~r{<w:t(?:\s[^>]*)?>([^<]*)</w:t>|\n}
+          |> Regex.scan(with_breaks)
+          |> Enum.map_join(fn
+            ["\n"] -> "\n"
+            [_whole, inner] -> xml_unescape(inner)
+          end)
+        end)
+        |> String.replace(~r/\n{3,}/, "\n\n")
+        |> String.trim()
+
+      {:ok, text}
+    else
+      _not_a_docx -> {:error, "could not read the Word document"}
+    end
+  end
+
+  defp unzip_docx(binary) do
+    case :zip.unzip(binary, [:memory]) do
+      {:ok, entries} -> {:ok, entries}
+      _error -> {:error, :bad_zip}
+    end
+  end
+
+  defp xml_unescape(text) do
+    text
+    |> String.replace("&lt;", "<")
+    |> String.replace("&gt;", ">")
+    |> String.replace("&quot;", "\"")
+    |> String.replace("&apos;", "'")
+    |> String.replace("&amp;", "&")
   end
 
   @textual_extensions ~w(.txt .md .markdown .csv .tsv .json .xml .yml .yaml .log)
