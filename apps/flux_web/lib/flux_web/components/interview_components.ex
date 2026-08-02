@@ -6,6 +6,33 @@ defmodule FluxWeb.InterviewComponents do
   """
   use Phoenix.Component
 
+  @pause_types ["interview", "human_input"]
+
+  attr :run, :map, required: true, doc: "the paused workflow run"
+  attr :graph, :map, required: true, doc: "the flux graph (for the step total)"
+
+  def interview_progress(assigns) do
+    total = Enum.count(assigns.graph["nodes"] || [], &(&1["type"] in @pause_types))
+
+    step =
+      assigns.run.node_executions
+      |> List.wrap()
+      |> Enum.filter(&(&1["node_type"] in @pause_types))
+      |> Enum.map(& &1["node_id"])
+      |> Enum.uniq()
+      |> length()
+      |> max(1)
+
+    assigns = assign(assigns, step: min(step, total), total: total)
+
+    ~H"""
+    <div :if={@total > 1} class="space-y-1">
+      <p class="text-xs font-semibold opacity-70">Step {@step} of {@total}</p>
+      <progress class="progress progress-primary w-40 h-1.5" value={@step} max={@total}></progress>
+    </div>
+    """
+  end
+
   attr :questions, :list, required: true
   attr :errors, :map, default: %{}
 

@@ -109,6 +109,55 @@ defmodule FluxWeb.InterviewNodeTest do
     assert finished.outputs == %{"who" => "Clara Clayton", "age" => "32"}
   end
 
+  test "interview progress reports step X of Y across pause nodes" do
+    import Phoenix.LiveViewTest, only: [render_component: 2]
+
+    graph = %{
+      "nodes" => [
+        %{"type" => "start"},
+        %{"id" => "iv1", "type" => "interview"},
+        %{"id" => "hi1", "type" => "human_input"},
+        %{"id" => "iv2", "type" => "interview"}
+      ]
+    }
+
+    first_pause = %{node_executions: [%{"node_id" => "iv1", "node_type" => "interview"}]}
+
+    html =
+      render_component(&FluxWeb.InterviewComponents.interview_progress/1,
+        run: first_pause,
+        graph: graph
+      )
+
+    assert html =~ "Step 1 of 3"
+
+    second_pause = %{
+      node_executions: [
+        %{"node_id" => "iv1", "node_type" => "interview"},
+        %{"node_id" => "hi1", "node_type" => "human_input"}
+      ]
+    }
+
+    html =
+      render_component(&FluxWeb.InterviewComponents.interview_progress/1,
+        run: second_pause,
+        graph: graph
+      )
+
+    assert html =~ "Step 2 of 3"
+
+    # A single pause node renders no stepper at all.
+    single = %{"nodes" => [%{"id" => "iv1", "type" => "interview"}]}
+
+    html =
+      render_component(&FluxWeb.InterviewComponents.interview_progress/1,
+        run: first_pause,
+        graph: single
+      )
+
+    refute html =~ "Step"
+  end
+
   test "the /v1 resume endpoint validates interview answers", %{
     conn: conn,
     scope: scope,

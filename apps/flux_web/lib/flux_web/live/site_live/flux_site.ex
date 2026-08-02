@@ -199,6 +199,7 @@ defmodule FluxWeb.SiteLive.FluxSite do
           class="rounded-box border border-warning/40 bg-warning/5 p-4 space-y-2"
         >
           <p class="text-sm font-semibold">Your input is needed</p>
+          <FluxWeb.InterviewComponents.interview_progress run={@run} graph={@version.graph} />
           <p class="text-sm">{@run.snapshot["prompt"]["prompt"]}</p>
           <div
             :if={List.wrap(@run.snapshot["prompt"]["options"]) != []}

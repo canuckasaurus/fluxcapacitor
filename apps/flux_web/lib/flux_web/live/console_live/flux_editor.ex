@@ -4056,6 +4056,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
               <p class="text-sm font-semibold">
                 <.icon name="hero-hand-raised" class="size-4 inline" /> Waiting for input
               </p>
+              <FluxWeb.InterviewComponents.interview_progress run={@run} graph={@graph} />
               <p class="text-sm">{@run.snapshot["prompt"]["prompt"]}</p>
               <div
                 :if={List.wrap(@run.snapshot["prompt"]["options"]) != []}
