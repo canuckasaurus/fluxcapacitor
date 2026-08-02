@@ -269,25 +269,32 @@ defmodule FluxWeb.ConsoleLive.Fluxes do
 
         <div class="divider text-xs opacity-60">or let the AI helper draft it</div>
 
-        <form phx-submit="ai_draft" class="space-y-3">
-          <label class="floating-label">
-            <span>Describe what the flux should do</span>
-            <textarea
-              name="description"
-              rows="3"
-              class="textarea w-full"
-              placeholder="Take a customer complaint, classify its urgency, draft a reply with the LLM, and return both."
-            ></textarea>
-          </label>
-          <p class="text-xs opacity-60">
-            Uses the workspace default model to draft nodes and wiring; the
-            graph is engine-validated before it becomes a draft, and nothing
-            is published without you.
-          </p>
-          <button class="btn btn-secondary" phx-disable-with="Drafting…">
-            <.icon name="hero-sparkles" class="size-4" /> Draft with AI
-          </button>
-        </form>
+        <div class="flex gap-4 items-start">
+          <img
+            src={~p"/images/ai-helper.jpg"}
+            alt="The AI helper"
+            class="hidden sm:block w-24 rounded-lg shrink-0"
+          />
+          <form phx-submit="ai_draft" class="space-y-3 flex-1">
+            <label class="floating-label">
+              <span>Describe what the flux should do</span>
+              <textarea
+                name="description"
+                rows="3"
+                class="textarea w-full"
+                placeholder="Take a customer complaint, classify its urgency, draft a reply with the LLM, and return both."
+              ></textarea>
+            </label>
+            <p class="text-xs opacity-60">
+              Uses the workspace default model to draft nodes and wiring; the
+              graph is engine-validated before it becomes a draft, and nothing
+              is published without you.
+            </p>
+            <button class="btn btn-secondary" phx-disable-with="Drafting…">
+              <.icon name="hero-sparkles" class="size-4" /> Draft with AI
+            </button>
+          </form>
+        </div>
       </div>
 
       <Layouts.empty_state

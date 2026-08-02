@@ -250,3 +250,15 @@ model → graph JSON → `Engine.build` validation with one corrective retry →
 draft; node catalog embedded from the node-reference guide, auto layout,
 reference-lint warnings surfaced, "Draft with AI" in the New Flux flow; 7 tests
 via injected fake model).
+
+23. ~~LlamaIndex plugin + brand art + docs refresh (2026-08-02)~~ ✅: **LlamaIndex
+tool plugin** (`llama_index` built-in: LlamaCloud managed-index `retrieve` with
+per-call or default pipeline, llama_deploy `run_workflow` as an in-flux function,
+`list_pipelines`; SSRF-guarded, bearer auth, validation falls back from the
+pipelines route to the deployments route for self-hosted servers; 8 Req.Test
+tests); **brand art placed** (AI-helper mascot → static assets + Draft-with-AI
+card, FLUX ASSISTANT banner compressed 2.6MB→226KB → docs/images + getting
+-started, docs viewer rewrites relative image paths so guides render on GitHub
+and in-console alike); **docs refresh** (plugin-sdk LlamaIndex section, stale
+code-node section rewritten for the coderunner + ML toolkit, getting-started
+covers Draft with AI, README plugins bullet).

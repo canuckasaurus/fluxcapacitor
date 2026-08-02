@@ -44,6 +44,10 @@ defmodule FluxWeb.ConsoleLive.Docs do
                   {:error, html, _warnings} -> html
                 end
 
+              # Guides reference images relative to docs/guides (GitHub
+              # renders those); in the console they serve from /images.
+              html = String.replace(html, ~s(src="../images/), ~s(src="/images/))
+
               {slug, {title, @anchor_headings.(html)}}
             end)
 

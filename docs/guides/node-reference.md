@@ -110,9 +110,14 @@ the transformed `output` plus `count`.
 
 ### `code`
 
-Runs a code snippet in the sandboxed runner (Elixir today; more via the
-coderunner container). The returned map's keys become outputs, plus
-`stdout`.
+Runs a code block through the flux-coderunner service (`python3` or
+`javascript`; `CODE_RUNNER_URL`, the `code` compose profile). Python
+blocks export `main(**inputs) -> dict`; the dict's keys become outputs,
+plus `stdout`. The **ML toolkit is pre-installed** — numpy, pandas,
+polars, scipy, scikit-learn, xgboost, lightgbm, statsmodels, nltk,
+matplotlib, pillow, opencv, requests and more import with no dependency
+entry; anything else installs per block through a cached venv.
+JavaScript runs in permissionless Deno (no network, env, or writes).
 
 ### `http_request`
 

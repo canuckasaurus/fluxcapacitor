@@ -14,7 +14,8 @@ defmodule Flux.PluginRuntime do
     Flux.Plugins.OpenAICompatible,
     Flux.Plugins.Echo,
     Flux.Plugins.Utility,
-    Flux.Plugins.RSS
+    Flux.Plugins.RSS,
+    Flux.Plugins.LlamaIndex
   ]
 
   @invoke_timeout :timer.minutes(5)

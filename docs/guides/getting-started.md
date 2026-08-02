@@ -1,5 +1,7 @@
 # Getting started
 
+![FluxCapacitor assistant](../images/flux-assistant.jpg)
+
 FluxCapacitor runs as a single Elixir/Phoenix umbrella on Postgres. This
 guide takes you from clone to a working workspace with a published app.
 
@@ -42,9 +44,12 @@ lands in the dev mailbox at `/dev/mailbox`).
    what nodes resolve.
 3. **Fluxes** → *New Flux* opens the canvas. Every flux starts with a
    `start → llm → answer` skeleton; bind the LLM node to a model and hit
-   *Run*. Publish a version when it works — the API, sites, schedules,
-   and chatflow apps always run the latest published version, never the
-   draft.
+   *Run*. Or skip the skeleton: describe what you want in **Draft with
+   AI** and the helper generates the nodes and wiring through the
+   workspace default model — every draft is engine-validated before it
+   reaches the canvas, and nothing publishes without you. Publish a
+   version when it works — the API, sites, schedules, and chatflow apps
+   always run the latest published version, never the draft.
 4. **Apps** → create a chat, completion, or chatflow app. Publish it as
    a public site, embed it with the iframe/bubble snippets, or mint an
    API key and call `/v1` (see the [service API guide](service-api.md)).

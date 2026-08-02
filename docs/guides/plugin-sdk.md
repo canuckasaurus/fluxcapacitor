@@ -73,4 +73,22 @@ a datasource *and* a trigger; Utilities is a tool *and* an endpoint.
 `anthropic.ex` / `gemini.ex` (streaming SSE, tool calls, vision),
 `openai_compatible.ex` (any base URL), `echo.ex` (deterministic
 chat/embed/rerank for CI and demos), `utility.ex` (tool + endpoint),
-`rss.ex` (datasource + trigger).
+`rss.ex` (datasource + trigger), `llama_index.ex` (tool).
+
+### LlamaIndex
+
+The `llama_index` tool plugin bridges to an existing LlamaIndex estate —
+LlamaCloud (`https://api.cloud.llamaindex.ai`) or any self-hosted
+llama_deploy server. Credentials: base URL, API key, and an optional
+default pipeline (index) id. Once installed, three functions are
+available to tool and agent nodes as the `plugin:llama_index`
+pseudo-toolset:
+
+| Operation | What it does |
+|---|---|
+| `retrieve` | top-k chunks (text + score) from a managed index; `pipeline_id` per call or the credential default |
+| `run_workflow` | calls a deployed llama_deploy workflow service as a function (`deployment`, `input` → its result) |
+| `list_pipelines` | the account's indexes with their ids — handy for discovery |
+
+So a flux can retrieve from the firm's LlamaIndex indexes, or delegate a
+whole step to a LlamaIndex workflow, without migrating anything.
