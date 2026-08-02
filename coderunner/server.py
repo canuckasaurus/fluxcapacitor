@@ -20,9 +20,15 @@ Languages:
                  scratch directory: no network, no env, no writes.
                  Dependencies are not supported yet.
 
-Phase 1 isolation is rlimits + throwaway dirs + an unprivileged user;
-the container itself is the outer boundary. Phase 2 adds a network
-namespace split so user code cannot reach the internal network.
+Isolation is rlimits + throwaway dirs + an unprivileged user, and —
+phase 2 — a network-namespace split: python user code runs under
+`unshare` in a fresh netns with no interfaces, so it cannot reach the
+docker network (JS gets the same property from Deno's permission
+model). The split is probed at boot and degrades loudly: when the
+kernel/seccomp profile forbids unprivileged user namespaces the runner
+logs a warning, reports network_isolation=false on /health, and falls
+back to phase-1 behaviour. Dependency installs (uv) stay in the normal
+namespace — they need the network by design.
 
 Stdlib only, on purpose: the service that runs untrusted code should
 have the smallest possible supply chain.
@@ -88,6 +94,35 @@ console.log("__FLUX_RESULT__" + JSON.stringify(result));
 
 _venv_locks: dict[str, threading.Lock] = {}
 _venv_locks_guard = threading.Lock()
+
+
+def _detect_netns():
+    """Whether `unshare` can give user code an empty network namespace.
+
+    Needs unprivileged user namespaces (kernel + seccomp). RUNNER_NETNS=off
+    skips the probe; anything else is auto-detect.
+    """
+    if os.environ.get("RUNNER_NETNS", "auto").lower() == "off":
+        return False
+    try:
+        probe = subprocess.run(
+            ["unshare", "--map-user=1000", "--net", "true"],
+            capture_output=True, timeout=10,
+        )
+        return probe.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+NETNS = _detect_netns()
+
+
+def isolate_network(argv):
+    """Prefix argv so it runs in a fresh netns (no interfaces, not even
+    loopback up) when the kernel allows it; identity otherwise."""
+    if NETNS:
+        return ["unshare", "--map-user=1000", "--net", *argv]
+    return argv
 
 
 def preinstalled_libraries():
@@ -237,7 +272,9 @@ def run_python(spec, workdir, timeout_ms):
         f.write(PY_WRAPPER)
 
     cpu = max(2, timeout_ms // 1000 + 1)
-    code, output = run_subprocess([python, "wrapper.py"], workdir, timeout_ms, cpu)
+    code, output = run_subprocess(
+        isolate_network([python, "wrapper.py"]), workdir, timeout_ms, cpu
+    )
 
     if code == 3:
         raise RunError("the code block's main() must return a dict/object")
@@ -323,7 +360,10 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/health":
             deno = shutil.which("deno") is not None
             uv = shutil.which("uv") is not None
-            self.reply(200, {"status": "up", "deno": deno, "uv": uv})
+            self.reply(
+                200,
+                {"status": "up", "deno": deno, "uv": uv, "network_isolation": NETNS},
+            )
         elif self.path == "/libraries":
             self.reply(200, {"python3": preinstalled_libraries()})
         else:
@@ -363,6 +403,14 @@ def main():
     server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     auth = "on" if API_KEY else "OFF"
     print(f"flux-coderunner listening on :{PORT} (auth {auth})", flush=True)
+    if NETNS:
+        print("network isolation: ON — python user code runs in an empty netns", flush=True)
+    else:
+        print(
+            "network isolation: OFF — unprivileged user namespaces unavailable; "
+            "python user code can reach the docker network (phase-1 behaviour)",
+            flush=True,
+        )
     server.serve_forever()
 
 

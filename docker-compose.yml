@@ -70,6 +70,11 @@ services:
   coderunner:
     build: ./coderunner
     profiles: ["code", "full"]
+    # Docker's default seccomp profile minus one restriction: `unshare`
+    # is allowed unprivileged, so user code can be confined to an empty
+    # network namespace (see coderunner/README.md, Isolation).
+    security_opt:
+      - seccomp=./coderunner/seccomp.json
     environment:
       CODE_RUNNER_API_KEY: ${CODE_RUNNER_API_KEY:-}
     ports:

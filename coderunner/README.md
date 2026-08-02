@@ -33,7 +33,7 @@ Deep learning stacks (torch, transformers…) are deliberately not baked
 in — CPU wheels add multiple GB. Declare them as block dependencies or
 extend `requirements-ml.txt` in your own build.
 
-## Isolation (phase 1)
+## Isolation
 
 - unprivileged user, throwaway working directory per run
 - rlimits: CPU = timeout, allocations 1 GB (`RUNNER_MEMORY_MB`, via
@@ -44,17 +44,22 @@ extend `requirements-ml.txt` in your own build.
 - process-group kill on timeout; stdout capped at 64 KB, results at 5 MB
 - dependency names validated before ever reaching a shell
 
-The container boundary is the outer wall: python subprocesses can still
-reach the docker network. Phase 2 adds a network-namespace split so user
-code gets no network at all.
+- **network split (phase 2)**: python user code executes under
+  `unshare` in a fresh network namespace with no interfaces — it cannot
+  reach the docker network (postgres, minio, the app). Dependency
+  installs run *outside* the namespace (they need PyPI); JS was already
+  network-less via Deno's permission model. Probed at boot: on kernels
+  without unprivileged user namespaces the runner logs a warning,
+  reports `network_isolation: false` on `/health`, and degrades to the
+  container boundary. `RUNNER_NETNS=off` disables the probe.
 
 ## Testing
 
 With the container running, `python coderunner/test_server.py` executes
-11 live checks: both languages, dependency install + venv cache, the
-error contract, and the sandbox properties (JS network denial, memory
-bomb killed by rlimit, timeout kill, injection-safe dependency names,
-zero-install ML toolkit).
+the live checks: both languages, dependency install + venv cache, the
+error contract, and the sandbox properties (JS network denial, python
+netns denial when reported, memory bomb killed by rlimit, timeout kill,
+injection-safe dependency names, zero-install ML toolkit).
 
 ## Contract
 

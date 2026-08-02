@@ -115,6 +115,28 @@ status, body = run({
 assert status == 422, (status, body)
 passed.append("js network blocked")
 
+# 8b. phase 2: python network isolation — asserted when the runner
+# reports it (kernels without unprivileged userns fall back to phase 1)
+with urllib.request.urlopen(BASE + "/health", timeout=10) as resp:
+    health = json.loads(resp.read())
+
+if health.get("network_isolation"):
+    status, body = run({
+        "language": "python3",
+        "code": (
+            "import socket\n"
+            "def main():\n"
+            "    socket.create_connection((\"postgres\", 5432), timeout=5)\n"
+            "    return {\"leak\": True}"
+        ),
+        "inputs": {},
+        "timeout_ms": 20000,
+    })
+    assert status == 422, (status, body)
+    passed.append("python network blocked (netns)")
+else:
+    print("SKIP: python netns isolation (runner reports network_isolation=false)")
+
 # 9. python memory bomb dies from rlimit, server survives
 status, body = run({
     "language": "python3",
@@ -157,4 +179,4 @@ passed.append("ML toolkit zero-install")
 
 for p in passed:
     print("PASS:", p)
-print(f"\n{len(passed)}/11 live coderunner checks passed")
+print(f"\n{len(passed)} live coderunner checks passed")
