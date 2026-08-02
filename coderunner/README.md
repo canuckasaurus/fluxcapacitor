@@ -48,6 +48,14 @@ The container boundary is the outer wall: python subprocesses can still
 reach the docker network. Phase 2 adds a network-namespace split so user
 code gets no network at all.
 
+## Testing
+
+With the container running, `python coderunner/test_server.py` executes
+11 live checks: both languages, dependency install + venv cache, the
+error contract, and the sandbox properties (JS network denial, memory
+bomb killed by rlimit, timeout kill, injection-safe dependency names,
+zero-install ML toolkit).
+
 ## Contract
 
 `POST /run` `{language, code, dependencies: [{name, version}], inputs,

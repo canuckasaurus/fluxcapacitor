@@ -29,4 +29,14 @@ defmodule FluxWeb.DocsLiveTest do
     {:ok, _lv, html} = live(conn, ~p"/console/docs/nope")
     assert html =~ "mix flux.demo"
   end
+
+  test "guide images rewrite to console paths and the assets exist", %{conn: conn} do
+    {:ok, _lv, html} = live(conn, ~p"/console/docs/getting-started")
+
+    # The markdown says ../images/ (GitHub-relative); in-app it must
+    # serve from /images/, and the static file must actually ship.
+    assert html =~ ~s(src="/images/flux-assistant.jpg")
+    refute html =~ "../images/"
+    assert File.exists?(Path.join(:code.priv_dir(:flux_web), "static/images/flux-assistant.jpg"))
+  end
 end

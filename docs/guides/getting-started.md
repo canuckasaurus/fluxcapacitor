@@ -58,6 +58,17 @@ lands in the dev mailbox at `/dev/mailbox`).
    hit-test retrieval. Wire a `knowledge` node to the dataset in any
    flux.
 
+## Testing
+
+`mix test` at the umbrella root runs everything (~560 tests) with no
+network — fake providers, injected converters, temp-dir storage. To run
+a single app's tests, `cd` into the app first; `mix test apps/flux`
+from the root silently runs nothing. Golden replay fixtures, `/v1`
+contract tests, and reference-parity traces ride along in the same
+suite; `coderunner/test_server.py` live-checks the code sandbox against
+its running container. See the README's Testing section for the full
+map.
+
 ## Where things live
 
 | Area | Console page |

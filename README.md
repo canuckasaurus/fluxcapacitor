@@ -202,9 +202,35 @@ before configuring any real provider credentials. `mix flux.demo` seeds a
 showcase workspace — a triage flux, a RAG chatflow, and an agent with a
 scratch drive — entirely on Echo.
 
+## Testing
+
 ```bash
-mix test             # full umbrella suite, hermetic (no network, fake or Echo providers)
+mix test                             # full umbrella suite (~560 tests), hermetic
 ```
+
+The suite runs with no network: providers stub through `Req.Test` or the
+deterministic Echo plugin, the PDF converter and code runner inject fake
+modules, and storage writes to a temp directory. To run one app's tests,
+`cd` into it first (`cd apps/flux && mix test`) — from the umbrella root,
+`mix test apps/flux` silently runs *nothing*.
+
+Beyond the unit/integration suite:
+
+- **Golden replay fixtures** (`apps/flux_web/test/support/golden/`) —
+  recorded runs re-execute on Echo and must reproduce their outputs and
+  per-node status sets. Record new ones from the editor's run history.
+- **Reference parity traces** (`harness/`) — deterministic DSL fixtures
+  recorded against a live instance of the reference platform replay on
+  our engine and must match its outputs and executed-node set exactly.
+- **`/v1` contract tests** — strict OpenAPI schemas
+  (`additionalProperties: false`) validated over every route.
+- **Coderunner live checks** (`coderunner/test_server.py`) — 11 checks
+  against the running container proving what mocks can't: JS network
+  denial, memory-bomb and timeout kills, dependency-name validation,
+  venv caching, and the zero-install ML toolkit.
+- **Perf guard** (opt-in: `mix test --include perf test/perf` in
+  `apps/flux_web`) — retrieval/monitor/rollup timings over a
+  10k-segment corpus.
 
 ## Configuration
 
@@ -218,6 +244,8 @@ Key environment variables in production (see `.env.docker.example`):
 | `FLUX_ROLE` | `all` (default), `web`, or `worker` — splits web serving from queue processing |
 | `FLUX_OIDC_*` | OIDC single sign-on (issuer, client id/secret) |
 | `FLUX_PDF_URL` | Gotenberg-compatible converter for document-node PDF output (`documents` compose profile) |
+| `FLUX_TIKA_URL` | Apache Tika server for office-format text extraction (`rag` compose profile) |
+| `CODE_RUNNER_URL`, `CODE_RUNNER_API_KEY` | The flux-coderunner service for code nodes (`code` compose profile) |
 | `FLUX_METRICS` | Expose Prometheus metrics at `/metrics` |
 | `FLUX_LOG_JSON` | Structured JSON logs |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | OpenTelemetry trace export |
