@@ -3750,8 +3750,8 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                     />
                   </label>
                   <p class="text-xs opacity-60">
-                    Native formats: text, markdown, CSV, JSON, HTML. Office formats
-                    need the Tika sidecar (Docker stack).
+                    Native formats: text, markdown, CSV, JSON, HTML, Word (.docx).
+                    Other office formats and PDF need Tika (FLUX_TIKA_URL).
                   </p>
                 <% "variable_aggregator" -> %>
                   <label class="floating-label">

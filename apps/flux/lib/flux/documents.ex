@@ -2,9 +2,10 @@ defmodule Flux.Documents do
   @moduledoc """
   Text extraction from uploaded files for the document-extractor node.
 
-  Native formats only for now — plain text, markdown, CSV, JSON, and HTML
-  (tags stripped via floki). Office formats arrive with the Tika sidecar
-  in the Docker stack (WS3).
+  Native formats — plain text, markdown, CSV, JSON, HTML (tags stripped
+  via floki), and Word .docx (zipped XML, read directly). Everything else
+  (xlsx, pptx, legacy .doc, PDF…) goes through `Flux.Tika` when a server
+  is configured, and fails with an honest error when not.
   """
 
   alias Flux.Chat.UploadedFile
@@ -54,10 +55,13 @@ defmodule Flux.Documents do
           {:error, "#{file.name} is not valid UTF-8 text"}
         end
 
+      Flux.Tika.configured?() ->
+        Flux.Tika.extract(binary, file.content_type)
+
       true ->
         {:error,
          "unsupported content type #{file.content_type || "unknown"} — " <>
-           "office formats need the Tika sidecar (Docker stack)"}
+           "office formats need Tika (set FLUX_TIKA_URL; the `rag` compose profile runs one)"}
     end
   end
 

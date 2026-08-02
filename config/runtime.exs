@@ -24,6 +24,12 @@ if pdf_url = System.get_env("FLUX_PDF_URL") do
   config :flux, Flux.Pdf, url: pdf_url
 end
 
+# FLUX_TIKA_URL: an Apache Tika server for office-format text extraction
+# (the `rag` compose profile provides one).
+if tika_url = System.get_env("FLUX_TIKA_URL") do
+  config :flux, Flux.Tika, url: tika_url
+end
+
 # FLUX_SSRF_ALLOW: comma-separated hostnames exempt from the outbound
 # HTTP guard (e.g. "localhost" for a local deploy calling local APIs).
 if allow = System.get_env("FLUX_SSRF_ALLOW") do

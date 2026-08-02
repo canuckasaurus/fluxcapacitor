@@ -11,7 +11,8 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: flux_prod
     ports:
-      - "5432:5432"
+      # 5433 on the host: leaves room for a host-installed Postgres on 5432.
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -85,6 +86,7 @@ services:
       S3_ENDPOINT: http://minio:9000
       FLUX_METRICS: "1"
       FLUX_PDF_URL: http://gotenberg:3000
+      FLUX_TIKA_URL: http://tika:9998
     ports:
       - "4000:4000"
 

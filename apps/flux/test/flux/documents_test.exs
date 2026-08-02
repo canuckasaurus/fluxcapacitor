@@ -53,11 +53,48 @@ defmodule Flux.DocumentsTest do
     refute text =~ "<p>"
   end
 
-  test "rejects binary formats until Tika", %{scope: scope, app: app, workspace: workspace} do
+  test "rejects binary formats when no Tika is configured", %{
+    scope: scope,
+    app: app,
+    workspace: workspace
+  } do
     file = upload!(scope, app, "report.xlsx", <<0, 1, 2, 3>>, "application/vnd.ms-excel")
 
     assert {:error, message} = Documents.extract(workspace.id, file.id)
-    assert message =~ "Tika"
+    assert message =~ "FLUX_TIKA_URL"
+  end
+
+  defmodule FakeTika do
+    def extract(binary, content_type) do
+      send(self(), {:tika_called, byte_size(binary), content_type})
+      {:ok, "Quarterly revenue: 1.21 GW"}
+    end
+  end
+
+  test "routes office formats through Tika when configured", %{
+    scope: scope,
+    app: app,
+    workspace: workspace
+  } do
+    Application.put_env(:flux, Flux.Tika, module: FakeTika)
+    on_exit(fn -> Application.delete_env(:flux, Flux.Tika) end)
+
+    xlsx_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    file = upload!(scope, app, "report.xlsx", <<80, 75, 3, 4>>, xlsx_type)
+
+    assert {:ok, %{text: "Quarterly revenue: 1.21 GW"}} =
+             Documents.extract(workspace.id, file.id)
+
+    assert_received {:tika_called, 4, ^xlsx_type}
+  end
+
+  test "native formats never reach Tika", %{scope: scope, app: app, workspace: workspace} do
+    Application.put_env(:flux, Flux.Tika, module: FakeTika)
+    on_exit(fn -> Application.delete_env(:flux, Flux.Tika) end)
+
+    file = upload!(scope, app, "notes.txt", "native path", "text/plain")
+    assert {:ok, %{text: "native path"}} = Documents.extract(workspace.id, file.id)
+    refute_received {:tika_called, _size, _type}
   end
 
   test "reads Word documents natively", %{scope: scope, app: app, workspace: workspace} do
