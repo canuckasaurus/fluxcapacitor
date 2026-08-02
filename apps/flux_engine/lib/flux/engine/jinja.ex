@@ -24,12 +24,16 @@ defmodule Flux.Engine.Jinja do
 
   @token ~r/(\{\{.*?\}\}|\{%.*?%\}|\{#.*?#\})/s
 
-  @spec render(String.t() | nil, map()) :: {:ok, String.t()} | {:error, String.t()}
-  def render(nil, _context), do: {:ok, ""}
+  @spec render(String.t() | nil, map(), keyword()) :: {:ok, String.t()} | {:error, String.t()}
+  def render(template, context, opts \\ [])
 
-  def render(template, context) when is_binary(template) do
+  def render(nil, _context, _opts), do: {:ok, ""}
+
+  def render(template, context, opts) when is_binary(template) do
+    escape = Keyword.get(opts, :escape, & &1)
+
     with {:ok, ast, []} <- template |> tokenize() |> parse_block([]) do
-      {:ok, render_ast(ast, context)}
+      {:ok, render_ast(ast, context, escape)}
     else
       {:ok, _ast, [token | _rest]} -> {:error, "unexpected #{describe(token)}"}
       {:error, message} -> {:error, message}
@@ -135,29 +139,32 @@ defmodule Flux.Engine.Jinja do
 
   ## Renderer
 
-  defp render_ast(nodes, context) do
-    Enum.map_join(nodes, "", &render_node(&1, context))
+  # `escape` applies to interpolated output values only — literal
+  # template text passes through untouched (the DOCX renderer relies on
+  # this: the literals are the document's own XML).
+  defp render_ast(nodes, context, escape) do
+    Enum.map_join(nodes, "", &render_node(&1, context, escape))
   end
 
-  defp render_node({:text, text}, _context), do: text
+  defp render_node({:text, text}, _context, _escape), do: text
 
-  defp render_node({:output, expr}, context) do
-    expr |> eval_pipeline(context) |> to_text()
+  defp render_node({:output, expr}, context, escape) do
+    expr |> eval_pipeline(context) |> to_text() |> escape.()
   end
 
-  defp render_node({:cond, branches}, context) do
+  defp render_node({:cond, branches}, context, escape) do
     branches
     |> Enum.find(fn
       {:else, _body} -> true
       {condition, _body} -> truthy?(eval_condition(condition, context))
     end)
     |> case do
-      {_condition, body} -> render_ast(body, context)
+      {_condition, body} -> render_ast(body, context, escape)
       nil -> ""
     end
   end
 
-  defp render_node({:for, var, source, body}, context) do
+  defp render_node({:for, var, source, body}, context, escape) do
     items = source |> eval_pipeline(context) |> as_list()
     total = length(items)
 
@@ -171,7 +178,7 @@ defmodule Flux.Engine.Jinja do
         "last" => index == total
       }
 
-      render_ast(body, context |> Map.put(var, item) |> Map.put("loop", loop))
+      render_ast(body, context |> Map.put(var, item) |> Map.put("loop", loop), escape)
     end)
   end
 
