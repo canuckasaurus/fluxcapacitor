@@ -30,7 +30,7 @@ final `message_end` carrying usage. Quota-exceeded apps return 429 with
 
 | Endpoint | Purpose |
 |---|---|
-| `POST /v1/workflows/run` | Run the latest published version. SSE by default (`workflow_started`, `node_started`, `text_chunk`, `node_finished`, `agent_part`, `workflow_finished`) or `response_mode: "blocking"` |
+| `POST /v1/workflows/run` | Run the latest published version. SSE by default (`workflow_started`, `node_started`, `text_chunk`, `node_finished`, `agent_part`, `workflow_finished`) or `response_mode: "blocking"`. Finished payloads carry `total_tokens` (input + output across every model call in the run) |
 | `POST /v1/workflows/runs/:id/resume` | Answer a paused `human_input` node with `input` |
 
 ## Knowledge (any valid token)

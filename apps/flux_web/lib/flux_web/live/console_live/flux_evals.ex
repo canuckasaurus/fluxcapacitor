@@ -387,7 +387,7 @@ defmodule FluxWeb.ConsoleLive.FluxEvals do
         </div>
 
         <p :if={@eval_runs == []} class="text-sm opacity-60">
-          No evaluation runs yet.
+          No evaluation runs yet — run one and find out whether this is heavy.
         </p>
 
         <table :if={@eval_runs != []} class="table table-sm">

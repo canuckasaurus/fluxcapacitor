@@ -56,9 +56,9 @@ orchestrator, no queue infrastructure beyond Postgres.
   that start runs), and **endpoints** (plugins that serve HTTP). Installed
   per workspace, credentials encrypted per workspace. Built-in **LlamaIndex
   tool plugin** (retrieve from LlamaCloud managed indexes or call
-  llama_deploy workflow services as functions inside a flux), plus **Notion**
-  and **S3-compatible** datasources and the **Label Studio** tool/datasource
-  connector.
+  llama_deploy workflow services as functions inside a flux), plus **Notion**,
+  **S3-compatible**, and **Google Drive** (service-account) datasources and
+  the **Label Studio** tool/datasource connector.
 - **Enterprise-grade tenancy** — workspaces with role-based access control
   (built-in + custom roles), **OIDC single sign-on**, **SCIM 2.0
   provisioning**, plan-based feature gating, a repo-level tenancy guard on

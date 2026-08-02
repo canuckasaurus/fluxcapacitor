@@ -78,6 +78,7 @@ map.
 | Area | Console page |
 |---|---|
 | Workflow canvas, runs, versions, triggers, variables | `/console/fluxes/:id` |
+| Batch runs (CSV-driven), evaluations | `/console/fluxes/:id/batches` · `/console/fluxes/:id/evals` |
 | Apps, chat settings, publishing, API keys | `/console/apps/:id` |
 | Monitoring, feedback, annotations, search | `/console/apps/:id/monitor` |
 | Datasets, documents, segments, hit testing | `/console/knowledge` |
@@ -85,7 +86,7 @@ map.
 | API toolsets (OpenAPI imports) | `/console/tools` |
 | Members, roles, invitations | `/console/members` |
 | Audit trail | `/console/audit` |
-| Workspace settings, SCIM, plan, export, retention | `/console/settings` |
+| Workspace settings, SCIM, plan, export, retention, outgoing webhooks | `/console/settings` |
 
 ## Production notes
 

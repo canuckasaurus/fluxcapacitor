@@ -137,7 +137,8 @@ defmodule FluxWeb.ConsoleLive.FluxBatches do
       <div class="card border border-base-200 p-6 space-y-3" id="batch-list-card">
         <h2 class="font-semibold">Batches</h2>
         <p :if={@batches == []} class="text-sm opacity-60">
-          No batches yet — upload a CSV above.
+          No batches yet — upload a CSV above. Where we're going, we don't
+          need roads; rows, however, are required.
         </p>
         <table :if={@batches != []} class="table table-sm">
           <thead>
