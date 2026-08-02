@@ -45,6 +45,32 @@ defmodule FluxWeb.WorkspaceSettingsLiveTest do
     assert html =~ "Enable SCIM"
   end
 
+  test "webhooks card adds, toggles, and removes endpoints", %{conn: conn, account: account} do
+    {:ok, lv, html} = live(conn, ~p"/console/settings")
+    assert html =~ "Outgoing webhooks"
+
+    html =
+      lv
+      |> form("#add-webhook-form", %{
+        "url" => "https://webhook-target.example.com/inbox",
+        "events" => ["run.failed"]
+      })
+      |> render_submit()
+
+    assert html =~ "Webhook added."
+    assert html =~ "https://webhook-target.example.com/inbox"
+    assert html =~ "whsec_"
+
+    [endpoint] = Flux.Webhooks.list_endpoints(Accounts.scope_for(account))
+    assert endpoint.events == ["run.failed"]
+
+    html = lv |> element("#webhook-#{endpoint.id} button", "Disable") |> render_click()
+    assert html =~ "Enable"
+
+    lv |> element("#webhook-#{endpoint.id} button", "Remove") |> render_click()
+    refute render(lv) =~ "https://webhook-target.example.com/inbox"
+  end
+
   test "normal members see no rename or danger zone", %{conn: _conn, workspace: workspace} do
     member = account_fixture()
 

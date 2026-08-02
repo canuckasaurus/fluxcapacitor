@@ -21,6 +21,8 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
        retention_days: Accounts.retention_days(scope),
        alert_url: Accounts.alert_url(scope),
        alert_secret: Accounts.alert_secret(scope),
+       can_webhooks: RBAC.can?(scope, :api_extension_manage),
+       webhooks: Flux.Webhooks.list_endpoints(scope),
        can_scim: RBAC.can?(scope, :workspace_member_manage),
        scim_enabled: Accounts.scim_enabled?(scope),
        scim_token: nil,
@@ -140,6 +142,54 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
 
       {:error, message} when is_binary(message) ->
         {:noreply, put_flash(socket, :error, message)}
+    end
+  end
+
+  def handle_event("add_webhook", params, socket) do
+    attrs = %{"url" => params["url"], "events" => Map.get(params, "events", [])}
+
+    case Flux.Webhooks.create_endpoint(socket.assigns.current_scope, attrs) do
+      {:ok, _endpoint} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Webhook added.")
+         |> assign(webhooks: Flux.Webhooks.list_endpoints(socket.assigns.current_scope))}
+
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "You don't have permission to manage webhooks.")}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {field, {message, _meta}} = List.first(changeset.errors)
+        {:noreply, put_flash(socket, :error, "#{field} #{message}")}
+    end
+  end
+
+  def handle_event("toggle_webhook", %{"id" => id}, socket) do
+    endpoint = Enum.find(socket.assigns.webhooks, &(&1.id == id))
+
+    with %{} <- endpoint,
+         {:ok, _updated} <-
+           Flux.Webhooks.update_endpoint(socket.assigns.current_scope, id, %{
+             "enabled" => !endpoint.enabled
+           }) do
+      {:noreply,
+       assign(socket, webhooks: Flux.Webhooks.list_endpoints(socket.assigns.current_scope))}
+    else
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not update the webhook.")}
+    end
+  end
+
+  def handle_event("delete_webhook", %{"id" => id}, socket) do
+    case Flux.Webhooks.delete_endpoint(socket.assigns.current_scope, id) do
+      {:ok, _deleted} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Webhook removed.")
+         |> assign(webhooks: Flux.Webhooks.list_endpoints(socket.assigns.current_scope))}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not remove the webhook.")}
     end
   end
 
@@ -273,6 +323,75 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
           Deliveries are signed: <span class="font-mono">x-flux-signature: sha256=HMAC(body)</span>
           with secret <span class="font-mono select-all">{@alert_secret}</span>
         </p>
+      </div>
+
+      <div :if={@can_webhooks} class="card border border-base-200 p-6 space-y-3" id="webhooks-card">
+        <h2 class="font-semibold">Outgoing webhooks</h2>
+        <p class="text-sm opacity-70">
+          Run lifecycle events POST a signed JSON payload to each endpoint
+          (<span class="font-mono">x-flux-signature: sha256=HMAC(body)</span> with the
+          endpoint's secret). Deliveries retry on failure.
+        </p>
+
+        <table :if={@webhooks != []} class="table table-xs">
+          <thead>
+            <tr>
+              <th>URL</th>
+              <th>Events</th>
+              <th>Secret</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={webhook <- @webhooks} id={"webhook-#{webhook.id}"}>
+              <td class="max-w-xs truncate">{webhook.url}</td>
+              <td class="text-xs">{Enum.join(webhook.events, ", ")}</td>
+              <td class="font-mono text-xs select-all">{webhook.secret}</td>
+              <td class="flex gap-1">
+                <button
+                  class={["btn btn-xs", (webhook.enabled && "btn-ghost") || "btn-warning"]}
+                  phx-click="toggle_webhook"
+                  phx-value-id={webhook.id}
+                >
+                  {(webhook.enabled && "Disable") || "Enable"}
+                </button>
+                <button
+                  class="btn btn-ghost btn-xs text-error"
+                  phx-click="delete_webhook"
+                  phx-value-id={webhook.id}
+                  data-confirm="Remove this webhook endpoint?"
+                >
+                  Remove
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <form phx-submit="add_webhook" id="add-webhook-form" class="space-y-2">
+          <div class="flex gap-2">
+            <input
+              type="url"
+              name="url"
+              required
+              placeholder="https://hooks.example.com/flux"
+              class="input input-bordered input-sm w-full max-w-md"
+            />
+            <button class="btn btn-primary btn-sm">Add webhook</button>
+          </div>
+          <div class="flex flex-wrap gap-3 text-sm">
+            <label :for={event <- Flux.Webhooks.run_events()} class="flex items-center gap-1">
+              <input
+                type="checkbox"
+                name="events[]"
+                value={event}
+                checked={event in ["run.succeeded", "run.failed"]}
+                class="checkbox checkbox-xs"
+              />
+              {event}
+            </label>
+          </div>
+        </form>
       </div>
 
       <div :if={@can_rename} class="card border border-base-200 p-6 space-y-3" id="export-card">

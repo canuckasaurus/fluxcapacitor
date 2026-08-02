@@ -850,6 +850,7 @@ defmodule Flux.Workflows do
     )
 
     if run.status == :failed, do: enqueue_alert(run)
+    Flux.Webhooks.dispatch_run_event(run)
 
     Phoenix.PubSub.broadcast(Flux.PubSub, topic(run.id), {:run_finished, run})
     {:ok, run}
