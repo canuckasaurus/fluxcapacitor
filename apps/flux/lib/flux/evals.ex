@@ -160,10 +160,13 @@ defmodule Flux.Evals do
 
     * `:version` — a published version number, or `nil` for the draft
     * `:grader` — `"exact"`, `"contains"`, or `"llm_judge"` (default)
+    * `:judge` — `"plugin_id|model"` for the judging model; `nil` uses
+      the workspace default
   """
   def start_eval(%Scope{} = scope, %EvalSet{} = set, opts \\ []) do
     grader = Keyword.get(opts, :grader, "llm_judge")
     version = Keyword.get(opts, :version)
+    judge = presence(Keyword.get(opts, :judge))
 
     with :ok <- RBAC.authorize(scope, :app_edit),
          true <- grader in @graders || {:error, :unknown_grader},
@@ -178,6 +181,7 @@ defmodule Flux.Evals do
           workflow_id: set.workflow_id,
           target: target,
           grader: grader,
+          judge: judge,
           graph: graph_map,
           total: length(cases)
         })
@@ -327,20 +331,45 @@ defmodule Flux.Evals do
     {"score": <number>, "reason": "<one sentence>"}
     """
 
-    case judge_fun().(eval_run.workspace_id, [%{role: :user, content: prompt}]) do
+    case judge_reply(eval_run, [%{role: :user, content: prompt}]) do
       {:ok, reply} -> parse_judge_reply(reply)
       {:error, :no_default_model} -> {0.0, "no workspace default model to judge with"}
       {:error, reason} -> {0.0, "judge errored: #{inspect(reason)}"}
     end
   end
 
-  defp judge_fun do
-    Application.get_env(
-      :flux,
-      :eval_judge,
-      &Workflows.invoke_default_llm_for_workspace/2
-    )
+  # Test injection wins; otherwise a per-eval judge ("plugin|model"),
+  # falling back to the workspace default model.
+  defp judge_reply(eval_run, messages) do
+    case Application.get_env(:flux, :eval_judge) do
+      nil ->
+        case parse_judge_choice(eval_run.judge) do
+          {plugin_id, model} ->
+            Workflows.invoke_model_for_workspace(
+              eval_run.workspace_id,
+              plugin_id,
+              model,
+              messages
+            )
+
+          nil ->
+            Workflows.invoke_default_llm_for_workspace(eval_run.workspace_id, messages)
+        end
+
+      fun when is_function(fun, 2) ->
+        fun.(eval_run.workspace_id, messages)
+    end
   end
+
+  defp parse_judge_choice(judge) do
+    case String.split(to_string(judge || ""), "|", parts: 2) do
+      [plugin_id, model] when plugin_id != "" and model != "" -> {plugin_id, model}
+      _default -> nil
+    end
+  end
+
+  defp presence(nil), do: nil
+  defp presence(text) when is_binary(text), do: with("" <- String.trim(text), do: nil)
 
   defp parse_judge_reply(reply) do
     with {:ok, start} <- find(reply, "{"),

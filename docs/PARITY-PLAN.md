@@ -298,3 +298,18 @@ Sheets->CSV, tests verify a real signature); **JS npm dependencies**
 (deno cache outside the sandbox, import map + --cached-only inside,
 exact versions). History scrub + stale-folder delete handed to the user
 as ! commands (classifier-blocked).
+
+26. ~~Native labeling replaces the sidecar (#143, 2026-08-02)~~ DONE: the
+Label Studio sidecar (shipped in #140) is REMOVED on the user's call --
+"integrated properly" beats a second auth/tenancy surface. **Native
+labeling**: labeling_projects (choice/multi/text schemas) + labeling_tasks
+under the tenancy guard; /console/labeling tagging GUI (one-task queue,
+choice buttons / multi checkboxes / free-text with answer prefill, skip,
+relabel from the labeled list, live counts); intake from monitor feedback
+("Label in <project>" per rated reply), CSV rows, or add_task; labeled
+sets export as JSONL for training code nodes -- label->train->serve with
+zero external services. Also: **batch runs target published versions**
+(graph snapshot per target, badge in the list) and **evals pick a judge
+model** ("plugin|model" per pass, workspace default otherwise, via the
+new Workflows.invoke_model_for_workspace). LS plugin/compose/bridge
+deleted; plugin count back to 9.

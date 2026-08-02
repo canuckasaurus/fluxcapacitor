@@ -22,6 +22,7 @@ defmodule FluxWeb.ConsoleLive.FluxBatches do
          |> assign(
            page_title: "Batch runs — #{workflow.name}",
            workflow: workflow,
+           versions: Workflows.list_versions(scope, workflow.id),
            batches: Workflows.list_batches(scope, workflow.id)
          )
          |> allow_upload(:csv, accept: ~w(.csv .txt), max_entries: 1, max_file_size: 2_000_000)}
@@ -37,9 +38,15 @@ defmodule FluxWeb.ConsoleLive.FluxBatches do
   @impl true
   def handle_event("validate", _params, socket), do: {:noreply, socket}
 
-  def handle_event("run_batch", _params, socket) do
+  def handle_event("run_batch", params, socket) do
     scope = socket.assigns.current_scope
     workflow = socket.assigns.workflow
+
+    version =
+      case params["target"] do
+        "v" <> number -> String.to_integer(number)
+        _draft -> nil
+      end
 
     uploads =
       consume_uploaded_entries(socket, :csv, fn %{path: path}, entry ->
@@ -48,7 +55,8 @@ defmodule FluxWeb.ConsoleLive.FluxBatches do
 
     with [{filename, text}] <- uploads,
          {:ok, rows} <- Flux.CSV.parse_with_header(text),
-         {:ok, _batch} <- Workflows.start_batch(scope, workflow, rows, name: filename) do
+         {:ok, _batch} <-
+           Workflows.start_batch(scope, workflow, rows, name: filename, version: version) do
       {:noreply,
        socket
        |> put_flash(:info, "Batch started — #{length(rows)} rows.")
@@ -68,7 +76,10 @@ defmodule FluxWeb.ConsoleLive.FluxBatches do
         {:noreply, put_flash(socket, :error, "Batches cap at #{max} rows — split the file.")}
 
       {:error, {:invalid_graph, [error | _rest]}} ->
-        {:noreply, put_flash(socket, :error, "The draft graph is invalid: #{error}")}
+        {:noreply, put_flash(socket, :error, "The target graph is invalid: #{error}")}
+
+      {:error, :version_not_found} ->
+        {:noreply, put_flash(socket, :error, "That published version no longer exists.")}
     end
   end
 
@@ -127,6 +138,12 @@ defmodule FluxWeb.ConsoleLive.FluxBatches do
             upload={@uploads.csv}
             class="file-input file-input-bordered file-input-sm"
           />
+          <select name="target" class="select select-bordered select-sm">
+            <option value="draft">draft</option>
+            <option :for={version <- @versions} value={"v#{version.version}"}>
+              v{version.version}
+            </option>
+          </select>
           <button class="btn btn-primary btn-sm">Run batch</button>
         </form>
         <p :for={err <- upload_errors(@uploads.csv)} class="text-sm text-error">
@@ -152,7 +169,10 @@ defmodule FluxWeb.ConsoleLive.FluxBatches do
           </thead>
           <tbody>
             <tr :for={batch <- @batches} id={"batch-#{batch.id}"}>
-              <td>{batch.name}</td>
+              <td>
+                {batch.name}
+                <span class="badge badge-ghost badge-xs ml-1">{batch.target}</span>
+              </td>
               <td class="text-xs opacity-70">{batch.inserted_at}</td>
               <td>
                 <span class="text-success">{batch.succeeded} ok</span>

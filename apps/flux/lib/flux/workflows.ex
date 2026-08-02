@@ -314,8 +314,9 @@ defmodule Flux.Workflows do
   @max_batch_rows 200
 
   @doc """
-  Starts a batch: the draft graph is validated and snapshotted, one run
-  per row executes sequentially in an Oban job, and counters advance as
+  Starts a batch: the target graph (`version: nil` = draft, or a
+  published version number) is validated and snapshotted, one run per
+  row executes sequentially in an Oban job, and counters advance as
   rows land (watch `batch_topic/1`). Caps at #{@max_batch_rows} rows.
   """
   def start_batch(%Scope{} = scope, %Workflow{} = workflow, rows, opts \\ [])
@@ -328,28 +329,43 @@ defmodule Flux.Workflows do
         {:error, {:too_many_rows, @max_batch_rows}}
 
       true ->
-        case Engine.build(workflow.graph) do
-          {:ok, _graph} ->
-            batch =
-              Repo.insert!(%WorkflowBatch{
-                workspace_id: Scope.workspace_id(scope),
-                workflow_id: workflow.id,
-                name: Keyword.get(opts, :name, "batch"),
-                graph: workflow.graph,
-                rows: rows,
-                total: length(rows)
-              })
+        with {:ok, graph_map, target} <-
+               resolve_batch_target(scope, workflow, Keyword.get(opts, :version)),
+             {:ok, _graph} <- validate_batch_graph(graph_map) do
+          batch =
+            Repo.insert!(%WorkflowBatch{
+              workspace_id: Scope.workspace_id(scope),
+              workflow_id: workflow.id,
+              name: Keyword.get(opts, :name, "batch"),
+              target: target,
+              graph: graph_map,
+              rows: rows,
+              total: length(rows)
+            })
 
-            {:ok, _job} =
-              %{"batch_id" => batch.id}
-              |> Flux.Workflows.BatchWorker.new()
-              |> Oban.insert()
+          {:ok, _job} =
+            %{"batch_id" => batch.id}
+            |> Flux.Workflows.BatchWorker.new()
+            |> Oban.insert()
 
-            {:ok, batch}
-
-          {:error, errors} ->
-            {:error, {:invalid_graph, errors}}
+          {:ok, batch}
         end
+    end
+  end
+
+  defp resolve_batch_target(_scope, workflow, nil), do: {:ok, workflow.graph, "draft"}
+
+  defp resolve_batch_target(scope, workflow, version) when is_integer(version) do
+    case get_version(scope, workflow.id, version) do
+      %WorkflowVersion{graph: graph} -> {:ok, graph, "v#{version}"}
+      {:error, :not_found} -> {:error, :version_not_found}
+    end
+  end
+
+  defp validate_batch_graph(graph_map) do
+    case Engine.build(graph_map) do
+      {:ok, graph} -> {:ok, graph}
+      {:error, errors} -> {:error, {:invalid_graph, errors}}
     end
   end
 
@@ -1243,6 +1259,16 @@ defmodule Flux.Workflows do
   """
   def invoke_default_llm(%Scope{} = scope, messages) do
     invoke_default_llm_for_workspace(Scope.workspace_id(scope), messages)
+  end
+
+  @doc "One-shot call to a *specific* provider/model (eval judges, workers)."
+  def invoke_model_for_workspace(workspace_id, plugin_id, model, messages) do
+    request = %{provider_plugin_id: plugin_id, model: model, messages: messages, params: %{}}
+
+    case build_llm_invoker(workspace_id).(request, fn _chunk -> :ok end) do
+      {:ok, %{content: content}} -> {:ok, content}
+      {:error, reason} -> {:error, "the model errored: #{inspect(reason)}"}
+    end
   end
 
   @doc "Like `invoke_default_llm/2` for callers that only hold a workspace id (workers)."

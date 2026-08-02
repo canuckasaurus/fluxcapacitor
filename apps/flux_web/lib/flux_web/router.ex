@@ -198,6 +198,7 @@ defmodule FluxWeb.Router do
     get "/fluxes/:id/batches/:batch_id/results", FluxDslController, :batch_results
     get "/apps/:id/export", FluxDslController, :export_app
     get "/apps/:id/finetune-export", FluxDslController, :finetune_export
+    get "/labeling/:id/export", FluxDslController, :labeling_export
     get "/templates/:id/file", DocTemplateController, :file
     post "/templates/:id/test-render", DocTemplateController, :test_render
 
@@ -215,6 +216,7 @@ defmodule FluxWeb.Router do
       live "/fluxes/:id/batches", ConsoleLive.FluxBatches, :index
       live "/fluxes/:id/evals", ConsoleLive.FluxEvals, :index
       live "/knowledge", ConsoleLive.Knowledge, :index
+      live "/labeling", ConsoleLive.Labeling, :index
       live "/plugins", ConsoleLive.Plugins, :index
       live "/tools", ConsoleLive.Tools, :index
       live "/templates", ConsoleLive.DocTemplates, :index

@@ -64,13 +64,15 @@ defmodule Flux.EvalsTest do
       ])
 
     assert length(cases) == 2
-    assert [_one, two, _three] = Evals.list_cases(scope, set.id)
-    assert two.inputs == %{"query" => "alpha"}
+    all_cases = Evals.list_cases(scope, set.id)
+    assert length(all_cases) == 3
+    alpha = Enum.find(all_cases, &(&1.inputs == %{"query" => "alpha"}))
+    assert alpha
 
     assert {:error, :missing_expected} =
              Evals.add_cases_from_rows(scope, set, [%{"query" => "no reference"}])
 
-    {:ok, _} = Evals.delete_case(scope, two.id)
+    {:ok, _} = Evals.delete_case(scope, alpha.id)
     assert length(Evals.list_cases(scope, set.id)) == 2
 
     {:ok, _} = Evals.delete_set(scope, set.id)
@@ -133,6 +135,27 @@ defmodule Flux.EvalsTest do
     assert result["score"] == 0.9
     assert result["reason"] == "close enough"
     assert finished.passed == 1
+  end
+
+  test "a specific judge model routes through that provider", %{
+    scope: scope,
+    workflow: workflow
+  } do
+    {:ok, set} = Evals.create_set(scope, workflow, %{"name" => "Judged by echo"})
+    {:ok, _} = Evals.add_case(scope, set, %{"inputs" => %{"query" => "x"}, "expected" => "y"})
+
+    {:ok, eval_run} = Evals.start_eval(scope, set, judge: "echo|echo-1")
+    assert eval_run.judge == "echo|echo-1"
+
+    :ok = Evals.perform_eval(eval_run.id)
+
+    # The echo judge answers in prose, not JSON — the grader stays honest
+    # and fails the case with a parse note, proving the chosen model ran.
+    finished = Evals.get_eval_run(scope, eval_run.id)
+    assert [result] = finished.results
+    assert result["score"] == 0.0
+    assert result["reason"] =~ "could not be parsed"
+    assert result["reason"] =~ "You said:"
   end
 
   test "evals can target a published version", %{scope: scope, workflow: workflow} do

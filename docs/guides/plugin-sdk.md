@@ -73,9 +73,8 @@ a datasource *and* a trigger; Utilities is a tool *and* an endpoint.
 `anthropic.ex` / `gemini.ex` (streaming SSE, tool calls, vision),
 `openai_compatible.ex` (any base URL), `echo.ex` (deterministic
 chat/embed/rerank for CI and demos), `utility.ex` (tool + endpoint),
-`rss.ex` (datasource + trigger), `llama_index.ex` (tool),
-`notion.ex` / `s3.ex` / `google_drive.ex` (datasources), and
-`label_studio.ex` (tool + datasource).
+`rss.ex` (datasource + trigger), `llama_index.ex` (tool), and
+`notion.ex` / `s3.ex` / `google_drive.ex` (datasources).
 
 ### Datasources: Notion, S3, Google Drive
 
@@ -88,15 +87,10 @@ on the 5-minute auto-sync cron):
 | `s3` | bucket, access keys, optional endpoint (MinIO/R2) + prefix | UTF-8 text objects under the prefix; binaries are refused honestly |
 | `google_drive` | service-account JSON key + optional folder id | Google Docs (exported as text), Sheets (as CSV), and text files shared with the service account — no OAuth dance |
 
-### Label Studio
-
-The `label_studio` plugin is both a tool and a datasource, pairing with
-the `labeling` compose profile. As a tool it exposes `list_projects`,
-`create_tasks` (queue items for human labeling), and
-`export_annotations` (labeled tasks as JSON — training data for a code
-node); as a datasource, labeled tasks sync into a knowledge dataset.
-The app monitor's feedback list can push rated replies straight to a
-project ("Send to labeling") once credentials are configured.
+> Data labeling is **not** a plugin: it's built into the console at
+> `/console/labeling` — projects, a tagging queue, CSV intake, relabeling,
+> and JSONL export for training code nodes. The app monitor pushes rated
+> replies straight into a project.
 
 ### LlamaIndex
 

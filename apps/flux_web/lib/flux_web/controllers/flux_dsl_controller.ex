@@ -117,6 +117,27 @@ defmodule FluxWeb.FluxDslController do
     end
   end
 
+  @doc "Downloads a labeling project's labeled tasks as JSONL."
+  def labeling_export(conn, %{"id" => project_id}) do
+    case Flux.Labeling.export_jsonl(conn.assigns.current_scope, project_id) do
+      {:ok, ""} ->
+        conn
+        |> put_flash(:error, "Nothing labeled yet.")
+        |> redirect(to: ~p"/console/labeling")
+
+      {:ok, jsonl} ->
+        send_download(
+          conn,
+          {:binary, jsonl <> "\n"},
+          filename: "labeled-tasks.jsonl",
+          content_type: "application/jsonl"
+        )
+
+      _error ->
+        conn |> put_flash(:error, "Project not found.") |> redirect(to: ~p"/console/labeling")
+    end
+  end
+
   @doc "Downloads an app's curated replies as fine-tune JSONL."
   def finetune_export(conn, %{"id" => id} = params) do
     filter = if params["filter"] == "all", do: :all, else: :liked

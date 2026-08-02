@@ -143,6 +143,28 @@ defmodule Flux.WorkflowsTest do
     assert Enum.at(runs, 2).outputs["answer"] =~ "You said: row three"
   end
 
+  test "batches can target a published version", %{scope: scope, workflow: workflow} do
+    {:ok, workflow} = Workflows.update_draft(scope, workflow, echo_graph())
+    {:ok, _version} = Workflows.publish(scope, workflow)
+
+    # Break the draft afterwards — the batch must still run the snapshot.
+    {:ok, workflow} = Workflows.update_draft(scope, workflow, %{"nodes" => [], "edges" => []})
+
+    {:ok, batch} =
+      Workflows.start_batch(scope, workflow, [%{"query" => "versioned"}],
+        name: "v.csv",
+        version: 1
+      )
+
+    assert batch.target == "v1"
+    :ok = Workflows.perform_batch(batch.id)
+
+    assert Workflows.get_batch(scope, batch.id).succeeded == 1
+
+    assert {:error, :version_not_found} =
+             Workflows.start_batch(scope, workflow, [%{"query" => "x"}], version: 9)
+  end
+
   test "start_batch rejects empty and oversized uploads", %{scope: scope, workflow: workflow} do
     {:ok, workflow} = Workflows.update_draft(scope, workflow, echo_graph())
 

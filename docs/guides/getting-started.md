@@ -82,6 +82,7 @@ map.
 | Apps, chat settings, publishing, API keys | `/console/apps/:id` |
 | Monitoring, feedback, annotations, search | `/console/apps/:id/monitor` |
 | Datasets, documents, segments, hit testing | `/console/knowledge` |
+| Data labeling: projects, tagging queue, JSONL export | `/console/labeling` |
 | Providers, tool/datasource plugins, credentials | `/console/plugins` |
 | API toolsets (OpenAPI imports) | `/console/tools` |
 | Members, roles, invitations | `/console/members` |

@@ -184,6 +184,12 @@ defmodule FluxWeb.Layouts do
               active={@active == :tools}
             />
             <.sidebar_link
+              navigate={~p"/console/labeling"}
+              icon="hero-tag"
+              label="Labeling"
+              active={@active == :labeling}
+            />
+            <.sidebar_link
               navigate={~p"/console/plugins"}
               icon="hero-puzzle-piece"
               label="Plugins"

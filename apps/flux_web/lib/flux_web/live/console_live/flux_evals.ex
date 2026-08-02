@@ -26,6 +26,7 @@ defmodule FluxWeb.ConsoleLive.FluxEvals do
            page_title: "Evaluations — #{workflow.name}",
            workflow: workflow,
            versions: Workflows.list_versions(scope, workflow.id),
+           models: Flux.Providers.available_models(scope),
            sets: sets,
            selected_set: List.first(sets),
            expanded_eval: nil
@@ -184,16 +185,23 @@ defmodule FluxWeb.ConsoleLive.FluxEvals do
     end
   end
 
-  def handle_event("run_eval", %{"target" => target, "grader" => grader}, socket) do
+  def handle_event("run_eval", %{"target" => target, "grader" => grader} = params, socket) do
     version =
       case target do
         "draft" -> nil
         "v" <> number -> String.to_integer(number)
       end
 
+    judge =
+      case params["judge"] do
+        "default" -> nil
+        judge -> judge
+      end
+
     case Evals.start_eval(socket.assigns.current_scope, socket.assigns.selected_set,
            grader: grader,
-           version: version
+           version: version,
+           judge: judge
          ) do
       {:ok, _eval_run} ->
         {:noreply, socket |> put_flash(:info, "Evaluation started.") |> assign_set_data()}
@@ -381,6 +389,15 @@ defmodule FluxWeb.ConsoleLive.FluxEvals do
               <option value="llm_judge">LLM judge</option>
               <option value="contains">contains</option>
               <option value="exact">exact</option>
+            </select>
+            <select name="judge" class="select select-bordered select-sm">
+              <option value="default">judge: workspace default</option>
+              <option
+                :for={%{plugin_id: plugin_id, model: model} <- @models}
+                value={"#{plugin_id}|#{model.name}"}
+              >
+                judge: {model.label || model.name}
+              </option>
             </select>
             <button class="btn btn-primary btn-sm">Run evaluation</button>
           </form>

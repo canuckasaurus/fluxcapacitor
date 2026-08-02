@@ -23,7 +23,7 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
          quality: Chat.quality_stats(scope, app.id),
          annotations: Chat.list_annotations(scope, app.id),
          can_edit: RBAC.can?(scope, :app_edit),
-         labeling_configured: Flux.Labeling.configured?(scope),
+         labeling_projects: Flux.Labeling.list_projects(scope),
          search_results: nil,
          selected_id: nil,
          messages: []
@@ -72,24 +72,21 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
     end
   end
 
-  def handle_event("send_to_labeling", %{"message-id" => message_id}, socket) do
+  def handle_event("send_to_labeling", %{"message-id" => message_id} = params, socket) do
     entry = Enum.find(socket.assigns.feedback, &(&1.message.id == message_id))
+    project_id = params["project-id"]
 
     with %{message: message, question: question} when is_binary(question) <- entry,
-         {:ok, _result} <-
-           Flux.Labeling.queue_item(socket.assigns.current_scope, %{
+         {:ok, _task} <-
+           Flux.Labeling.queue_item(socket.assigns.current_scope, project_id, %{
              "question" => question,
              "answer" => message.content,
              "feedback" => to_string(message.feedback)
            }) do
-      {:noreply, put_flash(socket, :info, "Queued for labeling in Label Studio.")}
+      {:noreply, put_flash(socket, :info, "Queued for labeling.")}
     else
-      {:error, :not_configured} ->
-        {:noreply,
-         put_flash(socket, :error, "Configure the Label Studio plugin credentials first.")}
-
-      {:error, reason} when is_binary(reason) ->
-        {:noreply, put_flash(socket, :error, "Label Studio said: #{reason}")}
+      {:error, :not_found} ->
+        {:noreply, put_flash(socket, :error, "That labeling project no longer exists.")}
 
       _error ->
         {:noreply, put_flash(socket, :error, "Could not queue the reply for labeling.")}
@@ -316,12 +313,14 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
             <.icon name="hero-bookmark" class="size-3" /> Save as annotation
           </button>
           <button
-            :if={@can_edit and @labeling_configured and question}
+            :for={project <- @labeling_projects}
+            :if={@can_edit and question}
             class="btn btn-outline btn-xs"
             phx-click="send_to_labeling"
             phx-value-message-id={message.id}
+            phx-value-project-id={project.id}
           >
-            <.icon name="hero-tag" class="size-3" /> Send to labeling
+            <.icon name="hero-tag" class="size-3" /> Label in {project.name}
           </button>
         </div>
       </div>

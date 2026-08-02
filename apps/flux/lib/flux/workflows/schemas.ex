@@ -68,6 +68,7 @@ defmodule Flux.Workflows.WorkflowBatch do
     belongs_to :workflow, Flux.Workflows.Workflow
 
     field :name, :string
+    field :target, :string, default: "draft"
     field :status, Ecto.Enum, values: [:running, :completed], default: :running
     field :graph, :map
     field :rows, {:array, :map}, default: []

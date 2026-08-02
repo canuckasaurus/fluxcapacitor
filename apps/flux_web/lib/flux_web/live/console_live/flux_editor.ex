@@ -1493,26 +1493,6 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     )
   end
 
-  # "file_id" or "file_id name.ext", one per line.
-  defp parse_attachments(nil, existing), do: List.wrap(existing)
-
-  defp parse_attachments(text, _existing) do
-    for line <- String.split(to_string(text), ~r/\r?\n/),
-        line = String.trim(line),
-        line != "" do
-      case String.split(line, ~r/\s+/, parts: 2) do
-        [file_id] -> %{"file_id" => file_id}
-        [file_id, name] -> %{"file_id" => file_id, "name" => name}
-      end
-    end
-  end
-
-  defp attachments_text(attachments) do
-    Enum.map_join(List.wrap(attachments), "\n", fn attachment ->
-      String.trim("#{attachment["file_id"]} #{attachment["name"]}")
-    end)
-  end
-
   defp build_config("agent", config, params) do
     {plugin_id, model} =
       case String.split(Map.get(params, "model_choice", ""), "|", parts: 2) do
@@ -1712,6 +1692,26 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
   end
 
   defp build_config(_type, config, _params), do: config
+
+  # "file_id" or "file_id name.ext", one per line.
+  defp parse_attachments(nil, existing), do: List.wrap(existing)
+
+  defp parse_attachments(text, _existing) do
+    for line <- String.split(to_string(text), ~r/\r?\n/),
+        line = String.trim(line),
+        line != "" do
+      case String.split(line, ~r/\s+/, parts: 2) do
+        [file_id] -> %{"file_id" => file_id}
+        [file_id, name] -> %{"file_id" => file_id, "name" => name}
+      end
+    end
+  end
+
+  defp attachments_text(attachments) do
+    Enum.map_join(List.wrap(attachments), "\n", fn attachment ->
+      String.trim("#{attachment["file_id"]} #{attachment["name"]}")
+    end)
+  end
 
   defp knowledge_dataset_ids(config) do
     (List.wrap(config["dataset_ids"]) ++ List.wrap(config["dataset_id"]))

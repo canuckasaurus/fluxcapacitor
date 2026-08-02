@@ -33,11 +33,13 @@ orchestrator, no queue infrastructure beyond Postgres.
   the draft over a CSV of inputs with live counters and a results export.
   Every run records **token usage and an estimated cost** (per-model
   breakdown; dashboard rollups). Liked replies and annotations export as
-  **fine-tune JSONL**, and the **Label Studio connector** closes the custom
-  model loop: queue replies for human labeling, pull annotations back as a
-  dataset or as training data for a code node. Code nodes persist trained
-  models as **run artifacts** (`./artifacts/`) and load them back as
-  **attachments** — label → train → serve entirely inside fluxes.
+  **fine-tune JSONL**, and **native data labeling** closes the custom model
+  loop: labeling projects with a tagging queue (single/multi choice or
+  free-text correction), rated replies pushed in from the monitor, CSV
+  intake, relabeling, and JSONL export. Code nodes persist trained models
+  as **run artifacts** (`./artifacts/`) and load them back as
+  **attachments** — label → train → serve entirely inside fluxes, no
+  external labeling service.
 - **Apps on top of fluxes** — chat, completion (form), and chatflow modes;
   published to logged-out visitors at a public URL, embedded via iframe or a
   floating chat bubble, or consumed through the `/v1` service API with
@@ -57,8 +59,7 @@ orchestrator, no queue infrastructure beyond Postgres.
   per workspace, credentials encrypted per workspace. Built-in **LlamaIndex
   tool plugin** (retrieve from LlamaCloud managed indexes or call
   llama_deploy workflow services as functions inside a flux), plus **Notion**,
-  **S3-compatible**, and **Google Drive** (service-account) datasources and
-  the **Label Studio** tool/datasource connector.
+  **S3-compatible**, and **Google Drive** (service-account) datasources.
 - **Enterprise-grade tenancy** — workspaces with role-based access control
   (built-in + custom roles), **OIDC single sign-on**, **SCIM 2.0
   provisioning**, plan-based feature gating, a repo-level tenancy guard on

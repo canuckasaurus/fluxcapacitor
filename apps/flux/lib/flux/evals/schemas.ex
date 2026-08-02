@@ -66,6 +66,7 @@ defmodule Flux.Evals.EvalRun do
 
     field :target, :string
     field :grader, :string
+    field :judge, :string
     field :status, Ecto.Enum, values: [:running, :completed], default: :running
     field :graph, :map
     field :total, :integer, default: 0
