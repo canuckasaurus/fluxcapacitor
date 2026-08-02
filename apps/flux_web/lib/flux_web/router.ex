@@ -214,6 +214,7 @@ defmodule FluxWeb.Router do
       live "/plugins", ConsoleLive.Plugins, :index
       live "/tools", ConsoleLive.Tools, :index
       live "/templates", ConsoleLive.DocTemplates, :index
+      live "/interviews", ConsoleLive.Interviews, :index
       live "/docs", ConsoleLive.Docs, :index
       live "/docs/:guide", ConsoleLive.Docs, :index
       live "/members", ConsoleLive.Members, :index

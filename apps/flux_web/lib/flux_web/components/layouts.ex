@@ -163,6 +163,12 @@ defmodule FluxWeb.Layouts do
               label="Doc templates"
               active={@active == :templates}
             />
+            <.sidebar_link
+              navigate={~p"/console/interviews"}
+              icon="hero-clipboard-document-check"
+              label="Interviews"
+              active={@active == :interviews}
+            />
 
             <.sidebar_section label="Ground" />
             <.sidebar_link
