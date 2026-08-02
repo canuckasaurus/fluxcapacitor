@@ -50,14 +50,22 @@ defmodule FluxWeb.ConsoleLive.FluxEvals do
 
     case socket.assigns.selected_set do
       nil ->
-        assign(socket, cases: [], eval_runs: [])
+        assign(socket, cases: [], eval_runs: [], recent_runs: [])
 
       set ->
         assign(socket,
           cases: Evals.list_cases(scope, set.id),
-          eval_runs: Evals.list_eval_runs(scope, set.id)
+          eval_runs: Evals.list_eval_runs(scope, set.id),
+          recent_runs: recent_succeeded_runs(scope, socket.assigns.workflow.id)
         )
     end
+  end
+
+  defp recent_succeeded_runs(scope, workflow_id) do
+    scope
+    |> Workflows.list_runs(workflow_id, 50)
+    |> Enum.filter(&(&1.status == :succeeded))
+    |> Enum.take(15)
   end
 
   defp reload_sets(socket, keep_id \\ nil) do
@@ -110,6 +118,29 @@ defmodule FluxWeb.ConsoleLive.FluxEvals do
 
       _error ->
         {:noreply, put_flash(socket, :error, "The expected answer is required.")}
+    end
+  end
+
+  def handle_event("add_case_from_run", %{"run_id" => run_id}, socket) do
+    case Evals.add_case_from_run(
+           socket.assigns.current_scope,
+           socket.assigns.selected_set,
+           run_id
+         ) do
+      {:ok, _case} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Case captured — the run's output is now the reference.")
+         |> assign_set_data()}
+
+      {:error, :not_succeeded} ->
+        {:noreply, put_flash(socket, :error, "Only succeeded runs capture as cases.")}
+
+      {:error, {:too_many_cases, max}} ->
+        {:noreply, put_flash(socket, :error, "Sets cap at #{max} cases.")}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not capture that run.")}
     end
   end
 
@@ -301,6 +332,22 @@ defmodule FluxWeb.ConsoleLive.FluxEvals do
             />
             <button class="btn btn-sm">Add case</button>
           </div>
+        </form>
+
+        <form
+          :if={@recent_runs != []}
+          phx-submit="add_case_from_run"
+          id="add-case-from-run-form"
+          class="flex items-center gap-2"
+        >
+          <select name="run_id" class="select select-bordered select-sm max-w-md">
+            <option :for={run <- @recent_runs} value={run.id}>
+              {Calendar.strftime(run.inserted_at, "%m-%d %H:%M")} · {run.inputs
+              |> Jason.encode!()
+              |> String.slice(0, 60)}
+            </option>
+          </select>
+          <button class="btn btn-sm">Capture run as case</button>
         </form>
 
         <form

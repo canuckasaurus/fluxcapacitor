@@ -413,6 +413,17 @@ defmodule Flux.Workflows do
       |> Repo.update_all([set: [status: "completed"]], skip_workspace_guard: true)
 
       broadcast_batch(batch)
+
+      finished = Repo.get(WorkflowBatch, batch.id, skip_workspace_guard: true)
+
+      Flux.Webhooks.dispatch(batch.workspace_id, "batch.completed", %{
+        "batch_id" => batch.id,
+        "workflow_id" => batch.workflow_id,
+        "name" => batch.name,
+        "total" => finished.total,
+        "succeeded" => finished.succeeded,
+        "failed" => finished.failed
+      })
     end
 
     :ok

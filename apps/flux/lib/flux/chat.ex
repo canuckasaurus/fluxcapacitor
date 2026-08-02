@@ -224,8 +224,21 @@ defmodule Flux.Chat do
   @doc "Records end-user feedback (like/dislike/nil to clear) on a message."
   def set_feedback(%Scope{} = scope, message_id, rating) when rating in [:like, :dislike, nil] do
     case Repo.one(Repo.scoped(where(Message, id: ^message_id), scope)) do
-      nil -> {:error, :not_found}
-      message -> message |> Ecto.Changeset.change(feedback: rating) |> Repo.update()
+      nil ->
+        {:error, :not_found}
+
+      message ->
+        with {:ok, updated} <- message |> Ecto.Changeset.change(feedback: rating) |> Repo.update() do
+          if rating != nil do
+            Flux.Webhooks.dispatch(updated.workspace_id, "feedback.created", %{
+              "message_id" => updated.id,
+              "conversation_id" => updated.conversation_id,
+              "feedback" => to_string(rating)
+            })
+          end
+
+          {:ok, updated}
+        end
     end
   end
 

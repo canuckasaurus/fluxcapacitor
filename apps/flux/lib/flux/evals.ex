@@ -262,6 +262,17 @@ defmodule Flux.Evals do
         topic(eval_run.workflow_id),
         {:eval_updated, eval_run.id}
       )
+
+      Flux.Webhooks.dispatch(eval_run.workspace_id, "eval.completed", %{
+        "eval_run_id" => eval_run.id,
+        "eval_set_id" => eval_run.eval_set_id,
+        "workflow_id" => eval_run.workflow_id,
+        "target" => eval_run.target,
+        "grader" => eval_run.grader,
+        "passed" => passed,
+        "failed" => length(results) - passed,
+        "avg_score" => avg
+      })
     end
 
     :ok

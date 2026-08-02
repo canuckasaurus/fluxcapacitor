@@ -18,8 +18,12 @@ defmodule Flux.Webhooks do
   alias Flux.Webhooks.Endpoint
 
   @run_events ~w(run.succeeded run.failed run.paused run.stopped)
+  @other_events ~w(batch.completed eval.completed feedback.created)
 
   def run_events, do: @run_events
+
+  @doc "Every subscribable event."
+  def events, do: @run_events ++ @other_events
 
   def list_endpoints(%Scope{} = scope) do
     Endpoint
@@ -68,15 +72,18 @@ defmodule Flux.Webhooks do
   supervised tasks), so endpoints are loaded by workspace directly.
   """
   def dispatch_run_event(run) do
-    event = "run.#{run.status}"
+    dispatch(run.workspace_id, "run.#{run.status}", run_payload("run.#{run.status}", run))
+  end
 
+  @doc "Thin fan-out for any event; the payload gets the event name merged in."
+  def dispatch(workspace_id, event, payload) do
     endpoints =
       Repo.all(
         from e in Endpoint,
-          where: e.workspace_id == type(^run.workspace_id, :binary_id) and e.enabled == true
+          where: e.workspace_id == type(^workspace_id, :binary_id) and e.enabled == true
       )
 
-    payload = run_payload(event, run)
+    payload = Map.put(payload, "event", event)
 
     for endpoint <- endpoints, event in endpoint.events or "*" in endpoint.events do
       %{"url" => endpoint.url, "secret" => endpoint.secret, "payload" => payload}

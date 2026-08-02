@@ -236,9 +236,17 @@ defmodule FluxWeb.AppChatLiveTest do
     {:ok, lv, html} = live(conn, ~p"/console/apps/#{app.id}/monitor")
     assert html =~ "web_test"
 
-    # Usage rollup shows the assistant reply and its echo-provider tokens.
+    # Usage rollup shows the assistant reply and its echo-provider tokens,
+    # priced against the app's bound model when the table knows it.
     assert html =~ "Usage (last 14 days)"
     assert html =~ "Tokens out"
+
+    Application.put_env(:flux, :model_pricing, %{"echo-1" => {1.0, 2.0}})
+    on_exit(fn -> Application.delete_env(:flux, :model_pricing) end)
+
+    {:ok, _lv, priced} = live(conn, ~p"/console/apps/#{app.id}/monitor")
+    assert priced =~ "Est. cost"
+    assert priced =~ "echo-1"
 
     # The conversation is auto-titled from its first question.
     html = lv |> element("button", "monitor me") |> render_click()

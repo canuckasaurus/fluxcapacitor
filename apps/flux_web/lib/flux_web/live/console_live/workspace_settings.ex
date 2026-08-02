@@ -380,7 +380,7 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
             <button class="btn btn-primary btn-sm">Add webhook</button>
           </div>
           <div class="flex flex-wrap gap-3 text-sm">
-            <label :for={event <- Flux.Webhooks.run_events()} class="flex items-center gap-1">
+            <label :for={event <- Flux.Webhooks.events()} class="flex items-center gap-1">
               <input
                 type="checkbox"
                 name="events[]"

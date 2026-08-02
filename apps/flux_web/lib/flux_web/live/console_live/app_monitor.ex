@@ -126,6 +126,21 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
     end
   end
 
+  # Direct-model apps price against their bound model; chatflow apps get
+  # their cost on the flux runs instead (nil here hides the stat).
+  defp estimated_cost(app, usage) do
+    input = usage |> Enum.map(&(&1.input_tokens || 0)) |> Enum.sum()
+    output = usage |> Enum.map(&(&1.output_tokens || 0)) |> Enum.sum()
+
+    with model when is_binary(model) <- app.model,
+         true <- input + output > 0,
+         {:ok, cost} <- Flux.Pricing.estimate(model, input, output) do
+      cost
+    else
+      _unknown_or_zero -> nil
+    end
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -166,6 +181,13 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
               <div class="stat-value text-lg">
                 {@usage |> Enum.map(&(&1.output_tokens || 0)) |> Enum.sum()}
               </div>
+            </div>
+            <div :if={estimated_cost(@app, @usage)} class="stat py-1 px-4" id="app-cost">
+              <div class="stat-title text-xs">Est. cost</div>
+              <div class="stat-value text-lg">
+                ~${:erlang.float_to_binary(estimated_cost(@app, @usage), decimals: 4)}
+              </div>
+              <div class="stat-desc">{@app.model}</div>
             </div>
           </div>
         </div>

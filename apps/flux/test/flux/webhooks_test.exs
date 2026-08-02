@@ -132,4 +132,41 @@ defmodule Flux.WebhooksTest do
     assert job.args["payload"]["total_tokens"] == 15
     assert String.starts_with?(job.args["secret"], "whsec_")
   end
+
+  test "batch, eval, and feedback events fan out too", %{scope: scope} do
+    {:ok, _endpoint} =
+      Webhooks.create_endpoint(scope, %{
+        "url" => "https://hooks.example.com/everything",
+        "events" => ["*"]
+      })
+
+    # feedback.created via a rated chat reply
+    {:ok, app} =
+      Flux.Chat.create_app(scope, %{
+        "name" => "Hooked App",
+        "provider_plugin_id" => "echo",
+        "model" => "echo-1"
+      })
+
+    conversation = Flux.Chat.create_conversation(scope, app)
+    {:ok, _u, _a} = Flux.Chat.send_message(scope, app, conversation, "rate me")
+    assert_receive {:done, reply}, 5_000
+    {:ok, _} = Flux.Chat.set_feedback(scope, reply.id, :like)
+
+    events =
+      all_enqueued(worker: Flux.Workflows.AlertWorker)
+      |> Enum.map(& &1.args["payload"]["event"])
+
+    assert "feedback.created" in events
+
+    # unknown event names are rejected at registration
+    assert {:error, changeset} =
+             Webhooks.create_endpoint(scope, %{
+               "url" => "https://hooks.example.com/x",
+               "events" => ["batch.completed", "nope"]
+             })
+
+    assert %{events: [message]} = errors_on(changeset)
+    assert message =~ "nope"
+  end
 end

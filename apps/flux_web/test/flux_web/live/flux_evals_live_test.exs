@@ -93,4 +93,26 @@ defmodule FluxWeb.FluxEvalsLiveTest do
     assert html =~ "Per-case results"
     assert html =~ "You said: alpha"
   end
+
+  test "a succeeded run captures as a case", %{conn: conn, scope: scope, workflow: workflow} do
+    {:ok, _run} = Workflows.start_run(scope, workflow, %{"query" => "capture me"})
+    assert_receive {:run_finished, %{status: :succeeded}}, 5_000
+
+    {:ok, lv, _html} = live(conn, ~p"/console/fluxes/#{workflow.id}/evals")
+    lv |> form("#create-set-form", %{"name" => "Captured"}) |> render_submit()
+
+    [run] = Workflows.list_runs(scope, workflow.id)
+
+    html =
+      lv
+      |> form("#add-case-from-run-form", %{"run_id" => run.id})
+      |> render_submit()
+
+    assert html =~ "Case captured"
+
+    [set] = Evals.list_sets(scope, workflow.id)
+    [eval_case] = Evals.list_cases(scope, set.id)
+    assert eval_case.inputs == %{"query" => "capture me"}
+    assert eval_case.expected =~ "You said: capture me"
+  end
 end

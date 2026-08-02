@@ -44,7 +44,7 @@ defmodule Flux.Webhooks.Endpoint do
   end
 
   defp validate_events(changeset) do
-    valid = ["*" | Flux.Webhooks.run_events()]
+    valid = ["*" | Flux.Webhooks.events()]
 
     changeset
     |> update_change(:events, &Enum.uniq/1)
