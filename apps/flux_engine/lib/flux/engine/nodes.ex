@@ -1896,3 +1896,54 @@ defmodule Flux.Engine.Nodes.EndNode do
     {:ok, outputs}
   end
 end
+
+defmodule Flux.Engine.Nodes.Document do
+  @moduledoc """
+  Fills a Word doc template from the variable pool and stores the result
+  as a run file — the assembly step of a docassemble-style flow.
+
+  Config: `template_id` (a docx doc template), optional `output_name`
+  (templated filename, defaults to the template's own name). Outputs
+  `%{"file_id", "name", "url", "size"}` from the host's `store_file`.
+  """
+  @behaviour Flux.Engine.Node
+
+  alias Flux.Engine.{Docx, Host, Template}
+
+  @impl true
+  def run(node, pool, host) do
+    with {:ok, fetch, store} <- capabilities(host),
+         {:ok, template_id} <- require_template(node),
+         {:ok, %{binary: binary, name: template_name}} <- fetch.(template_id),
+         {:ok, filled} <- Docx.render(binary, pool),
+         {:ok, stored} <- store.(%{name: output_name(node, pool, template_name), binary: filled}) do
+      {:ok, stored}
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp capabilities(%Host{fetch_docx_template: fetch, store_file: store})
+       when is_function(fetch, 1) and is_function(store, 1),
+       do: {:ok, fetch, store}
+
+  defp capabilities(_host), do: {:error, "this run's host cannot fill documents"}
+
+  defp require_template(node) do
+    case to_string(node.config["template_id"] || "") do
+      "" -> {:error, "the document node needs a doc template"}
+      template_id -> {:ok, template_id}
+    end
+  end
+
+  defp output_name(node, pool, template_name) do
+    name =
+      case to_string(node.config["output_name"] || "") do
+        "" -> template_name
+        templated -> Template.render(templated, pool)
+      end
+
+    name = name |> String.trim() |> String.replace(~r/[^\w\.\- ]/u, "_")
+    if String.ends_with?(String.downcase(name), ".docx"), do: name, else: name <> ".docx"
+  end
+end

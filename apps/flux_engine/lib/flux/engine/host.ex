@@ -17,6 +17,9 @@ defmodule Flux.Engine.Host do
             run_subflux: nil,
             retrieve_knowledge: nil,
             fetch_doc_template: nil,
+            fetch_docx_template: nil,
+            store_file: nil,
+            fetch_interview: nil,
             default_llm: nil
 
   @typedoc """
@@ -38,6 +41,9 @@ defmodule Flux.Engine.Host do
           run_subflux: (map() -> {:ok, map()} | {:error, term()}) | nil,
           retrieve_knowledge: (map() -> {:ok, [map()]} | {:error, term()}) | nil,
           fetch_doc_template: (String.t() -> {:ok, String.t()} | {:error, term()}) | nil,
+          fetch_docx_template: (String.t() -> {:ok, map()} | {:error, term()}) | nil,
+          store_file: (map() -> {:ok, map()} | {:error, term()}) | nil,
+          fetch_interview: (String.t() -> {:ok, map()} | {:error, term()}) | nil,
           default_llm: %{optional(String.t()) => String.t()} | nil
         }
 

@@ -106,6 +106,11 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
       label: "Knowledge",
       icon: "hero-book-open",
       accent: "bg-success/10 text-success"
+    },
+    "document" => %{
+      label: "Document",
+      icon: "hero-document-arrow-down",
+      accent: "bg-accent/10 text-accent"
     }
   }
 
@@ -137,15 +142,18 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     "loop" => "Repeats a published sub-flux until a break condition matches (a bounded while).",
     "human_input" => "Pauses the run and asks a person; it resumes with their reply.",
     "knowledge_retrieval" =>
-      "Searches your knowledge datasets (hybrid retrieval) and returns the best passages with citations."
+      "Searches your knowledge datasets (hybrid retrieval) and returns the best passages with citations.",
+    "document" =>
+      "Fills a Word doc template with your variables and outputs the finished file for download."
   }
 
   @addable_types ~w(llm knowledge_retrieval if_else question_classifier parameter_extractor
-                    document_extractor iteration loop human_input template tool http_request code
-                    agent variable_aggregator variable_assigner list_operator answer end)
+                    document_extractor iteration loop human_input template document tool
+                    http_request code agent variable_aggregator variable_assigner list_operator
+                    answer end)
   @zoom_levels [50, 65, 80, 100, 125, 150]
   @failable_types ~w(llm tool http_request code agent question_classifier parameter_extractor
-                     document_extractor iteration loop knowledge_retrieval)
+                     document_extractor iteration loop knowledge_retrieval document)
   @history_cap 50
 
   @impl true
@@ -1437,6 +1445,12 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     |> Map.put("template_id", Map.get(params, "template_id", config["template_id"] || ""))
   end
 
+  defp build_config("document", config, params) do
+    config
+    |> Map.put("template_id", Map.get(params, "template_id", config["template_id"] || ""))
+    |> Map.put("output_name", Map.get(params, "output_name", config["output_name"] || ""))
+  end
+
   defp build_config("http_request", config, params) do
     config
     |> Map.put("method", Map.get(params, "method", config["method"] || "get"))
@@ -1887,7 +1901,8 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     "iteration" => ~w(output count),
     "loop" => ~w(output rounds condition_met),
     "human_input" => ~w(output),
-    "knowledge_retrieval" => ~w(result citations count)
+    "knowledge_retrieval" => ~w(result citations count),
+    "document" => ~w(url name file_id size)
   }
 
   defp variable_hints(graph, selected_id) do
@@ -2783,7 +2798,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                         None — use the inline template below
                       </option>
                       <option
-                        :for={doc_template <- @doc_templates}
+                        :for={doc_template <- Enum.filter(@doc_templates, &(&1.kind != "docx"))}
                         value={doc_template.id}
                         selected={node["config"]["template_id"] == doc_template.id}
                       >
@@ -2811,6 +2826,41 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                       disabled={not @can_edit}
                     >{node["config"]["template"]}</textarea>
                   </label>
+                <% "document" -> %>
+                  <label class="floating-label">
+                    <span>Word template (upload one under Doc templates)</span>
+                    <select
+                      name="template_id"
+                      class="select select-sm w-full"
+                      disabled={not @can_edit}
+                    >
+                      <option value="" selected={node["config"]["template_id"] in [nil, ""]}>
+                        Choose a Word template…
+                      </option>
+                      <option
+                        :for={doc_template <- Enum.filter(@doc_templates, &(&1.kind == "docx"))}
+                        value={doc_template.id}
+                        selected={node["config"]["template_id"] == doc_template.id}
+                      >
+                        {doc_template.name}
+                      </option>
+                    </select>
+                  </label>
+                  <label class="floating-label">
+                    <span>Output filename (templated, optional)</span>
+                    <input
+                      type="text"
+                      name="output_name"
+                      value={node["config"]["output_name"]}
+                      placeholder={"Engagement letter - {{start.client_name}}"}
+                      class="input input-sm w-full font-mono"
+                      disabled={not @can_edit}
+                    />
+                  </label>
+                  <p class="text-xs opacity-60">
+                    Fills the template with this run's variables; downstream nodes see
+                    <code>{"{{#{node["id"]}.url}}"}</code> and <code>{"{{#{node["id"]}.name}}"}</code>.
+                  </p>
                 <% "http_request" -> %>
                   <div class="flex gap-2">
                     <select name="method" class="select select-sm w-28" disabled={not @can_edit}>

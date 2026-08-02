@@ -71,6 +71,14 @@ defmodule FluxWeb.Router do
     get "/", PageController, :home
   end
 
+  ## Run-file downloads (the file_… token is the authorization)
+
+  scope "/files", FluxWeb do
+    pipe_through :browser
+
+    get "/:token", FileController, :download
+  end
+
   ## Public published app sites (token in path is the authorization)
 
   scope "/site", FluxWeb do

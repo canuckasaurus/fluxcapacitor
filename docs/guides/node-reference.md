@@ -34,6 +34,7 @@ then see `%{"error", "is_error"}` as its outputs. Retries are per-node
 | `iteration` | Runs a published sub-flux once per list item | `variable`, `workflow_id`, `max_items` | `output` (list), `count` |
 | `loop` | Bounded while over a published sub-flux | `workflow_id`, `initial`, `max_loops`, break `conditions` | `output`, `rounds`, `condition_met`, `history` |
 | `human_input` | Pauses the run for a person | `prompt`, `options` | `output` (the reply, after resume) |
+| `document` | Fills a Word doc template into a downloadable file | `template_id`, `output_name` | `url`, `name`, `file_id`, `size` |
 | `answer` | Streams/records the user-facing answer | `answer` template | `answer` |
 | `end` | Maps run outputs explicitly | `outputs` (key/value) | the mapped keys |
 
@@ -155,6 +156,16 @@ Pauses the run and asks a person. Configure the `prompt` and optional
 choice `options`; the run parks as `paused` and resumes from the
 console, a public site, or `POST /v1/workflows/runs/:id/resume`. The
 reply lands in `output`.
+
+### `document`
+
+Fills a **Word doc template** (uploaded under Doc templates) with the
+run's variables and stores the finished .docx — the docassemble-style
+assembly step. Author templates in Word with `{{ tags }}` inline,
+`{%p if … %}` / `{%p endfor %}` paragraphs, and `{%tr for … %}` table
+rows. `output_name` templates the filename. Outputs `url` (a tokenized
+download link that works from the console, public sites, and the API),
+`name`, `file_id`, and `size`.
 
 ### `answer`
 

@@ -215,4 +215,73 @@ defmodule FluxWeb.DocTemplatesTest do
     assert html =~ "Word"
     assert html =~ "who"
   end
+
+  test "a document node fills a Word template in a real run", %{conn: conn, scope: scope} do
+    {:ok, template} =
+      DocTemplates.create_docx(scope, %{
+        binary: docx_binary("This letter concerns {{ start.matter }}."),
+        name: "Letter"
+      })
+
+    {:ok, workflow} = Flux.Workflows.create_workflow(scope, %{"name" => "Letter Flux"})
+
+    graph = %{
+      "nodes" => [
+        %{
+          "id" => "start",
+          "type" => "start",
+          "title" => "Start",
+          "position" => %{"x" => 0, "y" => 0},
+          "config" => %{
+            "variables" => [%{"name" => "matter", "type" => "text", "required" => true}]
+          }
+        },
+        %{
+          "id" => "doc",
+          "type" => "document",
+          "title" => "Fill letter",
+          "position" => %{"x" => 300, "y" => 0},
+          "config" => %{
+            "template_id" => template.id,
+            "output_name" => "Letter - {{start.matter}}"
+          }
+        },
+        %{
+          "id" => "end",
+          "type" => "end",
+          "title" => "End",
+          "position" => %{"x" => 600, "y" => 0},
+          "config" => %{
+            "outputs" => [
+              %{"key" => "url", "value" => "{{doc.url}}"},
+              %{"key" => "name", "value" => "{{doc.name}}"}
+            ]
+          }
+        }
+      ],
+      "edges" => [
+        %{"id" => "e1", "source" => "start", "source_handle" => "default", "target" => "doc"},
+        %{"id" => "e2", "source" => "doc", "source_handle" => "default", "target" => "end"}
+      ]
+    }
+
+    {:ok, workflow} = Flux.Workflows.update_draft(scope, workflow, graph)
+    {:ok, _run} = Flux.Workflows.start_run(scope, workflow, %{"matter" => "the estate"})
+    assert_receive {:run_finished, finished}, 5_000
+
+    assert finished.status == :succeeded
+    assert finished.outputs["name"] == "Letter - the estate.docx"
+    assert "/files/file_" <> _token = finished.outputs["url"]
+
+    # The tokenized URL serves the filled document with no session.
+    download = build_conn() |> get(finished.outputs["url"])
+    assert download.status == 200
+    {:ok, entries} = :zip.unzip(download.resp_body, [:memory])
+    {_name, xml} = List.keyfind(entries, ~c"word/document.xml", 0)
+    assert to_string(xml) =~ "This letter concerns the estate."
+
+    # A bogus token 404s.
+    assert build_conn() |> get(~p"/files/file_bogus") |> Map.fetch!(:status) == 404
+    _ = conn
+  end
 end

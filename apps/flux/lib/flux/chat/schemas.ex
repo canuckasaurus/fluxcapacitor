@@ -186,6 +186,7 @@ defmodule Flux.Chat.UploadedFile do
     field :size, :integer
     field :content_type, :string
     field :end_user_ref, :string
+    field :download_token, :string
 
     timestamps(type: :utc_datetime)
   end

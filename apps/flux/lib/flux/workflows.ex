@@ -794,9 +794,71 @@ defmodule Flux.Workflows do
       fetch_doc_template: fn template_id ->
         Flux.DocTemplates.fetch_content(workspace_id, template_id)
       end,
+      fetch_docx_template: fn template_id ->
+        Flux.DocTemplates.fetch_docx(workspace_id, template_id)
+      end,
+      store_file: build_file_store(workspace_id),
       default_llm: Providers.default_model_for_workspace(workspace_id)
     }
   end
+
+  @docx_content_type "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+  # Run outputs (filled documents) persist as uploaded files with an
+  # unguessable download token — the token is the authorization, so the
+  # same URL works from the console, public sites, and /v1 responses.
+  defp build_file_store(workspace_id) do
+    fn %{name: name, binary: binary} ->
+      key = "run_outputs/#{workspace_id}/#{Ecto.UUID.generate()}-#{name}"
+      token = "file_" <> Base.url_encode64(:crypto.strong_rand_bytes(18), padding: false)
+
+      with :ok <- Flux.Storage.put(key, binary) do
+        file =
+          Repo.insert!(%Flux.Chat.UploadedFile{
+            workspace_id: workspace_id,
+            name: name,
+            key: key,
+            size: byte_size(binary),
+            content_type: content_type_for(name),
+            download_token: token
+          })
+
+        {:ok,
+         %{
+           "file_id" => file.id,
+           "name" => name,
+           "url" => "/files/#{token}",
+           "size" => byte_size(binary)
+         }}
+      end
+    end
+  end
+
+  defp content_type_for(name) do
+    case name |> Path.extname() |> String.downcase() do
+      ".docx" -> @docx_content_type
+      ".pdf" -> "application/pdf"
+      _other -> "application/octet-stream"
+    end
+  end
+
+  @doc """
+  Resolves a run-file download token to its metadata and bytes. The
+  token is the authorization (unguessable, minted per file).
+  """
+  def fetch_file_by_token("file_" <> _rest = token) do
+    with %Flux.Chat.UploadedFile{} = file <-
+           Repo.get_by(Flux.Chat.UploadedFile, [download_token: token],
+             skip_workspace_guard: true
+           ),
+         {:ok, binary} <- Flux.Storage.get(file.key) do
+      {:ok, %{name: file.name, content_type: file.content_type, binary: binary}}
+    else
+      _missing -> {:error, :not_found}
+    end
+  end
+
+  def fetch_file_by_token(_token), do: {:error, :not_found}
 
   # Resolved at call time: core does not compile-depend on flux_rag
   # (dependency direction is flux_rag -> flux), mirroring the plugin
