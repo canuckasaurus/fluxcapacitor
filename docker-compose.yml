@@ -56,6 +56,14 @@ services:
     ports:
       - "9998:9998"
 
+  # Documents profile: Gotenberg converts document-node output to PDF
+  # (set FLUX_PDF_URL=http://gotenberg:3000 on the app).
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    profiles: ["documents", "full"]
+    ports:
+      - "3005:3000"
+
   app:
     build: .
     profiles: ["full"]
@@ -76,6 +84,7 @@ services:
       S3_SECRET_ACCESS_KEY: fluxminio123
       S3_ENDPOINT: http://minio:9000
       FLUX_METRICS: "1"
+      FLUX_PDF_URL: http://gotenberg:3000
     ports:
       - "4000:4000"
 

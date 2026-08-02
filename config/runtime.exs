@@ -18,6 +18,12 @@ if System.get_env("PHX_SERVER") do
   config :flux_web, FluxWeb.Endpoint, server: true
 end
 
+# FLUX_PDF_URL: a Gotenberg-compatible converter for document-node PDF
+# output (the `documents` compose profile provides one).
+if pdf_url = System.get_env("FLUX_PDF_URL") do
+  config :flux, Flux.Pdf, url: pdf_url
+end
+
 # FLUX_SSRF_ALLOW: comma-separated hostnames exempt from the outbound
 # HTTP guard (e.g. "localhost" for a local deploy calling local APIs).
 if allow = System.get_env("FLUX_SSRF_ALLOW") do

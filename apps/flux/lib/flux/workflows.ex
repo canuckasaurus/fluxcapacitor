@@ -832,29 +832,38 @@ defmodule Flux.Workflows do
   # unguessable download token — the token is the authorization, so the
   # same URL works from the console, public sites, and /v1 responses.
   defp build_file_store(workspace_id) do
-    fn %{name: name, binary: binary} ->
-      key = "run_outputs/#{workspace_id}/#{Ecto.UUID.generate()}-#{name}"
-      token = "file_" <> Base.url_encode64(:crypto.strong_rand_bytes(18), padding: false)
-
-      with :ok <- Flux.Storage.put(key, binary) do
-        file =
-          Repo.insert!(%Flux.Chat.UploadedFile{
-            workspace_id: workspace_id,
-            name: name,
-            key: key,
-            size: byte_size(binary),
-            content_type: content_type_for(name),
-            download_token: token
-          })
-
-        {:ok,
-         %{
-           "file_id" => file.id,
-           "name" => name,
-           "url" => "/files/#{token}",
-           "size" => byte_size(binary)
-         }}
+    fn %{name: name, binary: binary} = request ->
+      with {:ok, binary} <- maybe_convert(request[:format], binary) do
+        store_run_output(workspace_id, name, binary)
       end
+    end
+  end
+
+  defp maybe_convert("pdf", docx_binary), do: Flux.Pdf.convert_docx(docx_binary)
+  defp maybe_convert(_format, binary), do: {:ok, binary}
+
+  defp store_run_output(workspace_id, name, binary) do
+    key = "run_outputs/#{workspace_id}/#{Ecto.UUID.generate()}-#{name}"
+    token = "file_" <> Base.url_encode64(:crypto.strong_rand_bytes(18), padding: false)
+
+    with :ok <- Flux.Storage.put(key, binary) do
+      file =
+        Repo.insert!(%Flux.Chat.UploadedFile{
+          workspace_id: workspace_id,
+          name: name,
+          key: key,
+          size: byte_size(binary),
+          content_type: content_type_for(name),
+          download_token: token
+        })
+
+      {:ok,
+       %{
+         "file_id" => file.id,
+         "name" => name,
+         "url" => "/files/#{token}",
+         "size" => byte_size(binary)
+       }}
     end
   end
 

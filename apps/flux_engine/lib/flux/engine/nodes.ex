@@ -1912,11 +1912,18 @@ defmodule Flux.Engine.Nodes.Document do
 
   @impl true
   def run(node, pool, host) do
+    format = (node.config["output_format"] == "pdf" && "pdf") || "docx"
+
     with {:ok, fetch, store} <- capabilities(host),
          {:ok, template_id} <- require_template(node),
          {:ok, %{binary: binary, name: template_name}} <- fetch.(template_id),
          {:ok, filled} <- Docx.render(binary, pool),
-         {:ok, stored} <- store.(%{name: output_name(node, pool, template_name), binary: filled}) do
+         {:ok, stored} <-
+           store.(%{
+             name: output_name(node, pool, template_name, format),
+             binary: filled,
+             format: format
+           }) do
       {:ok, stored}
     else
       {:error, reason} -> {:error, reason}
@@ -1936,15 +1943,20 @@ defmodule Flux.Engine.Nodes.Document do
     end
   end
 
-  defp output_name(node, pool, template_name) do
+  defp output_name(node, pool, template_name, format) do
     name =
       case to_string(node.config["output_name"] || "") do
         "" -> template_name
         templated -> Template.render(templated, pool)
       end
 
-    name = name |> String.trim() |> String.replace(~r/[^\w\.\- ]/u, "_")
-    if String.ends_with?(String.downcase(name), ".docx"), do: name, else: name <> ".docx"
+    name =
+      name
+      |> String.trim()
+      |> String.replace(~r/[^\w\.\- ]/u, "_")
+      |> String.replace(~r/\.(docx|pdf)$/i, "")
+
+    name <> "." <> format
   end
 end
 

@@ -11,13 +11,16 @@ orchestrator, no queue infrastructure beyond Postgres.
 
 ## What it does
 
-- **Visual workflow engine** — 21 node types (LLM, agent loops, branching,
+- **Visual workflow engine** — 23 node types (LLM, agent loops, branching,
   iteration and bounded loops over sub-fluxes, code execution, HTTP, knowledge
   retrieval, human-input pause/resume, classifiers, extractors, and more) with
   retries, error branches, **parallel branch fan-out**, model fallback chains,
   environment/conversation variables, versioning, and rollback. Template nodes
   render simple `{{refs}}`, a **Jinja subset** (filters, conditionals, loops),
-  or reusable **doc templates** from a workspace library.
+  or reusable **doc templates** from a workspace library. **Document
+  assembly**, docassemble-style: upload Word templates with Jinja tags, run
+  stored **interviews** (reusable question forms that pause a run), and the
+  document node fills the template into a downloadable .docx or PDF.
 - **Apps on top of fluxes** — chat, completion (form), and chatflow modes;
   published to logged-out visitors at a public URL, embedded via iframe or a
   floating chat bubble, or consumed through the `/v1` service API with
@@ -56,7 +59,7 @@ that the core builds per run.
 ```mermaid
 flowchart TB
     subgraph web["apps/flux_web — Phoenix"]
-        console["Console (LiveView)\nflux editor · knowledge · plugins\ndoc templates · in-app docs\nmonitoring · audit · members"]
+        console["Console (LiveView)\nflux editor · knowledge · plugins\ndoc templates · interviews · in-app docs\nmonitoring · audit · members"]
         sites["Public sites\n/site/:token · embeds"]
         api["/v1 service API\nSSE streaming · app tokens\nOIDC SSO · SCIM 2.0"]
     end
@@ -70,7 +73,7 @@ flowchart TB
     end
 
     subgraph engine["apps/flux_engine — pure"]
-        runner["Runner\n21 node types · retries\nparallel branches · Jinja\npause/resume · sub-fluxes"]
+        runner["Runner\n23 node types · retries\nparallel branches · Jinja\npause/resume · sub-fluxes"]
     end
 
     subgraph runtime["apps/flux_plugin_runtime"]
@@ -168,7 +171,7 @@ The guides live in `docs/guides` and also render **inside the console** at
 `/console/docs` (they compile into the release):
 
 - [Getting started](docs/guides/getting-started.md) — clone to published app, including `mix flux.demo`, production notes, and localization
-- [Node reference](docs/guides/node-reference.md) — all 21 node types in detail, branching, parallel fan-out, sub-fluxes
+- [Node reference](docs/guides/node-reference.md) — all 23 node types in detail, branching, parallel fan-out, sub-fluxes
 - [Plugin SDK](docs/guides/plugin-sdk.md) — the five capability behaviours with a worked example
 - [Service API](docs/guides/service-api.md) — the `/v1` surface, SSE framing, webhooks, SCIM
 
@@ -208,6 +211,7 @@ Key environment variables in production (see `.env.docker.example`):
 | `STORAGE_BACKEND=s3` + `S3_*` | File storage backend (local disk by default; any S3-compatible endpoint, e.g. MinIO) |
 | `FLUX_ROLE` | `all` (default), `web`, or `worker` — splits web serving from queue processing |
 | `FLUX_OIDC_*` | OIDC single sign-on (issuer, client id/secret) |
+| `FLUX_PDF_URL` | Gotenberg-compatible converter for document-node PDF output (`documents` compose profile) |
 | `FLUX_METRICS` | Expose Prometheus metrics at `/metrics` |
 | `FLUX_LOG_JSON` | Structured JSON logs |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | OpenTelemetry trace export |

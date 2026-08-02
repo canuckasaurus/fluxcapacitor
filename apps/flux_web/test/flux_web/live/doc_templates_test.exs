@@ -285,6 +285,71 @@ defmodule FluxWeb.DocTemplatesTest do
     _ = conn
   end
 
+  defmodule FakePdf do
+    def convert_docx(_docx), do: {:ok, "%PDF-1.7 fake"}
+  end
+
+  test "pdf output converts through the configured converter", %{scope: scope} do
+    {:ok, template} =
+      DocTemplates.create_docx(scope, %{
+        binary: docx_binary("Re: {{ start.matter }}"),
+        name: "Memo"
+      })
+
+    {:ok, workflow} = Flux.Workflows.create_workflow(scope, %{"name" => "PDF Flux"})
+
+    graph = %{
+      "nodes" => [
+        %{
+          "id" => "start",
+          "type" => "start",
+          "title" => "Start",
+          "position" => %{"x" => 0, "y" => 0},
+          "config" => %{
+            "variables" => [%{"name" => "matter", "type" => "text", "required" => true}]
+          }
+        },
+        %{
+          "id" => "doc",
+          "type" => "document",
+          "title" => "Fill",
+          "position" => %{"x" => 300, "y" => 0},
+          "config" => %{"template_id" => template.id, "output_format" => "pdf"}
+        }
+      ],
+      "edges" => [
+        %{"id" => "e1", "source" => "start", "source_handle" => "default", "target" => "doc"}
+      ]
+    }
+
+    {:ok, workflow} = Flux.Workflows.update_draft(scope, workflow, graph)
+
+    # No converter configured: the node fails loudly.
+    original = Application.get_env(:flux, Flux.Pdf)
+    on_exit(fn -> restore_pdf_config(original) end)
+    Application.delete_env(:flux, Flux.Pdf)
+
+    {:ok, _run} = Flux.Workflows.start_run(scope, workflow, %{"matter" => "x"})
+    assert_receive {:run_finished, failed}, 5_000
+    assert failed.status == :failed
+    assert failed.error =~ "FLUX_PDF_URL"
+
+    # With a converter, the output is the converted PDF.
+    Application.put_env(:flux, Flux.Pdf, module: FakePdf)
+
+    {:ok, _run} = Flux.Workflows.start_run(scope, workflow, %{"matter" => "y"})
+    assert_receive {:run_finished, finished}, 5_000
+    assert finished.status == :succeeded
+    assert finished.outputs["name"] == "Memo.pdf"
+
+    download = build_conn() |> get(finished.outputs["url"])
+    assert download.resp_body == "%PDF-1.7 fake"
+    assert get_resp_header(download, "content-type") |> hd() =~ "application/pdf"
+  end
+
+  defp restore_pdf_config(nil), do: Application.delete_env(:flux, Flux.Pdf)
+  defp restore_pdf_config(value), do: Application.put_env(:flux, Flux.Pdf, value)
+
   test "one click scaffolds an interview flux from a Word template", %{
     conn: conn,
     scope: scope

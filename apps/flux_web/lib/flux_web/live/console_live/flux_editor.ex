@@ -1461,6 +1461,10 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     config
     |> Map.put("template_id", Map.get(params, "template_id", config["template_id"] || ""))
     |> Map.put("output_name", Map.get(params, "output_name", config["output_name"] || ""))
+    |> Map.put(
+      "output_format",
+      Map.get(params, "output_format", config["output_format"] || "docx")
+    )
   end
 
   defp build_config("interview", config, params) do
@@ -2875,6 +2879,24 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                       class="input input-sm w-full font-mono"
                       disabled={not @can_edit}
                     />
+                  </label>
+                  <label class="floating-label">
+                    <span>Output format</span>
+                    <select
+                      name="output_format"
+                      class="select select-sm w-52"
+                      disabled={not @can_edit}
+                    >
+                      <option
+                        value="docx"
+                        selected={node["config"]["output_format"] in [nil, "", "docx"]}
+                      >
+                        Word (.docx)
+                      </option>
+                      <option value="pdf" selected={node["config"]["output_format"] == "pdf"}>
+                        PDF (needs FLUX_PDF_URL)
+                      </option>
+                    </select>
                   </label>
                   <p class="text-xs opacity-60">
                     Fills the template with this run's variables; downstream nodes see
