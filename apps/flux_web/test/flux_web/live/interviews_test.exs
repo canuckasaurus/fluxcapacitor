@@ -77,6 +77,49 @@ defmodule FluxWeb.InterviewsTest do
     assert errors["state"] =~ "must be one of"
   end
 
+  test "date, email, and regex-pattern questions validate", %{scope: scope} do
+    questions =
+      Interviews.normalize_questions([
+        %{"name" => "dob", "type" => "date", "required" => true},
+        %{"name" => "contact", "type" => "email", "required" => true},
+        %{
+          "name" => "file_no",
+          "type" => "text",
+          "pattern" => "^F-\\d{4}$",
+          "pattern_hint" => "must look like F-1234"
+        }
+      ])
+
+    assert {:ok, answers} =
+             Interviews.validate_answers(questions, %{
+               "dob" => "1985-10-26",
+               "contact" => "doc@hillvalley.edu",
+               "file_no" => "F-0088"
+             })
+
+    assert answers["dob"] == "1985-10-26"
+
+    assert {:error, errors} =
+             Interviews.validate_answers(questions, %{
+               "dob" => "Oct 26",
+               "contact" => "not-an-email",
+               "file_no" => "88"
+             })
+
+    assert errors["dob"] =~ "YYYY-MM-DD"
+    assert errors["contact"] =~ "email"
+    assert errors["file_no"] == "must look like F-1234"
+
+    # A pattern that doesn't compile is rejected at save time.
+    assert {:error, changeset} =
+             Interviews.create(scope, %{
+               "name" => "Bad pattern",
+               "questions" => [%{"name" => "x", "pattern" => "([unclosed"}]
+             })
+
+    assert {"a regex pattern does not compile", _opts} = changeset.errors[:questions]
+  end
+
   test "the library page builds an interview", %{conn: conn, scope: scope} do
     {:ok, lv, html} = live(conn, ~p"/console/interviews")
     assert html =~ "Interviews"

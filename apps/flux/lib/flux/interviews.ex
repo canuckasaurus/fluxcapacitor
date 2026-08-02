@@ -16,7 +16,7 @@ defmodule Flux.Interviews do
   alias Flux.RBAC
   alias Flux.Repo
 
-  @question_types ~w(text textarea number select boolean)
+  @question_types ~w(text textarea number select boolean date email)
 
   defmodule Interview do
     @moduledoc false
@@ -154,6 +154,21 @@ defmodule Flux.Interviews do
     end
   end
 
+  defp check_type(%{"type" => "date"} = question, text) do
+    case Date.from_iso8601(text) do
+      {:ok, _date} -> check_pattern(question, text)
+      {:error, _reason} -> {:error, "must be a date (YYYY-MM-DD)"}
+    end
+  end
+
+  defp check_type(%{"type" => "email"} = question, text) do
+    if Regex.match?(~r/^[^\s@]+@[^\s@]+\.[^\s@]+$/, text) do
+      check_pattern(question, text)
+    else
+      {:error, "must be an email address"}
+    end
+  end
+
   defp check_type(%{"type" => "number"}, text) do
     case Float.parse(text) do
       {number, ""} -> {:ok, trim_float(number)}
@@ -169,7 +184,34 @@ defmodule Flux.Interviews do
     end
   end
 
-  defp check_type(_question, text), do: {:ok, text}
+  defp check_type(question, text), do: check_pattern(question, text)
+
+  # An optional per-question regex; authored patterns are validated at
+  # save time, so compile failures here just pass the answer through.
+  defp check_pattern(question, text) do
+    case to_string(question["pattern"] || "") do
+      "" ->
+        {:ok, text}
+
+      pattern ->
+        case Regex.compile(pattern) do
+          {:ok, regex} ->
+            cond do
+              Regex.match?(regex, text) ->
+                {:ok, text}
+
+              to_string(question["pattern_hint"] || "") != "" ->
+                {:error, question["pattern_hint"]}
+
+              true ->
+                {:error, "does not match the expected format"}
+            end
+
+          {:error, _reason} ->
+            {:ok, text}
+        end
+    end
+  end
 
   defp trim_float(number) do
     truncated = trunc(number)
@@ -190,6 +232,8 @@ defmodule Flux.Interviews do
         "type" => (question["type"] in @question_types && question["type"]) || "text",
         "required" => question["required"] in [true, "true", "on"],
         "help" => to_string(question["help"] || ""),
+        "pattern" => to_string(question["pattern"] || ""),
+        "pattern_hint" => to_string(question["pattern_hint"] || ""),
         "options" =>
           question["options"]
           |> case do
@@ -201,6 +245,10 @@ defmodule Flux.Interviews do
       }
     end)
     |> Enum.reject(&(&1["name"] == ""))
+  end
+
+  defp valid_pattern?(pattern) do
+    pattern in [nil, ""] or match?({:ok, _regex}, Regex.compile(pattern))
   end
 
   @doc false
@@ -219,6 +267,9 @@ defmodule Flux.Interviews do
 
       Enum.any?(questions, &(&1["type"] == "select" and &1["options"] == [])) ->
         "select questions need options"
+
+      Enum.any?(questions, &(not valid_pattern?(&1["pattern"]))) ->
+        "a regex pattern does not compile"
 
       true ->
         nil

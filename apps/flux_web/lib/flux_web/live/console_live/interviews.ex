@@ -166,6 +166,8 @@ defmodule FluxWeb.ConsoleLive.Interviews do
           "type" => fields["type"] || "text",
           "required" => fields["required"] == "on" or fields["required"] == "true",
           "help" => fields["help"] || "",
+          "pattern" => fields["pattern"] || "",
+          "pattern_hint" => fields["pattern_hint"] || "",
           "options" => fields["options"] || ""
         }
       end)
@@ -319,6 +321,23 @@ defmodule FluxWeb.ConsoleLive.Interviews do
                   value={options_text(question["options"])}
                   placeholder="Options, comma separated"
                   class="input input-bordered input-xs w-64"
+                />
+                <input
+                  :if={question["type"] in ["text", "email", "date"]}
+                  type="text"
+                  name={"q[#{index}][pattern]"}
+                  value={question["pattern"]}
+                  placeholder="Regex pattern (optional)"
+                  title="Answers must match this regular expression"
+                  class="input input-bordered input-xs w-52 font-mono"
+                />
+                <input
+                  :if={to_string(question["pattern"] || "") != ""}
+                  type="text"
+                  name={"q[#{index}][pattern_hint]"}
+                  value={question["pattern_hint"]}
+                  placeholder="Message when it doesn't match"
+                  class="input input-bordered input-xs w-56"
                 />
               </div>
             </div>

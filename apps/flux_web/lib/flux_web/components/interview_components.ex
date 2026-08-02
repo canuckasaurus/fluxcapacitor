@@ -33,6 +33,20 @@ defmodule FluxWeb.InterviewComponents do
           class="textarea textarea-bordered textarea-sm w-full"
         ></textarea>
         <input
+          :if={question["type"] == "date"}
+          type="date"
+          id={"iv-#{question["name"]}"}
+          name={question["name"]}
+          class="input input-sm input-bordered w-full"
+        />
+        <input
+          :if={question["type"] == "email"}
+          type="email"
+          id={"iv-#{question["name"]}"}
+          name={question["name"]}
+          class="input input-sm input-bordered w-full"
+        />
+        <input
           :if={question["type"] == "number"}
           type="number"
           step="any"
