@@ -213,6 +213,7 @@ defmodule FluxWeb.Router do
       live "/fluxes", ConsoleLive.Fluxes, :index
       live "/fluxes/:id", ConsoleLive.FluxEditor, :edit
       live "/fluxes/:id/batches", ConsoleLive.FluxBatches, :index
+      live "/fluxes/:id/evals", ConsoleLive.FluxEvals, :index
       live "/knowledge", ConsoleLive.Knowledge, :index
       live "/plugins", ConsoleLive.Plugins, :index
       live "/tools", ConsoleLive.Tools, :index

@@ -418,6 +418,13 @@ defmodule Flux.Workflows do
     :ok
   end
 
+  @doc false
+  # Synchronous single-run execution for Flux.Evals — same lifecycle as
+  # any run (usage, webhooks, PubSub), just awaited by the caller.
+  def execute_for_eval(%WorkflowRun{} = run, graph, inputs) do
+    do_execute(run, graph, inputs, run.workspace_id, [])
+  end
+
   defp broadcast_batch(batch) do
     Phoenix.PubSub.broadcast(
       Flux.PubSub,
@@ -1224,8 +1231,11 @@ defmodule Flux.Workflows do
   the workspace has none configured.
   """
   def invoke_default_llm(%Scope{} = scope, messages) do
-    workspace_id = Scope.workspace_id(scope)
+    invoke_default_llm_for_workspace(Scope.workspace_id(scope), messages)
+  end
 
+  @doc "Like `invoke_default_llm/2` for callers that only hold a workspace id (workers)."
+  def invoke_default_llm_for_workspace(workspace_id, messages) do
     case Providers.default_model_for_workspace(workspace_id) do
       %{"provider_plugin_id" => plugin_id, "model" => model} ->
         request = %{

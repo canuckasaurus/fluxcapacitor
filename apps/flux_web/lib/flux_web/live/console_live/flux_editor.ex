@@ -4151,6 +4151,12 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
               >
                 Batch runs
               </.link>
+              <.link
+                navigate={~p"/console/fluxes/#{@workflow.id}/evals"}
+                class="btn btn-ghost btn-xs"
+              >
+                Evals
+              </.link>
               <button class="btn btn-ghost btn-xs" phx-click="toggle_history">
                 <.icon name="hero-x-mark" class="size-4" />
               </button>

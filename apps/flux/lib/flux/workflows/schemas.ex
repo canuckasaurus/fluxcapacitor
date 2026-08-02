@@ -99,7 +99,7 @@ defmodule Flux.Workflows.WorkflowRun do
       values: [:running, :succeeded, :failed, :stopped, :paused],
       default: :running
 
-    field :source, Ecto.Enum, values: [:draft, :api, :batch], default: :draft
+    field :source, Ecto.Enum, values: [:draft, :api, :batch, :eval], default: :draft
     belongs_to :batch, Flux.Workflows.WorkflowBatch
     field :inputs, :map, default: %{}
     field :outputs, :map, default: %{}
