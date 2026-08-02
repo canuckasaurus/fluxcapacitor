@@ -91,6 +91,96 @@ defmodule Flux.CodeRunnerTest do
     end
   end
 
+  defmodule EchoBackend do
+    @moduledoc false
+    # Reflects the resolved spec back so attachment plumbing is assertable.
+    def run(spec) do
+      {:ok, %{result: %{"files" => Map.get(spec, :files, [])}, stdout: ""}}
+    end
+  end
+
+  describe "attachments (train→serve plumbing)" do
+    setup do
+      account = account_fixture()
+      {:ok, {workspace, _}} = Accounts.create_workspace(account, %{name: "Artifacts WS"})
+
+      previous = Application.get_env(:flux, :code_runner)
+      Application.put_env(:flux, :code_runner, EchoBackend)
+      on_exit(fn -> Application.put_env(:flux, :code_runner, previous) end)
+
+      %{workspace: workspace}
+    end
+
+    test "resolves workspace run-output files into base64 inputs", %{workspace: workspace} do
+      key = "run_outputs/#{workspace.id}/model.joblib"
+      :ok = Flux.Storage.put(key, <<1, 2, 3, 4>>)
+
+      file =
+        Repo.insert!(%Flux.Chat.UploadedFile{
+          workspace_id: workspace.id,
+          name: "model.joblib",
+          key: key,
+          size: 4,
+          content_type: "application/octet-stream",
+          download_token: "file_test_#{System.unique_integer([:positive])}"
+        })
+
+      spec = Map.put(@spec_base, :attachments, [%{"file_id" => file.id}])
+
+      assert {:ok, %{result: %{"files" => [resolved]}}} =
+               Flux.CodeRunner.run(spec, workspace.id)
+
+      assert resolved["name"] == "model.joblib"
+      assert Base.decode64!(resolved["content_b64"]) == <<1, 2, 3, 4>>
+    end
+
+    test "foreign or unknown file ids are refused", %{workspace: workspace} do
+      spec = Map.put(@spec_base, :attachments, [%{"file_id" => Ecto.UUID.generate()}])
+      assert {:error, message} = Flux.CodeRunner.run(spec, workspace.id)
+      assert message =~ "not found in this workspace"
+
+      # No workspace context (e.g. a caller that never passes one).
+      assert {:error, message} = Flux.CodeRunner.run(spec)
+      assert message =~ "not available"
+    end
+  end
+
+  describe "Local backend artifacts" do
+    @describetag :local_python
+
+    test "input files land in the workdir and ./artifacts comes back" do
+      Application.put_env(:flux, Flux.CodeRunner.Local, enabled: true)
+      on_exit(fn -> Application.delete_env(:flux, Flux.CodeRunner.Local) end)
+
+      spec = %{
+        @spec_base
+        | code: """
+          def main(**kw):
+              with open("model.txt") as f:
+                  seen = f.read()
+              with open("artifacts/trained.txt", "w") as f:
+                  f.write(seen + " -> trained")
+              return {"seen": seen}
+          """,
+          inputs: %{}
+      }
+
+      spec =
+        Map.put(spec, :files, [
+          %{"name" => "model.txt", "content_b64" => Base.encode64("slope=2")}
+        ])
+
+      case Flux.CodeRunner.Local.run(spec) do
+        {:ok, %{result: result, artifacts: artifacts}} ->
+          assert result == %{"seen" => "slope=2"}
+          assert [%{name: "trained.txt", binary: "slope=2 -> trained"}] = artifacts
+
+        {:error, "no python interpreter" <> _} ->
+          :ok
+      end
+    end
+  end
+
   describe "code node in a workflow run (Fake backend)" do
     setup do
       account = account_fixture()

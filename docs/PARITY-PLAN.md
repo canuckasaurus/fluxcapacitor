@@ -283,3 +283,18 @@ coderunner ML toolkit); **coderunner phase 2** (python user code under
 unshare in an empty netns; boot probe with loud fallback, custom seccomp
 profile = Docker default + unprivileged unshare, live-verified: 12/12
 checks incl. python network denial while uv installs stay networked).
+
+25. ~~Batch 2: the loop closes (#142, 2026-08-02)~~ DONE: **train->serve**
+(coderunner gains input files + ./artifacts output, both base64 over the
+existing contract; Sandbox/Local mirror it; the code node stores artifacts
+as run-output files and resolves attachment file ids workspace-scoped
+before execution; editor attachments field; live-verified 14/14 incl. an
+artifact round trip); **capture run as eval case** (evals page dropdown of
+recent succeeded runs); **chat cost estimates** (app monitor prices tokens
+against the bound model); **webhook events** batch.completed /
+eval.completed / feedback.created; **Google Drive datasource** (service
+account JWT-bearer, hand-rolled RS256 on :public_key, Docs->text,
+Sheets->CSV, tests verify a real signature); **JS npm dependencies**
+(deno cache outside the sandbox, import map + --cached-only inside,
+exact versions). History scrub + stale-folder delete handed to the user
+as ! commands (classifier-blocked).

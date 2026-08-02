@@ -598,6 +598,51 @@ defmodule Flux.EngineTest do
       assert {:ok, %{outputs: %{"up" => "ABC"}}} = Engine.run(built, %{"query" => "abc"}, host)
     end
 
+    test "code node passes attachments through and stores returned artifacts" do
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("code_1", "code", %{
+            "language" => "python3",
+            "code" => "def main(): return {}",
+            "attachments" => [
+              %{"file_id" => "{{start.query}}", "name" => "model.joblib"},
+              %{"file_id" => ""}
+            ]
+          }),
+          node!("end_1", "end", %{
+            "outputs" => [%{"key" => "files", "value" => "{{code_1.files}}"}]
+          })
+        ],
+        "edges" => [edge!("start", "code_1"), edge!("code_1", "end_1")]
+      }
+
+      host = %Host{
+        emit: fn _e -> :ok end,
+        run_code: fn spec ->
+          assert spec.attachments == [%{"file_id" => "file-abc", "name" => "model.joblib"}]
+
+          {:ok,
+           %{
+             result: %{"trained" => true},
+             stdout: "",
+             artifacts: [%{name: "model.joblib", binary: <<1, 2, 3>>}]
+           }}
+        end,
+        store_file: fn %{name: name, binary: <<1, 2, 3>>} ->
+          {:ok, %{"file_id" => "stored-1", "name" => name, "url" => "/files/tok", "size" => 3}}
+        end
+      }
+
+      {:ok, built} = Engine.build(graph)
+      assert {:ok, result} = Engine.run(built, %{"query" => "file-abc"}, host)
+
+      code_execution = Enum.find(result.node_executions, &(&1["node_id"] == "code_1"))
+
+      assert [%{"file_id" => "stored-1", "name" => "model.joblib"}] =
+               code_execution["outputs"]["files"]
+    end
+
     test "code node without host capability or non-dict result fails" do
       graph = %{
         "nodes" => [

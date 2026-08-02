@@ -2,7 +2,16 @@ defmodule Flux.CodeRunner do
   @moduledoc """
   Executes workflow code blocks. Spec:
   `%{language, code, dependencies, inputs, timeout_ms}` →
-  `{:ok, %{result: map, stdout: binary}}` or `{:error, message}`.
+  `{:ok, %{result: map, stdout: binary, artifacts: [%{name, binary}]}}`
+  or `{:error, message}`.
+
+  Two file lanes close the train→serve loop:
+
+    * **attachments** (`spec[:attachments]`, `[%{"file_id" => id}]`) —
+      workspace run-output files fetched from storage and placed next to
+      the user code before it runs (e.g. a previously trained model).
+    * **artifacts** — files the code saves under `./artifacts/` come
+      back as binaries; the code node stores them as run-output files.
 
   Backends (`config :flux, :code_runner`):
 
@@ -21,9 +30,69 @@ defmodule Flux.CodeRunner do
           timeout_ms: pos_integer()
         }
 
-  @callback run(spec()) :: {:ok, %{result: map(), stdout: String.t()}} | {:error, String.t()}
+  @callback run(spec()) ::
+              {:ok, %{result: map(), stdout: String.t()}} | {:error, String.t()}
 
-  def run(spec), do: impl().run(spec)
+  @max_attachments 5
+  @max_attachment_bytes 20 * 1024 * 1024
+
+  def run(spec, workspace_id \\ nil) do
+    case resolve_attachments(spec, workspace_id) do
+      {:ok, spec} -> impl().run(spec)
+      {:error, message} -> {:error, message}
+    end
+  end
+
+  # Attachment file ids resolve to workspace-owned run-output files; the
+  # backend receives them as `files` (name + base64 content).
+  defp resolve_attachments(spec, workspace_id) do
+    attachments = spec |> Map.get(:attachments) |> List.wrap()
+
+    cond do
+      attachments == [] ->
+        {:ok, Map.delete(spec, :attachments)}
+
+      workspace_id == nil ->
+        {:error, "attachments are not available in this execution context"}
+
+      length(attachments) > @max_attachments ->
+        {:error, "too many attachments (max #{@max_attachments})"}
+
+      true ->
+        fetch_attachments(spec, attachments, workspace_id)
+    end
+  end
+
+  defp fetch_attachments(spec, attachments, workspace_id) do
+    fetched =
+      Enum.reduce_while(attachments, {[], 0}, fn attachment, {files, total} ->
+        file_id = to_string(attachment["file_id"] || attachment[:file_id] || "")
+
+        with {:ok, _uuid} <- Ecto.UUID.cast(file_id),
+             %Flux.Chat.UploadedFile{workspace_id: ^workspace_id} = file <-
+               Flux.Repo.get(Flux.Chat.UploadedFile, file_id, skip_workspace_guard: true),
+             {:ok, binary} <- Flux.Storage.get(file.key),
+             total = total + byte_size(binary),
+             true <- total <= @max_attachment_bytes || :too_large do
+          name = to_string(attachment["name"] || attachment[:name] || file.name)
+          {:cont, {[%{"name" => name, "content_b64" => Base.encode64(binary)} | files], total}}
+        else
+          :too_large ->
+            {:halt, {:error, "attachments exceed #{div(@max_attachment_bytes, 1_048_576)} MB"}}
+
+          _missing ->
+            {:halt, {:error, "attachment #{file_id} was not found in this workspace"}}
+        end
+      end)
+
+    case fetched do
+      {:error, message} ->
+        {:error, message}
+
+      {files, _total} ->
+        {:ok, spec |> Map.delete(:attachments) |> Map.put(:files, Enum.reverse(files))}
+    end
+  end
 
   defp impl, do: Application.get_env(:flux, :code_runner, Flux.CodeRunner.Sandbox)
 end
@@ -61,7 +130,12 @@ defmodule Flux.CodeRunner.Sandbox do
 
     case Req.post(options) do
       {:ok, %{status: 200, body: %{"result" => %{} = result} = body}} ->
-        {:ok, %{result: result, stdout: body["stdout"] || ""}}
+        {:ok,
+         %{
+           result: result,
+           stdout: body["stdout"] || "",
+           artifacts: decode_artifacts(body["artifacts"])
+         }}
 
       {:ok, %{status: 200, body: body}} ->
         {:error, body["error"] || "the code block's main() must return a dict/object"}
@@ -79,6 +153,13 @@ defmodule Flux.CodeRunner.Sandbox do
 
   defp auth(nil), do: []
   defp auth(key), do: [{"authorization", "Bearer #{key}"}]
+
+  defp decode_artifacts(artifacts) do
+    for %{"name" => name, "content_b64" => encoded} <- List.wrap(artifacts),
+        {:ok, binary} <- [Base.decode64(encoded)] do
+      %{name: name, binary: binary}
+    end
+  end
 end
 
 defmodule Flux.CodeRunner.Local do
@@ -128,6 +209,11 @@ defmodule Flux.CodeRunner.Local do
         File.write!(Path.join(dir, "usercode.py"), spec.code)
         File.write!(Path.join(dir, "inputs.json"), Jason.encode!(spec.inputs))
         File.write!(Path.join(dir, "wrapper.py"), @wrapper)
+        File.mkdir_p!(Path.join(dir, "artifacts"))
+
+        for %{"name" => name, "content_b64" => encoded} <- Map.get(spec, :files, []) do
+          File.write!(Path.join(dir, Path.basename(name)), Base.decode64!(encoded))
+        end
 
         task =
           Task.async(fn ->
@@ -137,7 +223,7 @@ defmodule Flux.CodeRunner.Local do
         case Task.yield(task, spec.timeout_ms) || Task.shutdown(task, :brutal_kill) do
           {:ok, {output, 0}} ->
             result = dir |> Path.join("__result__.json") |> File.read!() |> Jason.decode!()
-            {:ok, %{result: result, stdout: output}}
+            {:ok, %{result: result, stdout: output, artifacts: collect_artifacts(dir)}}
 
           {:ok, {output, 3}} ->
             {:error, "main() must return a dict (stderr: #{String.slice(output, 0, 500)})"}
@@ -151,6 +237,16 @@ defmodule Flux.CodeRunner.Local do
       after
         File.rm_rf(dir)
       end
+    end
+  end
+
+  defp collect_artifacts(dir) do
+    artifacts_dir = Path.join(dir, "artifacts")
+
+    for name <- artifacts_dir |> File.ls!() |> Enum.sort(),
+        path = Path.join(artifacts_dir, name),
+        File.regular?(path) do
+      %{name: Path.basename(name), binary: File.read!(path)}
     end
   end
 

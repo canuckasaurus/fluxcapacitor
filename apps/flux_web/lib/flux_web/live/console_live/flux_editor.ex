@@ -1487,6 +1487,30 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     |> Map.put("code", Map.get(params, "code", config["code"] || ""))
     |> Map.put("dependencies", indexed_rows(params["deps"], ~w(name version), %{}))
     |> Map.put("inputs", indexed_rows(params["cins"], ~w(name value), %{}))
+    |> Map.put(
+      "attachments",
+      parse_attachments(params["attachments_text"], config["attachments"])
+    )
+  end
+
+  # "file_id" or "file_id name.ext", one per line.
+  defp parse_attachments(nil, existing), do: List.wrap(existing)
+
+  defp parse_attachments(text, _existing) do
+    for line <- String.split(to_string(text), ~r/\r?\n/),
+        line = String.trim(line),
+        line != "" do
+      case String.split(line, ~r/\s+/, parts: 2) do
+        [file_id] -> %{"file_id" => file_id}
+        [file_id, name] -> %{"file_id" => file_id, "name" => name}
+      end
+    end
+  end
+
+  defp attachments_text(attachments) do
+    Enum.map_join(List.wrap(attachments), "\n", fn attachment ->
+      String.trim("#{attachment["file_id"]} #{attachment["name"]}")
+    end)
   end
 
   defp build_config("agent", config, params) do
@@ -3133,6 +3157,23 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                       no dependency entry. Add entries only for anything else.
                     </p>
                   </div>
+                  <label class="floating-label">
+                    <span>Attachments — run-output file ids, one per line (id [filename])</span>
+                    <textarea
+                      name="attachments_text"
+                      rows="2"
+                      placeholder="0198…f3a1 model.joblib"
+                      class="textarea textarea-sm w-full font-mono text-xs"
+                      spellcheck="false"
+                      disabled={not @can_edit}
+                    >{attachments_text(node["config"]["attachments"])}</textarea>
+                  </label>
+                  <p class="text-xs opacity-60">
+                    Attached files land next to the code before it runs (serve a
+                    trained model); files the code saves under
+                    <span class="font-mono">./artifacts/</span>
+                    come back as run-output files (train one).
+                  </p>
                   <label class="floating-label">
                     <span>Code — define main(...) returning a dict</span>
                     <textarea

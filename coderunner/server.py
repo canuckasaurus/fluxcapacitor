@@ -62,6 +62,10 @@ MAX_BODY_BYTES = 2 * 1024 * 1024
 MAX_STDOUT_BYTES = 64 * 1024
 MAX_RESULT_BYTES = 5 * 1024 * 1024
 MAX_DEPENDENCIES = 20
+MAX_FILES = 5
+MAX_FILES_BYTES = 20 * 1024 * 1024
+MAX_ARTIFACTS = 5
+MAX_ARTIFACTS_BYTES = 20 * 1024 * 1024
 
 PY_WRAPPER = """\
 import json, sys, io, contextlib
@@ -308,6 +312,69 @@ def npm_specifier(dep):
     return f"npm:{name}@{version}" if version else f"npm:{name}"
 
 
+def safe_filename(name):
+    name = os.path.basename(str(name or "")).strip()
+    ok = name and name not in (".", "..") and all(
+        c.isalnum() or c in "._- ()" for c in name
+    )
+    if not ok or len(name) > 120:
+        raise RunError(f"invalid file name: {name!r}")
+    return name
+
+
+def write_input_files(spec, workdir):
+    """Attachments (model artifacts, reference data) land next to usercode."""
+    import base64
+
+    files = spec.get("files") or []
+    if len(files) > MAX_FILES:
+        raise RunError(f"too many input files (max {MAX_FILES})")
+
+    total = 0
+    for entry in files:
+        name = safe_filename(entry.get("name"))
+        try:
+            content = base64.b64decode(entry.get("content_b64") or "", validate=True)
+        except Exception:
+            raise RunError(f"file {name!r} is not valid base64")
+        total += len(content)
+        if total > MAX_FILES_BYTES:
+            raise RunError(f"input files exceed {MAX_FILES_BYTES // (1024 * 1024)} MB")
+        with open(os.path.join(workdir, name), "wb") as f:
+            f.write(content)
+
+
+def collect_artifacts(workdir):
+    """Files user code saved under ./artifacts/ come back base64'd —
+    the app stores them as run output files (the train half of
+    train->serve)."""
+    import base64
+
+    artifacts_dir = os.path.join(workdir, "artifacts")
+    if not os.path.isdir(artifacts_dir):
+        return []
+
+    names = sorted(
+        n for n in os.listdir(artifacts_dir)
+        if os.path.isfile(os.path.join(artifacts_dir, n))
+    )
+    if len(names) > MAX_ARTIFACTS:
+        raise RunError(f"too many artifacts (max {MAX_ARTIFACTS})")
+
+    artifacts, total = [], 0
+    for name in names:
+        with open(os.path.join(artifacts_dir, name), "rb") as f:
+            content = f.read()
+        total += len(content)
+        if total > MAX_ARTIFACTS_BYTES:
+            raise RunError(f"artifacts exceed {MAX_ARTIFACTS_BYTES // (1024 * 1024)} MB")
+        artifacts.append({
+            "name": safe_filename(name),
+            "content_b64": base64.b64encode(content).decode(),
+        })
+    return artifacts
+
+
 def run_python(spec, workdir, timeout_ms):
     deps = normalize_dependencies(spec.get("dependencies"))
     python = venv_python(deps)
@@ -318,6 +385,8 @@ def run_python(spec, workdir, timeout_ms):
         json.dump(spec.get("inputs") or {}, f)
     with open(os.path.join(workdir, "wrapper.py"), "w", encoding="utf-8") as f:
         f.write(PY_WRAPPER)
+    write_input_files(spec, workdir)
+    os.makedirs(os.path.join(workdir, "artifacts"), exist_ok=True)
 
     cpu = max(2, timeout_ms // 1000 + 1)
     code, output = run_subprocess(
@@ -346,6 +415,9 @@ def run_javascript(spec, workdir, timeout_ms):
         json.dump(spec.get("inputs") or {}, f)
     with open(os.path.join(workdir, "wrapper.js"), "w", encoding="utf-8") as f:
         f.write(JS_WRAPPER)
+    write_input_files(spec, workdir)
+    artifacts_dir = os.path.join(workdir, "artifacts")
+    os.makedirs(artifacts_dir, exist_ok=True)
 
     argv = ["deno", "run", "--quiet", "--no-prompt"]
     extra_env = None
@@ -362,7 +434,7 @@ def run_javascript(spec, workdir, timeout_ms):
 
     argv += [
         f"--v8-flags=--max-old-space-size={MEMORY_MB}",
-        f"--allow-read={workdir}", "wrapper.js",
+        f"--allow-read={workdir}", f"--allow-write={artifacts_dir}", "wrapper.js",
     ]
     cpu = max(2, timeout_ms // 1000 + 1)
     code, output = run_subprocess(
@@ -399,7 +471,11 @@ def execute(spec):
     workdir = tempfile.mkdtemp(prefix="flux-run-")
     try:
         result, stdout = runner(spec, workdir, timeout_ms)
-        return {"result": result, "stdout": stdout}
+        response = {"result": result, "stdout": stdout}
+        artifacts = collect_artifacts(workdir)
+        if artifacts:
+            response["artifacts"] = artifacts
+        return response
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 

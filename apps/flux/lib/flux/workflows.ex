@@ -1025,7 +1025,7 @@ defmodule Flux.Workflows do
         Flux.Tools.invoke_for_workspace(workspace_id, toolset_id, operation_id, args)
       end,
       http_request: &node_http_request/1,
-      run_code: &Flux.CodeRunner.run/1,
+      run_code: fn request -> Flux.CodeRunner.run(request, workspace_id) end,
       read_document: fn %{file_id: file_id} -> Flux.Documents.extract(workspace_id, file_id) end,
       run_subflux: build_subflux_runner(workspace_id, depth),
       retrieve_knowledge: build_knowledge_retriever(workspace_id),

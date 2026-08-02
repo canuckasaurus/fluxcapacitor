@@ -35,7 +35,9 @@ orchestrator, no queue infrastructure beyond Postgres.
   breakdown; dashboard rollups). Liked replies and annotations export as
   **fine-tune JSONL**, and the **Label Studio connector** closes the custom
   model loop: queue replies for human labeling, pull annotations back as a
-  dataset or as training data for a code node.
+  dataset or as training data for a code node. Code nodes persist trained
+  models as **run artifacts** (`./artifacts/`) and load them back as
+  **attachments** — label → train → serve entirely inside fluxes.
 - **Apps on top of fluxes** — chat, completion (form), and chatflow modes;
   published to logged-out visitors at a public URL, embedded via iframe or a
   floating chat bubble, or consumed through the `/v1` service API with

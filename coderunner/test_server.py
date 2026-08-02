@@ -191,6 +191,36 @@ status, body = run({
 assert status == 200 and body["result"] == {"slope": 2.0, "rows": 88}, body
 passed.append("ML toolkit zero-install")
 
+# 12. train -> serve: ./artifacts comes back, input files go in
+status, body = run({
+    "language": "python3",
+    "code": (
+        "def main():\n"
+        "    with open('artifacts/model.txt', 'w') as f:\n"
+        "        f.write('slope=2')\n"
+        "    return {'trained': True}"
+    ),
+    "inputs": {},
+    "timeout_ms": 15000,
+})
+assert status == 200 and body["result"] == {"trained": True}, body
+[artifact] = body["artifacts"]
+assert artifact["name"] == "model.txt", artifact
+
+status, body = run({
+    "language": "python3",
+    "code": (
+        "def main():\n"
+        "    with open('model.txt') as f:\n"
+        "        return {'model': f.read()}"
+    ),
+    "files": [{"name": "model.txt", "content_b64": artifact["content_b64"]}],
+    "inputs": {},
+    "timeout_ms": 15000,
+})
+assert status == 200 and body["result"] == {"model": "slope=2"}, body
+passed.append("artifact round trip (train -> serve)")
+
 for p in passed:
     print("PASS:", p)
 print(f"\n{len(passed)} live coderunner checks passed")

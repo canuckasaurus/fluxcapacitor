@@ -117,7 +117,19 @@ plus `stdout`. The **ML toolkit is pre-installed** — numpy, pandas,
 polars, scipy, scikit-learn, xgboost, lightgbm, statsmodels, nltk,
 matplotlib, pillow, opencv, requests and more import with no dependency
 entry; anything else installs per block through a cached venv.
-JavaScript runs in permissionless Deno (no network, env, or writes).
+JavaScript runs in permissionless Deno (no network, env, or writes
+except its own `./artifacts/`); exact-version npm dependencies are
+pre-cached and imported bare. Python user code additionally runs in an
+**empty network namespace**.
+
+Two file lanes close the **train → serve** loop:
+
+* files the code saves under `./artifacts/` come back as run-output
+  files (the `files` output holds their ids and download URLs) — train
+  a model with the pre-installed toolkit and persist it;
+* `attachments` (`[{file_id, name}]`, templatable) places previously
+  stored run-output files next to the code before it runs — load that
+  model and predict in a later flux.
 
 ### `http_request`
 

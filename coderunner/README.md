@@ -64,7 +64,11 @@ injection-safe dependency names, zero-install ML toolkit).
 ## Contract
 
 `POST /run` `{language, code, dependencies: [{name, version}], inputs,
-timeout_ms}` → `200 {"result": {...}, "stdout": "..."}` or
-`422 {"error": "..."}`. Python blocks export `main(**inputs) -> dict`;
+files: [{name, content_b64}], timeout_ms}` →
+`200 {"result": {...}, "stdout": "...", "artifacts": [{name, content_b64}]}`
+or `422 {"error": "..."}`. `files` land in the working directory before
+execution; anything the code saves under `./artifacts/` (max 5 files,
+20 MB) comes back base64'd — together they carry the train→serve loop.
+Python blocks export `main(**inputs) -> dict`;
 JS blocks `export function main(inputs) { return {...} }`.
-`GET /health` reports runtime availability.
+`GET /health` reports runtime availability and `network_isolation`.

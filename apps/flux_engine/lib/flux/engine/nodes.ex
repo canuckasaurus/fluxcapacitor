@@ -492,7 +492,11 @@ defmodule Flux.Engine.Nodes.Code do
   (interoperable `main(**inputs) -> dict` contract, plus per-block
   `dependencies`). Config: `language`, `code`,
   `dependencies` ([{name, version}]), `inputs` ([{name, value-template}]),
-  `timeout_ms`. Outputs: the returned dict's keys plus `"stdout"`.
+  `timeout_ms`, and `attachments` ([{file_id, name}] — run-output files
+  placed next to the code before it runs, e.g. a trained model).
+  Outputs: the returned dict's keys plus `"stdout"`, and — when the code
+  saved files under `./artifacts/` — `"files"` with their stored
+  download descriptors (the train half of train→serve).
   """
   @behaviour Flux.Engine.Node
 
@@ -520,13 +524,20 @@ defmodule Flux.Engine.Nodes.Code do
           |> List.wrap()
           |> Enum.filter(&(to_string(&1["name"] || "") != "")),
         inputs: inputs,
-        timeout_ms: node.config["timeout_ms"] || 30_000
+        timeout_ms: node.config["timeout_ms"] || 30_000,
+        attachments: attachments(node, pool)
       }
 
       case runner.(spec) do
         {:ok, %{result: %{} = result} = response} ->
           outputs = Map.new(result, fn {key, value} -> {to_string(key), value} end)
-          {:ok, Map.put(outputs, "stdout", Map.get(response, :stdout, ""))}
+          outputs = Map.put(outputs, "stdout", Map.get(response, :stdout, ""))
+
+          case store_artifacts(host, Map.get(response, :artifacts, [])) do
+            {:ok, []} -> {:ok, outputs}
+            {:ok, files} -> {:ok, Map.put(outputs, "files", files)}
+            {:error, reason} -> {:error, reason}
+          end
 
         {:ok, _bad_shape} ->
           {:error, "the code block's main() must return a dict/object"}
@@ -536,6 +547,33 @@ defmodule Flux.Engine.Nodes.Code do
       end
     end
   end
+
+  # Attachment file ids may be templated (e.g. wired from a start
+  # variable holding a trained model's file id).
+  defp attachments(node, pool) do
+    for attachment <- List.wrap(node.config["attachments"]),
+        file_id = Template.render(to_string(attachment["file_id"] || ""), pool),
+        file_id != "" do
+      %{"file_id" => file_id, "name" => attachment["name"]}
+    end
+  end
+
+  defp store_artifacts(_host, []), do: {:ok, []}
+
+  defp store_artifacts(%Host{store_file: store}, artifacts) when is_function(store, 1) do
+    Enum.reduce_while(artifacts, {:ok, []}, fn %{name: name, binary: binary}, {:ok, stored} ->
+      case store.(%{name: name, binary: binary}) do
+        {:ok, file} ->
+          {:cont, {:ok, stored ++ [file]}}
+
+        {:error, reason} ->
+          {:halt, {:error, "could not store artifact #{name}: #{inspect(reason)}"}}
+      end
+    end)
+  end
+
+  defp store_artifacts(_host, _artifacts),
+    do: {:error, "this run's host cannot store code artifacts"}
 
   defp require_config(true), do: :ok
   defp require_config(false), do: {:error, "the code node has no code"}
