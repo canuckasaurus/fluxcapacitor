@@ -17,15 +17,19 @@ defmodule FluxWeb.ConsoleLive.DocTemplates do
     scope = socket.assigns.current_scope
 
     {:ok,
-     assign(socket,
+     socket
+     |> assign(
        page_title: "Doc templates",
        templates: DocTemplates.list(scope),
        can_edit: RBAC.can?(scope, :app_edit),
        editing: nil,
+       uploading: false,
+       upload_error: nil,
        form_error: nil,
        preview: nil,
        preview_context: @sample_context
-     )}
+     )
+     |> allow_upload(:docx, accept: ~w(.docx), max_entries: 1, max_file_size: 10_000_000)}
   end
 
   @impl true
@@ -60,7 +64,57 @@ defmodule FluxWeb.ConsoleLive.DocTemplates do
   end
 
   def handle_event("cancel", _params, socket) do
-    {:noreply, assign(socket, editing: nil, form_error: nil, preview: nil)}
+    {:noreply,
+     assign(socket,
+       editing: nil,
+       uploading: false,
+       upload_error: nil,
+       form_error: nil,
+       preview: nil
+     )}
+  end
+
+  def handle_event("uploading", _params, socket) do
+    {:noreply, assign(socket, uploading: true, editing: nil, upload_error: nil)}
+  end
+
+  def handle_event("validate_docx", _params, socket), do: {:noreply, socket}
+
+  def handle_event("save_docx", params, socket) do
+    scope = socket.assigns.current_scope
+
+    binaries =
+      consume_uploaded_entries(socket, :docx, fn %{path: path}, _entry ->
+        {:ok, File.read!(path)}
+      end)
+
+    case binaries do
+      [binary] ->
+        attrs = %{binary: binary, name: params["name"], description: params["description"]}
+
+        case DocTemplates.create_docx(scope, attrs) do
+          {:ok, template} ->
+            {:noreply,
+             socket
+             |> put_flash(
+               :info,
+               "Uploaded — #{length(template.variables)} variable(s) found."
+             )
+             |> assign(templates: DocTemplates.list(scope), uploading: false, upload_error: nil)}
+
+          {:error, %Ecto.Changeset{} = changeset} ->
+            {:noreply, assign(socket, upload_error: changeset_error(changeset))}
+
+          {:error, :unauthorized} ->
+            {:noreply, put_flash(socket, :error, "You don't have permission to edit templates.")}
+
+          {:error, message} when is_binary(message) ->
+            {:noreply, assign(socket, upload_error: message)}
+        end
+
+      [] ->
+        {:noreply, assign(socket, upload_error: "Choose a .docx file first.")}
+    end
   end
 
   # Live preview: every keystroke re-renders content against the sample
@@ -162,9 +216,66 @@ defmodule FluxWeb.ConsoleLive.DocTemplates do
             Reusable Jinja documents — template nodes plug them in by name.
           </p>
         </div>
-        <button :if={@can_edit and @editing == nil} class="btn btn-primary" phx-click="new">
-          <.icon name="hero-plus" class="size-4" /> New template
-        </button>
+        <div class="flex gap-2">
+          <button
+            :if={@can_edit and not @uploading}
+            class="btn btn-outline"
+            phx-click="uploading"
+            title="Upload a Word document with Jinja tags; a document node fills it"
+          >
+            <.icon name="hero-arrow-up-tray" class="size-4" /> Upload .docx
+          </button>
+          <button :if={@can_edit and @editing == nil} class="btn btn-primary" phx-click="new">
+            <.icon name="hero-plus" class="size-4" /> New text template
+          </button>
+        </div>
+      </div>
+
+      <div :if={@uploading} class="card border border-base-200 p-6 space-y-3">
+        <h2 class="font-semibold">Upload a Word template</h2>
+        <p class="text-sm opacity-70">
+          Author it in Word with Jinja tags: <code>{"{{ client.name }}"}</code>
+          inline, <code>{"{%p if ... %}"}</code>
+          / <code>{"{%p endfor %}"}</code>
+          on their own
+          paragraphs to include or repeat whole paragraphs, and <code>{"{%tr for ... %}"}</code>
+          rows for repeating table rows. Tags are
+          validated on upload.
+        </p>
+        <form
+          phx-submit="save_docx"
+          phx-change="validate_docx"
+          id="docx-upload-form"
+          class="space-y-3"
+        >
+          <div class="flex gap-2 flex-wrap items-center">
+            <input
+              type="text"
+              name="name"
+              placeholder="Engagement letter"
+              required
+              class="input input-bordered input-sm w-64"
+            />
+            <input
+              type="text"
+              name="description"
+              placeholder="Description (optional)"
+              class="input input-bordered input-sm flex-1 min-w-48"
+            />
+          </div>
+          <.live_file_input
+            upload={@uploads.docx}
+            class="file-input file-input-bordered file-input-sm"
+          />
+          <p :for={err <- upload_errors(@uploads.docx)} class="text-sm text-error">
+            {inspect(err)}
+          </p>
+          <p :if={@upload_error} class="text-sm text-error">{@upload_error}</p>
+          <div class="flex gap-2">
+            <button class="btn btn-primary btn-sm">Upload</button>
+            <button type="button" class="btn btn-ghost btn-sm" phx-click="cancel">Cancel</button>
+          </div>
+        </form>
       </div>
 
       <div :if={@editing} class="card border border-base-200 p-6 space-y-3">
@@ -245,9 +356,15 @@ defmodule FluxWeb.ConsoleLive.DocTemplates do
           id={"doc-template-#{template.id}"}
         >
           <div class="flex items-start justify-between">
-            <h2 class="font-semibold">{template.name}</h2>
+            <h2 class="font-semibold">
+              {template.name}
+              <span :if={template.kind == "docx"} class="badge badge-accent badge-xs align-middle">
+                Word
+              </span>
+            </h2>
             <div :if={@can_edit} class="flex gap-1">
               <button
+                :if={template.kind != "docx"}
                 class="btn btn-ghost btn-xs"
                 phx-click="edit"
                 phx-value-template-id={template.id}
@@ -265,7 +382,50 @@ defmodule FluxWeb.ConsoleLive.DocTemplates do
             </div>
           </div>
           <p :if={template.description} class="text-sm opacity-70">{template.description}</p>
-          <pre class="rounded bg-base-200 p-2 text-xs overflow-hidden max-h-20">{String.slice(template.content, 0, 240)}</pre>
+          <pre
+            :if={template.kind != "docx"}
+            class="rounded bg-base-200 p-2 text-xs overflow-hidden max-h-20"
+          >{String.slice(template.content || "", 0, 240)}</pre>
+          <div :if={template.kind == "docx"} class="space-y-2">
+            <div class="flex flex-wrap gap-1">
+              <span :for={variable <- template.variables} class="badge badge-ghost badge-xs font-mono">
+                {variable}
+              </span>
+              <span :if={template.variables == []} class="text-xs opacity-50">
+                no variables found
+              </span>
+            </div>
+            <details class="text-xs">
+              <summary class="cursor-pointer opacity-70">
+                Test render — download a filled copy
+              </summary>
+              <form
+                method="post"
+                action={~p"/console/templates/#{template.id}/test-render"}
+                class="mt-2 space-y-2"
+              >
+                <input
+                  type="hidden"
+                  name="_csrf_token"
+                  value={Phoenix.Controller.get_csrf_token()}
+                />
+                <textarea
+                  name="context"
+                  rows="4"
+                  class="textarea textarea-bordered font-mono text-xs w-full"
+                  placeholder="{&quot;client&quot;: {&quot;name&quot;: &quot;Ada&quot;}}"
+                ></textarea>
+                <button class="btn btn-outline btn-xs">Render &amp; download</button>
+              </form>
+            </details>
+            <a
+              href={~p"/console/templates/#{template.id}/file"}
+              class="link text-xs"
+              title="Download the original template"
+            >
+              Download original
+            </a>
+          </div>
         </div>
       </div>
     </Layouts.console>

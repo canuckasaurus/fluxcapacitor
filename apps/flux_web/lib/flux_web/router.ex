@@ -188,6 +188,8 @@ defmodule FluxWeb.Router do
     get "/fluxes/:id/export", FluxDslController, :export
     get "/fluxes/:id/runs/:run_id/fixture", FluxDslController, :run_fixture
     get "/apps/:id/export", FluxDslController, :export_app
+    get "/templates/:id/file", DocTemplateController, :file
+    post "/templates/:id/test-render", DocTemplateController, :test_render
 
     live_session :console,
       on_mount: [
