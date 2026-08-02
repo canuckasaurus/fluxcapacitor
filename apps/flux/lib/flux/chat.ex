@@ -428,6 +428,71 @@ defmodule Flux.Chat do
     |> Repo.all()
   end
 
+  @doc """
+  Exports an app's curated conversations as OpenAI chat-format JSONL for
+  fine-tuning: one `{"messages": [...]}` object per line, built from
+  liked assistant replies (`filter: :liked`, the default) or every
+  completed reply (`filter: :all`), plus the app's enabled annotations.
+  The app's system prompt rides along when set.
+  """
+  def export_finetune(%Scope{} = scope, app_id, opts \\ []) do
+    filter = Keyword.get(opts, :filter, :liked)
+
+    with :ok <- RBAC.authorize(scope, :app_import_export_dsl),
+         %App{} = app <- get_app(scope, app_id) do
+      lines = finetune_pairs(scope, app, filter) ++ finetune_annotation_lines(scope, app)
+      {:ok, Enum.map_join(lines, "\n", &Jason.encode!/1)}
+    end
+  end
+
+  defp finetune_pairs(scope, app, filter) do
+    Message
+    |> Repo.scoped(scope)
+    |> join(:inner, [m], c in Conversation, on: m.conversation_id == c.id)
+    |> where([m, c], c.app_id == ^app.id and m.status == :completed)
+    |> order_by([m], asc: m.conversation_id, asc: m.seq)
+    |> Repo.all()
+    |> Enum.chunk_every(2, 1, :discard)
+    |> Enum.filter(fn [question, reply] ->
+      question.role == :user and reply.role == :assistant and
+        question.conversation_id == reply.conversation_id and
+        finetune_keep?(reply, filter)
+    end)
+    |> Enum.map(fn [question, reply] ->
+      finetune_line(app, question.content, reply.content)
+    end)
+  end
+
+  defp finetune_keep?(reply, :liked), do: reply.feedback == :like
+  defp finetune_keep?(_reply, :all), do: true
+
+  defp finetune_annotation_lines(scope, app) do
+    scope
+    |> list_annotations(app.id)
+    |> Enum.filter(& &1.enabled)
+    |> Enum.map(&finetune_line(app, &1.question, &1.answer))
+  end
+
+  defp finetune_line(app, question, reply) do
+    system =
+      case app.system_prompt do
+        prompt when is_binary(prompt) and prompt != "" ->
+          [%{"role" => "system", "content" => prompt}]
+
+        _absent ->
+          []
+      end
+
+    %{
+      "messages" =>
+        system ++
+          [
+            %{"role" => "user", "content" => question},
+            %{"role" => "assistant", "content" => String.trim(reply)}
+          ]
+    }
+  end
+
   @doc "Creates a canonical question→answer pair for the app."
   def create_annotation(%Scope{} = scope, %App{} = app, %{question: question, answer: answer})
       when is_binary(question) and is_binary(answer) do

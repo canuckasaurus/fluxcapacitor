@@ -222,6 +222,13 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
             </button>
           </div>
           <span class="text-xs opacity-60">{length(@feedback)} rated replies</span>
+          <a
+            href={~p"/console/apps/#{@app.id}/finetune-export"}
+            class="btn btn-ghost btn-xs ml-auto"
+            id="finetune-export-link"
+          >
+            Fine-tune JSONL (liked)
+          </a>
         </div>
         <p :if={@feedback == []} class="text-sm opacity-60">
           No rated replies{if @feedback_filter != :all, do: " with that rating"} yet.

@@ -46,6 +46,47 @@ defmodule Flux.ChatTest do
     assert length(messages) == 2
   end
 
+  test "export_finetune builds JSONL from liked replies and annotations", %{
+    scope: scope,
+    app: app
+  } do
+    conversation = Chat.create_conversation(scope, app)
+
+    {:ok, _u, _a} = Chat.send_message(scope, app, conversation, "liked question")
+    assert_receive {:done, liked_reply}, 5_000
+    {:ok, _} = Chat.set_feedback(scope, liked_reply.id, :like)
+
+    {:ok, _u, _a} = Chat.send_message(scope, app, conversation, "unrated question")
+    assert_receive {:done, _unrated}, 5_000
+
+    {:ok, _annotation} =
+      Chat.create_annotation(scope, app, %{question: "canned?", answer: "Absolutely."})
+
+    {:ok, jsonl} = Chat.export_finetune(scope, app.id)
+    lines = jsonl |> String.split("\n") |> Enum.map(&Jason.decode!/1)
+
+    assert length(lines) == 2
+
+    assert Enum.any?(lines, fn %{"messages" => messages} ->
+             match?(
+               [
+                 %{"role" => "system", "content" => "You echo."},
+                 %{"role" => "user", "content" => "liked question"},
+                 %{"role" => "assistant", "content" => _reply}
+               ],
+               messages
+             )
+           end)
+
+    assert Enum.any?(lines, fn %{"messages" => messages} ->
+             Enum.any?(messages, &(&1["content"] == "Absolutely."))
+           end)
+
+    # :all includes the unrated pair too.
+    {:ok, jsonl_all} = Chat.export_finetune(scope, app.id, filter: :all)
+    assert length(String.split(jsonl_all, "\n")) == 3
+  end
+
   test "the first question titles the conversation, renames stick", %{scope: scope, app: app} do
     conversation = Chat.create_conversation(scope, app)
     long = String.duplicate("where is my very large order number 12345? ", 4)

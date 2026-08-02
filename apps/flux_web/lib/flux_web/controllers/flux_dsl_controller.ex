@@ -76,6 +76,29 @@ defmodule FluxWeb.FluxDslController do
     end
   end
 
+  @doc "Downloads an app's curated replies as fine-tune JSONL."
+  def finetune_export(conn, %{"id" => id} = params) do
+    filter = if params["filter"] == "all", do: :all, else: :liked
+
+    case Flux.Chat.export_finetune(conn.assigns.current_scope, id, filter: filter) do
+      {:ok, ""} ->
+        conn
+        |> put_flash(:error, "Nothing to export — like some replies or add annotations first.")
+        |> redirect(to: ~p"/console/apps/#{id}/monitor")
+
+      {:ok, jsonl} ->
+        send_download(
+          conn,
+          {:binary, jsonl <> "\n"},
+          filename: "finetune-#{filter}.jsonl",
+          content_type: "application/jsonl"
+        )
+
+      _error ->
+        conn |> put_flash(:error, "App not found.") |> redirect(to: ~p"/console/apps")
+    end
+  end
+
   def export_app(conn, %{"id" => id}) do
     scope = conn.assigns.current_scope
 
