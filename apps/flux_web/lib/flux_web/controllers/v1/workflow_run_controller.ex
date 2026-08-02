@@ -131,7 +131,8 @@ defmodule FluxWeb.V1.WorkflowRunController do
               status: finished.status,
               outputs: finished.outputs,
               error: finished.error,
-              elapsed_time: ms_to_seconds(finished.elapsed_ms)
+              elapsed_time: ms_to_seconds(finished.elapsed_ms),
+              total_tokens: total_tokens(finished)
             }
           })
 
@@ -208,6 +209,7 @@ defmodule FluxWeb.V1.WorkflowRunController do
             error: finished.error,
             paused_prompt: finished.snapshot && finished.snapshot["prompt"],
             elapsed_time: ms_to_seconds(finished.elapsed_ms),
+            total_tokens: total_tokens(finished),
             created_at: DateTime.to_unix(finished.inserted_at)
           }
         })
@@ -219,6 +221,10 @@ defmodule FluxWeb.V1.WorkflowRunController do
 
   defp ms_to_seconds(nil), do: nil
   defp ms_to_seconds(ms), do: ms / 1000
+
+  defp total_tokens(run) do
+    (run.usage["input_tokens"] || 0) + (run.usage["output_tokens"] || 0)
+  end
 
   defp error(conn, status, code, message) do
     conn

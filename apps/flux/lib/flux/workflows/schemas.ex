@@ -78,6 +78,7 @@ defmodule Flux.Workflows.WorkflowRun do
     field :error, :string
     field :node_executions, {:array, :map}, default: []
     field :elapsed_ms, :integer
+    field :usage, :map, default: %{}
     field :snapshot, :map
 
     timestamps(type: :utc_datetime)

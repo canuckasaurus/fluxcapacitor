@@ -647,18 +647,26 @@ defmodule Flux.Workflows do
   end
 
   defp do_execute(run, graph, inputs, workspace_id, run_opts) do
+    {:ok, usage_acc} = Agent.start_link(fn -> %{} end)
+
     host =
-      build_host(workspace_id, fn event ->
+      workspace_id
+      |> build_host(fn event ->
         Phoenix.PubSub.broadcast(Flux.PubSub, topic(run.id), {:engine_event, event})
       end)
+      |> track_llm_usage(usage_acc)
 
-    case Engine.run(graph, inputs, host, run_opts) do
+    result = Engine.run(graph, inputs, host, run_opts)
+    usage = collect_usage(run, usage_acc)
+
+    case result do
       {:ok, result} ->
         finalize(run, %{
           status: :succeeded,
           outputs: result.outputs,
           node_executions: run.node_executions ++ result.node_executions,
-          elapsed_ms: result.elapsed_ms
+          elapsed_ms: result.elapsed_ms,
+          usage: usage
         })
 
       {:paused, paused} ->
@@ -666,6 +674,7 @@ defmodule Flux.Workflows do
           status: :paused,
           node_executions: run.node_executions ++ paused.node_executions,
           elapsed_ms: paused.elapsed_ms,
+          usage: usage,
           snapshot: %{
             "node_id" => paused.node_id,
             "prompt" => paused.prompt,
@@ -678,8 +687,80 @@ defmodule Flux.Workflows do
           status: :failed,
           error: failure.error,
           node_executions: run.node_executions ++ failure.node_executions,
-          elapsed_ms: failure.elapsed_ms
+          elapsed_ms: failure.elapsed_ms,
+          usage: usage
         })
+    end
+  end
+
+  # Every model call in a run goes through the host's invoke_llm — llm,
+  # agent, question_classifier, and parameter_extractor nodes alike — so
+  # wrapping it here is the one place token usage can be counted whole.
+  defp track_llm_usage(%Host{invoke_llm: invoke} = host, usage_acc) do
+    %Host{
+      host
+      | invoke_llm: fn request, chunk_emit ->
+          result = invoke.(request, chunk_emit)
+
+          case result do
+            {:ok, %{usage: %{} = usage}} ->
+              Agent.update(usage_acc, &add_model_usage(&1, request.model, usage))
+
+            _error_or_no_usage ->
+              :ok
+          end
+
+          result
+        end
+    }
+  end
+
+  defp add_model_usage(by_model, model, usage) do
+    increment = %{
+      "input_tokens" => usage["input_tokens"] || 0,
+      "output_tokens" => usage["output_tokens"] || 0
+    }
+
+    Map.update(by_model, model || "unknown", increment, fn existing ->
+      %{
+        "input_tokens" => existing["input_tokens"] + increment["input_tokens"],
+        "output_tokens" => existing["output_tokens"] + increment["output_tokens"]
+      }
+    end)
+  end
+
+  # A resumed run already carries the usage from before the pause; merge
+  # rather than overwrite so the final totals cover the whole run.
+  defp collect_usage(run, usage_acc) do
+    fresh = Agent.get(usage_acc, & &1)
+    Agent.stop(usage_acc)
+
+    by_model =
+      Enum.reduce(fresh, run.usage["by_model"] || %{}, fn {model, usage}, acc ->
+        add_model_usage(acc, model, usage)
+      end)
+
+    if by_model == %{} do
+      %{}
+    else
+      totals =
+        Enum.reduce(by_model, %{input: 0, output: 0}, fn {_model, usage}, acc ->
+          %{
+            input: acc.input + usage["input_tokens"],
+            output: acc.output + usage["output_tokens"]
+          }
+        end)
+
+      base = %{
+        "input_tokens" => totals.input,
+        "output_tokens" => totals.output,
+        "by_model" => by_model
+      }
+
+      case Flux.Pricing.cost_for(by_model) do
+        nil -> base
+        cost -> Map.put(base, "estimated_cost_usd", cost)
+      end
     end
   end
 

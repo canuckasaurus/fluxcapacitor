@@ -70,6 +70,15 @@ defmodule FluxWeb.ConsoleLive.Dashboard do
             </div>
           </div>
           <div class="stat py-2 px-4">
+            <div class="stat-title text-xs">Run tokens</div>
+            <div class="stat-value text-lg circuit-value circuit-cyan" id="run-token-total">
+              {@usage.run_tokens.input + @usage.run_tokens.output}
+            </div>
+            <div :if={@usage.run_tokens.estimated_cost_usd > 0} class="stat-desc">
+              ~${:erlang.float_to_binary(@usage.run_tokens.estimated_cost_usd, decimals: 4)} est.
+            </div>
+          </div>
+          <div class="stat py-2 px-4">
             <div class="stat-title text-xs">Uploads</div>
             <div class="stat-value text-lg circuit-value circuit-amber">
               {humanize_bytes(@usage.storage_bytes)}

@@ -20,6 +20,7 @@ defmodule Flux.Usage do
       tokens: token_totals(scope, since),
       daily: daily_tokens(scope, since),
       runs: run_counts(scope, since),
+      run_tokens: run_token_totals(scope, since),
       top_apps: top_apps(scope, since),
       storage_bytes: storage_bytes(scope),
       knowledge: knowledge_counts(scope)
@@ -53,6 +54,25 @@ defmodule Flux.Usage do
     })
     |> Repo.all()
     |> Enum.map(&normalize_sums/1)
+  end
+
+  defp run_token_totals(scope, since) do
+    WorkflowRun
+    |> Repo.scoped(scope)
+    |> where([r], r.inserted_at >= ^since)
+    |> select([r], %{
+      input: sum(fragment("coalesce((? ->> 'input_tokens')::bigint, 0)", r.usage)),
+      output: sum(fragment("coalesce((? ->> 'output_tokens')::bigint, 0)", r.usage)),
+      cost: sum(fragment("coalesce((? ->> 'estimated_cost_usd')::numeric, 0)", r.usage))
+    })
+    |> Repo.one()
+    |> then(fn row ->
+      %{
+        input: to_int(row.input),
+        output: to_int(row.output),
+        estimated_cost_usd: to_float(row.cost)
+      }
+    end)
   end
 
   defp run_counts(scope, since) do
@@ -132,4 +152,8 @@ defmodule Flux.Usage do
   defp to_int(nil), do: 0
   defp to_int(%Decimal{} = decimal), do: Decimal.to_integer(decimal)
   defp to_int(n) when is_integer(n), do: n
+
+  defp to_float(nil), do: 0.0
+  defp to_float(%Decimal{} = decimal), do: Decimal.to_float(decimal)
+  defp to_float(n) when is_number(n), do: n * 1.0
 end

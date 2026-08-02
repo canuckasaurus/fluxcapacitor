@@ -2022,6 +2022,20 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     end
   end
 
+  defp run_tokens(run) do
+    (run.usage["input_tokens"] || 0) + (run.usage["output_tokens"] || 0)
+  end
+
+  defp run_cost_suffix(run) do
+    case run.usage["estimated_cost_usd"] do
+      cost when is_number(cost) and cost > 0 ->
+        " (~$#{:erlang.float_to_binary(cost * 1.0, decimals: 4)})"
+
+      _unknown ->
+        ""
+    end
+  end
+
   defp failable?(type), do: type in @failable_types
 
   defp format_debug_error(:unauthorized), do: "You don't have permission to run nodes."
@@ -4113,6 +4127,9 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                   {@run.status}
                 </span>
                 <span :if={@run.elapsed_ms} class="text-xs opacity-60">{@run.elapsed_ms} ms</span>
+                <span :if={run_tokens(@run) > 0} class="text-xs opacity-60" id="run-usage">
+                  · {run_tokens(@run)} tokens{run_cost_suffix(@run)}
+                </span>
               </div>
               <p :if={@run.error} class="text-sm text-error">{@run.error}</p>
               <div :if={@run.outputs != %{}} class="space-y-1">

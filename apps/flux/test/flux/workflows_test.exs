@@ -77,6 +77,31 @@ defmodule Flux.WorkflowsTest do
     assert [%{status: :succeeded}] = Workflows.list_runs(scope, workflow.id)
   end
 
+  test "runs record aggregated token usage with an estimated cost", %{
+    scope: scope,
+    workflow: workflow
+  } do
+    Application.put_env(:flux, :model_pricing, %{"echo-1" => {1.0, 2.0}})
+    on_exit(fn -> Application.delete_env(:flux, :model_pricing) end)
+
+    {:ok, workflow} = Workflows.update_draft(scope, workflow, echo_graph())
+    {:ok, _run} = Workflows.start_run(scope, workflow, %{"query" => "count me"})
+    assert_receive {:run_finished, finished}, 5_000
+
+    # FakeRuntime bills every LLM call at 3 in / 12 out.
+    assert finished.usage["input_tokens"] == 3
+    assert finished.usage["output_tokens"] == 12
+
+    assert finished.usage["by_model"] == %{
+             "echo-1" => %{"input_tokens" => 3, "output_tokens" => 12}
+           }
+
+    assert_in_delta finished.usage["estimated_cost_usd"], (3 * 1.0 + 12 * 2.0) / 1_000_000, 1.0e-9
+
+    [persisted] = Workflows.list_runs(scope, workflow.id)
+    assert persisted.usage["input_tokens"] == 3
+  end
+
   test "run fails cleanly when a node errors", %{scope: scope, workflow: workflow} do
     broken =
       update_in(echo_graph(), ["nodes"], fn nodes ->

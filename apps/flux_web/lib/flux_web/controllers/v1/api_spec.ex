@@ -79,6 +79,7 @@ defmodule FluxWeb.V1.ApiSpec do
               error: %Schema{type: :string, nullable: true},
               paused_prompt: %Schema{type: :object, nullable: true},
               elapsed_time: %Schema{type: :number, nullable: true},
+              total_tokens: %Schema{type: :integer},
               created_at: %Schema{type: :integer}
             },
             required: [:id, :workflow_id, :status, :outputs, :created_at],
