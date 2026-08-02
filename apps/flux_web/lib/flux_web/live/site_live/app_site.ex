@@ -296,6 +296,19 @@ defmodule FluxWeb.SiteLive.AppSite do
                 {if message.status == :error, do: message.error, else: message.content}
               </div>
               <div
+                :if={message.role == :assistant and (message.usage["files"] || []) != []}
+                class="chat-footer mt-1 flex flex-wrap gap-1"
+              >
+                <a
+                  :for={file <- message.usage["files"]}
+                  href={file["url"]}
+                  target="_blank"
+                  class="btn btn-outline btn-xs"
+                >
+                  <.icon name="hero-document-arrow-down" class="size-3" /> {file["name"]}
+                </a>
+              </div>
+              <div
                 :if={message.role == :assistant and message.citations != []}
                 class="chat-footer opacity-60 text-xs mt-0.5"
               >

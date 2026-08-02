@@ -76,6 +76,7 @@ defmodule FluxWeb.V1.AppResourceController do
                   content: message.content,
                   status: message.status,
                   feedback: message.feedback,
+                  files: message.usage["files"] || [],
                   created_at: DateTime.to_unix(message.inserted_at)
                 }
               end

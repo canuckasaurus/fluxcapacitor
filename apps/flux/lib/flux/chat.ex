@@ -899,24 +899,36 @@ defmodule Flux.Chat do
 
   @chatflow_timeout :timer.minutes(5)
 
-  defp bridge_run(assistant_message, conversation, variables, citations \\ []) do
+  defp bridge_run(assistant_message, conversation, variables, citations \\ [], files \\ []) do
     receive do
       {:engine_event, {:node_chunk, %{delta: delta}}} ->
         Flux.StreamBuffers.append(assistant_message.id, delta)
         Phoenix.PubSub.broadcast(Flux.PubSub, topic(assistant_message.id), {:chunk, delta})
-        bridge_run(assistant_message, conversation, variables, citations)
+        bridge_run(assistant_message, conversation, variables, citations, files)
 
       {:engine_event, {:conversation_var_set, %{name: name, value: value}}} ->
-        bridge_run(assistant_message, conversation, Map.put(variables, name, value), citations)
+        bridge_run(
+          assistant_message,
+          conversation,
+          Map.put(variables, name, value),
+          citations,
+          files
+        )
 
       # Knowledge nodes expose their sources in outputs["citations"];
       # collect them so the answer can show where it came from.
       {:engine_event, {:node_finished, %{outputs: %{"citations" => node_citations}}}}
       when is_list(node_citations) ->
-        bridge_run(assistant_message, conversation, variables, citations ++ node_citations)
+        bridge_run(assistant_message, conversation, variables, citations ++ node_citations, files)
+
+      # Document nodes produce downloadable files; the reply carries them.
+      {:engine_event,
+       {:node_finished, %{outputs: %{"file_id" => _id, "url" => url, "name" => name} = outputs}}} ->
+        file = %{"name" => name, "url" => url, "size" => outputs["size"]}
+        bridge_run(assistant_message, conversation, variables, citations, files ++ [file])
 
       {:engine_event, _other} ->
-        bridge_run(assistant_message, conversation, variables, citations)
+        bridge_run(assistant_message, conversation, variables, citations, files)
 
       {:run_finished, run} ->
         if variables != %{} do
@@ -933,7 +945,8 @@ defmodule Flux.Chat do
                 streamed -> streamed
               end
 
-            finalize(assistant_message, :completed, answer, %{}, citations)
+            usage = (files == [] && %{}) || %{"files" => Enum.take(files, 10)}
+            finalize(assistant_message, :completed, answer, usage, citations)
 
           _failed_or_stopped ->
             fail_generation(assistant_message, run.error || "The flux run failed.")
