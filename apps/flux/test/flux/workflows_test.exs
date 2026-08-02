@@ -263,11 +263,55 @@ defmodule Flux.WorkflowsTest do
         updated_at: old
       })
 
+    # Run-output files age out with the runs; fresh ones and chat
+    # uploads survive.
+    workspace_id = workflow.workspace_id
+    :ok = Flux.Storage.put("run_outputs/#{workspace_id}/stale.docx", "old bytes")
+    :ok = Flux.Storage.put("run_outputs/#{workspace_id}/fresh.docx", "new bytes")
+    :ok = Flux.Storage.put("uploads/#{workspace_id}/chat.txt", "chat bytes")
+
+    stale_file =
+      Flux.Repo.insert!(%Flux.Chat.UploadedFile{
+        workspace_id: workspace_id,
+        name: "stale.docx",
+        key: "run_outputs/#{workspace_id}/stale.docx",
+        size: 9,
+        download_token: "file_stale_test",
+        inserted_at: old,
+        updated_at: old
+      })
+
+    fresh_file =
+      Flux.Repo.insert!(%Flux.Chat.UploadedFile{
+        workspace_id: workspace_id,
+        name: "fresh.docx",
+        key: "run_outputs/#{workspace_id}/fresh.docx",
+        size: 9,
+        download_token: "file_fresh_test"
+      })
+
+    chat_file =
+      Flux.Repo.insert!(%Flux.Chat.UploadedFile{
+        workspace_id: workspace_id,
+        name: "chat.txt",
+        key: "uploads/#{workspace_id}/chat.txt",
+        size: 10,
+        inserted_at: old,
+        updated_at: old
+      })
+
     assert :ok = Flux.Workflows.CleanupWorker.perform(%Oban.Job{})
 
     refute Flux.Repo.get(Flux.Workflows.WorkflowRun, stale_run.id, skip_workspace_guard: true)
     assert Flux.Repo.get(Flux.Workflows.WorkflowRun, fresh_run.id, skip_workspace_guard: true)
     assert Flux.Repo.get(Flux.Workflows.WorkflowRun, paused_run.id, skip_workspace_guard: true)
+
+    refute Flux.Repo.get(Flux.Chat.UploadedFile, stale_file.id, skip_workspace_guard: true)
+    assert {:error, _gone} = Flux.Storage.get(stale_file.key)
+    assert Flux.Repo.get(Flux.Chat.UploadedFile, fresh_file.id, skip_workspace_guard: true)
+    assert {:ok, _kept} = Flux.Storage.get(fresh_file.key)
+    assert Flux.Repo.get(Flux.Chat.UploadedFile, chat_file.id, skip_workspace_guard: true)
+    assert {:ok, _kept} = Flux.Storage.get(chat_file.key)
   end
 
   test "human_input pauses a run and resume_run completes it", %{scope: scope} do

@@ -42,16 +42,43 @@ defmodule Flux.Workflows.CleanupWorker do
         )
         |> Repo.delete_all()
 
-      if runs_deleted + messages_deleted > 0 do
+      files_deleted = purge_run_outputs(workspace_id, cutoff)
+
+      if runs_deleted + messages_deleted + files_deleted > 0 do
         :telemetry.execute(
           [:flux, :retention, :sweep],
-          %{runs: runs_deleted, messages: messages_deleted},
+          %{runs: runs_deleted, messages: messages_deleted, files: files_deleted},
           %{workspace_id: workspace_id}
         )
       end
     end
 
     :ok
+  end
+
+  # Run outputs (filled documents) age out with the same window: the
+  # storage object goes first, then the row (and with it the download
+  # token). Chat uploads are untouched.
+  defp purge_run_outputs(workspace_id, cutoff) do
+    files =
+      from(f in Flux.Chat.UploadedFile,
+        where: f.workspace_id == ^workspace_id and f.inserted_at < ^cutoff,
+        where: like(f.key, "run_outputs/%"),
+        select: {f.id, f.key}
+      )
+      |> Repo.all()
+
+    for {_id, key} <- files, do: Flux.Storage.delete(key)
+
+    ids = Enum.map(files, fn {id, _key} -> id end)
+
+    {deleted, nil} =
+      from(f in Flux.Chat.UploadedFile,
+        where: f.workspace_id == ^workspace_id and f.id in ^ids
+      )
+      |> Repo.delete_all()
+
+    deleted
   end
 
   defp purge_trash do
