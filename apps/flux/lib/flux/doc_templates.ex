@@ -1,9 +1,13 @@
 defmodule Flux.DocTemplates do
   @moduledoc """
   User-provided document templates: reusable Jinja documents (offer
-  letters, reports, emails, invoices) that template nodes plug into via
-  `template_id`. The library lives per workspace; content is rendered by
-  `Flux.Engine.Jinja` at run time with the run's variable pool.
+  letters, reports, emails, invoices) that template and document nodes
+  plug into via `template_id`. The library lives per workspace.
+
+  Templates are **canonical**: once created, their content/file never
+  changes — a node pinned to a template renders exactly what was
+  reviewed, forever. Revisions are **forks**: new templates that record
+  their `parent_id` lineage. Only name/description are mutable in place.
   """
 
   import Ecto.Query
@@ -22,6 +26,7 @@ defmodule Flux.DocTemplates do
 
     schema "doc_templates" do
       belongs_to :workspace, Flux.Accounts.Workspace
+      belongs_to :parent, __MODULE__
       field :name, :string
       field :description, :string
       field :content, :string
@@ -30,6 +35,15 @@ defmodule Flux.DocTemplates do
       field :variables, {:array, :string}, default: []
 
       timestamps(type: :utc_datetime)
+    end
+
+    @doc "Metadata-only changes — canonical content never moves."
+    def metadata_changeset(template, attrs) do
+      template
+      |> cast(attrs, [:name, :description])
+      |> validate_required([:name])
+      |> validate_length(:name, min: 1, max: 120)
+      |> unique_constraint([:workspace_id, :name])
     end
 
     def changeset(template, attrs) do
@@ -84,10 +98,14 @@ defmodule Flux.DocTemplates do
     end
   end
 
+  @doc """
+  Renames/re-describes a template. Content is canonical and cannot be
+  updated — revise by forking instead.
+  """
   def update(%Scope{} = scope, %DocTemplate{} = template, attrs) do
     with :ok <- RBAC.authorize(scope, :app_edit),
          true <- template.workspace_id == Scope.workspace_id(scope) || {:error, :not_found},
-         {:ok, updated} <- template |> DocTemplate.changeset(attrs) |> Repo.update() do
+         {:ok, updated} <- template |> DocTemplate.metadata_changeset(attrs) |> Repo.update() do
       Flux.Audit.record(scope, "doc_template.update",
         resource_type: "doc_template",
         resource_id: template.id,
@@ -96,6 +114,70 @@ defmodule Flux.DocTemplates do
 
       {:ok, updated}
     end
+  end
+
+  @doc """
+  Forks a text template: a new canonical template whose lineage points
+  at the parent. Nodes bound to the parent keep rendering the parent.
+  """
+  def fork(%Scope{} = scope, %DocTemplate{kind: "text"} = parent, attrs) do
+    with :ok <- RBAC.authorize(scope, :app_edit),
+         true <- parent.workspace_id == Scope.workspace_id(scope) || {:error, :not_found},
+         {:ok, template} <-
+           %DocTemplate{workspace_id: Scope.workspace_id(scope), parent_id: parent.id}
+           |> DocTemplate.changeset(attrs)
+           |> Repo.insert() do
+      audit_fork(scope, template, parent)
+      {:ok, template}
+    end
+  end
+
+  def fork(%Scope{}, %DocTemplate{}, _attrs),
+    do: {:error, "Word templates fork by uploading a revision"}
+
+  @doc """
+  Forks a Word template: with `binary`, the revision is validated and
+  stored as the new canonical file; without, the parent's bytes are
+  copied (a rename/branch point).
+  """
+  def fork_docx(%Scope{} = scope, %DocTemplate{kind: "docx"} = parent, attrs) do
+    with :ok <- RBAC.authorize(scope, :app_edit),
+         true <- parent.workspace_id == Scope.workspace_id(scope) || {:error, :not_found},
+         {:ok, binary} <- fork_binary(parent, attrs[:binary]),
+         :ok <- check_docx_size(binary),
+         {:ok, variables} <- validate_docx(binary) do
+      key = "doc_templates/#{Scope.workspace_id(scope)}/#{Ecto.UUID.generate()}.docx"
+
+      changeset =
+        %DocTemplate{
+          workspace_id: Scope.workspace_id(scope),
+          parent_id: parent.id,
+          kind: "docx",
+          file_key: key,
+          variables: variables
+        }
+        |> DocTemplate.changeset(Map.take(attrs, [:name, :description]))
+
+      with {:ok, template} <- Repo.insert(changeset),
+           :ok <- Flux.Storage.put(key, binary) do
+        audit_fork(scope, template, parent)
+        {:ok, template}
+      end
+    end
+  end
+
+  def fork_docx(%Scope{}, %DocTemplate{}, _attrs),
+    do: {:error, "only Word templates fork with a file"}
+
+  defp fork_binary(_parent, binary) when is_binary(binary), do: {:ok, binary}
+  defp fork_binary(%DocTemplate{file_key: key}, _none), do: Flux.Storage.get(key)
+
+  defp audit_fork(scope, template, parent) do
+    Flux.Audit.record(scope, "doc_template.fork",
+      resource_type: "doc_template",
+      resource_id: template.id,
+      metadata: %{"name" => template.name, "parent_id" => parent.id, "parent" => parent.name}
+    )
   end
 
   @doc """

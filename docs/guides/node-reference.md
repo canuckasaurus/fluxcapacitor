@@ -161,7 +161,10 @@ reply lands in `output`.
 ### `document`
 
 Fills a **Word doc template** (uploaded under Doc templates) with the
-run's variables and stores the finished .docx — the docassemble-style
+run's variables and stores the finished file. Templates are canonical:
+content never changes after upload, so a node pinned to a template
+renders exactly what was reviewed — revisions are forks with lineage,
+and you rebind the node when ready. Stores .docx — the docassemble-style
 assembly step. Author templates in Word with `{{ tags }}` inline,
 `{%p if … %}` / `{%p endfor %}` paragraphs, and `{%tr for … %}` table
 rows. `output_name` templates the filename. Outputs `url` (a tokenized

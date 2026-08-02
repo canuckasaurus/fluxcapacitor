@@ -24,6 +24,7 @@ defmodule FluxWeb.ConsoleLive.DocTemplates do
        can_edit: RBAC.can?(scope, :app_edit),
        editing: nil,
        uploading: false,
+       upload_parent: nil,
        upload_error: nil,
        form_error: nil,
        preview: nil,
@@ -36,24 +37,35 @@ defmodule FluxWeb.ConsoleLive.DocTemplates do
   def handle_event("new", _params, socket) do
     {:noreply,
      assign(socket,
-       editing: %{"id" => nil, "name" => "", "description" => "", "content" => ""},
+       editing: %{"fork_of" => nil, "name" => "", "description" => "", "content" => ""},
        form_error: nil,
        preview: nil
      )}
   end
 
-  def handle_event("edit", %{"template-id" => id}, socket) do
+  # Templates are canonical: "fork" prefills the editor from the parent
+  # and saving always creates a new template with lineage.
+  def handle_event("fork", %{"template-id" => id}, socket) do
     case DocTemplates.get(socket.assigns.current_scope, id) do
       {:error, :not_found} ->
         {:noreply, socket}
+
+      %{kind: "docx"} = template ->
+        {:noreply,
+         assign(socket,
+           uploading: true,
+           upload_parent: template,
+           upload_error: nil,
+           editing: nil
+         )}
 
       template ->
         {:noreply,
          socket
          |> assign(
            editing: %{
-             "id" => template.id,
-             "name" => template.name,
+             "fork_of" => template.id,
+             "name" => template.name <> " (fork)",
              "description" => template.description || "",
              "content" => template.content
            },
@@ -68,6 +80,7 @@ defmodule FluxWeb.ConsoleLive.DocTemplates do
      assign(socket,
        editing: nil,
        uploading: false,
+       upload_parent: nil,
        upload_error: nil,
        form_error: nil,
        preview: nil
@@ -75,7 +88,8 @@ defmodule FluxWeb.ConsoleLive.DocTemplates do
   end
 
   def handle_event("uploading", _params, socket) do
-    {:noreply, assign(socket, uploading: true, editing: nil, upload_error: nil)}
+    {:noreply,
+     assign(socket, uploading: true, upload_parent: nil, editing: nil, upload_error: nil)}
   end
 
   def handle_event("validate_docx", _params, socket), do: {:noreply, socket}
@@ -88,19 +102,49 @@ defmodule FluxWeb.ConsoleLive.DocTemplates do
         {:ok, File.read!(path)}
       end)
 
-    case binaries do
-      [binary] ->
-        attrs = %{binary: binary, name: params["name"], description: params["description"]}
+    parent = socket.assigns.upload_parent
 
-        case DocTemplates.create_docx(scope, attrs) do
+    result =
+      case {parent, binaries} do
+        {nil, [binary]} ->
+          {:run,
+           DocTemplates.create_docx(scope, %{
+             binary: binary,
+             name: params["name"],
+             description: params["description"]
+           })}
+
+        {nil, []} ->
+          :no_file
+
+        {parent, list} ->
+          {:run,
+           DocTemplates.fork_docx(scope, parent, %{
+             binary: List.first(list),
+             name: params["name"],
+             description: params["description"]
+           })}
+      end
+
+    case result do
+      :no_file ->
+        {:noreply, assign(socket, upload_error: "Choose a .docx file first.")}
+
+      {:run, outcome} ->
+        case outcome do
           {:ok, template} ->
             {:noreply,
              socket
              |> put_flash(
                :info,
-               "Uploaded — #{length(template.variables)} variable(s) found."
+               "Saved — #{length(template.variables)} variable(s) found."
              )
-             |> assign(templates: DocTemplates.list(scope), uploading: false, upload_error: nil)}
+             |> assign(
+               templates: DocTemplates.list(scope),
+               uploading: false,
+               upload_parent: nil,
+               upload_error: nil
+             )}
 
           {:error, %Ecto.Changeset{} = changeset} ->
             {:noreply, assign(socket, upload_error: changeset_error(changeset))}
@@ -111,9 +155,6 @@ defmodule FluxWeb.ConsoleLive.DocTemplates do
           {:error, message} when is_binary(message) ->
             {:noreply, assign(socket, upload_error: message)}
         end
-
-      [] ->
-        {:noreply, assign(socket, upload_error: "Choose a .docx file first.")}
     end
   end
 
@@ -142,14 +183,14 @@ defmodule FluxWeb.ConsoleLive.DocTemplates do
     }
 
     result =
-      case socket.assigns.editing["id"] do
+      case socket.assigns.editing["fork_of"] do
         nil ->
           DocTemplates.create(scope, attrs)
 
-        id ->
-          case DocTemplates.get(scope, id) do
+        parent_id ->
+          case DocTemplates.get(scope, parent_id) do
             {:error, :not_found} -> {:error, :not_found}
-            template -> DocTemplates.update(scope, template, attrs)
+            parent -> DocTemplates.fork(scope, parent, attrs)
           end
       end
 
@@ -191,6 +232,13 @@ defmodule FluxWeb.ConsoleLive.DocTemplates do
     DocTemplates.delete(scope, id)
 
     {:noreply, assign(socket, templates: DocTemplates.list(scope), editing: nil, preview: nil)}
+  end
+
+  defp parent_name(templates, parent_id) do
+    case Enum.find(templates, &(&1.id == parent_id)) do
+      nil -> "a deleted template"
+      parent -> parent.name
+    end
   end
 
   defp run_preview(socket, content, context_json) do
@@ -247,7 +295,14 @@ defmodule FluxWeb.ConsoleLive.DocTemplates do
       </div>
 
       <div :if={@uploading} class="card border border-base-200 p-6 space-y-3">
-        <h2 class="font-semibold">Upload a Word template</h2>
+        <h2 class="font-semibold">
+          {(@upload_parent && "Fork \"#{@upload_parent.name}\" — upload the revision") ||
+            "Upload a Word template"}
+        </h2>
+        <p :if={@upload_parent} class="text-sm opacity-70">
+          The original stays canonical; nodes bound to it keep rendering it. Leave the
+          file empty to fork an identical copy.
+        </p>
         <p class="text-sm opacity-70">
           Author it in Word with Jinja tags: <code>{"{{ client.name }}"}</code>
           inline, <code>{"{%p if ... %}"}</code>
@@ -267,6 +322,7 @@ defmodule FluxWeb.ConsoleLive.DocTemplates do
             <input
               type="text"
               name="name"
+              value={(@upload_parent && @upload_parent.name <> " (fork)") || ""}
               placeholder="Engagement letter"
               required
               class="input input-bordered input-sm w-64"
@@ -274,6 +330,7 @@ defmodule FluxWeb.ConsoleLive.DocTemplates do
             <input
               type="text"
               name="description"
+              value={(@upload_parent && @upload_parent.description) || ""}
               placeholder="Description (optional)"
               class="input input-bordered input-sm flex-1 min-w-48"
             />
@@ -294,6 +351,10 @@ defmodule FluxWeb.ConsoleLive.DocTemplates do
       </div>
 
       <div :if={@editing} class="card border border-base-200 p-6 space-y-3">
+        <p :if={@editing["fork_of"]} class="text-sm opacity-70">
+          <.icon name="hero-arrow-path-rounded-square" class="size-4 inline" />
+          Forking — saving creates a new canonical template; the original never changes.
+        </p>
         <form phx-submit="save" phx-change="preview" id="doc-template-form" class="space-y-3">
           <div class="flex gap-2 flex-wrap">
             <input
@@ -379,12 +440,12 @@ defmodule FluxWeb.ConsoleLive.DocTemplates do
             </h2>
             <div :if={@can_edit} class="flex gap-1">
               <button
-                :if={template.kind != "docx"}
                 class="btn btn-ghost btn-xs"
-                phx-click="edit"
+                phx-click="fork"
                 phx-value-template-id={template.id}
+                title="Templates are canonical — revise by forking a copy"
               >
-                Edit
+                Fork
               </button>
               <button
                 class="btn btn-ghost btn-xs text-error"
@@ -397,6 +458,10 @@ defmodule FluxWeb.ConsoleLive.DocTemplates do
             </div>
           </div>
           <p :if={template.description} class="text-sm opacity-70">{template.description}</p>
+          <p :if={template.parent_id} class="text-xs opacity-60">
+            <.icon name="hero-arrow-path-rounded-square" class="size-3 inline" />
+            forked from {parent_name(@templates, template.parent_id)}
+          </p>
           <pre
             :if={template.kind != "docx"}
             class="rounded bg-base-200 p-2 text-xs overflow-hidden max-h-20"

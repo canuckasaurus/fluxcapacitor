@@ -14,7 +14,7 @@ defmodule FluxWeb.DocTemplatesTest do
     %{conn: log_in_account(conn, account), scope: scope}
   end
 
-  test "CRUD with jinja validation at save time", %{scope: scope} do
+  test "templates are canonical: create, rename, fork — never rewrite", %{scope: scope} do
     assert {:ok, template} =
              DocTemplates.create(scope, %{
                "name" => "Offer letter",
@@ -28,12 +28,67 @@ defmodule FluxWeb.DocTemplatesTest do
 
     assert {"invalid template: " <> _reason, _opts} = changeset.errors[:content]
 
-    {:ok, updated} = DocTemplates.update(scope, template, %{"content" => "Hi {{ start.name }}!"})
-    assert updated.content == "Hi {{ start.name }}!"
+    # update touches metadata only — content silently cannot move.
+    {:ok, renamed} =
+      DocTemplates.update(scope, template, %{
+        "name" => "Offer letter (US)",
+        "content" => "Hi {{ start.name }}!"
+      })
 
-    assert [%{name: "Offer letter"}] = DocTemplates.list(scope)
+    assert renamed.name == "Offer letter (US)"
+    assert renamed.content == "Dear {{ start.name | capitalize }}, welcome!"
+
+    # Revisions are forks with lineage; the parent is untouched.
+    assert {:ok, fork} =
+             DocTemplates.fork(scope, renamed, %{
+               "name" => "Offer letter v2",
+               "content" => "Hi {{ start.name }}!"
+             })
+
+    assert fork.parent_id == template.id
+    assert fork.content == "Hi {{ start.name }}!"
+    assert DocTemplates.get(scope, template.id).content =~ "Dear"
+
+    assert length(DocTemplates.list(scope)) == 2
+    {:ok, _deleted} = DocTemplates.delete(scope, fork.id)
     {:ok, _deleted} = DocTemplates.delete(scope, template.id)
     assert DocTemplates.list(scope) == []
+  end
+
+  test "docx templates fork with a revision or an identical copy", %{scope: scope} do
+    {:ok, parent} =
+      DocTemplates.create_docx(scope, %{
+        binary: docx_binary("v1: {{ a }}"),
+        name: "Notice"
+      })
+
+    # Fork with a new file: revised canonical content, lineage kept.
+    assert {:ok, revised} =
+             DocTemplates.fork_docx(scope, parent, %{
+               binary: docx_binary("v2: {{ a }} and {{ b }}"),
+               name: "Notice v2"
+             })
+
+    assert revised.parent_id == parent.id
+    assert revised.variables == ["a", "b"]
+
+    # Fork without a file: byte-identical copy under a new identity.
+    assert {:ok, copy} = DocTemplates.fork_docx(scope, parent, %{name: "Notice (branch)"})
+    assert copy.parent_id == parent.id
+    assert copy.variables == ["a"]
+    {:ok, parent_bytes} = Flux.Storage.get(parent.file_key)
+    {:ok, copy_bytes} = Flux.Storage.get(copy.file_key)
+    assert parent_bytes == copy_bytes
+    assert parent.file_key != copy.file_key
+
+    # A broken revision is refused; nothing is stored.
+    assert {:error, message} =
+             DocTemplates.fork_docx(scope, parent, %{
+               binary: docx_binary("{% if x %}oops"),
+               name: "Broken fork"
+             })
+
+    assert message =~ "endif"
   end
 
   test "a template node renders a saved doc template in a real run", %{scope: scope} do
