@@ -1,8 +1,6 @@
 _build/
-deps/
 .git/
 .elixir_ls/
-docs/
 *.md
 !README.md
 apps/*/test/

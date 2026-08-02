@@ -19,9 +19,15 @@ COPY apps/flux_rag/mix.exs apps/flux_rag/
 COPY apps/flux_web/mix.exs apps/flux_web/
 COPY packages/flux_plugin packages/flux_plugin
 COPY config config
-RUN mix deps.get --only prod && mix deps.compile
+# Dependencies are vendored from the build context (mix.lock governs
+# them): hex.pm fetches from inside the build hit a hard 120s stall on
+# large tarballs under Docker Desktop/WSL2 networking.
+COPY deps deps
+RUN mix deps.compile
 
 COPY apps apps
+# The in-app docs viewer compiles the guides into the release.
+COPY docs/guides docs/guides
 RUN mix compile
 
 # Tailwind/esbuild binaries download on first use.
