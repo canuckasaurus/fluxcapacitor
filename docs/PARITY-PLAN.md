@@ -262,3 +262,24 @@ card, FLUX ASSISTANT banner compressed 2.6MB→226KB → docs/images + getting
 and in-console alike); **docs refresh** (plugin-sdk LlamaIndex section, stale
 code-node section rewritten for the coderunner + ML toolkit, getting-started
 covers Draft with AI, README plugins bullet).
+
+24. ~~The octet: cost, webhooks, fine-tune, batches, evals, datasources,
+labeling, netns (#134-141, 2026-08-02)~~ DONE: **run usage + cost** (every
+model call counted at the host invoke_llm boundary; per-model breakdown,
+Flux.Pricing longest-prefix estimates with config override, dashboard rollup,
+/v1 total_tokens); **outgoing webhooks** (workspace endpoints with event
+filters, HMAC-signed via AlertWorker, settings card); **fine-tune JSONL**
+(liked replies + annotations in OpenAI chat format, monitor download);
+**batch runs** (CSV upload -> one run per row via Oban, live counters,
+results CSV, dependency-free RFC-4180 codec in Flux.CSV); **evaluations**
+(eval sets/cases from forms, CSV, or runs; exact/contains/LLM-judge graders;
+draft-vs-version comparison; eval executions are ordinary runs with usage);
+**Notion + S3 datasources** (integration-token page sync; S3-compatible
+buckets over the ExAws/Req stack, UTF-8-only fetches); **Label Studio
+connector** (compose sidecar on 8085, tool ops list_projects/create_tasks/
+export_annotations, labeled tasks as a datasource, "Send to labeling" on
+monitor feedback, Apache-2.0 -- the label->train->serve loop with the
+coderunner ML toolkit); **coderunner phase 2** (python user code under
+unshare in an empty netns; boot probe with loud fallback, custom seccomp
+profile = Docker default + unprivileged unshare, live-verified: 12/12
+checks incl. python network denial while uv installs stay networked).

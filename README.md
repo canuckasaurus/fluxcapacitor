@@ -24,7 +24,18 @@ orchestrator, no queue infrastructure beyond Postgres.
   helper** drafts a flux from a plain-language description (engine-validated
   before it touches the canvas), and code nodes run in a **sandboxed runner**
   with a pre-installed ML toolkit (numpy, pandas, scikit-learn, xgboost,
-  lightgbm, and friends — zero-install imports).
+  lightgbm, and friends — zero-install imports) where python user code is
+  confined to an **empty network namespace**.
+- **Evaluate and improve** — per-flux **eval sets** (hand-written, CSV
+  imports, or captured from real runs) scored by exact/contains graders or
+  an **LLM-as-judge**, against the draft or any published version, so
+  versions compare side by side before you publish. **Batch runs** execute
+  the draft over a CSV of inputs with live counters and a results export.
+  Every run records **token usage and an estimated cost** (per-model
+  breakdown; dashboard rollups). Liked replies and annotations export as
+  **fine-tune JSONL**, and the **Label Studio connector** closes the custom
+  model loop: queue replies for human labeling, pull annotations back as a
+  dataset or as training data for a code node.
 - **Apps on top of fluxes** — chat, completion (form), and chatflow modes;
   published to logged-out visitors at a public URL, embedded via iframe or a
   floating chat bubble, or consumed through the `/v1` service API with
@@ -42,16 +53,20 @@ orchestrator, no queue infrastructure beyond Postgres.
   collections that sync into datasets), **triggers** (polled event sources
   that start runs), and **endpoints** (plugins that serve HTTP). Installed
   per workspace, credentials encrypted per workspace. Built-in **LlamaIndex
-  tool plugin**: retrieve from LlamaCloud managed indexes or call
-  llama_deploy workflow services as functions inside a flux.
+  tool plugin** (retrieve from LlamaCloud managed indexes or call
+  llama_deploy workflow services as functions inside a flux), plus **Notion**
+  and **S3-compatible** datasources and the **Label Studio** tool/datasource
+  connector.
 - **Enterprise-grade tenancy** — workspaces with role-based access control
   (built-in + custom roles), **OIDC single sign-on**, **SCIM 2.0
   provisioning**, plan-based feature gating, a repo-level tenancy guard on
   every query against tenant tables, per-workspace encryption keys, an
   append-only audit trail, and workspace export/import archives.
 - **Operations built in** — Oban (on Postgres) is the platform's only
-  scheduler: cron/interval triggers, document indexing, retention sweeps, and
-  signed failure-alert webhooks are all queues in the same database.
+  scheduler: cron/interval triggers, document indexing, retention sweeps,
+  batch and eval execution, and **signed outgoing webhooks** (per-workspace
+  endpoints subscribed to run lifecycle events, HMAC-SHA256, retried) are
+  all queues in the same database.
   Prometheus metrics, OpenTelemetry traces, and structured JSON logs are one
   env var away; golden run fixtures replay recorded workflows in CI.
 

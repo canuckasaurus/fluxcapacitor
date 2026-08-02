@@ -47,9 +47,13 @@ lands in the dev mailbox at `/dev/mailbox`).
    *Run*. Or skip the skeleton: describe what you want in **Draft with
    AI** and the helper generates the nodes and wiring through the
    workspace default model — every draft is engine-validated before it
-   reaches the canvas, and nothing publishes without you. Publish a
-   version when it works — the API, sites, schedules, and chatflow apps
-   always run the latest published version, never the draft.
+   reaches the canvas, and nothing publishes without you. From the run
+   panel, **Batch runs** executes the draft over a CSV of inputs and
+   **Evals** scores it against a test-case set (exact, contains, or
+   LLM-as-judge) so draft and published versions compare side by side.
+   Publish a version when it works — the API, sites, schedules, and
+   chatflow apps always run the latest published version, never the
+   draft.
 4. **Apps** → create a chat, completion, or chatflow app. Publish it as
    a public site, embed it with the iframe/bubble snippets, or mint an
    API key and call `/v1` (see the [service API guide](service-api.md)).
@@ -60,7 +64,7 @@ lands in the dev mailbox at `/dev/mailbox`).
 
 ## Testing
 
-`mix test` at the umbrella root runs everything (~560 tests) with no
+`mix test` at the umbrella root runs everything (~600 tests) with no
 network — fake providers, injected converters, temp-dir storage. To run
 a single app's tests, `cd` into the app first; `mix test apps/flux`
 from the root silently runs nothing. Golden replay fixtures, `/v1`
