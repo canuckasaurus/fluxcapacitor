@@ -23,6 +23,7 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
          quality: Chat.quality_stats(scope, app.id),
          annotations: Chat.list_annotations(scope, app.id),
          can_edit: RBAC.can?(scope, :app_edit),
+         labeling_configured: Flux.Labeling.configured?(scope),
          search_results: nil,
          selected_id: nil,
          messages: []
@@ -68,6 +69,30 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
 
       _error ->
         {:noreply, put_flash(socket, :error, "Could not save the annotation.")}
+    end
+  end
+
+  def handle_event("send_to_labeling", %{"message-id" => message_id}, socket) do
+    entry = Enum.find(socket.assigns.feedback, &(&1.message.id == message_id))
+
+    with %{message: message, question: question} when is_binary(question) <- entry,
+         {:ok, _result} <-
+           Flux.Labeling.queue_item(socket.assigns.current_scope, %{
+             "question" => question,
+             "answer" => message.content,
+             "feedback" => to_string(message.feedback)
+           }) do
+      {:noreply, put_flash(socket, :info, "Queued for labeling in Label Studio.")}
+    else
+      {:error, :not_configured} ->
+        {:noreply,
+         put_flash(socket, :error, "Configure the Label Studio plugin credentials first.")}
+
+      {:error, reason} when is_binary(reason) ->
+        {:noreply, put_flash(socket, :error, "Label Studio said: #{reason}")}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not queue the reply for labeling.")}
     end
   end
 
@@ -267,6 +292,14 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
             phx-value-message-id={message.id}
           >
             <.icon name="hero-bookmark" class="size-3" /> Save as annotation
+          </button>
+          <button
+            :if={@can_edit and @labeling_configured and question}
+            class="btn btn-outline btn-xs"
+            phx-click="send_to_labeling"
+            phx-value-message-id={message.id}
+          >
+            <.icon name="hero-tag" class="size-3" /> Send to labeling
           </button>
         </div>
       </div>

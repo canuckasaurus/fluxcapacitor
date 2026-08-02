@@ -56,6 +56,12 @@ defmodule Flux.FakeRuntime do
   def validate_credentials("drip", _), do: :ok
   def validate_credentials("openai", %{"api_key" => "sk-valid"}), do: :ok
   def validate_credentials("openai", _), do: {:error, "Invalid API key."}
+
+  def validate_credentials("label_studio", %{"api_token" => token})
+      when is_binary(token) and token != "",
+      do: :ok
+
+  def validate_credentials("label_studio", _), do: {:error, "api_token is required"}
   def validate_credentials(_other, _), do: {:error, :unknown_plugin}
 
   def invoke_llm("echo", _credentials, request, emit) do
@@ -163,6 +169,11 @@ defmodule Flux.FakeRuntime do
 
   def invoke_tool_plugin("utility", _credentials, "current_time", _args) do
     {:ok, %{text: DateTime.to_iso8601(DateTime.utc_now(:second)), data: %{}}}
+  end
+
+  def invoke_tool_plugin("label_studio", _credentials, "create_tasks", args) do
+    count = length(List.wrap(args["items"]))
+    {:ok, %{text: "queued #{count} tasks for labeling", data: %{"task_count" => count}}}
   end
 
   def invoke_tool_plugin(_plugin, _credentials, _operation, _args),

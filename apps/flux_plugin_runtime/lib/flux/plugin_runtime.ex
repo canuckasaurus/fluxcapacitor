@@ -17,7 +17,8 @@ defmodule Flux.PluginRuntime do
     Flux.Plugins.RSS,
     Flux.Plugins.LlamaIndex,
     Flux.Plugins.Notion,
-    Flux.Plugins.S3
+    Flux.Plugins.S3,
+    Flux.Plugins.LabelStudio
   ]
 
   @invoke_timeout :timer.minutes(5)
