@@ -2852,14 +2852,15 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                       type="text"
                       name="output_name"
                       value={node["config"]["output_name"]}
-                      placeholder={"Engagement letter - {{start.client_name}}"}
+                      placeholder="Engagement letter - {{start.client_name}}"
                       class="input input-sm w-full font-mono"
                       disabled={not @can_edit}
                     />
                   </label>
                   <p class="text-xs opacity-60">
                     Fills the template with this run's variables; downstream nodes see
-                    <code>{"{{#{node["id"]}.url}}"}</code> and <code>{"{{#{node["id"]}.name}}"}</code>.
+                    <code>{"{{#{node["id"]}.url}}"}</code>
+                    and <code>{"{{#{node["id"]}.name}}"}</code>.
                   </p>
                 <% "http_request" -> %>
                   <div class="flex gap-2">

@@ -159,6 +159,86 @@ defmodule Flux.DocTemplates do
     end
   end
 
+  @doc """
+  Scaffolds an interview flux from a Word template: a start form asking
+  for every discovered variable, a document node filling the template,
+  and an end node exposing the download — the one-click docassemble.
+  """
+  def create_interview_flux(%Scope{} = scope, %DocTemplate{kind: "docx"} = template) do
+    variables =
+      for name <- template.variables, name not in ~w(sys env conversation start) do
+        %{
+          "name" => name,
+          "label" => humanize(name),
+          "type" => "text",
+          "required" => true
+        }
+      end
+
+    graph = %{
+      "nodes" => [
+        %{
+          "id" => "start",
+          "type" => "start",
+          "title" => "Interview",
+          "position" => %{"x" => 80, "y" => 120},
+          "config" => %{"variables" => variables}
+        },
+        %{
+          "id" => "document_1",
+          "type" => "document",
+          "title" => "Fill #{template.name}",
+          "position" => %{"x" => 380, "y" => 120},
+          "config" => %{"template_id" => template.id, "output_name" => template.name}
+        },
+        %{
+          "id" => "end",
+          "type" => "end",
+          "title" => "End",
+          "position" => %{"x" => 680, "y" => 120},
+          "config" => %{
+            "outputs" => [
+              %{"key" => "document_url", "value" => "{{document_1.url}}"},
+              %{"key" => "document_name", "value" => "{{document_1.name}}"}
+            ]
+          }
+        }
+      ],
+      "edges" => [
+        %{
+          "id" => "edge_1",
+          "source" => "start",
+          "source_handle" => "default",
+          "target" => "document_1"
+        },
+        %{
+          "id" => "edge_2",
+          "source" => "document_1",
+          "source_handle" => "default",
+          "target" => "end"
+        }
+      ]
+    }
+
+    with {:ok, workflow} <-
+           Flux.Workflows.create_workflow(scope, %{"name" => "#{template.name} interview"}),
+         {:ok, workflow} <- Flux.Workflows.update_draft(scope, workflow, graph) do
+      {:ok, workflow}
+    end
+  end
+
+  def create_interview_flux(%Scope{}, %DocTemplate{}),
+    do: {:error, "only Word templates scaffold an interview"}
+
+  # snake_case / camelCase variable names become form labels.
+  defp humanize(name) do
+    name
+    |> String.replace(~r/([a-z])([A-Z])/, "\\1 \\2")
+    |> String.replace(["_", "-"], " ")
+    |> String.trim()
+    |> String.capitalize()
+  end
+
   @doc "Content lookup for the engine's fetch_doc_template capability."
   def fetch_content(workspace_id, template_id) do
     case fetch(workspace_id, template_id) do

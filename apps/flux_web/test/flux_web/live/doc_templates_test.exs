@@ -284,4 +284,47 @@ defmodule FluxWeb.DocTemplatesTest do
     assert build_conn() |> get(~p"/files/file_bogus") |> Map.fetch!(:status) == 404
     _ = conn
   end
+
+  test "one click scaffolds an interview flux from a Word template", %{
+    conn: conn,
+    scope: scope
+  } do
+    {:ok, template} =
+      DocTemplates.create_docx(scope, %{
+        binary: docx_binary("{{ client_name }} vs {{ opposing_party }}"),
+        name: "Complaint"
+      })
+
+    {:ok, lv, _html} = live(conn, ~p"/console/templates")
+
+    lv
+    |> element("button[phx-value-template-id='#{template.id}']", "Create interview flux")
+    |> render_click()
+
+    assert [workflow] =
+             Enum.filter(
+               Flux.Workflows.list_workflows(scope),
+               &(&1.name == "Complaint interview")
+             )
+
+    workflow = Flux.Workflows.get_workflow(scope, workflow.id)
+    start = Enum.find(workflow.graph["nodes"], &(&1["id"] == "start"))
+
+    assert [
+             %{"name" => "client_name", "label" => "Client name", "required" => true},
+             %{"name" => "opposing_party", "label" => "Opposing party", "required" => true}
+           ] = start["config"]["variables"]
+
+    # The scaffold runs end-to-end as generated.
+    {:ok, _run} =
+      Flux.Workflows.start_run(scope, workflow, %{
+        "client_name" => "McFly",
+        "opposing_party" => "Tannen"
+      })
+
+    assert_receive {:run_finished, finished}, 5_000
+    assert finished.status == :succeeded
+    assert "/files/file_" <> _token = finished.outputs["document_url"]
+    assert finished.outputs["document_name"] == "Complaint.docx"
+  end
 end

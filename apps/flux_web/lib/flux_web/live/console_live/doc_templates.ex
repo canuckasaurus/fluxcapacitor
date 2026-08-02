@@ -171,6 +171,21 @@ defmodule FluxWeb.ConsoleLive.DocTemplates do
     end
   end
 
+  def handle_event("scaffold", %{"template-id" => id}, socket) do
+    scope = socket.assigns.current_scope
+
+    with template when not is_tuple(template) <- DocTemplates.get(scope, id),
+         {:ok, workflow} <- DocTemplates.create_interview_flux(scope, template) do
+      {:noreply,
+       socket
+       |> put_flash(:info, "Interview flux created — publish it to take answers.")
+       |> push_navigate(to: ~p"/console/fluxes/#{workflow.id}")}
+    else
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not scaffold from that template.")}
+    end
+  end
+
   def handle_event("delete", %{"template-id" => id}, socket) do
     scope = socket.assigns.current_scope
     DocTemplates.delete(scope, id)
@@ -395,6 +410,15 @@ defmodule FluxWeb.ConsoleLive.DocTemplates do
                 no variables found
               </span>
             </div>
+            <button
+              :if={@can_edit}
+              class="btn btn-accent btn-xs w-fit"
+              phx-click="scaffold"
+              phx-value-template-id={template.id}
+              title="Generate a flux: a form asking for every variable, ending in the filled document"
+            >
+              <.icon name="hero-bolt" class="size-3" /> Create interview flux
+            </button>
             <details class="text-xs">
               <summary class="cursor-pointer opacity-70">
                 Test render — download a filled copy
