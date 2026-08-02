@@ -1,5 +1,5 @@
 # ---- build stage -----------------------------------------------------------
-FROM hexpm/elixir:1.16.2-erlang-26.2.4-debian-bookworm-20240513-slim AS build
+FROM hexpm/elixir:1.16.2-erlang-26.2.5.9-debian-bookworm-20260610-slim AS build
 
 ENV MIX_ENV=prod
 WORKDIR /app
@@ -30,7 +30,7 @@ RUN cd apps/flux_web && mix assets.deploy
 RUN mix release flux
 
 # ---- runtime stage ----------------------------------------------------------
-FROM debian:bookworm-20240513-slim AS app
+FROM debian:bookworm-20260610-slim AS app
 
 RUN apt-get update -y && \
     apt-get install -y libstdc++6 openssl libncurses6 locales ca-certificates && \

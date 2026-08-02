@@ -39,8 +39,11 @@ if allow = System.get_env("FLUX_SSRF_ALLOW") do
 end
 
 # CODE_RUNNER_URL points at the internal flux-coderunner service; without
-# it, code nodes fail with a clear configuration error.
+# it, code nodes fail with a clear configuration error. Setting it also
+# selects the Sandbox backend, overriding dev's Local default.
 if url = System.get_env("CODE_RUNNER_URL") do
+  config :flux, :code_runner, Flux.CodeRunner.Sandbox
+
   config :flux, Flux.CodeRunner.Sandbox,
     url: url,
     api_key: System.get_env("CODE_RUNNER_API_KEY")

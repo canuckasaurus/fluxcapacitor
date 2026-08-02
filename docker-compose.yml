@@ -65,6 +65,18 @@ services:
     ports:
       - "3005:3000"
 
+  # Code-node execution: untrusted blocks run here, never in the app VM.
+  # Set CODE_RUNNER_API_KEY in .env to require auth.
+  coderunner:
+    build: ./coderunner
+    profiles: ["code", "full"]
+    environment:
+      CODE_RUNNER_API_KEY: ${CODE_RUNNER_API_KEY:-}
+    ports:
+      - "8194:8194"
+    volumes:
+      - coderunner_cache:/cache
+
   app:
     build: .
     profiles: ["full"]
@@ -87,6 +99,8 @@ services:
       FLUX_METRICS: "1"
       FLUX_PDF_URL: http://gotenberg:3000
       FLUX_TIKA_URL: http://tika:9998
+      CODE_RUNNER_URL: http://coderunner:8194
+      CODE_RUNNER_API_KEY: ${CODE_RUNNER_API_KEY:-}
     ports:
       - "4000:4000"
 
@@ -94,3 +108,4 @@ volumes:
   postgres_data:
   minio_data:
   arango_data:
+  coderunner_cache:
