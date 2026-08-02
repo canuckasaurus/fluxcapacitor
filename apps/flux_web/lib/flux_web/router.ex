@@ -195,6 +195,7 @@ defmodule FluxWeb.Router do
     post "/workspace-import", WorkspaceExportController, :import
     get "/fluxes/:id/export", FluxDslController, :export
     get "/fluxes/:id/runs/:run_id/fixture", FluxDslController, :run_fixture
+    get "/fluxes/:id/batches/:batch_id/results", FluxDslController, :batch_results
     get "/apps/:id/export", FluxDslController, :export_app
     get "/apps/:id/finetune-export", FluxDslController, :finetune_export
     get "/templates/:id/file", DocTemplateController, :file
@@ -211,6 +212,7 @@ defmodule FluxWeb.Router do
       live "/apps/:id/monitor", ConsoleLive.AppMonitor, :show
       live "/fluxes", ConsoleLive.Fluxes, :index
       live "/fluxes/:id", ConsoleLive.FluxEditor, :edit
+      live "/fluxes/:id/batches", ConsoleLive.FluxBatches, :index
       live "/knowledge", ConsoleLive.Knowledge, :index
       live "/plugins", ConsoleLive.Plugins, :index
       live "/tools", ConsoleLive.Tools, :index

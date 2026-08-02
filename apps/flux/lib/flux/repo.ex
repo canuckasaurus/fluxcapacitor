@@ -17,7 +17,8 @@ defmodule Flux.Repo do
                    ~w(invitations provider_credentials apps conversations messages api_tokens
                       workflows workflow_versions workflow_runs api_toolsets uploaded_files
                       workflow_triggers datasets rag_documents rag_segments rag_entities
-                      rag_entity_mentions annotations doc_templates interviews)
+                      rag_entity_mentions annotations doc_templates interviews
+                      webhook_endpoints workflow_batches)
                  )
 
   @doc """

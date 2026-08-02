@@ -17,7 +17,7 @@ defmodule Flux.Workflows do
   alias Flux.Providers
   alias Flux.RBAC
   alias Flux.Repo
-  alias Flux.Workflows.{Workflow, WorkflowRun, WorkflowVersion}
+  alias Flux.Workflows.{Workflow, WorkflowBatch, WorkflowRun, WorkflowVersion}
 
   defp runtime, do: Application.get_env(:flux, :plugin_runtime, Flux.PluginRuntime)
 
@@ -307,6 +307,123 @@ defmodule Flux.Workflows do
       {:error, errors} ->
         {:error, {:invalid_graph, errors}}
     end
+  end
+
+  ## Batch runs
+
+  @max_batch_rows 200
+
+  @doc """
+  Starts a batch: the draft graph is validated and snapshotted, one run
+  per row executes sequentially in an Oban job, and counters advance as
+  rows land (watch `batch_topic/1`). Caps at #{@max_batch_rows} rows.
+  """
+  def start_batch(%Scope{} = scope, %Workflow{} = workflow, rows, opts \\ [])
+      when is_list(rows) do
+    cond do
+      rows == [] ->
+        {:error, :empty}
+
+      length(rows) > @max_batch_rows ->
+        {:error, {:too_many_rows, @max_batch_rows}}
+
+      true ->
+        case Engine.build(workflow.graph) do
+          {:ok, _graph} ->
+            batch =
+              Repo.insert!(%WorkflowBatch{
+                workspace_id: Scope.workspace_id(scope),
+                workflow_id: workflow.id,
+                name: Keyword.get(opts, :name, "batch"),
+                graph: workflow.graph,
+                rows: rows,
+                total: length(rows)
+              })
+
+            {:ok, _job} =
+              %{"batch_id" => batch.id}
+              |> Flux.Workflows.BatchWorker.new()
+              |> Oban.insert()
+
+            {:ok, batch}
+
+          {:error, errors} ->
+            {:error, {:invalid_graph, errors}}
+        end
+    end
+  end
+
+  def list_batches(%Scope{} = scope, workflow_id) do
+    WorkflowBatch
+    |> Repo.scoped(scope)
+    |> where([b], b.workflow_id == ^workflow_id)
+    |> order_by([b], desc: b.inserted_at)
+    |> limit(50)
+    |> Repo.all()
+  end
+
+  def get_batch(%Scope{} = scope, batch_id) do
+    Repo.one(Repo.scoped(where(WorkflowBatch, id: ^batch_id), scope)) || {:error, :not_found}
+  end
+
+  @doc "A batch's runs in row order."
+  def list_batch_runs(%Scope{} = scope, batch_id) do
+    WorkflowRun
+    |> Repo.scoped(scope)
+    |> where([r], r.batch_id == ^batch_id)
+    |> order_by([r], asc: r.inserted_at, asc: r.id)
+    |> Repo.all()
+  end
+
+  def batch_topic(workflow_id), do: "workflow_batches:#{workflow_id}"
+
+  def subscribe_batches(workflow_id),
+    do: Phoenix.PubSub.subscribe(Flux.PubSub, batch_topic(workflow_id))
+
+  @doc false
+  # Executed inside Flux.Workflows.BatchWorker: rows run sequentially so
+  # a batch can't starve interactive runs of provider throughput.
+  def perform_batch(batch_id) do
+    batch = Repo.get(WorkflowBatch, batch_id, skip_workspace_guard: true)
+
+    with %WorkflowBatch{status: :running} <- batch,
+         {:ok, graph} <- Engine.build(batch.graph) do
+      Enum.each(batch.rows, fn row ->
+        run =
+          Repo.insert!(%WorkflowRun{
+            workspace_id: batch.workspace_id,
+            workflow_id: batch.workflow_id,
+            batch_id: batch.id,
+            status: :running,
+            source: :batch,
+            inputs: row
+          })
+
+        {:ok, finished} = do_execute(run, graph, row, batch.workspace_id, [])
+
+        counter = if finished.status == :succeeded, do: :succeeded, else: :failed
+
+        from(b in WorkflowBatch, where: b.id == ^batch.id)
+        |> Repo.update_all([inc: [{counter, 1}]], skip_workspace_guard: true)
+
+        broadcast_batch(batch)
+      end)
+
+      from(b in WorkflowBatch, where: b.id == ^batch.id)
+      |> Repo.update_all([set: [status: "completed"]], skip_workspace_guard: true)
+
+      broadcast_batch(batch)
+    end
+
+    :ok
+  end
+
+  defp broadcast_batch(batch) do
+    Phoenix.PubSub.broadcast(
+      Flux.PubSub,
+      batch_topic(batch.workflow_id),
+      {:batch_updated, batch.id}
+    )
   end
 
   @doc "PubSub topic carrying a run's engine events."

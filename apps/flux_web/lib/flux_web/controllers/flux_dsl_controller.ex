@@ -76,6 +76,47 @@ defmodule FluxWeb.FluxDslController do
     end
   end
 
+  @doc "Downloads a batch's rows, statuses, and outputs as CSV."
+  def batch_results(conn, %{"id" => workflow_id, "batch_id" => batch_id}) do
+    scope = conn.assigns.current_scope
+
+    with %Flux.Workflows.WorkflowBatch{} = batch <- Workflows.get_batch(scope, batch_id),
+         true <- batch.workflow_id == workflow_id || {:error, :not_found} do
+      runs = Workflows.list_batch_runs(scope, batch_id)
+
+      input_keys =
+        runs
+        |> Enum.flat_map(&Map.keys(&1.inputs))
+        |> Enum.uniq()
+        |> Enum.sort()
+
+      header = input_keys ++ ["status", "error", "outputs", "total_tokens"]
+
+      rows =
+        for run <- runs do
+          Enum.map(input_keys, &(run.inputs[&1] || "")) ++
+            [
+              to_string(run.status),
+              run.error || "",
+              Jason.encode!(run.outputs),
+              (run.usage["input_tokens"] || 0) + (run.usage["output_tokens"] || 0)
+            ]
+        end
+
+      send_download(
+        conn,
+        {:binary, Flux.CSV.encode([header | rows])},
+        filename: "batch-results.csv",
+        content_type: "text/csv"
+      )
+    else
+      _not_found ->
+        conn
+        |> put_flash(:error, "Batch not found.")
+        |> redirect(to: ~p"/console/fluxes")
+    end
+  end
+
   @doc "Downloads an app's curated replies as fine-tune JSONL."
   def finetune_export(conn, %{"id" => id} = params) do
     filter = if params["filter"] == "all", do: :all, else: :liked

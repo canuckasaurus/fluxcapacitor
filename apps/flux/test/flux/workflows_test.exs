@@ -119,6 +119,39 @@ defmodule Flux.WorkflowsTest do
     assert finished.error =~ "provider and model"
   end
 
+  test "batches run every row and tally results", %{scope: scope, workflow: workflow} do
+    {:ok, workflow} = Workflows.update_draft(scope, workflow, echo_graph())
+
+    rows = [%{"query" => "row one"}, %{"query" => "row two"}, %{"query" => "row three"}]
+    {:ok, batch} = Workflows.start_batch(scope, workflow, rows, name: "smoke.csv")
+
+    assert batch.total == 3
+    assert batch.status == :running
+
+    # Oban is in manual testing mode; run the batch inline.
+    :ok = Workflows.perform_batch(batch.id)
+
+    finished = Workflows.get_batch(scope, batch.id)
+    assert finished.status == :completed
+    assert finished.succeeded == 3
+    assert finished.failed == 0
+
+    runs = Workflows.list_batch_runs(scope, batch.id)
+    assert length(runs) == 3
+    assert Enum.all?(runs, &(&1.status == :succeeded and &1.source == :batch))
+    assert Enum.at(runs, 0).outputs["answer"] =~ "You said: row one"
+    assert Enum.at(runs, 2).outputs["answer"] =~ "You said: row three"
+  end
+
+  test "start_batch rejects empty and oversized uploads", %{scope: scope, workflow: workflow} do
+    {:ok, workflow} = Workflows.update_draft(scope, workflow, echo_graph())
+
+    assert {:error, :empty} = Workflows.start_batch(scope, workflow, [])
+
+    too_many = List.duplicate(%{"query" => "x"}, 201)
+    assert {:error, {:too_many_rows, 200}} = Workflows.start_batch(scope, workflow, too_many)
+  end
+
   test "start_run rejects an invalid graph", %{scope: scope, workflow: workflow} do
     {:ok, workflow} = Workflows.update_draft(scope, workflow, %{"nodes" => [], "edges" => []})
     assert {:error, {:invalid_graph, errors}} = Workflows.start_run(scope, workflow, %{})

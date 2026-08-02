@@ -52,6 +52,33 @@ defmodule Flux.Workflows.WorkflowVersion do
   end
 end
 
+defmodule Flux.Workflows.WorkflowBatch do
+  @moduledoc """
+  A batch execution: one graph snapshot run once per input row. Counters
+  advance as rows finish; `status` flips to `:completed` when the last
+  row lands.
+  """
+  use Ecto.Schema
+
+  @primary_key {:id, UUIDv7, autogenerate: true}
+  @foreign_key_type :binary_id
+
+  schema "workflow_batches" do
+    belongs_to :workspace, Flux.Accounts.Workspace
+    belongs_to :workflow, Flux.Workflows.Workflow
+
+    field :name, :string
+    field :status, Ecto.Enum, values: [:running, :completed], default: :running
+    field :graph, :map
+    field :rows, {:array, :map}, default: []
+    field :total, :integer, default: 0
+    field :succeeded, :integer, default: 0
+    field :failed, :integer, default: 0
+
+    timestamps(type: :utc_datetime)
+  end
+end
+
 defmodule Flux.Workflows.WorkflowRun do
   @moduledoc """
   One execution of a workflow. `version` is nil for draft runs;
@@ -72,7 +99,8 @@ defmodule Flux.Workflows.WorkflowRun do
       values: [:running, :succeeded, :failed, :stopped, :paused],
       default: :running
 
-    field :source, Ecto.Enum, values: [:draft, :api], default: :draft
+    field :source, Ecto.Enum, values: [:draft, :api, :batch], default: :draft
+    belongs_to :batch, Flux.Workflows.WorkflowBatch
     field :inputs, :map, default: %{}
     field :outputs, :map, default: %{}
     field :error, :string
