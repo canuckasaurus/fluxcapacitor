@@ -216,10 +216,24 @@ Timeline above assumes ~2–3 engineers; single-engineer pace ≈ 2.5× the dura
 | Item | Blocked on |
 |---|---|
 | ~~Push to GitHub~~ ✅ (2026-07-31: `canuckasaurus/fluxcapacitor`, folder renamed too — WS0 complete) | CI-green confirmation still needs `gh auth login` (token stale) |
-| flux-coderunner container (code node phase 1: real deps + sandbox) | Docker Desktop |
-| RAG workstream WS3 remainder (ArangoDB backend, Tika formats; compose stack **authored 2026-08-01**, unverified) | Docker Desktop |
-| Golden harness phase 2 (recorded run traces + SSE transcripts) | Docker Desktop (live Reference instance) |
-| Code node phase 2 hardening (network-namespace split) | phase 1 (Docker) |
+| ~~flux-coderunner container~~ ✅ (2026-08-02: see batch 21) | — |
+| ~~Tika office formats~~ ✅ (2026-08-02); ArangoDB backend remains | BUSL-1.1 decision, then implementation |
+| Golden harness phase 2 — recorder + parity replay **authored 2026-08-02**; recording needs the Reference stack booted | permission to run the third-party compose stack (or user boots it) |
+| Code node phase 2 hardening (network-namespace split) | phase 1 ✅ — buildable now |
 | ArangoDB BUSL-1.1 license acceptability review | user/legal decision |
 | Prod email adapter (magic links beyond the local mailbox) | choice of SMTP/API provider + credentials |
 | bcrypt swap (currently pbkdf2) | Linux/CI build (no local C toolchain) |
+
+21. ~~Docker batch (#126–130, 2026-08-02)~~ ✅ — Docker Desktop live (WSL2 installed):
+**compose stack verified** (postgres on host port 5433, minio, gotenberg, tika all
+healthy); **live PDF conversion** (Jinja-rendered docx → Gotenberg → real PDF; Tika
+round-tripped the interpolated text back out); **Tika wiring** (`Flux.Tika` client,
+document-extractor falls back for xlsx/pptx/.doc/PDF, FLUX_TIKA_URL all envs);
+**flux-coderunner shipped** (stdlib-only HTTP service: uv-cached venvs for python
+deps, permissionless Deno for JS, rlimits + throwaway dirs + process-group kill,
+10/10 live sandbox checks incl. blocked network + memory bomb; CODE_RUNNER_URL now
+selects the Sandbox backend); **full app image built & booted** (vendored deps
+dodge WSL2 hex stalls, docs compiled in; release migrated the compose DB and
+serves landing/login/v1); **harness phase 2 authored** (recorder script + parity
+replay test, activates when traces land — Reference stack boot itself was blocked
+by the session's permission layer).
