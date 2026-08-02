@@ -49,6 +49,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 PORT = int(os.environ.get("RUNNER_PORT", "8194"))
 API_KEY = os.environ.get("CODE_RUNNER_API_KEY") or ""
 VENV_ROOT = os.environ.get("RUNNER_VENV_ROOT", "/cache/venvs")
+DENO_ROOT = os.environ.get("RUNNER_DENO_ROOT", "/cache/deno")
 MEMORY_MB = int(os.environ.get("RUNNER_MEMORY_MB", "1024"))
 # BLAS libraries size thread pools (and address-space reservations) by
 # core count; unbounded on a big host they blow through RLIMIT_AS and
@@ -144,7 +145,7 @@ class RunError(Exception):
     """User-visible execution failure -> 422 {"error": str(exc)}."""
 
 
-def run_subprocess(argv, cwd, timeout_ms, cpu_seconds, limit_as=True):
+def run_subprocess(argv, cwd, timeout_ms, cpu_seconds, limit_as=True, extra_env=None):
     def preexec():
         import resource
 
@@ -178,6 +179,8 @@ def run_subprocess(argv, cwd, timeout_ms, cpu_seconds, limit_as=True):
         "NUMEXPR_NUM_THREADS": BLAS_THREADS,
         "POLARS_MAX_THREADS": BLAS_THREADS,
     }
+    if extra_env:
+        env.update(extra_env)
 
     proc = subprocess.Popen(
         argv,
@@ -260,6 +263,51 @@ def venv_python(deps):
         return python
 
 
+def deno_cache_dir(deps):
+    """A warmed DENO_DIR for this npm dependency set (None for none).
+
+    The fetch runs with network in the server's own namespace — the same
+    trust split as uv installs; user code later resolves the cache under
+    --cached-only with no network at all.
+    """
+    if not deps:
+        return None
+
+    key = hashlib.sha256("\n".join(deps).encode()).hexdigest()[:24]
+    cache_dir = os.path.join(DENO_ROOT, key)
+    ready = os.path.join(cache_dir, ".ready")
+
+    with _venv_locks_guard:
+        lock = _venv_locks.setdefault("deno:" + key, threading.Lock())
+
+    with lock:
+        if os.path.exists(ready):
+            return cache_dir
+        shutil.rmtree(cache_dir, ignore_errors=True)
+        os.makedirs(cache_dir, exist_ok=True)
+        specifiers = [npm_specifier(dep) for dep in deps]
+        env = dict(os.environ, DENO_DIR=cache_dir, NO_COLOR="1")
+        try:
+            fetch = subprocess.run(
+                ["deno", "cache", *specifiers],
+                env=env, capture_output=True, timeout=300,
+            )
+        except subprocess.TimeoutExpired:
+            raise RunError("dependency fetch timed out")
+        except FileNotFoundError:
+            raise RunError("deno is not installed in the runner image")
+        if fetch.returncode != 0:
+            detail = fetch.stderr.decode("utf-8", errors="replace")[-500:]
+            raise RunError(f"dependency fetch failed: {detail}")
+        open(ready, "w").close()
+        return cache_dir
+
+
+def npm_specifier(dep):
+    name, _, version = dep.partition("==")
+    return f"npm:{name}@{version}" if version else f"npm:{name}"
+
+
 def run_python(spec, workdir, timeout_ms):
     deps = normalize_dependencies(spec.get("dependencies"))
     python = venv_python(deps)
@@ -289,8 +337,8 @@ def run_python(spec, workdir, timeout_ms):
 
 
 def run_javascript(spec, workdir, timeout_ms):
-    if normalize_dependencies(spec.get("dependencies")):
-        raise RunError("javascript blocks do not support dependencies yet")
+    deps = normalize_dependencies(spec.get("dependencies"))
+    cache_dir = deno_cache_dir(deps)
 
     with open(os.path.join(workdir, "usercode.js"), "w", encoding="utf-8") as f:
         f.write(spec.get("code") or "")
@@ -299,13 +347,27 @@ def run_javascript(spec, workdir, timeout_ms):
     with open(os.path.join(workdir, "wrapper.js"), "w", encoding="utf-8") as f:
         f.write(JS_WRAPPER)
 
-    argv = [
-        "deno", "run", "--quiet", "--no-prompt", "--no-remote",
+    argv = ["deno", "run", "--quiet", "--no-prompt"]
+    extra_env = None
+    if deps:
+        # Bare imports resolve through an import map onto the pre-warmed
+        # npm cache; --cached-only still forbids any live fetch.
+        import_map = {"imports": {dep.partition("==")[0]: npm_specifier(dep) for dep in deps}}
+        with open(os.path.join(workdir, "import_map.json"), "w", encoding="utf-8") as f:
+            json.dump(import_map, f)
+        argv += ["--cached-only", "--import-map=import_map.json"]
+        extra_env = {"DENO_DIR": cache_dir}
+    else:
+        argv += ["--no-remote"]
+
+    argv += [
         f"--v8-flags=--max-old-space-size={MEMORY_MB}",
         f"--allow-read={workdir}", "wrapper.js",
     ]
     cpu = max(2, timeout_ms // 1000 + 1)
-    code, output = run_subprocess(argv, workdir, timeout_ms, cpu, limit_as=False)
+    code, output = run_subprocess(
+        argv, workdir, timeout_ms, cpu, limit_as=False, extra_env=extra_env
+    )
 
     if code == 3 or "__FLUX_NOT_DICT__" in output:
         raise RunError("the code block's main() must return a dict/object")

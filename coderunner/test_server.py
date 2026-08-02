@@ -75,6 +75,20 @@ assert status == 200 and body["result"] == {"double": 42}, body
 assert "js log" in body["stdout"], body
 passed.append("javascript basic + stdout")
 
+# 4b. javascript with an npm dependency (deno-cached, exact version)
+status, body = run({
+    "language": "javascript",
+    "code": (
+        "import dayjs from \"dayjs\";\n"
+        "export function main({when}) { return {year: dayjs(when).year()}; }"
+    ),
+    "dependencies": [{"name": "dayjs", "version": "1.11.13"}],
+    "inputs": {"when": "1985-10-26"},
+    "timeout_ms": 60000,
+})
+assert status == 200 and body["result"] == {"year": 1985}, body
+passed.append("javascript npm dependency via deno cache")
+
 # 5. non-dict return -> honest error
 status, body = run({
     "language": "python3",

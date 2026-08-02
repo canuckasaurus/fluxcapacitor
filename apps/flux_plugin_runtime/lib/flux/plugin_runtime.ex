@@ -18,6 +18,7 @@ defmodule Flux.PluginRuntime do
     Flux.Plugins.LlamaIndex,
     Flux.Plugins.Notion,
     Flux.Plugins.S3,
+    Flux.Plugins.GoogleDrive,
     Flux.Plugins.LabelStudio
   ]
 

@@ -17,7 +17,7 @@ bearer auth on `/run`.
 | Language | Runtime | Dependencies |
 |---|---|---|
 | `python3` | CPython 3.12 in a uv-managed venv | per-block, cached by dependency-set hash |
-| `javascript` | Deno, **no permissions** (no network/env/write) | not yet |
+| `javascript` | Deno, **no permissions** (no network/env/write) | exact-version npm packages, deno-cached by dependency-set hash; user code imports them bare (`import dayjs from "dayjs"`) via a generated import map, executed `--cached-only` |
 
 ## Pre-installed ML toolkit
 
