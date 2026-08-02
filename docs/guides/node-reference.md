@@ -35,6 +35,7 @@ then see `%{"error", "is_error"}` as its outputs. Retries are per-node
 | `loop` | Bounded while over a published sub-flux | `workflow_id`, `initial`, `max_loops`, break `conditions` | `output`, `rounds`, `condition_met`, `history` |
 | `human_input` | Pauses the run for a person | `prompt`, `options` | `output` (the reply, after resume) |
 | `document` | Fills a Word doc template into a downloadable file | `template_id`, `output_name` | `url`, `name`, `file_id`, `size` |
+| `interview` | Pauses the run and asks a stored question set as one form | `interview_id`, `intro` | one key per question + `output` |
 | `answer` | Streams/records the user-facing answer | `answer` template | `answer` |
 | `end` | Maps run outputs explicitly | `outputs` (key/value) | the mapped keys |
 
@@ -166,6 +167,16 @@ assembly step. Author templates in Word with `{{ tags }}` inline,
 rows. `output_name` templates the filename. Outputs `url` (a tokenized
 download link that works from the console, public sites, and the API),
 `name`, `file_id`, and `size`.
+
+### `interview`
+
+Pauses the run and asks a **stored interview** (a reusable question set
+from `/console/interviews`) as one multi-field form — the multi-question
+sibling of `human_input`. Questions snapshot into the pause, so the form
+survives definition edits mid-pause. Answers are validated (required,
+number, select membership, boolean) and land as one output per question
+plus `output` (the whole map). Works from the console, public flux
+sites, and `POST /v1/workflows/runs/:id/resume` with `{"inputs": {…}}`.
 
 ### `answer`
 

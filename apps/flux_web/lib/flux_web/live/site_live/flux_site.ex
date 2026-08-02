@@ -22,7 +22,8 @@ defmodule FluxWeb.SiteLive.FluxSite do
          site_scope: scope,
          version: version,
          run: nil,
-         run_text: ""
+         run_text: "",
+         resume_errors: %{}
        )}
     else
       {:error, _not_found_or_unpublished} ->
@@ -59,18 +60,25 @@ defmodule FluxWeb.SiteLive.FluxSite do
     {:noreply, socket}
   end
 
-  def handle_event("resume", %{"input" => input}, socket) do
+  def handle_event("resume", params, socket) do
     with %{status: :paused} = run <- socket.assigns.run,
          true <-
            FluxWeb.SiteRateLimit.allow?(
              socket.assigns.workflow.site_token,
              socket.assigns.visitor_ip
            ),
-         {:ok, resumed} <- Workflows.resume_run(socket.assigns.site_scope, run.id, input) do
-      {:noreply, assign(socket, run: resumed, run_text: "")}
+         {:ok, resumed} <-
+           Workflows.resume_run_with_params(socket.assigns.site_scope, run.id, params) do
+      {:noreply, assign(socket, run: resumed, run_text: "", resume_errors: %{})}
     else
-      false -> {:noreply, put_flash(socket, :error, "Too many requests — please slow down.")}
-      _not_paused_or_error -> {:noreply, put_flash(socket, :error, "Could not resume the run.")}
+      false ->
+        {:noreply, put_flash(socket, :error, "Too many requests — please slow down.")}
+
+      {:error, {:invalid_answers, errors}} ->
+        {:noreply, assign(socket, resume_errors: errors)}
+
+      _not_paused_or_error ->
+        {:noreply, put_flash(socket, :error, "Could not resume the run.")}
     end
   end
 
@@ -203,7 +211,24 @@ defmodule FluxWeb.SiteLive.FluxSite do
               {option}
             </span>
           </div>
-          <form phx-submit="resume" class="flex gap-2" id="site-resume-form">
+          <form
+            :if={List.wrap(@run.snapshot["prompt"]["questions"]) != []}
+            phx-submit="resume"
+            class="space-y-2"
+            id="site-resume-form"
+          >
+            <FluxWeb.InterviewComponents.interview_fields
+              questions={@run.snapshot["prompt"]["questions"]}
+              errors={@resume_errors}
+            />
+            <button class="btn btn-primary btn-sm">Continue</button>
+          </form>
+          <form
+            :if={List.wrap(@run.snapshot["prompt"]["questions"]) == []}
+            phx-submit="resume"
+            class="flex gap-2"
+            id="site-resume-form"
+          >
             <input type="text" name="input" placeholder="Your reply…" class="input input-sm flex-1" />
             <button class="btn btn-primary btn-sm">Continue</button>
           </form>

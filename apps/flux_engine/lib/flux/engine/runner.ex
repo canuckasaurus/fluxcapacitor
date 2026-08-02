@@ -64,9 +64,16 @@ defmodule Flux.Engine.Runner do
 
         # Continue a paused run: the human's input becomes the paused
         # node's outputs, and the walk restarts on its outgoing edge.
+        # Interview answers (a map) also land as one output per question.
         %{pool: pool, node_id: node_id, input: input} ->
           Host.emit(host, {:workflow_resumed, %{node_id: node_id}})
-          outputs = %{"output" => input}
+
+          outputs =
+            case input do
+              %{} = answers -> Map.put(answers, "output", answers)
+              other -> %{"output" => other}
+            end
+
           pool = Map.put(pool, node_id, outputs)
           continue(graph, node_id, "default", outputs, pool, host, [], @max_steps, :root)
       end

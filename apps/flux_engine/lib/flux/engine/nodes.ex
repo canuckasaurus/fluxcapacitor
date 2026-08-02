@@ -1947,3 +1947,52 @@ defmodule Flux.Engine.Nodes.Document do
     if String.ends_with?(String.downcase(name), ".docx"), do: name, else: name <> ".docx"
   end
 end
+
+defmodule Flux.Engine.Nodes.Interview do
+  @moduledoc """
+  Pauses the run and asks a stored question set as one form — the
+  multi-field sibling of human_input. The questions snapshot into the
+  pause payload, so the form survives definition edits mid-pause; on
+  resume the validated answers become this node's outputs (one key per
+  question, plus `"output"` with the whole map).
+
+  Config: `interview_id` (required), `intro` (templated override of the
+  interview's own intro).
+  """
+  @behaviour Flux.Engine.Node
+
+  alias Flux.Engine.{Host, Template}
+
+  @impl true
+  def run(node, pool, host) do
+    with {:ok, fetch} <- capability(host),
+         {:ok, interview_id} <- require_interview(node),
+         {:ok, interview} <- fetch.(interview_id) do
+      intro =
+        case to_string(node.config["intro"] || "") do
+          "" -> interview["intro"] || ""
+          override -> override
+        end
+
+      {:pause,
+       %{
+         "prompt" => Template.render(intro, pool),
+         "interview" => interview["name"],
+         "questions" => interview["questions"],
+         "options" => []
+       }}
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp capability(%Host{fetch_interview: fun}) when is_function(fun, 1), do: {:ok, fun}
+  defp capability(_host), do: {:error, "this run's host cannot load interviews"}
+
+  defp require_interview(node) do
+    case to_string(node.config["interview_id"] || "") do
+      "" -> {:error, "the interview node needs an interview"}
+      interview_id -> {:ok, interview_id}
+    end
+  end
+end

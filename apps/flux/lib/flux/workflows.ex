@@ -684,6 +684,27 @@ defmodule Flux.Workflows do
   end
 
   @doc """
+  Resumes a paused run from a raw params map: interview pauses validate
+  the answers against the snapshotted questions (returning
+  `{:error, {:invalid_answers, %{name => message}}}` on failure), plain
+  human-input pauses take `params["input"]`. The one resume entrypoint
+  for the console, public sites, and `/v1`.
+  """
+  def resume_run_with_params(%Scope{} = scope, run_id, params) when is_map(params) do
+    case Repo.one(Repo.scoped(where(WorkflowRun, id: ^run_id), scope)) do
+      %WorkflowRun{status: :paused, snapshot: %{"prompt" => %{"questions" => questions}}}
+      when is_list(questions) and questions != [] ->
+        case Flux.Interviews.validate_answers(questions, params) do
+          {:ok, answers} -> resume_run(scope, run_id, answers)
+          {:error, errors} -> {:error, {:invalid_answers, errors}}
+        end
+
+      _plain_or_missing ->
+        resume_run(scope, run_id, to_string(params["input"] || ""))
+    end
+  end
+
+  @doc """
   Resumes a paused run with the human's input: flips the run back to
   `:running`, subscribes the caller to its topic, and continues the
   published/draft graph from the paused node in a supervised task.
@@ -798,6 +819,9 @@ defmodule Flux.Workflows do
         Flux.DocTemplates.fetch_docx(workspace_id, template_id)
       end,
       store_file: build_file_store(workspace_id),
+      fetch_interview: fn interview_id ->
+        Flux.Interviews.fetch(workspace_id, interview_id)
+      end,
       default_llm: Providers.default_model_for_workspace(workspace_id)
     }
   end

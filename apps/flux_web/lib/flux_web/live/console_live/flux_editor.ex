@@ -111,6 +111,11 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
       label: "Document",
       icon: "hero-document-arrow-down",
       accent: "bg-accent/10 text-accent"
+    },
+    "interview" => %{
+      label: "Interview",
+      icon: "hero-clipboard-document-check",
+      accent: "bg-warning/10 text-warning"
     }
   }
 
@@ -144,13 +149,15 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     "knowledge_retrieval" =>
       "Searches your knowledge datasets (hybrid retrieval) and returns the best passages with citations.",
     "document" =>
-      "Fills a Word doc template with your variables and outputs the finished file for download."
+      "Fills a Word doc template with your variables and outputs the finished file for download.",
+    "interview" =>
+      "Pauses the run and asks a stored question set as one form; answers land in the pool."
   }
 
   @addable_types ~w(llm knowledge_retrieval if_else question_classifier parameter_extractor
-                    document_extractor iteration loop human_input template document tool
-                    http_request code agent variable_aggregator variable_assigner list_operator
-                    answer end)
+                    document_extractor iteration loop human_input interview template document
+                    tool http_request code agent variable_aggregator variable_assigner
+                    list_operator answer end)
   @zoom_levels [50, 65, 80, 100, 125, 150]
   @failable_types ~w(llm tool http_request code agent question_classifier parameter_extractor
                      document_extractor iteration loop knowledge_retrieval document)
@@ -179,6 +186,8 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
            selected_edge: nil,
            issues: issues(workflow.graph),
            doc_templates: Flux.DocTemplates.list(scope),
+           interviews: Flux.Interviews.list(scope),
+           resume_errors: %{},
            models: Providers.available_models(scope),
            toolsets:
              Flux.Tools.list_toolsets(scope) ++ Flux.Tools.installed_plugin_toolsets(scope),
@@ -598,12 +607,15 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     end
   end
 
-  def handle_event("resume_run", %{"input" => input}, socket) do
+  def handle_event("resume_run", params, socket) do
     with %{status: :paused} = run <- socket.assigns.run,
          {:ok, resumed} <-
-           Workflows.resume_run(socket.assigns.current_scope, run.id, input) do
-      {:noreply, assign(socket, run: resumed)}
+           Workflows.resume_run_with_params(socket.assigns.current_scope, run.id, params) do
+      {:noreply, assign(socket, run: resumed, resume_errors: %{})}
     else
+      {:error, {:invalid_answers, errors}} ->
+        {:noreply, assign(socket, resume_errors: errors)}
+
       _not_paused_or_error ->
         {:noreply, put_flash(socket, :error, "Could not resume the run.")}
     end
@@ -1451,6 +1463,12 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     |> Map.put("output_name", Map.get(params, "output_name", config["output_name"] || ""))
   end
 
+  defp build_config("interview", config, params) do
+    config
+    |> Map.put("interview_id", Map.get(params, "interview_id", config["interview_id"] || ""))
+    |> Map.put("intro", Map.get(params, "intro", config["intro"] || ""))
+  end
+
   defp build_config("http_request", config, params) do
     config
     |> Map.put("method", Map.get(params, "method", config["method"] || "get"))
@@ -1902,7 +1920,8 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     "loop" => ~w(output rounds condition_met),
     "human_input" => ~w(output),
     "knowledge_retrieval" => ~w(result citations count),
-    "document" => ~w(url name file_id size)
+    "document" => ~w(url name file_id size),
+    "interview" => ~w(output)
   }
 
   defp variable_hints(graph, selected_id) do
@@ -2861,6 +2880,41 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                     Fills the template with this run's variables; downstream nodes see
                     <code>{"{{#{node["id"]}.url}}"}</code>
                     and <code>{"{{#{node["id"]}.name}}"}</code>.
+                  </p>
+                <% "interview" -> %>
+                  <label class="floating-label">
+                    <span>Interview (define them under Interviews)</span>
+                    <select
+                      name="interview_id"
+                      class="select select-sm w-full"
+                      disabled={not @can_edit}
+                    >
+                      <option value="" selected={node["config"]["interview_id"] in [nil, ""]}>
+                        Choose an interview…
+                      </option>
+                      <option
+                        :for={interview <- @interviews}
+                        value={interview.id}
+                        selected={node["config"]["interview_id"] == interview.id}
+                      >
+                        {interview.name}
+                      </option>
+                    </select>
+                  </label>
+                  <label class="floating-label">
+                    <span>Intro override (templated, optional)</span>
+                    <input
+                      type="text"
+                      name="intro"
+                      value={node["config"]["intro"]}
+                      placeholder="A few questions about {{start.matter}}…"
+                      class="input input-sm w-full"
+                      disabled={not @can_edit}
+                    />
+                  </label>
+                  <p class="text-xs opacity-60">
+                    The run pauses here and asks the questions as one form; each answer
+                    lands as <code>{"{{#{node["id"]}.<name>}}"}</code>.
                   </p>
                 <% "http_request" -> %>
                   <div class="flex gap-2">
@@ -3992,7 +4046,22 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                   {option}
                 </span>
               </div>
-              <form phx-submit="resume_run" class="flex gap-2">
+              <form
+                :if={List.wrap(@run.snapshot["prompt"]["questions"]) != []}
+                phx-submit="resume_run"
+                class="space-y-2"
+              >
+                <FluxWeb.InterviewComponents.interview_fields
+                  questions={@run.snapshot["prompt"]["questions"]}
+                  errors={@resume_errors}
+                />
+                <button class="btn btn-primary btn-sm">Resume</button>
+              </form>
+              <form
+                :if={List.wrap(@run.snapshot["prompt"]["questions"]) == []}
+                phx-submit="resume_run"
+                class="flex gap-2"
+              >
                 <input
                   type="text"
                   name="input"

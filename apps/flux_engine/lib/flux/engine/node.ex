@@ -36,7 +36,8 @@ defmodule Flux.Engine.Node do
     "loop" => Flux.Engine.Nodes.Loop,
     "human_input" => Flux.Engine.Nodes.HumanInput,
     "knowledge_retrieval" => Flux.Engine.Nodes.KnowledgeRetrieval,
-    "document" => Flux.Engine.Nodes.Document
+    "document" => Flux.Engine.Nodes.Document,
+    "interview" => Flux.Engine.Nodes.Interview
   }
 
   @doc "The module implementing a node type."
