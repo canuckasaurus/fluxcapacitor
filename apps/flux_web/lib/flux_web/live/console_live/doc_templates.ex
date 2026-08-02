@@ -21,6 +21,7 @@ defmodule FluxWeb.ConsoleLive.DocTemplates do
      |> assign(
        page_title: "Doc templates",
        templates: DocTemplates.list(scope),
+       usages: DocTemplates.usage_map(scope),
        can_edit: RBAC.can?(scope, :app_edit),
        editing: nil,
        uploading: false,
@@ -231,8 +232,36 @@ defmodule FluxWeb.ConsoleLive.DocTemplates do
     scope = socket.assigns.current_scope
     DocTemplates.delete(scope, id)
 
-    {:noreply, assign(socket, templates: DocTemplates.list(scope), editing: nil, preview: nil)}
+    {:noreply,
+     assign(socket,
+       templates: DocTemplates.list(scope),
+       usages: DocTemplates.usage_map(scope),
+       editing: nil,
+       preview: nil
+     )}
   end
+
+  def handle_event("adopt", %{"template-id" => id}, socket) do
+    scope = socket.assigns.current_scope
+
+    with template when not is_tuple(template) <- DocTemplates.get(scope, id),
+         parent_id when parent_id != nil <- template.parent_id,
+         {:ok, touched} <- DocTemplates.rebind(scope, parent_id, template) do
+      nodes = touched |> Enum.map(& &1.nodes) |> Enum.sum()
+
+      {:noreply,
+       socket
+       |> put_flash(
+         :info,
+         "Rebound #{nodes} node(s) in #{length(touched)} flux(es) — republish them to go live."
+       )
+       |> assign(usages: DocTemplates.usage_map(scope))}
+    else
+      _error -> {:noreply, put_flash(socket, :error, "Could not adopt that fork.")}
+    end
+  end
+
+  defp usage_count(entries), do: entries |> Enum.map(&length(&1.nodes)) |> Enum.sum()
 
   defp parent_name(templates, parent_id) do
     case Enum.find(templates, &(&1.id == parent_id)) do
@@ -462,6 +491,22 @@ defmodule FluxWeb.ConsoleLive.DocTemplates do
             <.icon name="hero-arrow-path-rounded-square" class="size-3 inline" />
             forked from {parent_name(@templates, template.parent_id)}
           </p>
+          <p :if={@usages[template.id]} class="text-xs opacity-70">
+            <.icon name="hero-link" class="size-3 inline" />
+            used by {usage_count(@usages[template.id])} node(s) in {@usages[template.id]
+            |> Enum.map(& &1.name)
+            |> Enum.join(", ")}
+          </p>
+          <button
+            :if={@can_edit and template.parent_id != nil and @usages[template.parent_id] != nil}
+            class="btn btn-outline btn-xs w-fit"
+            phx-click="adopt"
+            phx-value-template-id={template.id}
+            data-confirm={"Rebind every draft node using \"#{parent_name(@templates, template.parent_id)}\" to this fork? Published versions stay as they are until republished."}
+            title="Adopt this fork: draft nodes bound to the parent rebind to this template"
+          >
+            <.icon name="hero-arrow-right-circle" class="size-3" /> Adopt (rebind from parent)
+          </button>
           <pre
             :if={template.kind != "docx"}
             class="rounded bg-base-200 p-2 text-xs overflow-hidden max-h-20"

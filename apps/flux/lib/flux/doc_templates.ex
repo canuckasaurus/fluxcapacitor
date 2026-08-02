@@ -321,6 +321,80 @@ defmodule Flux.DocTemplates do
     |> String.capitalize()
   end
 
+  @doc """
+  Which fluxes reference each template from their draft graphs:
+  `%{template_id => [%{workflow_id, name, nodes: [node_id]}]}`.
+  """
+  def usage_map(%Scope{} = scope) do
+    for workflow <- Flux.Workflows.list_workflows(scope),
+        node <- workflow.graph["nodes"] || [],
+        node["type"] in ["template", "document"],
+        (template_id = to_string(node["config"]["template_id"] || "")) != "",
+        reduce: %{} do
+      acc ->
+        Map.update(
+          acc,
+          template_id,
+          [%{workflow_id: workflow.id, name: workflow.name, nodes: [node["id"]]}],
+          fn entries ->
+            case Enum.split_with(entries, &(&1.workflow_id == workflow.id)) do
+              {[entry], rest} ->
+                [%{entry | nodes: [node["id"] | entry.nodes]} | rest]
+
+              {[], rest} ->
+                [%{workflow_id: workflow.id, name: workflow.name, nodes: [node["id"]]} | rest]
+            end
+          end
+        )
+    end
+  end
+
+  @doc """
+  Adopts a fork: every draft node bound to `from_id` rebinds to the
+  given template. Published versions are untouched — the change goes
+  live per flux on its next publish. Returns the touched fluxes.
+  """
+  def rebind(%Scope{} = scope, from_id, %DocTemplate{} = to) do
+    with :ok <- RBAC.authorize(scope, :app_edit),
+         true <- to.workspace_id == Scope.workspace_id(scope) || {:error, :not_found} do
+      touched =
+        for workflow <- Flux.Workflows.list_workflows(scope),
+            Enum.any?(workflow.graph["nodes"] || [], &binds_template?(&1, from_id)) do
+          graph =
+            Map.update(workflow.graph, "nodes", [], fn nodes ->
+              Enum.map(nodes, fn node ->
+                if binds_template?(node, from_id) do
+                  put_in(node, ["config", "template_id"], to.id)
+                else
+                  node
+                end
+              end)
+            end)
+
+          {:ok, updated} = Flux.Workflows.update_draft(scope, workflow, graph)
+          rebound = Enum.count(graph["nodes"], &(&1["config"]["template_id"] == to.id))
+          %{workflow_id: updated.id, name: updated.name, nodes: rebound}
+        end
+
+      Flux.Audit.record(scope, "doc_template.rebind",
+        resource_type: "doc_template",
+        resource_id: to.id,
+        metadata: %{
+          "from" => from_id,
+          "to" => to.id,
+          "fluxes" => Enum.map(touched, & &1.name)
+        }
+      )
+
+      {:ok, touched}
+    end
+  end
+
+  defp binds_template?(node, template_id) do
+    node["type"] in ["template", "document"] and
+      to_string(node["config"]["template_id"] || "") == to_string(template_id)
+  end
+
   @doc "Content lookup for the engine's fetch_doc_template capability."
   def fetch_content(workspace_id, template_id) do
     case fetch(workspace_id, template_id) do

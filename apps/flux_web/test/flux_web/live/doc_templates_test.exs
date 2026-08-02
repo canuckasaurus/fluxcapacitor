@@ -405,6 +405,44 @@ defmodule FluxWeb.DocTemplatesTest do
   defp restore_pdf_config(nil), do: Application.delete_env(:flux, Flux.Pdf)
   defp restore_pdf_config(value), do: Application.put_env(:flux, Flux.Pdf, value)
 
+  test "usage map and fork adoption rebind draft nodes", %{conn: conn, scope: scope} do
+    {:ok, parent} =
+      DocTemplates.create_docx(scope, %{binary: docx_binary("v1 {{ a }}"), name: "Contract"})
+
+    {:ok, flux} = DocTemplates.create_interview_flux(scope, parent)
+
+    # The published version pins v1; the draft is what rebinds.
+    {:ok, _version} = Flux.Workflows.publish(scope, flux)
+
+    assert %{workflow_id: flux_id, nodes: ["document_1"]} =
+             DocTemplates.usage_map(scope) |> Map.fetch!(parent.id) |> hd()
+
+    assert flux_id == flux.id
+
+    {:ok, fork} =
+      DocTemplates.fork_docx(scope, parent, %{
+        binary: docx_binary("v2 {{ a }}"),
+        name: "Contract v2"
+      })
+
+    # Adopt from the library page.
+    {:ok, lv, html} = live(conn, ~p"/console/templates")
+    assert html =~ "used by 1 node(s)"
+
+    lv
+    |> element("button[phx-value-template-id='#{fork.id}']", "Adopt")
+    |> render_click()
+
+    draft = Flux.Workflows.get_workflow(scope, flux.id)
+    node = Enum.find(draft.graph["nodes"], &(&1["id"] == "document_1"))
+    assert node["config"]["template_id"] == fork.id
+
+    # The published version still binds the canonical parent.
+    published = Flux.Workflows.latest_version(scope, flux.id)
+    published_node = Enum.find(published.graph["nodes"], &(&1["id"] == "document_1"))
+    assert published_node["config"]["template_id"] == parent.id
+  end
+
   test "one click scaffolds an interview flux from a Word template", %{
     conn: conn,
     scope: scope
