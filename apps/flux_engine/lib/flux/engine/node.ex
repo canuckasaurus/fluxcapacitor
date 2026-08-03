@@ -38,6 +38,7 @@ defmodule Flux.Engine.Node do
     "labeling" => Flux.Engine.Nodes.Labeling,
     "knowledge_retrieval" => Flux.Engine.Nodes.KnowledgeRetrieval,
     "document" => Flux.Engine.Nodes.Document,
+    "file_output" => Flux.Engine.Nodes.FileOutput,
     "interview" => Flux.Engine.Nodes.Interview
   }
 

@@ -1136,6 +1136,7 @@ defmodule Flux.Workflows do
   end
 
   defp maybe_convert("pdf", docx_binary), do: Flux.Pdf.convert_docx(docx_binary)
+  defp maybe_convert("html_pdf", html), do: Flux.Pdf.convert_html(html)
   defp maybe_convert(_format, binary), do: {:ok, binary}
 
   defp store_run_output(workspace_id, name, binary) do
@@ -1167,6 +1168,11 @@ defmodule Flux.Workflows do
     case name |> Path.extname() |> String.downcase() do
       ".docx" -> @docx_content_type
       ".pdf" -> "application/pdf"
+      ".html" -> "text/html; charset=utf-8"
+      ".md" -> "text/markdown; charset=utf-8"
+      ".txt" -> "text/plain; charset=utf-8"
+      ".csv" -> "text/csv; charset=utf-8"
+      ".json" -> "application/json"
       _other -> "application/octet-stream"
     end
   end

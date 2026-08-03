@@ -117,6 +117,11 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
       icon: "hero-document-arrow-down",
       accent: "bg-accent/10 text-accent"
     },
+    "file_output" => %{
+      label: "File Output",
+      icon: "hero-arrow-down-tray",
+      accent: "bg-accent/10 text-accent"
+    },
     "interview" => %{
       label: "Interview",
       icon: "hero-clipboard-document-check",
@@ -157,17 +162,19 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
       "Searches your knowledge datasets (hybrid retrieval) and returns the best passages with citations.",
     "document" =>
       "Fills a Word doc template with your variables and outputs the finished file for download.",
+    "file_output" =>
+      "Writes your content to a downloadable file — HTML, PDF, Markdown, text, CSV, or JSON.",
     "interview" =>
       "Pauses the run and asks a stored question set as one form; answers land in the pool."
   }
 
   @addable_types ~w(llm knowledge_retrieval if_else question_classifier parameter_extractor
                     document_extractor iteration loop human_input labeling interview template
-                    document tool http_request code agent variable_aggregator variable_assigner
-                    list_operator answer end)
+                    document file_output tool http_request code agent variable_aggregator
+                    variable_assigner list_operator answer end)
   @zoom_levels [50, 65, 80, 100, 125, 150]
   @failable_types ~w(llm tool http_request code agent question_classifier parameter_extractor
-                     document_extractor iteration loop knowledge_retrieval document)
+                     document_extractor iteration loop knowledge_retrieval document file_output)
   @history_cap 50
 
   @impl true
@@ -1378,6 +1385,9 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
       "limit" => ""
     }
 
+  defp default_config("file_output"),
+    do: %{"format" => "html", "content" => "", "output_name" => "output"}
+
   defp default_config(_type), do: %{}
 
   defp row_key("variable"), do: "variables"
@@ -1479,6 +1489,13 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
       "output_format",
       Map.get(params, "output_format", config["output_format"] || "docx")
     )
+  end
+
+  defp build_config("file_output", config, params) do
+    config
+    |> Map.put("format", Map.get(params, "format", config["format"] || "html"))
+    |> Map.put("content", Map.get(params, "content", config["content"] || ""))
+    |> Map.put("output_name", Map.get(params, "output_name", config["output_name"] || ""))
   end
 
   defp build_config("interview", config, params) do
@@ -1991,6 +2008,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     "labeling" => ~w(choice choices text output),
     "knowledge_retrieval" => ~w(result citations count),
     "document" => ~w(url name file_id size),
+    "file_output" => ~w(url name file_id size format),
     "interview" => ~w(output)
   }
 
@@ -2998,6 +3016,54 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                   <p class="text-xs opacity-60">
                     Fills the template with this run's variables; downstream nodes see
                     <code>{"{{#{node["id"]}.url}}"}</code>
+                    and <code>{"{{#{node["id"]}.name}}"}</code>.
+                  </p>
+                <% "file_output" -> %>
+                  <label class="floating-label">
+                    <span>Format</span>
+                    <select name="format" class="select select-sm w-52" disabled={not @can_edit}>
+                      <option
+                        :for={
+                          {value, label} <- [
+                            {"html", "HTML (.html)"},
+                            {"pdf", "PDF (needs FLUX_PDF_URL)"},
+                            {"markdown", "Markdown (.md)"},
+                            {"text", "Plain text (.txt)"},
+                            {"csv", "CSV (.csv)"},
+                            {"json", "JSON (.json)"}
+                          ]
+                        }
+                        value={value}
+                        selected={(node["config"]["format"] || "html") == value}
+                      >
+                        {label}
+                      </option>
+                    </select>
+                  </label>
+                  <label class="floating-label">
+                    <span>Content (templated)</span>
+                    <textarea
+                      name="content"
+                      rows="8"
+                      class="textarea textarea-sm w-full font-mono"
+                      placeholder="<h1>Report</h1>\n{{llm_1.text}}"
+                      disabled={not @can_edit}
+                    >{node["config"]["content"]}</textarea>
+                  </label>
+                  <label class="floating-label">
+                    <span>Output filename (templated, optional)</span>
+                    <input
+                      type="text"
+                      name="output_name"
+                      value={node["config"]["output_name"]}
+                      placeholder="report-{{start.topic}}"
+                      class="input input-sm w-full font-mono"
+                      disabled={not @can_edit}
+                    />
+                  </label>
+                  <p class="text-xs opacity-60">
+                    HTML and PDF content becomes a full page automatically; downstream
+                    nodes see <code>{"{{#{node["id"]}.url}}"}</code>
                     and <code>{"{{#{node["id"]}.name}}"}</code>.
                   </p>
                 <% "interview" -> %>

@@ -643,6 +643,112 @@ defmodule Flux.EngineTest do
                code_execution["outputs"]["files"]
     end
 
+    test "file_output node renders content, wraps HTML, and stores through the host" do
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("file_1", "file_output", %{
+            "format" => "html",
+            "content" => "<h1>{{start.query}}</h1>",
+            "output_name" => "report-{{start.query}}"
+          }),
+          node!("end_1", "end", %{"outputs" => [%{"key" => "url", "value" => "{{file_1.url}}"}]})
+        ],
+        "edges" => [edge!("start", "file_1"), edge!("file_1", "end_1")]
+      }
+
+      host = %Host{
+        emit: fn _e -> :ok end,
+        store_file: fn %{name: name, binary: binary, format: "html"} ->
+          assert name == "report-gigawatts.html"
+          assert binary =~ "<!DOCTYPE html>"
+          assert binary =~ "<h1>gigawatts</h1>"
+          {:ok, %{"file_id" => "f1", "name" => name, "url" => "/files/tok", "size" => 1}}
+        end
+      }
+
+      {:ok, built} = Engine.build(graph)
+      assert {:ok, result} = Engine.run(built, %{"query" => "gigawatts"}, host)
+      assert result.outputs == %{"url" => "/files/tok"}
+
+      file_execution = Enum.find(result.node_executions, &(&1["node_id"] == "file_1"))
+      assert file_execution["outputs"]["format"] == "html"
+    end
+
+    test "file_output passes full HTML pages and raw formats through untouched" do
+      full_page = "<html><body>as-is</body></html>"
+
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("file_1", "file_output", %{"format" => "pdf", "content" => full_page})
+        ],
+        "edges" => [edge!("start", "file_1")]
+      }
+
+      host = %Host{
+        emit: fn _e -> :ok end,
+        store_file: fn %{name: "output.pdf", binary: ^full_page, format: "html_pdf"} ->
+          {:ok, %{"file_id" => "f1", "name" => "output.pdf", "url" => "/files/t", "size" => 1}}
+        end
+      }
+
+      {:ok, built} = Engine.build(graph)
+      assert {:ok, _result} = Engine.run(built, %{"query" => "x"}, host)
+
+      md_graph = %{
+        "nodes" => [
+          start_node(),
+          node!("file_1", "file_output", %{
+            "format" => "markdown",
+            "content" => "# {{start.query}}",
+            "output_name" => "notes.md"
+          })
+        ],
+        "edges" => [edge!("start", "file_1")]
+      }
+
+      md_host = %Host{
+        emit: fn _e -> :ok end,
+        store_file: fn %{name: "notes.md", binary: "# hi", format: "raw"} ->
+          {:ok, %{"file_id" => "f2", "name" => "notes.md", "url" => "/files/t2", "size" => 4}}
+        end
+      }
+
+      {:ok, md_built} = Engine.build(md_graph)
+      assert {:ok, _result} = Engine.run(md_built, %{"query" => "hi"}, md_host)
+    end
+
+    test "file_output fails honestly on empty content, unknown format, or no capability" do
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("file_1", "file_output", %{"format" => "html", "content" => ""})
+        ],
+        "edges" => [edge!("start", "file_1")]
+      }
+
+      host = %Host{emit: fn _e -> :ok end, store_file: fn _r -> {:ok, %{}} end}
+      {:ok, built} = Engine.build(graph)
+      assert {:error, failure} = Engine.run(built, %{"query" => "x"}, host)
+      assert failure.error =~ "empty content"
+
+      bad_format = %{
+        "nodes" => [
+          start_node(),
+          node!("file_1", "file_output", %{"format" => "exe", "content" => "x"})
+        ],
+        "edges" => [edge!("start", "file_1")]
+      }
+
+      {:ok, bad_built} = Engine.build(bad_format)
+      assert {:error, failure} = Engine.run(bad_built, %{"query" => "x"}, host)
+      assert failure.error =~ "unknown output format"
+
+      assert {:error, failure} = Engine.run(built, %{"query" => "x"}, echo_host())
+      assert failure.error =~ "cannot store files"
+    end
+
     test "code node without host capability or non-dict result fails" do
       graph = %{
         "nodes" => [

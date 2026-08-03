@@ -34,6 +34,21 @@ defmodule Flux.Workflows.Templates do
           "Paste a labeling JSONL export, train a scikit-learn classifier in the sandbox, " <>
             "and keep the model as a run artifact.",
         graph: model_trainer()
+      },
+      %{
+        id: "report_writer",
+        name: "Report writer",
+        description:
+          "Research a topic with a model and publish the result as a downloadable " <>
+            "HTML report (switch the node to PDF, Markdown, and more).",
+        graph: report_writer()
+      },
+      %{
+        id: "intent_router",
+        name: "Intent router",
+        description:
+          "Classify the message with a model and answer each intent with its own prompt.",
+        graph: intent_router()
       }
     ]
   end
@@ -203,6 +218,69 @@ defmodule Flux.Workflows.Templates do
       "edges" => [
         edge("e1", "start", "train"),
         edge("e2", "train", "answer")
+      ]
+    }
+  end
+
+  defp report_writer do
+    %{
+      "nodes" => [
+        start_node([
+          %{"name" => "topic", "label" => "Topic", "type" => "text", "required" => true}
+        ]),
+        node("write", "llm", "Write the report", %{
+          "prompt" =>
+            "Write a short structured report about: {{start.topic}}.\n" <>
+              "Use HTML headings (<h2>), paragraphs, and one <table> of key facts."
+        }),
+        node("publish", "file_output", "Publish", %{
+          "format" => "html",
+          "content" => "<h1>{{start.topic}}</h1>\n{{write.text}}",
+          "output_name" => "report-{{start.topic}}"
+        }),
+        node("answer", "answer", "Answer", %{
+          "answer" => "Report ready: {{publish.name}} — download at {{publish.url}}"
+        })
+      ],
+      "edges" => [
+        edge("e1", "start", "write"),
+        edge("e2", "write", "publish"),
+        edge("e3", "publish", "answer")
+      ]
+    }
+  end
+
+  defp intent_router do
+    %{
+      "nodes" => [
+        start_node([
+          %{"name" => "query", "label" => "Message", "type" => "paragraph", "required" => true}
+        ]),
+        node("classify", "question_classifier", "Intent", %{
+          "query" => "{{start.query}}",
+          "classes" => [
+            %{"id" => "class_complaint", "name" => "complaint"},
+            %{"id" => "class_question", "name" => "question"}
+          ]
+        }),
+        node("soothe", "llm", "Complaint reply", %{
+          "prompt" => "Apologize and resolve this complaint briefly: {{start.query}}"
+        }),
+        node("inform", "llm", "Question reply", %{
+          "prompt" => "Answer this question briefly: {{start.query}}"
+        }),
+        node("merge", "variable_aggregator", "Reply", %{
+          "variables" => ["soothe.text", "inform.text"]
+        }),
+        node("answer", "answer", "Answer", %{"answer" => "{{merge.output}}"})
+      ],
+      "edges" => [
+        edge("e1", "start", "classify"),
+        edge("e2", "classify", "soothe", "class_complaint"),
+        edge("e3", "classify", "inform", "class_question"),
+        edge("e4", "soothe", "merge"),
+        edge("e5", "inform", "merge"),
+        edge("e6", "merge", "answer")
       ]
     }
   end

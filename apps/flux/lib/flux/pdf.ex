@@ -27,16 +27,38 @@ defmodule Flux.Pdf do
     end
   end
 
+  @doc "Converts an HTML page to PDF bytes (Gotenberg's Chromium route)."
+  def convert_html(html) when is_binary(html) do
+    cond do
+      module = config()[:module] ->
+        module.convert_html(html)
+
+      (url = to_string(config()[:url] || "")) != "" ->
+        request_conversion(url, html, :html)
+
+      true ->
+        {:error,
+         "PDF output needs a converter — set FLUX_PDF_URL " <>
+           "(the `documents` compose profile runs Gotenberg)"}
+    end
+  end
+
   @docx_type "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
-  defp request_conversion(base_url, binary) do
-    url = String.trim_trailing(base_url, "/") <> "/forms/libreoffice/convert"
+  defp request_conversion(base_url, binary, kind \\ :docx) do
+    {route, filename, content_type} =
+      case kind do
+        :docx -> {"/forms/libreoffice/convert", "template.docx", @docx_type}
+        :html -> {"/forms/chromium/convert/html", "index.html", "text/html"}
+      end
+
+    url = String.trim_trailing(base_url, "/") <> route
     boundary = "flux" <> Base.encode16(:crypto.strong_rand_bytes(12), case: :lower)
 
     body =
       "--#{boundary}\r\n" <>
-        "Content-Disposition: form-data; name=\"files\"; filename=\"template.docx\"\r\n" <>
-        "Content-Type: #{@docx_type}\r\n\r\n" <>
+        "Content-Disposition: form-data; name=\"files\"; filename=\"#{filename}\"\r\n" <>
+        "Content-Type: #{content_type}\r\n\r\n" <>
         binary <> "\r\n--#{boundary}--\r\n"
 
     headers = [{"content-type", "multipart/form-data; boundary=#{boundary}"}]

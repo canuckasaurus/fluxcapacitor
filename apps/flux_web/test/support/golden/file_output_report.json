@@ -1,0 +1,67 @@
+{
+  "format": "fluxcapacitor-run-fixture",
+  "version": 1,
+  "name": "Golden: file output report",
+  "graph": {
+    "nodes": [
+      {
+        "id": "start",
+        "type": "start",
+        "title": "Start",
+        "position": {"x": 0, "y": 0},
+        "config": {
+          "variables": [
+            {"name": "topic", "label": "Topic", "type": "text", "required": true}
+          ]
+        }
+      },
+      {
+        "id": "body",
+        "type": "template",
+        "title": "Body",
+        "position": {"x": 280, "y": 0},
+        "config": {"template": "# Report: {{start.topic}}\n\nAll systems nominal."}
+      },
+      {
+        "id": "publish",
+        "type": "file_output",
+        "title": "Publish",
+        "position": {"x": 560, "y": 0},
+        "config": {
+          "format": "markdown",
+          "content": "{{body.output}}",
+          "output_name": "golden-{{start.topic}}"
+        }
+      },
+      {
+        "id": "end_1",
+        "type": "end",
+        "title": "End",
+        "position": {"x": 840, "y": 0},
+        "config": {
+          "outputs": [
+            {"key": "name", "value": "{{publish.name}}"},
+            {"key": "format", "value": "{{publish.format}}"}
+          ]
+        }
+      }
+    ],
+    "edges": [
+      {"id": "e1", "source": "start", "source_handle": "default", "target": "body"},
+      {"id": "e2", "source": "body", "source_handle": "default", "target": "publish"},
+      {"id": "e3", "source": "publish", "source_handle": "default", "target": "end_1"}
+    ]
+  },
+  "inputs": {"topic": "gigawatts"},
+  "expected": {
+    "status": "succeeded",
+    "outputs": {"name": "golden-gigawatts.md", "format": "markdown"},
+    "error": null,
+    "node_sequence": [
+      {"node_id": "start", "status": "succeeded"},
+      {"node_id": "body", "status": "succeeded"},
+      {"node_id": "publish", "status": "succeeded"},
+      {"node_id": "end_1", "status": "succeeded"}
+    ]
+  }
+}

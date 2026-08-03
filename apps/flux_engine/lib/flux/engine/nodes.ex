@@ -2048,6 +2048,113 @@ defmodule Flux.Engine.Nodes.Document do
   end
 end
 
+defmodule Flux.Engine.Nodes.FileOutput do
+  @moduledoc """
+  Writes templated content to a downloadable run file — HTML, PDF,
+  Markdown, plain text, CSV, or JSON. The report-writer counterpart of
+  the document node: no Word template required, just content from the
+  variable pool.
+
+  Config: `format` (html | pdf | markdown | text | csv | json),
+  `content` (templated), optional `output_name` (templated filename
+  stem). HTML and PDF content is wrapped in a minimal document when it
+  isn't a full page already; PDF conversion happens host-side (the same
+  Gotenberg converter the document node uses). Outputs
+  `%{"file_id", "name", "url", "size", "format"}`.
+  """
+  @behaviour Flux.Engine.Node
+
+  alias Flux.Engine.{Host, Template}
+
+  @formats %{
+    "html" => %{ext: "html", store: "html"},
+    "pdf" => %{ext: "pdf", store: "html_pdf"},
+    "markdown" => %{ext: "md", store: "raw"},
+    "text" => %{ext: "txt", store: "raw"},
+    "csv" => %{ext: "csv", store: "raw"},
+    "json" => %{ext: "json", store: "raw"}
+  }
+
+  @impl true
+  def run(node, pool, host) do
+    format = to_string(node.config["format"] || "html")
+
+    with {:ok, store} <- capability(host),
+         {:ok, spec} <- resolve_format(format),
+         {:ok, content} <- require_content(node, pool),
+         {:ok, stored} <-
+           store.(%{
+             name: output_name(node, pool, spec.ext),
+             binary: prepare(content, format),
+             format: spec.store
+           }) do
+      {:ok, Map.put(stored, "format", format)}
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp capability(%Host{store_file: store}) when is_function(store, 1), do: {:ok, store}
+  defp capability(_host), do: {:error, "this run's host cannot store files"}
+
+  defp resolve_format(format) do
+    case @formats[format] do
+      nil -> {:error, "unknown output format #{inspect(format)}"}
+      spec -> {:ok, spec}
+    end
+  end
+
+  defp require_content(node, pool) do
+    case Template.render(to_string(node.config["content"] || ""), pool) do
+      "" -> {:error, "the file output node rendered empty content"}
+      content -> {:ok, content}
+    end
+  end
+
+  # HTML-bound content becomes a full page unless it already is one.
+  defp prepare(content, format) when format in ["html", "pdf"] do
+    if content =~ ~r/<html[\s>]/i do
+      content
+    else
+      """
+      <!DOCTYPE html>
+      <html>
+      <head>
+      <meta charset="utf-8"/>
+      <style>
+      body { font-family: Georgia, serif; max-width: 46em; margin: 3em auto;
+             line-height: 1.5; color: #1a1a1a; padding: 0 1em; }
+      table { border-collapse: collapse; } td, th { border: 1px solid #999;
+             padding: 0.3em 0.6em; }
+      </style>
+      </head>
+      <body>
+      #{content}
+      </body>
+      </html>
+      """
+    end
+  end
+
+  defp prepare(content, _format), do: content
+
+  defp output_name(node, pool, ext) do
+    name =
+      case to_string(node.config["output_name"] || "") do
+        "" -> "output"
+        templated -> Template.render(templated, pool)
+      end
+
+    name =
+      name
+      |> String.trim()
+      |> String.replace(~r/[^\w\.\- ]/u, "_")
+      |> String.replace(~r/\.(html|pdf|md|txt|csv|json)$/i, "")
+
+    ((name == "" && "output") || name) <> "." <> ext
+  end
+end
+
 defmodule Flux.Engine.Nodes.Interview do
   @moduledoc """
   Pauses the run and asks a stored question set as one form — the

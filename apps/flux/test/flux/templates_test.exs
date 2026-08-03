@@ -5,7 +5,7 @@ defmodule Flux.Workflows.TemplatesTest do
 
   test "every template's graph builds cleanly" do
     templates = Templates.all()
-    assert length(templates) == 4
+    assert length(templates) == 6
 
     for %{id: id} <- templates do
       template = Templates.get(id)
