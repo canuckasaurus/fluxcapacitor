@@ -7,7 +7,8 @@ defmodule FluxWeb.ConsoleLive.Dashboard do
     {:ok,
      assign(socket,
        page_title: "Dashboard",
-       usage: Flux.Usage.workspace_summary(socket.assigns.current_scope)
+       usage: Flux.Usage.workspace_summary(socket.assigns.current_scope),
+       quality: Flux.Usage.quality_summary(socket.assigns.current_scope)
      )}
   end
 
@@ -142,6 +143,47 @@ defmodule FluxWeb.ConsoleLive.Dashboard do
           class="text-sm opacity-60"
         >
           {gettext("Nothing to report yet — usage appears here once apps and fluxes run.")}
+        </p>
+      </div>
+
+      <div class="card border border-base-200 p-6 space-y-3" id="quality-panel">
+        <div class="flex items-center gap-2">
+          <h2 class="font-semibold">{gettext("Quality")}</h2>
+          <span class="badge badge-ghost badge-sm">
+            {@quality.gated_sets} {gettext("gates")}
+          </span>
+          <span :if={@quality.scheduled_sets > 0} class="badge badge-ghost badge-sm">
+            {@quality.scheduled_sets} {gettext("scheduled")}
+          </span>
+          <.link navigate={~p"/console/labeling"} class="badge badge-ghost badge-sm link-hover">
+            {@quality.unlabeled_tasks} {gettext("to label")}
+          </.link>
+          <span :if={@quality.avg_agreement} class="badge badge-ghost badge-sm">
+            {gettext("agreement")} {round(@quality.avg_agreement * 100)}%
+          </span>
+        </div>
+
+        <table :if={@quality.recent_evals != []} class="table table-xs max-w-xl">
+          <thead>
+            <tr>
+              <th>{gettext("Eval set")}</th>
+              <th>{gettext("Target")}</th>
+              <th>{gettext("Score")}</th>
+              <th>{gettext("Pass / fail")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={eval <- @quality.recent_evals}>
+              <td>{eval.set_name}</td>
+              <td><span class="badge badge-ghost badge-xs">{eval.target}</span></td>
+              <td class="font-mono">{eval.avg_score}</td>
+              <td class="text-xs">{eval.passed} / {eval.failed}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p :if={@quality.recent_evals == []} class="text-sm opacity-60">
+          {gettext("No evals yet — score a flux from its Evals page and results land here.")}
         </p>
       </div>
 

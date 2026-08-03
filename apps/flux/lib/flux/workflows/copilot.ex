@@ -85,6 +85,47 @@ defmodule Flux.Workflows.Copilot do
     end
   end
 
+  @doc """
+  Revises an existing draft graph from an instruction. The current graph
+  goes to the model as JSON; the reply is validated exactly like a fresh
+  draft (engine build + one corrective retry). Returns
+  `{:ok, %{name, graph, warnings}}` or `{:error, message}` — the caller
+  decides whether to apply it, so undo/history stays intact.
+  """
+  def revise(%Scope{} = scope, current_graph, instruction) do
+    instruction = String.trim(to_string(instruction || ""))
+
+    cond do
+      instruction == "" ->
+        {:error, "Say what you want changed first."}
+
+      config()[:module] == nil and Providers.default_model(scope) == nil ->
+        {:error, "The AI helper needs a workspace default model — pick one on the Plugins page."}
+
+      true ->
+        messages = [
+          %{role: :system, content: @system_prompt},
+          %{
+            role: :user,
+            content: """
+            Here is the CURRENT flux graph:
+
+            #{Jason.encode!(%{"nodes" => current_graph["nodes"], "edges" => current_graph["edges"]})}
+
+            Modify it as follows, changing as little as possible and keeping
+            existing node ids and positions where nodes survive:
+
+            #{instruction}
+
+            Reply with the full revised JSON object only.
+            """
+          }
+        ]
+
+        attempt(scope, messages, _retries_left = 1)
+    end
+  end
+
   defp attempt(scope, messages, retries_left) do
     with {:ok, content} <- generate(scope, messages),
          {:ok, name, graph} <- parse(content),

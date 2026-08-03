@@ -204,6 +204,12 @@ defmodule FluxWeb.Layouts do
               active={@active == :runs}
             />
             <.sidebar_link
+              navigate={~p"/console/files"}
+              icon="hero-folder"
+              label={gettext("Files")}
+              active={@active == :files}
+            />
+            <.sidebar_link
               navigate={~p"/console/members"}
               icon="hero-user-group"
               label={gettext("Members")}

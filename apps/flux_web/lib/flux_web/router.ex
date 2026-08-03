@@ -230,6 +230,7 @@ defmodule FluxWeb.Router do
       live "/knowledge", ConsoleLive.Knowledge, :index
       live "/labeling", ConsoleLive.Labeling, :index
       live "/runs", ConsoleLive.Runs, :index
+      live "/files", ConsoleLive.Files, :index
       live "/plugins", ConsoleLive.Plugins, :index
       live "/tools", ConsoleLive.Tools, :index
       live "/templates", ConsoleLive.DocTemplates, :index

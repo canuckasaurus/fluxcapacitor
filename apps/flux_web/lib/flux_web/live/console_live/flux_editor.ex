@@ -231,6 +231,8 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
            show_versions: false,
            versions: [],
            show_variables: false,
+           show_ai_edit: false,
+           ai_edit_busy: false,
            env_rows: [],
            conv_rows: [],
            clipboard: nil,
@@ -838,6 +840,35 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
   end
 
   ## Env + conversation variables
+
+  def handle_event("toggle_ai_edit", _params, socket) do
+    {:noreply, assign(socket, show_ai_edit: not socket.assigns.show_ai_edit, ai_edit_busy: false)}
+  end
+
+  def handle_event("ai_revise", %{"instruction" => instruction}, socket) do
+    case Flux.Workflows.Copilot.revise(
+           socket.assigns.current_scope,
+           socket.assigns.graph,
+           instruction
+         ) do
+      {:ok, %{graph: revised, warnings: warnings}} ->
+        {:noreply, applied} = update_graph(socket, fn _current -> revised end)
+
+        message =
+          case warnings do
+            [] -> "Draft revised — check the canvas, undo reverts it."
+            [warning | _] -> "Draft revised with a warning: #{warning}"
+          end
+
+        {:noreply,
+         applied
+         |> assign(show_ai_edit: false, ai_edit_busy: false)
+         |> put_flash(:info, message)}
+
+      {:error, message} ->
+        {:noreply, socket |> assign(ai_edit_busy: false) |> put_flash(:error, message)}
+    end
+  end
 
   def handle_event("toggle_variables", _params, socket) do
     graph = socket.assigns.graph
@@ -2331,6 +2362,14 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
               title="Auto-arrange nodes left to right"
             >
               <.icon name="hero-rectangle-group" class="size-4" /> Tidy
+            </button>
+            <button
+              :if={@can_edit}
+              class="btn btn-sm btn-ghost"
+              phx-click="toggle_ai_edit"
+              title="Describe a change; the AI helper revises the draft (validated before it lands)"
+            >
+              <.icon name="hero-sparkles" class="size-4" /> Edit with AI
             </button>
             <button
               class="btn btn-sm btn-ghost"
@@ -4555,6 +4594,34 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
           </button>
         </div>
         <div class="modal-backdrop" phx-click="toggle_api"></div>
+      </dialog>
+
+      <dialog :if={@show_ai_edit} class="modal modal-open">
+        <div class="modal-box max-w-xl space-y-4">
+          <div class="flex items-center justify-between">
+            <h3 class="font-bold">Edit with AI</h3>
+            <button class="btn btn-ghost btn-xs" phx-click="toggle_ai_edit">
+              <.icon name="hero-x-mark" class="size-4" />
+            </button>
+          </div>
+          <p class="text-sm opacity-70">
+            Describe the change; the helper revises the current draft. The
+            result is engine-validated first and lands as one undoable edit.
+          </p>
+          <form id="ai-edit-form" phx-submit="ai_revise" class="space-y-3">
+            <textarea
+              name="instruction"
+              rows="3"
+              class="textarea textarea-bordered w-full"
+              placeholder="e.g. Add an if_else after start that routes refund questions to their own prompt"
+              disabled={@ai_edit_busy}
+            ></textarea>
+            <button class="btn btn-primary btn-sm" disabled={@ai_edit_busy}>
+              <span :if={@ai_edit_busy} class="loading loading-spinner loading-xs"></span>
+              {(@ai_edit_busy && "Revising…") || "Revise draft"}
+            </button>
+          </form>
+        </div>
       </dialog>
 
       <dialog :if={@show_variables} class="modal modal-open">

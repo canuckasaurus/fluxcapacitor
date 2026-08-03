@@ -27,6 +27,60 @@ defmodule Flux.Usage do
     }
   end
 
+  @doc """
+  The quality loop at a glance for the dashboard: gate coverage, the
+  most recent eval scores, and the labeling queue with its agreement.
+  """
+  def quality_summary(%Scope{} = scope) do
+    projects = Flux.Labeling.list_projects(scope)
+
+    unlabeled =
+      Enum.sum(for project <- projects, do: Flux.Labeling.counts(scope, project.id).unlabeled)
+
+    agreements =
+      for project <- projects,
+          project.required_labels > 1,
+          stats = Flux.Labeling.agreement_stats(scope, project.id),
+          do: stats.avg_agreement
+
+    sets =
+      Flux.Evals.EvalSet
+      |> Repo.scoped(scope)
+      |> Repo.all()
+
+    recent_evals =
+      Flux.Evals.EvalRun
+      |> Repo.scoped(scope)
+      |> where([r], r.status == :completed)
+      |> order_by([r], desc: r.inserted_at)
+      |> limit(5)
+      |> Repo.all()
+      |> Enum.map(fn eval_run ->
+        set = Enum.find(sets, &(&1.id == eval_run.eval_set_id))
+
+        %{
+          set_name: (set && set.name) || "deleted set",
+          target: eval_run.target,
+          avg_score: eval_run.avg_score,
+          passed: eval_run.passed,
+          failed: eval_run.failed
+        }
+      end)
+
+    %{
+      gated_sets: Enum.count(sets, & &1.gate),
+      scheduled_sets: Enum.count(sets, & &1.schedule),
+      recent_evals: recent_evals,
+      labeling_projects: length(projects),
+      unlabeled_tasks: unlabeled,
+      avg_agreement:
+        case agreements do
+          [] -> nil
+          agreements -> Enum.sum(agreements) / length(agreements)
+        end
+    }
+  end
+
   defp token_totals(scope, since) do
     Message
     |> Repo.scoped(scope)

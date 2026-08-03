@@ -95,6 +95,41 @@ defmodule Flux.Workflows.CopilotTest do
     assert message =~ "could not produce a valid flux"
   end
 
+  test "revise sends the current graph and validates the revision", %{scope: scope} do
+    current = %{"nodes" => @good_graph["nodes"], "edges" => @good_graph["edges"]}
+
+    revised =
+      update_in(@good_graph["nodes"], fn nodes ->
+        List.update_at(nodes, 1, &put_in(&1["config"]["template"], "Howdy {{start.query}}"))
+      end)
+
+    Process.put(:copilot_fun, fn messages ->
+      user = Enum.find(messages, &(&1.role == :user))
+      assert user.content =~ "CURRENT flux graph"
+      assert user.content =~ "Hello {{start.query}}"
+      assert user.content =~ "make it folksier"
+      {:ok, Jason.encode!(revised)}
+    end)
+
+    assert {:ok, %{graph: graph}} = Copilot.revise(scope, current, "make it folksier")
+
+    assert Enum.any?(
+             graph["nodes"],
+             &(&1["config"]["template"] == "Howdy {{start.query}}")
+           )
+  end
+
+  test "revise refuses a blank instruction and an invalid revision", %{scope: scope} do
+    current = %{"nodes" => @good_graph["nodes"], "edges" => @good_graph["edges"]}
+
+    assert {:error, message} = Copilot.revise(scope, current, " ")
+    assert message =~ "changed"
+
+    Process.put(:copilot_fun, fn _messages -> {:ok, "no json here"} end)
+    assert {:error, message} = Copilot.revise(scope, current, "break it")
+    assert message =~ "could not produce a valid flux"
+  end
+
   test "rejects a blank description", %{scope: scope} do
     assert {:error, message} = Copilot.draft(scope, "   ")
     assert message =~ "Describe"
