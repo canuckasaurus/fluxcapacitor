@@ -224,6 +224,86 @@ defmodule FluxWeb.V1.ContractTest do
     assert_schema(body, "FileUpload", spec)
   end
 
+  test "the quality loop (batches, evals, labeling) matches its schemas", %{
+    conn: conn,
+    scope: scope,
+    api_spec: spec
+  } do
+    fconn = flux_conn(scope)
+
+    started =
+      fconn
+      |> post(~p"/v1/workflows/batch", %{"rows" => [%{"query" => "one"}]})
+      |> json_response(202)
+
+    assert_schema(started, "BatchStarted", spec)
+    :ok = Workflows.perform_batch(started["batch_id"])
+
+    body =
+      fconn
+      |> get(~p"/v1/batches/#{started["batch_id"]}?include_results=true")
+      |> json_response(200)
+
+    assert_schema(body, "BatchStatus", spec)
+
+    workflow = scope |> Workflows.list_workflows() |> List.first()
+    {:ok, set} = Flux.Evals.create_set(scope, workflow, %{"name" => "Contract set"})
+
+    {:ok, _} =
+      Flux.Evals.add_case(scope, set, %{"inputs" => %{"query" => "hi"}, "expected" => "hi"})
+
+    body = fconn |> get(~p"/v1/eval-sets") |> json_response(200)
+    assert_schema(body, "EvalSetList", spec)
+
+    eval_started =
+      fconn
+      |> post(~p"/v1/eval-sets/#{set.id}/run", %{"grader" => "contains"})
+      |> json_response(202)
+
+    assert_schema(eval_started, "EvalStarted", spec)
+    :ok = Flux.Evals.perform_eval(eval_started["eval_run_id"])
+
+    body = fconn |> get(~p"/v1/eval-runs/#{eval_started["eval_run_id"]}") |> json_response(200)
+    assert_schema(body, "EvalRunStatus", spec)
+
+    {:ok, project} =
+      Flux.Labeling.create_project(scope, %{
+        "name" => "Contract labels",
+        "label_type" => "choice",
+        "options" => ["yes", "no"]
+      })
+
+    body = conn |> get(~p"/v1/labeling/projects") |> json_response(200)
+    assert_schema(body, "LabelingProjectList", spec)
+
+    created =
+      conn
+      |> post(~p"/v1/labeling/projects/#{project.id}/tasks", %{"items" => ["label me"]})
+      |> json_response(201)
+
+    assert_schema(created, "LabelingTasksCreated", spec)
+
+    body = conn |> get(~p"/v1/labeling/projects/#{project.id}/next") |> json_response(200)
+    assert_schema(body, "LabelingNextTask", spec)
+    task_id = body["task"]["id"]
+
+    body =
+      conn
+      |> post(~p"/v1/labeling/tasks/#{task_id}/label", %{"label" => %{"choice" => "yes"}})
+      |> json_response(200)
+
+    assert_schema(body, "LabelingLabeled", spec)
+
+    # Drained queue: null task is also in contract.
+    body = conn |> get(~p"/v1/labeling/projects/#{project.id}/next") |> json_response(200)
+    assert_schema(body, "LabelingNextTask", spec)
+    assert body["task"] == nil
+
+    # Quality errors carry the shared Error shape.
+    body = fconn |> post(~p"/v1/workflows/batch", %{"rows" => []}) |> json_response(400)
+    assert_schema(body, "Error", spec)
+  end
+
   test "GET /v1/spec serves the OpenAPI document", %{conn: conn} do
     body = conn |> get(~p"/v1/spec") |> json_response(200)
 

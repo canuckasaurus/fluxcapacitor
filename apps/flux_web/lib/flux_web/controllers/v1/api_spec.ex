@@ -445,6 +445,226 @@ defmodule FluxWeb.V1.ApiSpec do
         additionalProperties: false
       })
     end
+
+    defmodule BatchStarted do
+      @moduledoc false
+      require OpenApiSpex
+
+      OpenApiSpex.schema(%{
+        title: "BatchStarted",
+        description: "202 response of POST /v1/workflows/batch",
+        type: :object,
+        properties: %{
+          batch_id: %Schema{type: :string, format: :uuid},
+          status: %Schema{type: :string},
+          target: %Schema{type: :string},
+          total: %Schema{type: :integer}
+        },
+        required: [:batch_id, :status, :target, :total],
+        additionalProperties: false
+      })
+    end
+
+    defmodule BatchStatus do
+      @moduledoc false
+      require OpenApiSpex
+
+      OpenApiSpex.schema(%{
+        title: "BatchStatus",
+        type: :object,
+        properties: %{
+          batch_id: %Schema{type: :string, format: :uuid},
+          status: %Schema{type: :string},
+          target: %Schema{type: :string},
+          total: %Schema{type: :integer},
+          succeeded: %Schema{type: :integer},
+          failed: %Schema{type: :integer},
+          results: %Schema{
+            type: :array,
+            items: %Schema{
+              type: :object,
+              properties: %{
+                inputs: %Schema{type: :object},
+                status: %Schema{type: :string},
+                outputs: %Schema{type: :object, nullable: true},
+                error: %Schema{type: :string, nullable: true}
+              },
+              required: [:inputs, :status],
+              additionalProperties: false
+            }
+          }
+        },
+        required: [:batch_id, :status, :target, :total, :succeeded, :failed],
+        additionalProperties: false
+      })
+    end
+
+    defmodule EvalSetList do
+      @moduledoc false
+      require OpenApiSpex
+
+      OpenApiSpex.schema(%{
+        title: "EvalSetList",
+        type: :object,
+        properties: %{
+          data: %Schema{
+            type: :array,
+            items: %Schema{
+              type: :object,
+              properties: %{
+                id: %Schema{type: :string, format: :uuid},
+                name: %Schema{type: :string},
+                gate: %Schema{type: :boolean},
+                schedule: %Schema{type: :string, nullable: true}
+              },
+              required: [:id, :name, :gate],
+              additionalProperties: false
+            }
+          }
+        },
+        required: [:data],
+        additionalProperties: false
+      })
+    end
+
+    defmodule EvalStarted do
+      @moduledoc false
+      require OpenApiSpex
+
+      OpenApiSpex.schema(%{
+        title: "EvalStarted",
+        description: "202 response of POST /v1/eval-sets/{id}/run",
+        type: :object,
+        properties: %{
+          eval_run_id: %Schema{type: :string, format: :uuid},
+          status: %Schema{type: :string},
+          target: %Schema{type: :string}
+        },
+        required: [:eval_run_id, :status, :target],
+        additionalProperties: false
+      })
+    end
+
+    defmodule EvalRunStatus do
+      @moduledoc false
+      require OpenApiSpex
+
+      OpenApiSpex.schema(%{
+        title: "EvalRunStatus",
+        type: :object,
+        properties: %{
+          eval_run_id: %Schema{type: :string, format: :uuid},
+          status: %Schema{type: :string},
+          target: %Schema{type: :string},
+          grader: %Schema{type: :string},
+          total: %Schema{type: :integer},
+          passed: %Schema{type: :integer},
+          failed: %Schema{type: :integer},
+          avg_score: %Schema{type: :number, nullable: true},
+          results: %Schema{type: :array, items: %Schema{type: :object}, nullable: true}
+        },
+        required: [:eval_run_id, :status, :target, :grader, :total, :passed, :failed],
+        additionalProperties: false
+      })
+    end
+
+    defmodule LabelingProjectList do
+      @moduledoc false
+      require OpenApiSpex
+
+      OpenApiSpex.schema(%{
+        title: "LabelingProjectList",
+        type: :object,
+        properties: %{
+          data: %Schema{
+            type: :array,
+            items: %Schema{
+              type: :object,
+              properties: %{
+                id: %Schema{type: :string, format: :uuid},
+                name: %Schema{type: :string},
+                label_type: %Schema{type: :string, enum: ["choice", "multi", "text"]},
+                options: %Schema{type: :array, items: %Schema{type: :string}},
+                counts: %Schema{
+                  type: :object,
+                  properties: %{
+                    unlabeled: %Schema{type: :integer},
+                    labeled: %Schema{type: :integer},
+                    skipped: %Schema{type: :integer}
+                  },
+                  required: [:unlabeled, :labeled, :skipped],
+                  additionalProperties: false
+                }
+              },
+              required: [:id, :name, :label_type, :options, :counts],
+              additionalProperties: false
+            }
+          }
+        },
+        required: [:data],
+        additionalProperties: false
+      })
+    end
+
+    defmodule LabelingTasksCreated do
+      @moduledoc false
+      require OpenApiSpex
+
+      OpenApiSpex.schema(%{
+        title: "LabelingTasksCreated",
+        description: "201 response of POST /v1/labeling/projects/{id}/tasks",
+        type: :object,
+        properties: %{
+          task_ids: %Schema{type: :array, items: %Schema{type: :string, format: :uuid}},
+          count: %Schema{type: :integer}
+        },
+        required: [:task_ids, :count],
+        additionalProperties: false
+      })
+    end
+
+    defmodule LabelingNextTask do
+      @moduledoc false
+      require OpenApiSpex
+
+      OpenApiSpex.schema(%{
+        title: "LabelingNextTask",
+        type: :object,
+        properties: %{
+          task: %Schema{
+            type: :object,
+            nullable: true,
+            properties: %{
+              id: %Schema{type: :string, format: :uuid},
+              data: %Schema{type: :object},
+              label_type: %Schema{type: :string, enum: ["choice", "multi", "text"]},
+              options: %Schema{type: :array, items: %Schema{type: :string}}
+            },
+            required: [:id, :data, :label_type, :options],
+            additionalProperties: false
+          }
+        },
+        required: [:task],
+        additionalProperties: false
+      })
+    end
+
+    defmodule LabelingLabeled do
+      @moduledoc false
+      require OpenApiSpex
+
+      OpenApiSpex.schema(%{
+        title: "LabelingLabeled",
+        type: :object,
+        properties: %{
+          task_id: %Schema{type: :string, format: :uuid},
+          status: %Schema{type: :string, enum: ["unlabeled", "labeled", "skipped"]},
+          label: %Schema{type: :object, nullable: true}
+        },
+        required: [:task_id, :status],
+        additionalProperties: false
+      })
+    end
   end
 
   @schema_modules [
@@ -463,7 +683,16 @@ defmodule FluxWeb.V1.ApiSpec do
     Schemas.DocumentCreated,
     Schemas.DocumentList,
     Schemas.SegmentList,
-    Schemas.RetrieveResult
+    Schemas.RetrieveResult,
+    Schemas.BatchStarted,
+    Schemas.BatchStatus,
+    Schemas.EvalSetList,
+    Schemas.EvalStarted,
+    Schemas.EvalRunStatus,
+    Schemas.LabelingProjectList,
+    Schemas.LabelingTasksCreated,
+    Schemas.LabelingNextTask,
+    Schemas.LabelingLabeled
   ]
 
   alias OpenApiSpex.{MediaType, Operation, PathItem, Reference, Response}
@@ -496,7 +725,17 @@ defmodule FluxWeb.V1.ApiSpec do
     "/conversations/{id}/name" => {:post, "Rename a conversation", "ConversationRenamed"},
     "/conversations/{id}" => {:delete, "Delete a conversation", "Result"},
     "/chat-messages/{id}/stop" => {:post, "Stop a streaming reply", "Result"},
-    "/messages/{id}/feedbacks" => {:post, "Rate a message", "Result"}
+    "/messages/{id}/feedbacks" => {:post, "Rate a message", "Result"},
+    "/workflows/batch" => {:post, "Start a batch over input rows", "BatchStarted", 202},
+    "/batches/{id}" => {:get, "Batch progress (optionally with results)", "BatchStatus"},
+    "/eval-sets" => {:get, "List the flux's eval sets", "EvalSetList"},
+    "/eval-sets/{id}/run" => {:post, "Start an eval run", "EvalStarted", 202},
+    "/eval-runs/{id}" => {:get, "Eval run status and results", "EvalRunStatus"},
+    "/labeling/projects" => {:get, "List labeling projects", "LabelingProjectList"},
+    "/labeling/projects/{id}/tasks" =>
+      {:post, "Push items as labeling tasks", "LabelingTasksCreated", 201},
+    "/labeling/projects/{id}/next" => {:get, "Claim the next unlabeled task", "LabelingNextTask"},
+    "/labeling/tasks/{id}/label" => {:post, "Submit a label", "LabelingLabeled"}
   }
 
   @impl OpenApiSpex.OpenApi
@@ -512,8 +751,14 @@ defmodule FluxWeb.V1.ApiSpec do
       paths:
         for {path, methods} <- @operations, into: %{} do
           entries =
-            for {method, summary, schema_title} <- List.wrap(methods) do
-              {method, operation(method, path, summary, schema_title)}
+            for entry <- List.wrap(methods) do
+              {method, summary, schema_title, status} =
+                case entry do
+                  {method, summary, schema_title} -> {method, summary, schema_title, 200}
+                  {_method, _summary, _schema_title, _status} = full -> full
+                end
+
+              {method, operation(method, path, summary, schema_title, status)}
             end
 
           {path, struct(PathItem, entries)}
@@ -529,12 +774,12 @@ defmodule FluxWeb.V1.ApiSpec do
     |> OpenApiSpex.resolve_schema_modules()
   end
 
-  defp operation(method, path, summary, schema_title) do
+  defp operation(method, path, summary, schema_title, status) do
     %Operation{
       summary: summary,
       operationId: operation_id(method, path),
       responses: %{
-        "200" => %Response{
+        to_string(status) => %Response{
           description: summary,
           content: %{
             "application/json" => %MediaType{

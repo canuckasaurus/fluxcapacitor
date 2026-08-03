@@ -80,7 +80,7 @@ defmodule FluxWeb.V1.QualityController do
     with {:ok, workflow} <- require_workflow(conn) do
       sets =
         for set <- Evals.list_sets(conn.assigns.service_scope, workflow.id) do
-          %{id: set.id, name: set.name, gate: set.gate}
+          %{id: set.id, name: set.name, gate: set.gate, schedule: set.schedule}
         end
 
       json(conn, %{data: sets})
@@ -246,6 +246,6 @@ defmodule FluxWeb.V1.QualityController do
   end
 
   defp error(conn, status, code, message) do
-    conn |> put_status(status) |> json(%{code: code, message: message})
+    conn |> put_status(status) |> json(%{code: code, message: message, status: status})
   end
 end
