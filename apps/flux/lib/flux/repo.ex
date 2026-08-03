@@ -19,7 +19,8 @@ defmodule Flux.Repo do
                       workflow_triggers datasets rag_documents rag_segments rag_entities
                       rag_entity_mentions annotations doc_templates interviews
                       webhook_endpoints workflow_batches eval_sets eval_cases eval_runs
-                      labeling_projects labeling_tasks labeling_task_votes batch_schedules)
+                      labeling_projects labeling_tasks labeling_task_votes batch_schedules
+                      model_artifacts notifications)
                  )
 
   @doc """

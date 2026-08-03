@@ -61,6 +61,8 @@ defmodule FluxWeb.Router do
     post "/datasets/:id/document/create-by-url", DatasetController, :create_by_url
     post "/workflows/batch", QualityController, :batch_create
     get "/batches/:id", QualityController, :batch_show
+    get "/batches/:id/events", QualityController, :batch_events
+    get "/eval-runs/:id/events", QualityController, :eval_events
     get "/eval-sets", QualityController, :eval_sets
     post "/eval-sets/:id/run", QualityController, :eval_run_create
     get "/eval-runs/:id", QualityController, :eval_run_show
@@ -203,6 +205,7 @@ defmodule FluxWeb.Router do
     post "/workspaces/switch/:id", WorkspaceController, :switch
     get "/fluxes-export", FluxDslController, :export_many
     get "/workspace-export", WorkspaceExportController, :export
+    get "/usage-export", WorkspaceExportController, :usage
     post "/workspace-import", WorkspaceExportController, :import
     get "/fluxes/:id/export", FluxDslController, :export
     get "/fluxes/:id/runs/:run_id/fixture", FluxDslController, :run_fixture
@@ -231,6 +234,7 @@ defmodule FluxWeb.Router do
       live "/labeling", ConsoleLive.Labeling, :index
       live "/runs", ConsoleLive.Runs, :index
       live "/files", ConsoleLive.Files, :index
+      live "/notifications", ConsoleLive.Notifications, :index
       live "/plugins", ConsoleLive.Plugins, :index
       live "/tools", ConsoleLive.Tools, :index
       live "/templates", ConsoleLive.DocTemplates, :index

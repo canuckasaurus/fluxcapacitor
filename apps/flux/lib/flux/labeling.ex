@@ -257,6 +257,13 @@ defmodule Flux.Labeling do
         "project_id" => project.id,
         "project_name" => project.name
       })
+
+      Flux.Notifications.notify(
+        task.workspace_id,
+        "labeling_completed",
+        "Labeling project \"#{project.name}\" is fully labeled.",
+        "/console/labeling"
+      )
     end
 
     :ok

@@ -122,6 +122,51 @@ defmodule Flux.Evals do
     |> Enum.reject(&is_nil/1)
   end
 
+  @doc """
+  The comparison matrix: for every set, the latest completed score per
+  target (draft, v1, v2…) — `%{sets: [%{set, cells}], targets: [...]}`,
+  targets ordered draft-first then by version. Empty when nothing has
+  completed yet.
+  """
+  def comparison(%Scope{} = scope, workflow_id) do
+    sets = list_sets(scope, workflow_id)
+
+    latest_by_set_and_target =
+      EvalRun
+      |> Repo.scoped(scope)
+      |> where([r], r.workflow_id == ^workflow_id and r.status == :completed)
+      |> order_by([r], desc: r.inserted_at)
+      |> Repo.all()
+      |> Enum.group_by(&{&1.eval_set_id, &1.target})
+      |> Map.new(fn {key, [latest | _older]} -> {key, latest.avg_score} end)
+
+    targets =
+      latest_by_set_and_target
+      |> Map.keys()
+      |> Enum.map(fn {_set_id, target} -> target end)
+      |> Enum.uniq()
+      |> Enum.sort_by(fn
+        "draft" -> {0, 0}
+        "v" <> version -> {1, String.to_integer(version)}
+        other -> {2, other}
+      end)
+
+    rows =
+      for set <- sets do
+        cells =
+          Map.new(targets, fn target ->
+            {target, latest_by_set_and_target[{set.id, target}]}
+          end)
+
+        %{set: set, cells: cells}
+      end
+
+    scored_rows =
+      Enum.filter(rows, fn row -> Enum.any?(Map.values(row.cells), &is_number/1) end)
+
+    %{targets: targets, sets: scored_rows}
+  end
+
   def delete_set(%Scope{} = scope, set_id) do
     with :ok <- RBAC.authorize(scope, :app_edit),
          %EvalSet{} = set <- get_set(scope, set_id) do
@@ -371,6 +416,18 @@ defmodule Flux.Evals do
       )
 
       previous_avg = previous_avg_score(eval_run)
+
+      if is_number(avg) and is_number(previous_avg) and avg < previous_avg do
+        set = Repo.get(EvalSet, eval_run.eval_set_id, skip_workspace_guard: true)
+
+        Flux.Notifications.notify(
+          eval_run.workspace_id,
+          "eval_regressed",
+          "Eval \"#{(set && set.name) || "set"}\" regressed on #{eval_run.target}: " <>
+            "#{previous_avg} → #{avg}#{(set && set.gate && " (gate)") || ""}",
+          "/console/fluxes/#{eval_run.workflow_id}/evals"
+        )
+      end
 
       Flux.Webhooks.dispatch(eval_run.workspace_id, "eval.completed", %{
         "eval_run_id" => eval_run.id,

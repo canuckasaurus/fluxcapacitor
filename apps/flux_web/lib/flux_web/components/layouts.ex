@@ -209,6 +209,24 @@ defmodule FluxWeb.Layouts do
               label={gettext("Files")}
               active={@active == :files}
             />
+            <.link
+              navigate={~p"/console/notifications"}
+              class={[
+                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
+                (@active == :notifications && "bg-primary/10 text-primary font-semibold") ||
+                  "hover:bg-base-200"
+              ]}
+            >
+              <.icon name="hero-bell" class="size-4 shrink-0" />
+              <span class="truncate">{gettext("Notifications")}</span>
+              <span
+                :if={(unread = Flux.Notifications.unread_count(@current_scope)) > 0}
+                class="badge badge-error badge-xs ml-auto"
+                id="notifications-unread"
+              >
+                {unread}
+              </span>
+            </.link>
             <.sidebar_link
               navigate={~p"/console/members"}
               icon="hero-user-group"

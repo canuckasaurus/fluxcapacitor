@@ -49,6 +49,9 @@ defmodule FluxWeb.ConsoleLive.FluxEvals do
   defp assign_set_data(socket) do
     scope = socket.assigns.current_scope
 
+    socket =
+      assign(socket, comparison: Evals.comparison(scope, socket.assigns.workflow.id))
+
     case socket.assigns.selected_set do
       nil ->
         assign(socket, cases: [], eval_runs: [], recent_runs: [])
@@ -563,7 +566,52 @@ defmodule FluxWeb.ConsoleLive.FluxEvals do
           </table>
         </div>
       </div>
+
+      <div
+        :if={@comparison.sets != []}
+        class="card border border-base-200 p-6 space-y-3"
+        id="comparison-card"
+      >
+        <h2 class="font-semibold">Version comparison</h2>
+        <p class="text-xs opacity-60">
+          Latest completed score per set and target — pick what to ship (or
+          roll back to) at a glance.
+        </p>
+        <table class="table table-xs max-w-2xl">
+          <thead>
+            <tr>
+              <th>Set</th>
+              <th :for={target <- @comparison.targets}>{target}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={row <- @comparison.sets} id={"comparison-#{row.set.id}"}>
+              <td class="font-semibold">
+                {row.set.name}
+                <span :if={row.set.gate} class="badge badge-ghost badge-xs ml-1">gate</span>
+              </td>
+              <td :for={target <- @comparison.targets}>
+                <span
+                  :if={is_number(row.cells[target])}
+                  class={[
+                    "badge badge-sm font-mono",
+                    best_cell?(row.cells, target) && "badge-success"
+                  ]}
+                >
+                  {row.cells[target]}
+                </span>
+                <span :if={row.cells[target] == nil} class="opacity-30">—</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </Layouts.console>
     """
+  end
+
+  defp best_cell?(cells, target) do
+    scores = cells |> Map.values() |> Enum.filter(&is_number/1)
+    scores != [] and cells[target] == Enum.max(scores)
   end
 end

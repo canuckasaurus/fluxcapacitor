@@ -102,7 +102,9 @@ defmodule FluxWeb.ConsoleLiveTest do
       for {path, marker} <- [
             {~p"/console/fluxes", "Flux Creator"},
             {~p"/console/knowledge", "Knowledge"},
-            {~p"/console/plugins", "Plugins"}
+            {~p"/console/plugins", "Plugins"},
+            {~p"/console/files", "Everything the workspace has stored"},
+            {~p"/console/notifications", "All quiet on the temporal front"}
           ] do
         {:ok, _lv, html} = live(conn, path)
         assert html =~ marker

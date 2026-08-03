@@ -248,6 +248,28 @@ defmodule Flux.EvalsTest do
              Evals.start_eval(scope, set, grader: "contains", version: 99)
   end
 
+  test "the comparison matrix reports the latest score per set and target", %{
+    scope: scope,
+    workflow: workflow
+  } do
+    {:ok, _version} = Workflows.publish(scope, workflow)
+    {:ok, set} = Evals.create_set(scope, workflow, %{"name" => "Matrix"})
+
+    {:ok, _} =
+      Evals.add_case(scope, set, %{"inputs" => %{"query" => "m"}, "expected" => "you said: m"})
+
+    {:ok, draft_run} = Evals.start_eval(scope, set, grader: "contains")
+    :ok = Evals.perform_eval(draft_run.id)
+    {:ok, versioned_run} = Evals.start_eval(scope, set, grader: "contains", version: 1)
+    :ok = Evals.perform_eval(versioned_run.id)
+
+    comparison = Evals.comparison(scope, workflow.id)
+    assert comparison.targets == ["draft", "v1"]
+    assert [%{set: %{name: "Matrix"}, cells: cells}] = comparison.sets
+    assert cells["draft"] == 1.0
+    assert cells["v1"] == 1.0
+  end
+
   test "gated sets auto-run against every published version", %{
     scope: scope,
     workflow: workflow
