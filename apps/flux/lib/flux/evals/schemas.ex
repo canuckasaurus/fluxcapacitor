@@ -12,15 +12,37 @@ defmodule Flux.Evals.EvalSet do
 
     field :name, :string
     field :gate, :boolean, default: false
+    field :schedule, :string
 
     timestamps(type: :utc_datetime)
   end
 
   def changeset(set, attrs) do
     set
-    |> cast(attrs, [:name, :gate])
+    |> cast(attrs, [:name, :gate, :schedule])
     |> validate_required([:name])
     |> validate_length(:name, min: 1, max: 255)
+    |> update_change(:schedule, fn schedule ->
+      case String.trim(to_string(schedule || "")) do
+        "" -> nil
+        trimmed -> trimmed
+      end
+    end)
+    |> validate_schedule()
+  end
+
+  # Same parser as schedule triggers: anything Oban's cron accepts.
+  defp validate_schedule(changeset) do
+    case get_change(changeset, :schedule) do
+      nil ->
+        changeset
+
+      schedule ->
+        case Oban.Cron.Expression.parse(schedule) do
+          {:ok, _expression} -> changeset
+          {:error, _reason} -> add_error(changeset, :schedule, "is not a valid cron expression")
+        end
+    end
   end
 end
 

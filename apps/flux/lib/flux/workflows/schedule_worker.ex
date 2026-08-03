@@ -42,6 +42,8 @@ defmodule Flux.Workflows.ScheduleWorker do
       end
     end
 
+    Flux.Evals.run_scheduled(now)
+
     plugin_due =
       from(t in Trigger,
         where: t.enabled and t.type == :plugin and not is_nil(t.plugin_id),

@@ -241,6 +241,70 @@ defmodule Flux.LabelingTest do
     assert Enum.all?(stats, fn {_email, count} -> count == 1 end)
   end
 
+  test "consensus projects collect votes until quorum, then agree", %{
+    scope: scope,
+    workspace: workspace
+  } do
+    {:ok, project} =
+      Labeling.create_project(scope, %{
+        "name" => "Consensus",
+        "label_type" => "choice",
+        "options" => ["complaint", "question"],
+        "required_labels" => 3
+      })
+
+    {:ok, task} = Labeling.add_task(scope, project, %{"text" => "refund me"})
+
+    others =
+      for _n <- 1..2 do
+        other = account_fixture()
+
+        {:ok, _} =
+          %Flux.Accounts.Membership{}
+          |> Flux.Accounts.Membership.changeset(%{
+            workspace_id: workspace.id,
+            account_id: other.id,
+            role: :editor
+          })
+          |> Repo.insert()
+
+        {:ok, _} = Accounts.switch_workspace(other, workspace.id)
+        Accounts.scope_for(other)
+      end
+
+    [second_scope, third_scope] = others
+
+    # First vote: task stays unlabeled, and the voter never sees it again.
+    {:ok, after_vote} = Labeling.label_task(scope, task.id, %{"choice" => "complaint"})
+    assert after_vote.status == :unlabeled
+    assert Labeling.next_task(scope, project.id) == nil
+
+    # Other labelers still get it.
+    assert Labeling.next_task(second_scope, project.id).id == task.id
+    {:ok, still} = Labeling.label_task(second_scope, task.id, %{"choice" => "question"})
+    assert still.status == :unlabeled
+
+    # Third vote reaches quorum: 2-1 for complaint becomes the label.
+    {:ok, labeled} = Labeling.label_task(third_scope, task.id, %{"choice" => "complaint"})
+    assert labeled.status == :labeled
+    assert labeled.label == %{"choice" => "complaint"}
+
+    stats = Labeling.agreement_stats(scope, project.id)
+    assert stats.tasks == 1
+    assert stats.unanimous == 0
+    assert_in_delta stats.avg_agreement, 2 / 3, 1.0e-9
+  end
+
+  test "single-labeler projects report no agreement stats", %{scope: scope} do
+    {:ok, project} =
+      Labeling.create_project(scope, %{"name" => "Solo", "label_type" => "text"})
+
+    {:ok, task} = Labeling.add_task(scope, project, %{"text" => "hi"})
+    {:ok, _} = Labeling.label_task(scope, task.id, %{"text" => "hello"})
+
+    assert Labeling.agreement_stats(scope, project.id) == nil
+  end
+
   test "batch results fan into a project", %{scope: scope} do
     {:ok, project} =
       Labeling.create_project(scope, %{"name" => "Batchy", "label_type" => "text"})

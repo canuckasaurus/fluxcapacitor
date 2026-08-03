@@ -17,15 +17,17 @@ defmodule Flux.Labeling.Project do
     field :label_type, Ecto.Enum, values: [:choice, :multi, :text], default: :choice
     field :options, {:array, :string}, default: []
     field :instructions, :string
+    field :required_labels, :integer, default: 1
 
     timestamps(type: :utc_datetime)
   end
 
   def changeset(project, attrs) do
     project
-    |> cast(attrs, [:name, :label_type, :options, :instructions])
+    |> cast(attrs, [:name, :label_type, :options, :instructions, :required_labels])
     |> validate_required([:name])
     |> validate_length(:name, min: 1, max: 255)
+    |> validate_number(:required_labels, greater_than_or_equal_to: 1, less_than_or_equal_to: 5)
     |> update_change(:options, fn options ->
       options |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == "")) |> Enum.uniq()
     end)
@@ -63,6 +65,7 @@ defmodule Flux.Labeling.Task do
     belongs_to :labeled_by, Flux.Accounts.Account
     belongs_to :run, Flux.Workflows.WorkflowRun
     belongs_to :assigned_to, Flux.Accounts.Account
+    has_many :votes, Flux.Labeling.Vote
 
     field :node_id, :string
     field :data, :map, default: %{}
@@ -70,6 +73,27 @@ defmodule Flux.Labeling.Task do
     field :label, :map
     field :source, :string
     field :claimed_at, :utc_datetime
+
+    timestamps(type: :utc_datetime)
+  end
+end
+
+defmodule Flux.Labeling.Vote do
+  @moduledoc """
+  One labeler's vote on a task in a multi-labeler project. The task's
+  final label is the consensus once `required_labels` votes are in.
+  """
+  use Ecto.Schema
+
+  @primary_key {:id, UUIDv7, autogenerate: true}
+  @foreign_key_type :binary_id
+
+  schema "labeling_task_votes" do
+    belongs_to :workspace, Flux.Accounts.Workspace
+    belongs_to :task, Flux.Labeling.Task
+    belongs_to :account, Flux.Accounts.Account
+
+    field :label, :map
 
     timestamps(type: :utc_datetime)
   end

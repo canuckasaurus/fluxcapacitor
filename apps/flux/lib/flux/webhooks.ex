@@ -18,7 +18,8 @@ defmodule Flux.Webhooks do
   alias Flux.Webhooks.Endpoint
 
   @run_events ~w(run.succeeded run.failed run.paused run.stopped)
-  @other_events ~w(batch.completed eval.completed feedback.created)
+  @other_events ~w(batch.completed eval.completed feedback.created
+                   labeling.task_labeled labeling.project_completed)
 
   def run_events, do: @run_events
 

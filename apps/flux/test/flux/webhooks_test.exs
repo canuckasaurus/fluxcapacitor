@@ -159,6 +159,20 @@ defmodule Flux.WebhooksTest do
 
     assert "feedback.created" in events
 
+    # labeling.task_labeled and labeling.project_completed on the last label
+    {:ok, project} =
+      Flux.Labeling.create_project(scope, %{"name" => "Hooked labels", "label_type" => "text"})
+
+    {:ok, task} = Flux.Labeling.add_task(scope, project, %{"text" => "hi"})
+    {:ok, _} = Flux.Labeling.label_task(scope, task.id, %{"text" => "hello"})
+
+    events =
+      all_enqueued(worker: Flux.Workflows.AlertWorker)
+      |> Enum.map(& &1.args["payload"]["event"])
+
+    assert "labeling.task_labeled" in events
+    assert "labeling.project_completed" in events
+
     # unknown event names are rejected at registration
     assert {:error, changeset} =
              Webhooks.create_endpoint(scope, %{

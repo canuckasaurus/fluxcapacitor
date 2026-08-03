@@ -79,6 +79,36 @@ defmodule Flux.EvalsTest do
     assert Evals.list_sets(scope, workflow.id) == []
   end
 
+  test "scheduled evals fire on their cron minute, once, against the latest version", %{
+    scope: scope,
+    workflow: workflow
+  } do
+    {:ok, _version} = Workflows.publish(scope, workflow)
+
+    {:ok, set} =
+      Evals.create_set(scope, workflow, %{"name" => "Nightly", "schedule" => "* * * * *"})
+
+    {:ok, _} = Evals.add_case(scope, set, %{"inputs" => %{"query" => "hi"}, "expected" => "hi"})
+
+    # A bad cron is refused at the changeset.
+    assert {:error, changeset} = Evals.set_schedule(scope, set.id, "not cron")
+    assert %{schedule: [message]} = errors_on(changeset)
+    assert message =~ "cron"
+
+    now = DateTime.utc_now(:second)
+    assert [eval_run] = Evals.run_scheduled(now)
+    assert eval_run.eval_set_id == set.id
+    assert eval_run.target == "v1"
+
+    # Same minute: suppressed.
+    assert Evals.run_scheduled(now) == []
+
+    # Clearing the schedule stops the sweep entirely.
+    {:ok, _} = Evals.set_schedule(scope, set.id, "")
+    next_minute = DateTime.add(now, 60, :second)
+    assert Evals.run_scheduled(next_minute) == []
+  end
+
   test "contains grader scores echo outputs deterministically", %{
     scope: scope,
     workflow: workflow

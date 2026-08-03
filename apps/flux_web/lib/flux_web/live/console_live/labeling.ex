@@ -34,14 +34,21 @@ defmodule FluxWeb.ConsoleLive.Labeling do
 
     case socket.assigns.selected_project do
       nil ->
-        assign(socket, current_task: nil, counts: nil, labeled: [], labeler_stats: [])
+        assign(socket,
+          current_task: nil,
+          counts: nil,
+          labeled: [],
+          labeler_stats: [],
+          agreement: nil
+        )
 
       project ->
         assign(socket,
           current_task: socket.assigns[:current_task] || Labeling.next_task(scope, project.id),
           counts: Labeling.counts(scope, project.id),
           labeled: Labeling.list_labeled(scope, project.id),
-          labeler_stats: Labeling.labeler_stats(scope, project.id)
+          labeler_stats: Labeling.labeler_stats(scope, project.id),
+          agreement: Labeling.agreement_stats(scope, project.id)
         )
     end
   end
@@ -65,7 +72,8 @@ defmodule FluxWeb.ConsoleLive.Labeling do
       "name" => params["name"],
       "label_type" => params["label_type"],
       "options" => String.split(to_string(params["options"] || ""), ","),
-      "instructions" => params["instructions"]
+      "instructions" => params["instructions"],
+      "required_labels" => params["required_labels"] || "1"
     }
 
     case Labeling.create_project(socket.assigns.current_scope, attrs) do
@@ -261,6 +269,10 @@ defmodule FluxWeb.ConsoleLive.Labeling do
             placeholder="labeler instructions — optional"
             class="input input-bordered input-sm w-72"
           />
+          <label class="input input-bordered input-sm flex items-center gap-1 w-40">
+            <span class="text-xs opacity-60">labelers/task</span>
+            <input type="number" name="required_labels" value="1" min="1" max="5" class="grow" />
+          </label>
           <button class="btn btn-primary btn-sm">Create project</button>
         </form>
       </div>
@@ -295,6 +307,20 @@ defmodule FluxWeb.ConsoleLive.Labeling do
             title="labeled by"
           >
             {email}: {count}
+          </span>
+          <span
+            :if={@selected_project.required_labels > 1}
+            class="badge badge-info badge-sm"
+            title="labels required per task"
+          >
+            {@selected_project.required_labels} labelers/task
+          </span>
+          <span
+            :if={@agreement}
+            class="badge badge-ghost badge-sm"
+            title="average share of votes matching the final label"
+          >
+            agreement {round(@agreement.avg_agreement * 100)}% · {@agreement.unanimous}/{@agreement.tasks} unanimous
           </span>
           <a
             :if={@counts && @counts.labeled > 0}

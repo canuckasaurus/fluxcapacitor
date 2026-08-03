@@ -53,6 +53,61 @@ defmodule Flux.Evals do
     end
   end
 
+  @doc "Sets or clears a set's cron schedule (validated by Oban's parser)."
+  def set_schedule(%Scope{} = scope, set_id, schedule) do
+    with :ok <- RBAC.authorize(scope, :app_edit),
+         %EvalSet{} = set <- get_set(scope, set_id) do
+      set |> EvalSet.changeset(%{"schedule" => schedule}) |> Repo.update()
+    end
+  end
+
+  @doc """
+  Minute-tick sweep (called from the schedule worker): starts an eval of
+  every set whose cron expression matches this minute, against the
+  latest published version (draft when nothing is published). Any eval
+  run created for the set since the minute started suppresses the fire —
+  scheduled evals never double-run.
+  """
+  def run_scheduled(now \\ DateTime.utc_now(:second)) do
+    minute_start = %{now | second: 0}
+
+    sets =
+      EvalSet
+      |> where([s], not is_nil(s.schedule))
+      |> Repo.all(skip_workspace_guard: true)
+
+    for set <- sets, cron_due?(set.schedule, now), not fired_since?(set, minute_start) do
+      scope = worker_scope(set.workspace_id)
+      latest = Workflows.latest_version(scope, set.workflow_id)
+
+      case start_eval(scope, set, version: latest && latest.version) do
+        {:ok, eval_run} -> eval_run
+        {:error, _reason} -> nil
+      end
+    end
+    |> Enum.filter(& &1)
+  end
+
+  defp cron_due?(schedule, now) do
+    case Oban.Cron.Expression.parse(schedule) do
+      {:ok, expression} -> Oban.Cron.Expression.now?(expression, now)
+      {:error, _reason} -> false
+    end
+  end
+
+  defp fired_since?(set, minute_start) do
+    EvalRun
+    |> where([r], r.eval_set_id == ^set.id and r.inserted_at >= ^minute_start)
+    |> Repo.aggregate(:count, skip_workspace_guard: true) > 0
+  end
+
+  defp worker_scope(workspace_id) do
+    %Scope{
+      workspace: %Flux.Accounts.Workspace{id: workspace_id},
+      membership: %Flux.Accounts.Membership{workspace_id: workspace_id, role: :editor}
+    }
+  end
+
   @doc """
   Publish hook: starts an eval of every gated set against the freshly
   published version. Sets with no cases are skipped quietly.

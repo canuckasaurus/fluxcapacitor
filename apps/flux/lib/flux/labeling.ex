@@ -13,7 +13,7 @@ defmodule Flux.Labeling do
   import Ecto.Query
 
   alias Flux.Accounts.Scope
-  alias Flux.Labeling.{Project, Task}
+  alias Flux.Labeling.{Project, Task, Vote}
   alias Flux.RBAC
   alias Flux.Repo
 
@@ -103,11 +103,14 @@ defmodule Flux.Labeling do
 
     query =
       if account_id do
-        where(
-          base,
+        base
+        |> where(
           [t],
           is_nil(t.claimed_at) or t.claimed_at < ^cutoff or t.assigned_to_id == ^account_id
         )
+        # In consensus projects a labeler never sees a task twice.
+        |> join(:left, [t], v in Vote, on: v.task_id == t.id and v.account_id == ^account_id)
+        |> where([t, v], is_nil(v.id))
       else
         where(base, [t], is_nil(t.claimed_at) or t.claimed_at < ^cutoff)
       end
@@ -166,8 +169,17 @@ defmodule Flux.Labeling do
     with :ok <- RBAC.authorize(scope, :app_edit),
          %Task{} = task <- get_task(scope, task_id),
          %Project{} = project <- get_project(scope, task.project_id),
-         :ok <- validate_label(project, label),
-         {:ok, labeled} <-
+         :ok <- validate_label(project, label) do
+      if project.required_labels > 1 and task.status == :unlabeled do
+        record_vote(scope, project, task, label)
+      else
+        apply_label(scope, project, task, label)
+      end
+    end
+  end
+
+  defp apply_label(scope, project, task, label) do
+    with {:ok, labeled} <-
            task
            |> Ecto.Changeset.change(
              status: :labeled,
@@ -177,7 +189,112 @@ defmodule Flux.Labeling do
            )
            |> Repo.update() do
       maybe_resume_run(scope, labeled)
+      notify_labeled(project, labeled)
       {:ok, labeled}
+    end
+  end
+
+  # One vote per account per task; a repeat vote replaces the first.
+  # Once the project's quorum is in, the majority label (earliest vote
+  # breaks ties) becomes the task's label.
+  defp record_vote(scope, project, task, label) do
+    account_id = scope.account && scope.account.id
+
+    if account_id do
+      Repo.delete_all(
+        from(v in Vote, where: v.task_id == ^task.id and v.account_id == ^account_id),
+        skip_workspace_guard: true
+      )
+    end
+
+    Repo.insert!(%Vote{
+      workspace_id: task.workspace_id,
+      task_id: task.id,
+      account_id: account_id,
+      label: label
+    })
+
+    votes =
+      Vote
+      |> where([v], v.task_id == ^task.id)
+      |> order_by([v], asc: v.inserted_at, asc: v.id)
+      |> Repo.all(skip_workspace_guard: true)
+
+    if length(votes) >= project.required_labels do
+      apply_label(scope, project, task, consensus_label(votes))
+    else
+      # Release the claim so the next labeler can weigh in.
+      task |> Ecto.Changeset.change(claimed_at: nil, assigned_to_id: nil) |> Repo.update()
+    end
+  end
+
+  defp consensus_label(votes) do
+    votes
+    |> Enum.group_by(& &1.label)
+    |> Enum.max_by(fn {_label, group} ->
+      earliest = group |> Enum.map(&DateTime.to_unix(&1.inserted_at)) |> Enum.min()
+      {length(group), -earliest}
+    end)
+    |> elem(0)
+  end
+
+  defp notify_labeled(project, task) do
+    Flux.Webhooks.dispatch(task.workspace_id, "labeling.task_labeled", %{
+      "project_id" => project.id,
+      "project_name" => project.name,
+      "task_id" => task.id,
+      "label" => task.label,
+      "source" => task.source
+    })
+
+    remaining =
+      Task
+      |> where([t], t.project_id == ^project.id and t.status == :unlabeled)
+      |> Repo.aggregate(:count, skip_workspace_guard: true)
+
+    if remaining == 0 do
+      Flux.Webhooks.dispatch(task.workspace_id, "labeling.project_completed", %{
+        "project_id" => project.id,
+        "project_name" => project.name
+      })
+    end
+
+    :ok
+  end
+
+  @doc """
+  Inter-labeler agreement over a project's consensus-labeled tasks:
+  the average fraction of votes matching the final label, plus the
+  unanimity rate. `nil` when no task has more than one vote.
+  """
+  def agreement_stats(%Scope{} = scope, project_id) do
+    tasks =
+      Task
+      |> Repo.scoped(scope)
+      |> where([t], t.project_id == ^project_id and t.status == :labeled)
+      |> Repo.all()
+
+    votes_by_task =
+      Vote
+      |> where([v], v.task_id in ^Enum.map(tasks, & &1.id))
+      |> Repo.all(skip_workspace_guard: true)
+      |> Enum.group_by(& &1.task_id)
+
+    fractions =
+      for task <- tasks, votes = votes_by_task[task.id] || [], length(votes) > 1 do
+        Enum.count(votes, &(&1.label == task.label)) / length(votes)
+      end
+
+    case fractions do
+      [] ->
+        nil
+
+      fractions ->
+        %{
+          tasks: length(fractions),
+          avg_agreement: Enum.sum(fractions) / length(fractions),
+          unanimous: Enum.count(fractions, &(&1 == 1.0))
+        }
     end
   end
 

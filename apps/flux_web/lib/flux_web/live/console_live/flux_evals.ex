@@ -236,6 +236,28 @@ defmodule FluxWeb.ConsoleLive.FluxEvals do
     end
   end
 
+  def handle_event("set_schedule", %{"schedule" => schedule}, socket) do
+    set = socket.assigns.selected_set
+
+    case Evals.set_schedule(socket.assigns.current_scope, set.id, schedule) do
+      {:ok, updated} ->
+        message =
+          if updated.schedule do
+            "Scheduled — runs at `#{updated.schedule}` against the latest published version."
+          else
+            "Schedule cleared."
+          end
+
+        {:noreply, socket |> put_flash(:info, message) |> reload_sets(updated.id)}
+
+      {:error, %Ecto.Changeset{}} ->
+        {:noreply, put_flash(socket, :error, "That isn't a valid cron expression.")}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not update the schedule.")}
+    end
+  end
+
   def handle_event("toggle_results", %{"id" => id}, socket) do
     {:noreply, assign(socket, expanded_eval: (socket.assigns.expanded_eval == id && nil) || id)}
   end
@@ -319,6 +341,17 @@ defmodule FluxWeb.ConsoleLive.FluxEvals do
               phx-click="toggle_gate"
             /> run on publish
           </label>
+          <form :if={@selected_set} phx-submit="set_schedule" id="schedule-form" class="flex gap-1">
+            <input
+              type="text"
+              name="schedule"
+              value={@selected_set.schedule}
+              placeholder="cron, e.g. 0 6 * * *"
+              class="input input-bordered input-sm w-40 font-mono"
+              title="Runs against the latest published version on this cron schedule; blank clears it."
+            />
+            <button class="btn btn-ghost btn-sm">Schedule</button>
+          </form>
           <button
             :if={@selected_set}
             class="btn btn-ghost btn-sm text-error"
