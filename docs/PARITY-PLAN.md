@@ -421,3 +421,26 @@ range); **scheduled workspace exports** (cron in workspace settings →
 archive stored with a download token, appears on Files, export_ready
 notification); **/v1 SSE for batches and evals** (:id/events endpoints
 streaming progress frames, contract-consistent payloads).
+
+31. ~~Batch 7: cost controls, measurable retrieval, serve-by-name
+(#148, 2026-08-03)~~ DONE: **registry-by-name serving** (code-node
+attachments accept registry:<name> — resolved to the LATEST registered
+version at run time, so promoting a model updates every serving flux;
+the picker offers ★ latest entries for space-free names, pinned ids
+otherwise); **retrieval evals** (retrieval_cases per dataset:
+question → expected-passage golden cases scored on hit rate + MRR from
+the knowledge page — chunking/backend changes become measurable);
+**LLM response cache** (ETS via Flux.LLMCache at the invoke_llm
+boundary; workspace TTL setting; hits replay content as one chunk and
+bill zero tokens); **monthly token budgets** (workspace setting; 80%
+warning notification once per month, runs refuse with
+:budget_exhausted past the cap; Usage.month_tokens counts runs + chat);
+**version diff** (Workflows.diff_graphs — nodes added/removed/changed
+with touched config keys, position moves ignored, edges by
+source/handle/target — rendered in the versions modal per version);
+**one-click re-run** (runs drill-in button re-runs with the same inputs
+against the current draft); **pgvector HNSW** (FLUX_VECTOR_DIMS types
+the column and builds the index at boot, best-effort);
+**Arango vector backend** (FLUX_VECTOR_BACKEND=arango: embeddings
+mirror into a segments collection, COSINE_SIMILARITY ranking in AQL —
+live-verified ordering + drop against arangodb 3.12.9).

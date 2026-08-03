@@ -82,6 +82,39 @@ defmodule Flux.Usage do
   end
 
   @doc """
+  Tokens spent this calendar month across workflow runs and chat replies
+  — the number the monthly budget gate compares against. Worker-safe (no
+  scope).
+  """
+  def month_tokens(workspace_id) do
+    month_start =
+      Date.utc_today()
+      |> Date.beginning_of_month()
+      |> DateTime.new!(~T[00:00:00])
+
+    run_tokens =
+      Flux.Workflows.WorkflowRun
+      |> where([r], r.workspace_id == ^workspace_id and r.inserted_at >= ^month_start)
+      |> select([r], r.usage)
+      |> Repo.all(skip_workspace_guard: true)
+      |> Enum.reduce(0, fn usage, acc ->
+        acc + (usage["input_tokens"] || 0) + (usage["output_tokens"] || 0)
+      end)
+
+    chat_tokens =
+      Flux.Chat.Message
+      |> where([m], m.workspace_id == ^workspace_id and m.inserted_at >= ^month_start)
+      |> where([m], not is_nil(m.usage))
+      |> select([m], m.usage)
+      |> Repo.all(skip_workspace_guard: true)
+      |> Enum.reduce(0, fn usage, acc ->
+        acc + (usage["input_tokens"] || 0) + (usage["output_tokens"] || 0)
+      end)
+
+    run_tokens + chat_tokens
+  end
+
+  @doc """
   Per-flux run/token/cost totals over the window, most expensive first —
   the dedicated cost surface (runs page card + CSV export).
   """

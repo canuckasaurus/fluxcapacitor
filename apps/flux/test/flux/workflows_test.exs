@@ -229,6 +229,113 @@ defmodule Flux.WorkflowsTest do
     assert [] = Workflows.list_workspace_runs(scope, %{to: Date.add(today, -2)})
   end
 
+  test "the LLM cache returns repeats for free within the TTL", %{
+    scope: scope,
+    workflow: workflow
+  } do
+    Flux.LLMCache.purge()
+    {:ok, _} = Accounts.set_llm_cache_minutes(scope, 10)
+
+    {:ok, workflow} = Workflows.update_draft(scope, workflow, echo_graph())
+
+    {:ok, _run} = Workflows.start_run(scope, workflow, %{"query" => "cache me"})
+    assert_receive {:run_finished, first}, 5_000
+    assert first.usage["output_tokens"] == 12
+
+    {:ok, _run} = Workflows.start_run(scope, workflow, %{"query" => "cache me"})
+    assert_receive {:run_finished, second}, 5_000
+
+    # Cache hit: same answer, zero billed tokens.
+    assert second.outputs["answer"] == first.outputs["answer"]
+    assert second.usage["input_tokens"] == 0
+    assert second.usage["output_tokens"] == 0
+
+    # Different inputs miss the cache.
+    {:ok, _run} = Workflows.start_run(scope, workflow, %{"query" => "fresh"})
+    assert_receive {:run_finished, third}, 5_000
+    assert third.usage["output_tokens"] == 12
+
+    Flux.LLMCache.purge()
+    {:ok, _} = Accounts.set_llm_cache_minutes(scope, 0)
+  end
+
+  test "the monthly token budget warns at 80% and refuses past the cap", %{
+    scope: scope,
+    workflow: workflow,
+    workspace: workspace
+  } do
+    {:ok, workflow} = Workflows.update_draft(scope, workflow, echo_graph())
+
+    # One echo run costs 15 tokens; an 18-token budget is 83% spent after it.
+    {:ok, _} = Accounts.set_token_budget(scope, 18)
+
+    {:ok, _run} = Workflows.start_run(scope, workflow, %{"query" => "spend"})
+    assert_receive {:run_finished, _first}, 5_000
+    assert Flux.Usage.month_tokens(workspace.id) == 15
+
+    # Under the cap but over 80%: allowed, with a warning notification.
+    {:ok, _run} = Workflows.start_run(scope, workflow, %{"query" => "warn"})
+    assert_receive {:run_finished, _second}, 5_000
+
+    assert Enum.any?(
+             Flux.Notifications.list(scope),
+             &(&1.kind == "budget_warning")
+           )
+
+    # Now 30 of 18: refused.
+    assert {:error, :budget_exhausted} =
+             Workflows.start_run(scope, workflow, %{"query" => "denied"})
+
+    {:ok, _} = Accounts.set_token_budget(scope, nil)
+  end
+
+  test "diff_graphs reports node and edge changes, ignoring positions" do
+    old_graph = %{
+      "nodes" => [
+        %{"id" => "start", "type" => "start", "title" => "Start", "config" => %{}},
+        %{
+          "id" => "llm_1",
+          "type" => "llm",
+          "title" => "LLM",
+          "position" => %{"x" => 0, "y" => 0},
+          "config" => %{"prompt" => "old"}
+        },
+        %{"id" => "gone", "type" => "template", "title" => "Gone", "config" => %{}}
+      ],
+      "edges" => [
+        %{"source" => "start", "source_handle" => "default", "target" => "llm_1"},
+        %{"source" => "llm_1", "source_handle" => "default", "target" => "gone"}
+      ]
+    }
+
+    new_graph = %{
+      "nodes" => [
+        %{"id" => "start", "type" => "start", "title" => "Start", "config" => %{}},
+        %{
+          "id" => "llm_1",
+          "type" => "llm",
+          "title" => "LLM",
+          "position" => %{"x" => 500, "y" => 500},
+          "config" => %{"prompt" => "new"}
+        },
+        %{"id" => "fresh", "type" => "answer", "title" => "Fresh", "config" => %{}}
+      ],
+      "edges" => [
+        %{"source" => "start", "source_handle" => "default", "target" => "llm_1"},
+        %{"source" => "llm_1", "source_handle" => "default", "target" => "fresh"}
+      ]
+    }
+
+    diff = Workflows.diff_graphs(old_graph, new_graph)
+
+    assert [%{id: "fresh", type: "answer"}] = diff.added
+    assert [%{id: "gone"}] = diff.removed
+    # Position moved AND prompt changed — only the prompt counts.
+    assert [%{id: "llm_1", fields: ["prompt"]}] = diff.changed
+    assert diff.edges_added == ["llm_1 –default→ fresh"]
+    assert diff.edges_removed == ["llm_1 –default→ gone"]
+  end
+
   test "start_batch rejects empty and oversized uploads", %{scope: scope, workflow: workflow} do
     {:ok, workflow} = Workflows.update_draft(scope, workflow, echo_graph())
 

@@ -46,8 +46,12 @@ orchestrator, no queue infrastructure beyond Postgres.
   of completed rows to labeling, and a **Repeat button** that saves the
   row set as a recurring cron batch. Every run
   records **token usage and an estimated cost** (per-model breakdown;
-  dashboard rollups and a workspace-wide **runs page** with filters and
-  cost totals). Liked replies and annotations export as **fine-tune
+  dashboard rollups and a workspace-wide **runs page** with filters,
+  cost totals, and **one-click re-runs**). A **monthly token budget**
+  warns at 80% and refuses runs past the cap, and an opt-in **LLM
+  response cache** answers identical prompts from memory at zero cost.
+  Published versions **diff structurally** against the draft (nodes
+  added/removed/changed, edges rewired) right in the versions modal. Liked replies and annotations export as **fine-tune
   JSONL**, and **native data labeling** closes the custom model loop:
   labeling projects with a tagging queue (single/multi choice or free-text
   correction, keyboard shortcuts, multi-labeler claims and per-labeler
@@ -65,7 +69,9 @@ orchestrator, no queue infrastructure beyond Postgres.
   them back as **attachments** (with an artifact picker in the editor) —
   label → train → serve entirely inside fluxes, no external labeling
   service — and a **model registry** names and versions those artifacts
-  ("ticket-intent v3"), leading the attachment picker. A **version
+  ("ticket-intent v3"), leading the attachment picker; `registry:<name>`
+  references resolve to the **latest version at run time**, so promoting
+  a model updates every serving flux without edits. A **version
   comparison matrix** on the evals page shows the latest score per set
   and target side by side, and **in-console notifications** surface run
   failures, eval regressions, and labeling completions with an unread
@@ -86,9 +92,12 @@ orchestrator, no queue infrastructure beyond Postgres.
   auto-sync, multi-dataset queries, per-dataset retrieval settings
   (including **markdown-aware chunking**), and citations that flow onto
   chat answers. Similarity ranks in-BEAM by default, in SQL with the
-  **pgvector backend** (`FLUX_VECTOR_BACKEND=pgvector`), and an
-  **ArangoDB entity-graph backend** (`FLUX_ARANGO_URL`) upgrades
+  **pgvector backend** (`FLUX_VECTOR_BACKEND=pgvector`, HNSW-indexed with
+  `FLUX_VECTOR_DIMS`) or in AQL with the **Arango vector backend**, and
+  the **ArangoDB entity graph** (`FLUX_ARANGO_URL`) upgrades
   related-entity lookups to real 1–2 hop weighted traversals.
+  **Retrieval evals** (golden question → expected-passage cases, hit rate
+  + MRR per dataset) make chunking and backend changes measurable.
 - **Plugins** — one SDK (`packages/flux_plugin`) with five capability
   behaviours: **model providers** (OpenAI, Anthropic, Gemini, any
   OpenAI-compatible endpoint), **tools**, **datasources** (external document
@@ -262,7 +271,7 @@ scratch drive, and a labeling project wired to the Model trainer flux
 ## Testing
 
 ```bash
-mix test                             # full umbrella suite (~665 tests), hermetic
+mix test                             # full umbrella suite (~670 tests), hermetic
 ```
 
 The suite runs with no network: providers stub through `Req.Test` or the

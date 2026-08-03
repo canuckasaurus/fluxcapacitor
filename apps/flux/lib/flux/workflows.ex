@@ -238,6 +238,67 @@ defmodule Flux.Workflows do
     end
   end
 
+  @doc """
+  Structural diff between two graphs: nodes added/removed/changed (by
+  id; position moves don't count as changes, changed lists the touched
+  config keys) and edges added/removed (by source/handle/target).
+  """
+  def diff_graphs(old_graph, new_graph) do
+    old_nodes = Map.new(List.wrap(old_graph["nodes"]), &{&1["id"], &1})
+    new_nodes = Map.new(List.wrap(new_graph["nodes"]), &{&1["id"], &1})
+
+    added =
+      for {id, node} <- new_nodes, not Map.has_key?(old_nodes, id) do
+        %{id: id, type: node["type"], title: node["title"]}
+      end
+
+    removed =
+      for {id, node} <- old_nodes, not Map.has_key?(new_nodes, id) do
+        %{id: id, type: node["type"], title: node["title"]}
+      end
+
+    changed =
+      for {id, node} <- new_nodes,
+          old = old_nodes[id],
+          old != nil,
+          fields = changed_fields(old, node),
+          fields != [] do
+        %{id: id, type: node["type"], title: node["title"], fields: fields}
+      end
+
+    old_edges = edge_set(old_graph)
+    new_edges = edge_set(new_graph)
+
+    %{
+      added: Enum.sort_by(added, & &1.id),
+      removed: Enum.sort_by(removed, & &1.id),
+      changed: Enum.sort_by(changed, & &1.id),
+      edges_added: MapSet.difference(new_edges, old_edges) |> MapSet.to_list() |> Enum.sort(),
+      edges_removed: MapSet.difference(old_edges, new_edges) |> MapSet.to_list() |> Enum.sort()
+    }
+  end
+
+  defp changed_fields(old, new) do
+    meta =
+      for key <- ["type", "title"], old[key] != new[key], do: key
+
+    old_config = old["config"] || %{}
+    new_config = new["config"] || %{}
+
+    config_keys =
+      (Map.keys(old_config) ++ Map.keys(new_config))
+      |> Enum.uniq()
+      |> Enum.filter(fn key -> old_config[key] != new_config[key] end)
+
+    meta ++ Enum.sort(config_keys)
+  end
+
+  defp edge_set(graph) do
+    for edge <- List.wrap(graph["edges"]), into: MapSet.new() do
+      "#{edge["source"]} –#{edge["source_handle"] || "default"}→ #{edge["target"]}"
+    end
+  end
+
   def list_versions(%Scope{} = scope, workflow_id) do
     WorkflowVersion
     |> Repo.scoped(scope)
@@ -283,6 +344,49 @@ defmodule Flux.Workflows do
   def start_run(%Scope{} = scope, %Workflow{} = workflow, inputs, opts \\ []) do
     graph_map = Keyword.get(opts, :graph, workflow.graph)
 
+    with :ok <- check_token_budget(workflow.workspace_id) do
+      do_start_run(scope, workflow, graph_map, inputs, opts)
+    end
+  end
+
+  # A monthly token budget in workspace settings gates new runs: past the
+  # cap they refuse with :budget_exhausted; at 80% a notification fires
+  # (once per month).
+  defp check_token_budget(workspace_id) do
+    case Repo.get(Flux.Accounts.Workspace, workspace_id) do
+      %{custom_config: %{"monthly_token_budget" => budget} = config} = workspace
+      when is_integer(budget) ->
+        spent = Flux.Usage.month_tokens(workspace_id)
+        month = Calendar.strftime(Date.utc_today(), "%Y-%m")
+
+        cond do
+          spent >= budget ->
+            {:error, :budget_exhausted}
+
+          spent >= budget * 0.8 and config["budget_warned"] != month ->
+            Flux.Notifications.notify(
+              workspace_id,
+              "budget_warning",
+              "Token budget 80% spent: #{spent} of #{budget} this month.",
+              "/console/runs"
+            )
+
+            workspace
+            |> Ecto.Changeset.change(custom_config: Map.put(config, "budget_warned", month))
+            |> Repo.update()
+
+            :ok
+
+          true ->
+            :ok
+        end
+
+      _no_budget ->
+        :ok
+    end
+  end
+
+  defp do_start_run(scope, workflow, graph_map, inputs, opts) do
     case Engine.build(graph_map) do
       {:ok, graph} ->
         run =
@@ -1537,46 +1641,75 @@ defmodule Flux.Workflows do
   end
 
   defp build_llm_invoker(workspace_id) do
+    cache_ttl = llm_cache_minutes(workspace_id)
+
     fn request, chunk_emit ->
-      credentials =
-        case Providers.fetch_config(workspace_id, request.provider_plugin_id) do
-          {:ok, config} -> config
-          {:error, :not_configured} -> %{}
-        end
+      cache_key = cache_ttl > 0 && Flux.LLMCache.key(workspace_id, request)
 
-      tools =
-        for tool <- Map.get(request, :tools, []) do
-          %Flux.Plugin.ModelProvider.ToolDef{
-            name: tool["name"],
-            description: tool["description"] || "",
-            parameters: tool["parameters"] || %{"type" => "object", "properties" => %{}}
-          }
-        end
+      case cache_key && Flux.LLMCache.get(cache_key) do
+        {:ok, cached} ->
+          if is_binary(cached.content) and cached.content != "", do: chunk_emit.(cached.content)
 
-      provider_request = %Flux.Plugin.ModelProvider.Request{
-        model: request.model,
-        messages: request.messages,
-        params: atomize_params(request.params),
-        tools: tools
-      }
-
-      emit = fn %{delta: delta} -> chunk_emit.(delta) end
-
-      case runtime().invoke_llm(request.provider_plugin_id, credentials, provider_request, emit) do
-        {:ok, result} ->
           {:ok,
            %{
-             content: result.content,
-             usage: %{
-               "input_tokens" => result.usage.input_tokens,
-               "output_tokens" => result.usage.output_tokens
-             },
-             tool_calls: result.tool_calls
+             cached
+             | usage: %{"input_tokens" => 0, "output_tokens" => 0, "cached" => true}
            }}
 
-        {:error, reason} ->
-          {:error, reason}
+        _miss_or_disabled ->
+          invoke_llm_fresh(workspace_id, request, chunk_emit, cache_key, cache_ttl)
       end
+    end
+  end
+
+  defp llm_cache_minutes(workspace_id) do
+    case Repo.get(Flux.Accounts.Workspace, workspace_id) do
+      %{custom_config: %{"llm_cache_minutes" => minutes}} when is_integer(minutes) -> minutes
+      _off -> 0
+    end
+  end
+
+  defp invoke_llm_fresh(workspace_id, request, chunk_emit, cache_key, cache_ttl) do
+    credentials =
+      case Providers.fetch_config(workspace_id, request.provider_plugin_id) do
+        {:ok, config} -> config
+        {:error, :not_configured} -> %{}
+      end
+
+    tools =
+      for tool <- Map.get(request, :tools, []) do
+        %Flux.Plugin.ModelProvider.ToolDef{
+          name: tool["name"],
+          description: tool["description"] || "",
+          parameters: tool["parameters"] || %{"type" => "object", "properties" => %{}}
+        }
+      end
+
+    provider_request = %Flux.Plugin.ModelProvider.Request{
+      model: request.model,
+      messages: request.messages,
+      params: atomize_params(request.params),
+      tools: tools
+    }
+
+    emit = fn %{delta: delta} -> chunk_emit.(delta) end
+
+    case runtime().invoke_llm(request.provider_plugin_id, credentials, provider_request, emit) do
+      {:ok, result} ->
+        response = %{
+          content: result.content,
+          usage: %{
+            "input_tokens" => result.usage.input_tokens,
+            "output_tokens" => result.usage.output_tokens
+          },
+          tool_calls: result.tool_calls
+        }
+
+        if cache_key, do: Flux.LLMCache.put(cache_key, response, cache_ttl)
+        {:ok, response}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

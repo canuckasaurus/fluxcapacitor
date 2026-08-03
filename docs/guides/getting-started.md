@@ -75,10 +75,14 @@ lands in the dev mailbox at `/dev/mailbox`).
    out), add documents by upload, paste, or URL, watch them index, and
    hit-test retrieval. Wire a `knowledge` node to the dataset in any
    flux. Per-dataset settings cover chunk size/overlap and
-   **markdown-aware splitting** (chunks keep their headings). At corpus
-   scale, set `FLUX_VECTOR_BACKEND=pgvector` (the compose Postgres ships
-   the extension) to rank similarity in SQL, and `FLUX_ARANGO_URL` (the
-   `rag` profile) for deeper related-entity graph traversal.
+   **markdown-aware splitting** (chunks keep their headings), and
+   **retrieval evals** score golden question → expected-passage cases
+   (hit rate + MRR) so chunking/backend changes are measurable. At corpus
+   scale, set `FLUX_VECTOR_BACKEND=pgvector` (SQL-side similarity; add
+   `FLUX_VECTOR_DIMS` for an HNSW approximate index) or
+   `FLUX_VECTOR_BACKEND=arango` (AQL cosine next to the entity graph),
+   and `FLUX_ARANGO_URL` (the `rag` profile) for deeper related-entity
+   graph traversal.
 
 ## Testing
 
@@ -121,7 +125,9 @@ Prometheus, `FLUX_LOG_JSON=1` for structured logs,
 `FLUX_ARANGO_URL` for the entity-graph backend, and
 `FLUX_ROLE=web|worker` to split serving from queue processing. Workspace
 settings can schedule **automatic export archives** (cron) that land on
-the Files page as backups.
+the Files page as backups, set a **monthly token budget** (warns at 80%,
+refuses runs past the cap), and enable the **LLM response cache**
+(identical prompts within the TTL answer from memory, billed at zero).
 
 ## Localization
 

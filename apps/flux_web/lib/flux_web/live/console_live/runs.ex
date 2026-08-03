@@ -75,6 +75,25 @@ defmodule FluxWeb.ConsoleLive.Runs do
     {:noreply, assign(socket, expanded_run: (socket.assigns.expanded_run == id && nil) || id)}
   end
 
+  def handle_event("rerun", %{"id" => id}, socket) do
+    scope = socket.assigns.current_scope
+
+    with %{run: run} <- Enum.find(socket.assigns.rows, &(&1.run.id == id)),
+         workflow when not is_tuple(workflow) <- Workflows.get_workflow(scope, run.workflow_id),
+         {:ok, _new_run} <- Workflows.start_run(scope, workflow, run.inputs) do
+      {:noreply,
+       socket
+       |> put_flash(:info, "Re-run started with the same inputs (against the current draft).")
+       |> load_runs()}
+    else
+      {:error, :budget_exhausted} ->
+        {:noreply, put_flash(socket, :error, "The monthly token budget is spent.")}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not re-run — flux gone or graph invalid.")}
+    end
+  end
+
   defp parse_date(value) do
     case Date.from_iso8601(to_string(value || "")) do
       {:ok, date} -> date
@@ -244,6 +263,14 @@ defmodule FluxWeb.ConsoleLive.Runs do
               <tr :if={@expanded_run == run.id} id={"run-detail-#{run.id}"}>
                 <td colspan="6" class="bg-base-200/30">
                   <div class="space-y-2 p-2 text-xs">
+                    <button
+                      class="btn btn-ghost btn-xs"
+                      phx-click="rerun"
+                      phx-value-id={run.id}
+                      title="Start a new run with these inputs against the current draft"
+                    >
+                      <.icon name="hero-arrow-path" class="size-3" /> Re-run
+                    </button>
                     <p :if={run.error} class="text-error font-mono">{run.error}</p>
 
                     <p :if={run.inputs != %{}}>

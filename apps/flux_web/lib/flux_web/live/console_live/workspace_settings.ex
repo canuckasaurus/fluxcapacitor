@@ -20,6 +20,8 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
        default_model: Providers.default_model(scope),
        retention_days: Accounts.retention_days(scope),
        export_schedule: Accounts.export_schedule(scope),
+       token_budget: Accounts.token_budget(scope),
+       llm_cache_minutes: Accounts.llm_cache_minutes(scope),
        alert_url: Accounts.alert_url(scope),
        alert_secret: Accounts.alert_secret(scope),
        can_webhooks: RBAC.can?(scope, :api_extension_manage),
@@ -66,6 +68,44 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
 
       {:error, :unauthorized} ->
         {:noreply, put_flash(socket, :error, "You don't have permission to set the default.")}
+    end
+  end
+
+  def handle_event("set_budget", %{"tokens" => tokens}, socket) do
+    parsed =
+      case Integer.parse(tokens) do
+        {n, ""} when n > 0 -> n
+        _blank_or_invalid -> nil
+      end
+
+    case Accounts.set_token_budget(socket.assigns.current_scope, parsed) do
+      {:ok, _workspace} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, (parsed && "Budget set.") || "Budget removed.")
+         |> assign(token_budget: parsed)}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not update the budget.")}
+    end
+  end
+
+  def handle_event("set_llm_cache", %{"minutes" => minutes}, socket) do
+    parsed =
+      case Integer.parse(minutes) do
+        {n, ""} when n >= 0 -> n
+        _invalid -> 0
+      end
+
+    case Accounts.set_llm_cache_minutes(socket.assigns.current_scope, parsed) do
+      {:ok, _workspace} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, (parsed > 0 && "LLM cache on.") || "LLM cache off.")
+         |> assign(llm_cache_minutes: parsed)}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not update the cache setting.")}
     end
   end
 
@@ -323,6 +363,41 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
             placeholder="∞"
             class="input input-bordered input-sm w-28"
           /> <span class="text-sm opacity-70">days</span>
+          <button class="btn btn-primary btn-sm">Save</button>
+        </form>
+      </div>
+
+      <div :if={@can_rename} class="card border border-base-200 p-6 space-y-3" id="cost-card">
+        <h2 class="font-semibold">Cost controls</h2>
+
+        <p class="text-sm opacity-70">
+          A monthly token budget warns at 80% and refuses new runs past the
+          cap (blank = unlimited). The LLM cache returns identical prompts
+          from memory within the TTL — repeated batch and eval runs stop
+          paying twice (0 = off).
+        </p>
+
+        <form phx-submit="set_budget" id="budget-form" class="flex gap-2 items-center">
+          <input
+            type="number"
+            name="tokens"
+            value={@token_budget}
+            min="1"
+            placeholder="∞"
+            class="input input-bordered input-sm w-40"
+          /> <span class="text-sm opacity-70">tokens / month</span>
+          <button class="btn btn-primary btn-sm">Save</button>
+        </form>
+
+        <form phx-submit="set_llm_cache" id="llm-cache-form" class="flex gap-2 items-center">
+          <input
+            type="number"
+            name="minutes"
+            value={@llm_cache_minutes}
+            min="0"
+            max="10080"
+            class="input input-bordered input-sm w-40"
+          /> <span class="text-sm opacity-70">cache minutes</span>
           <button class="btn btn-primary btn-sm">Save</button>
         </form>
       </div>

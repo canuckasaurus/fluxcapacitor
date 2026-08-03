@@ -632,6 +632,46 @@ defmodule Flux.Accounts do
     end
   end
 
+  @doc "Sets the LLM response-cache TTL in minutes (0/nil = off)."
+  def set_llm_cache_minutes(%Scope{} = scope, minutes)
+      when is_nil(minutes) or minutes in 0..10_080 do
+    update_custom_config(scope, "llm_cache_minutes", (minutes in [nil, 0] && nil) || minutes)
+  end
+
+  def llm_cache_minutes(%Scope{} = scope) do
+    case Repo.get(Workspace, Scope.workspace_id(scope)) do
+      %{custom_config: %{"llm_cache_minutes" => minutes}} -> minutes
+      _off -> 0
+    end
+  end
+
+  @doc "Sets the monthly token budget (nil = unlimited)."
+  def set_token_budget(%Scope{} = scope, budget)
+      when is_nil(budget) or (is_integer(budget) and budget > 0) do
+    update_custom_config(scope, "monthly_token_budget", budget)
+  end
+
+  def token_budget(%Scope{} = scope) do
+    case Repo.get(Workspace, Scope.workspace_id(scope)) do
+      %{custom_config: %{"monthly_token_budget" => budget}} -> budget
+      _unlimited -> nil
+    end
+  end
+
+  defp update_custom_config(scope, key, value) do
+    with :ok <- Flux.RBAC.authorize(scope, :customization_manage),
+         %Workspace{} = workspace <- Repo.get(Workspace, Scope.workspace_id(scope)) do
+      custom_config =
+        if value == nil do
+          Map.delete(workspace.custom_config || %{}, key)
+        else
+          Map.put(workspace.custom_config || %{}, key, value)
+        end
+
+      workspace |> Ecto.Changeset.change(custom_config: custom_config) |> Repo.update()
+    end
+  end
+
   @doc "Sets (or with nil/blank, clears) the failed-run alert webhook URL."
   def set_alert_url(%Scope{} = scope, url) do
     url = url && String.trim(url)

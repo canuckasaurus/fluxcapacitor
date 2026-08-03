@@ -32,7 +32,8 @@ defmodule Flux.Notifications do
     end
   end
 
-  @kinds ~w(run_failed gate_blocked eval_regressed labeling_completed export_ready)
+  @kinds ~w(run_failed gate_blocked eval_regressed labeling_completed export_ready
+            budget_warning)
 
   @doc """
   Records a notification (worker-safe: takes a workspace id, no scope).
