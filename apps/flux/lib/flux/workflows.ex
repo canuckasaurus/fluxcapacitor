@@ -602,6 +602,21 @@ defmodule Flux.Workflows do
         status -> where(q, [r], r.status == ^status)
       end
     end)
+    |> then(fn q ->
+      case filters[:from] do
+        %Date{} = from -> where(q, [r], r.inserted_at >= ^DateTime.new!(from, ~T[00:00:00]))
+        _none -> q
+      end
+    end)
+    |> then(fn q ->
+      case filters[:to] do
+        %Date{} = to ->
+          where(q, [r], r.inserted_at < ^DateTime.new!(Date.add(to, 1), ~T[00:00:00]))
+
+        _none ->
+          q
+      end
+    end)
   end
 
   @doc "The workspace's fluxes as {name, id} options (runs page filter)."
@@ -1114,11 +1129,25 @@ defmodule Flux.Workflows do
 
       :ok = subscribe(run.id)
 
-      resume = %{
-        pool: snapshot["pool"] || %{},
-        node_id: snapshot["node_id"],
-        input: input
-      }
+      # Tool-approval pauses re-run the agent node with the decision (and
+      # the pause payload) in reach, instead of feeding outputs downstream.
+      resume =
+        case snapshot["prompt"] do
+          %{"type" => "tool_approval"} = prompt ->
+            %{
+              pool: snapshot["pool"] || %{},
+              node_id: snapshot["node_id"],
+              input: %{"approved" => approval?(input), "prompt" => prompt},
+              rerun: true
+            }
+
+          _plain ->
+            %{
+              pool: snapshot["pool"] || %{},
+              node_id: snapshot["node_id"],
+              input: input
+            }
+        end
 
       {:ok, _pid} =
         Task.Supervisor.start_child(Flux.GenerationSupervisor, fn ->
@@ -1133,6 +1162,15 @@ defmodule Flux.Workflows do
       {:error, reason} -> {:error, reason}
     end
   end
+
+  defp approval?(%{"approved" => value}), do: value in [true, "true"]
+
+  defp approval?(input) when is_binary(input) do
+    normalized = input |> String.trim() |> String.downcase()
+    normalized in ~w(approve approved yes true)
+  end
+
+  defp approval?(_other), do: false
 
   # A paused draft run resumes against the current draft; a versioned run
   # resumes against its recorded version.
@@ -1158,7 +1196,18 @@ defmodule Flux.Workflows do
       %{status: run.status, source: run.source, workspace_id: run.workspace_id}
     )
 
-    if run.status == :failed, do: enqueue_alert(run)
+    if run.status == :failed do
+      enqueue_alert(run)
+      workflow = Repo.get(Workflow, run.workflow_id, skip_workspace_guard: true)
+
+      Flux.Notifications.notify(
+        run.workspace_id,
+        "run_failed",
+        "Run failed: #{(workflow && workflow.name) || "flux"} — #{run.error}",
+        "/console/runs"
+      )
+    end
+
     Flux.Webhooks.dispatch_run_event(run)
 
     Phoenix.PubSub.broadcast(Flux.PubSub, topic(run.id), {:run_finished, run})
@@ -1242,6 +1291,15 @@ defmodule Flux.Workflows do
   defp maybe_convert("pdf", docx_binary), do: Flux.Pdf.convert_docx(docx_binary)
   defp maybe_convert("html_pdf", html), do: Flux.Pdf.convert_html(html)
   defp maybe_convert(_format, binary), do: {:ok, binary}
+
+  @doc """
+  Stores an arbitrary workspace file with a tokenized download (backups,
+  scheduled exports) — same shelf as run outputs, so it shows on the
+  Files page.
+  """
+  def store_workspace_file(workspace_id, name, binary) when is_binary(binary) do
+    store_run_output(workspace_id, name, binary)
+  end
 
   defp store_run_output(workspace_id, name, binary) do
     key = "run_outputs/#{workspace_id}/#{Ecto.UUID.generate()}-#{name}"

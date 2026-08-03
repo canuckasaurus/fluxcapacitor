@@ -62,6 +62,16 @@ defmodule Flux.Engine.Runner do
 
           walk(graph, start, pool, host, [], @max_steps)
 
+        # Re-run the paused node with the human's input in reach (agent
+        # tool approval): the node consumes `__resume_input__` and
+        # continues its own loop before the walk proceeds normally.
+        %{pool: pool, node_id: node_id, input: input, rerun: true} ->
+          Host.emit(host, {:workflow_resumed, %{node_id: node_id}})
+
+          node = Map.fetch!(graph.nodes, node_id)
+          node = %{node | config: Map.put(node.config, "__resume_input__", input)}
+          walk(graph, node, pool, host, [], @max_steps)
+
         # Continue a paused run: the human's input becomes the paused
         # node's outputs, and the walk restarts on its outgoing edge.
         # Interview answers (a map) also land as one output per question.

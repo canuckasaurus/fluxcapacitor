@@ -1574,6 +1574,12 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
       "output_schema" => parse_output_schema(params["output_schema"], config["output_schema"]),
       "enable_drive" =>
         Map.get(params, "enable_drive", to_string(config["enable_drive"] == true)) == "true",
+      "approval_tools" =>
+        params
+        |> Map.get("approval_tools", Enum.join(List.wrap(config["approval_tools"]), ", "))
+        |> String.split(",")
+        |> Enum.map(&String.trim/1)
+        |> Enum.reject(&(&1 == "")),
       "agent_toolset_id" => toolset_id,
       "tools" =>
         if toolset_id == config["agent_toolset_id"] do
@@ -2140,18 +2146,28 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
   # Artifacts from this flux's recent runs — the code node's attachment
   # picker options ({label, "file_id name"} pairs feeding the textarea).
   defp artifact_options(scope, workflow_id) do
-    scope
-    |> Workflows.list_runs(workflow_id, 30)
-    |> Enum.flat_map(fn run ->
-      for execution <- run.node_executions,
-          file <- List.wrap(execution["outputs"]["files"]),
-          is_binary(file["file_id"]) do
-        date = run.inserted_at |> DateTime.to_date() |> Date.to_string()
-        {"#{file["name"]} (#{date})", "#{file["file_id"]} #{file["name"]}"}
+    # Registered models lead (named, versioned); raw run artifacts follow.
+    registered =
+      for artifact <- Flux.Registry.latest(scope) do
+        {"★ #{artifact.name} v#{artifact.version} (#{artifact.file.name})",
+         "#{artifact.file_id} #{artifact.file.name}"}
       end
-    end)
+
+    run_artifacts =
+      scope
+      |> Workflows.list_runs(workflow_id, 30)
+      |> Enum.flat_map(fn run ->
+        for execution <- run.node_executions,
+            file <- List.wrap(execution["outputs"]["files"]),
+            is_binary(file["file_id"]) do
+          date = run.inserted_at |> DateTime.to_date() |> Date.to_string()
+          {"#{file["name"]} (#{date})", "#{file["file_id"]} #{file["name"]}"}
+        end
+      end)
+
+    (registered ++ run_artifacts)
     |> Enum.uniq_by(&elem(&1, 1))
-    |> Enum.take(20)
+    |> Enum.take(25)
   end
 
   defp run_tokens(run) do
@@ -3456,6 +3472,21 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                       ({"{{node.files}}"} output)
                     </span>
                   </label>
+                  <label class="floating-label">
+                    <span>Tools needing human approval (comma-separated names)</span>
+                    <input
+                      type="text"
+                      name="approval_tools"
+                      value={Enum.join(List.wrap(node["config"]["approval_tools"]), ", ")}
+                      placeholder="send_email, delete_record"
+                      class="input input-sm w-full font-mono"
+                      disabled={not @can_edit}
+                    />
+                  </label>
+                  <p class="text-xs opacity-60">
+                    Calling a listed tool pauses the run; a human approves or
+                    denies from the run panel before the agent continues.
+                  </p>
                 <% "tool" -> %>
                   <label class="floating-label">
                     <span>API toolset</span>
@@ -4384,8 +4415,30 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                 />
                 <button class="btn btn-primary btn-sm">Resume</button>
               </form>
+              <div
+                :if={@run.snapshot["prompt"]["type"] == "tool_approval"}
+                class="flex gap-2"
+              >
+                <button
+                  class="btn btn-success btn-sm"
+                  phx-click="resume_run"
+                  phx-value-input="approve"
+                >
+                  Approve
+                </button>
+                <button
+                  class="btn btn-error btn-sm"
+                  phx-click="resume_run"
+                  phx-value-input="deny"
+                >
+                  Deny
+                </button>
+              </div>
               <form
-                :if={List.wrap(@run.snapshot["prompt"]["questions"]) == []}
+                :if={
+                  List.wrap(@run.snapshot["prompt"]["questions"]) == [] and
+                    @run.snapshot["prompt"]["type"] != "tool_approval"
+                }
                 phx-submit="resume_run"
                 class="flex gap-2"
               >

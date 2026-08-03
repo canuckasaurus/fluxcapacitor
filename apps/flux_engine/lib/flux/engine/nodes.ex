@@ -634,6 +634,7 @@ defmodule Flux.Engine.Nodes.Agent do
         plugin_id: plugin_id,
         model: model,
         tools: List.wrap(node.config["tools"]),
+        approval_tools: List.wrap(node.config["approval_tools"]),
         output_schema: node.config["output_schema"],
         invoke_llm: invoke_llm,
         invoke_tool: invoke_tool
@@ -641,13 +642,63 @@ defmodule Flux.Engine.Nodes.Agent do
 
       max_iterations = node.config["max_iterations"] || 5
 
-      case initial_state(node, pool) do
-        {:ok, messages, iteration, calls_so_far, drive} ->
-          loop(context, messages, iteration, max_iterations, calls_so_far, drive)
+      case node.config["__resume_input__"] do
+        %{"prompt" => %{"type" => "tool_approval"}} = resume ->
+          resume_approval(context, resume, max_iterations)
 
-        {:error, reason} ->
-          {:error, reason}
+        _fresh_or_deferred ->
+          case initial_state(node, pool) do
+            {:ok, messages, iteration, calls_so_far, drive} ->
+              loop(context, messages, iteration, max_iterations, calls_so_far, drive)
+
+            {:error, reason} ->
+              {:error, reason}
+          end
       end
+    end
+  end
+
+  # A tool-approval resume: the paused prompt carries the loop snapshot
+  # and the pending calls; approval executes them, denial answers them
+  # with a refusal — either way the loop continues in the same run.
+  defp resume_approval(context, resume, max_iterations) do
+    prompt = resume["prompt"]
+    approved? = resume["approved"] == true
+
+    with {:ok, state} <- decode_snapshot(prompt["state"] || "") do
+      pending =
+        for call <- List.wrap(prompt["pending"]) do
+          %{id: call["id"], name: call["name"], arguments: call["arguments"] || %{}}
+        end
+
+      {tool_messages, drive} =
+        if approved? do
+          Enum.map_reduce(pending, state.drive, fn call, drive ->
+            if drive_call?(context, call) do
+              execute_drive(context, call, state.iteration, drive)
+            else
+              {execute_tool(context, call, state.iteration), drive}
+            end
+          end)
+        else
+          {Enum.map(pending, fn call ->
+             %{
+               role: :tool,
+               tool_call_id: call.id,
+               name: call.name,
+               content: "The user denied this tool call. Do not retry it; adapt."
+             }
+           end), state.drive}
+        end
+
+      loop(
+        context,
+        state.messages ++ tool_messages,
+        state.iteration,
+        max_iterations,
+        state.tool_calls,
+        drive
+      )
     end
   end
 
@@ -739,7 +790,11 @@ defmodule Flux.Engine.Nodes.Agent do
 
       nil ->
         assistant = %{role: :assistant, content: result.content, tool_calls: tool_calls}
-        {deferred, executable} = Enum.split_with(tool_calls, &deferred?(context, &1))
+
+        {needs_approval, rest} =
+          Enum.split_with(tool_calls, &(&1.name in context.approval_tools))
+
+        {deferred, executable} = Enum.split_with(rest, &deferred?(context, &1))
 
         {tool_messages, drive} =
           Enum.map_reduce(executable, drive, fn call, drive ->
@@ -750,49 +805,100 @@ defmodule Flux.Engine.Nodes.Agent do
             end
           end)
 
-        if deferred == [] do
-          loop(
-            context,
-            messages ++ [assistant | tool_messages],
-            iteration + 1,
-            max,
-            calls_total,
-            drive
-          )
-        else
-          Enum.each(deferred, fn call ->
-            emit_part(context, iteration, %{
-              type: "function_tool_call",
-              id: call.id,
-              name: call.name,
-              arguments: call.arguments,
-              deferred: true
-            })
-          end)
+        cond do
+          needs_approval != [] and deferred == [] ->
+            calls_text =
+              Enum.map_join(needs_approval, ", ", fn call ->
+                arguments = call.arguments |> stringify() |> Jason.encode!()
+                "#{call.name}(#{String.slice(arguments, 0, 200)})"
+              end)
 
-          snapshot =
-            encode_snapshot(
-              messages ++ [assistant | tool_messages],
-              iteration + 1,
+            {:pause,
+             %{
+               "type" => "tool_approval",
+               "prompt" => "The agent wants to call: #{calls_text}. Approve?",
+               "pending" =>
+                 Enum.map(needs_approval, fn call ->
+                   %{"id" => call.id, "name" => call.name, "arguments" => call.arguments}
+                 end),
+               "state" =>
+                 encode_snapshot(
+                   messages ++ [assistant | tool_messages],
+                   iteration + 1,
+                   calls_total,
+                   drive
+                 )
+             }}
+
+          true ->
+            finish_tool_round(
+              context,
+              messages,
+              assistant,
+              tool_messages,
+              deferred ++ needs_approval,
+              iteration,
+              max,
               calls_total,
               drive
             )
-
-          {:ok,
-           %{
-             "text" => "",
-             "output" => nil,
-             "status" => "deferred",
-             "deferred_tool_calls" =>
-               Enum.map(deferred, fn call ->
-                 %{"id" => call.id, "name" => call.name, "arguments" => stringify(call.arguments)}
-               end),
-             "session_snapshot" => snapshot,
-             "iterations" => iteration,
-             "tool_calls" => calls_total,
-             "files" => drive
-           }}
         end
+    end
+  end
+
+  defp finish_tool_round(
+         context,
+         messages,
+         assistant,
+         tool_messages,
+         deferred,
+         iteration,
+         max,
+         calls_total,
+         drive
+       ) do
+    if deferred == [] do
+      loop(
+        context,
+        messages ++ [assistant | tool_messages],
+        iteration + 1,
+        max,
+        calls_total,
+        drive
+      )
+    else
+      Enum.each(deferred, fn call ->
+        emit_part(context, iteration, %{
+          type: "function_tool_call",
+          id: call.id,
+          name: call.name,
+          arguments: call.arguments,
+          deferred: true
+        })
+      end)
+
+      snapshot =
+        encode_snapshot(
+          messages ++ [assistant | tool_messages],
+          iteration + 1,
+          calls_total,
+          drive
+        )
+
+      {:ok,
+       %{
+         "text" => "",
+         "output" => nil,
+         "status" => "deferred",
+         "deferred_tool_calls" =>
+           Enum.map(deferred, fn call ->
+             %{"id" => call.id, "name" => call.name, "arguments" => stringify(call.arguments)}
+           end),
+         "session_snapshot" => snapshot,
+         "iterations" => iteration,
+         "tool_calls" => calls_total,
+         "files" => drive
+       }}
     end
   end
 

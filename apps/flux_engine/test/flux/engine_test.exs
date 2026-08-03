@@ -1646,6 +1646,96 @@ defmodule Flux.EngineTest do
       assert result.outputs["output"] == "human said: yes"
     end
 
+    test "agent tool approval pauses, then approve executes and deny refuses" do
+      tools = [
+        %{
+          "name" => "send_alert",
+          "description" => "d",
+          "parameters" => %{"type" => "object"},
+          "toolset_id" => "ts1",
+          "operation_id" => "sendAlert"
+        }
+      ]
+
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("agent_1", "agent", %{
+            "provider_plugin_id" => "p",
+            "model" => "m",
+            "query" => "{{start.query}}",
+            "max_iterations" => 4,
+            "tools" => tools,
+            "approval_tools" => ["send_alert"]
+          }),
+          node!("end_1", "end", %{
+            "outputs" => [%{"key" => "answer", "value" => "{{agent_1.text}}"}]
+          })
+        ],
+        "edges" => [edge!("start", "agent_1"), edge!("agent_1", "end_1")]
+      }
+
+      test_pid = self()
+
+      host = %Host{
+        emit: fn _e -> :ok end,
+        invoke_llm: fn request, _chunk ->
+          if Enum.any?(request.messages, &(&1.role == :tool)) do
+            [tool_message | _] = for %{role: :tool} = m <- request.messages, do: m
+            {:ok, %{content: "done: #{tool_message.content}", usage: %{}}}
+          else
+            {:ok,
+             %{
+               content: nil,
+               tool_calls: [%{id: "c1", name: "send_alert", arguments: %{"to" => "doc"}}],
+               usage: %{}
+             }}
+          end
+        end,
+        invoke_tool: fn spec ->
+          send(test_pid, {:tool_executed, spec})
+          {:ok, %{status: 200, body: %{}, text: "alert sent"}}
+        end
+      }
+
+      {:ok, built} = Engine.build(graph)
+
+      assert {:paused, paused} = Engine.run(built, %{"query" => "warn doc"}, host)
+      assert paused.node_id == "agent_1"
+      assert paused.prompt["type"] == "tool_approval"
+      assert paused.prompt["prompt"] =~ "send_alert"
+      assert [%{"name" => "send_alert"}] = paused.prompt["pending"]
+      refute_received {:tool_executed, _spec}
+
+      # Approve: the tool executes and the loop finishes with its result.
+      assert {:ok, result} =
+               Engine.run(built, %{}, host,
+                 resume: %{
+                   pool: paused.pool,
+                   node_id: "agent_1",
+                   input: %{"approved" => true, "prompt" => paused.prompt},
+                   rerun: true
+                 }
+               )
+
+      assert_received {:tool_executed, %{operation_id: "sendAlert"}}
+      assert result.outputs["answer"] == "done: alert sent"
+
+      # Deny: no execution, the refusal reaches the model instead.
+      assert {:ok, denied} =
+               Engine.run(built, %{}, host,
+                 resume: %{
+                   pool: paused.pool,
+                   node_id: "agent_1",
+                   input: %{"approved" => false, "prompt" => paused.prompt},
+                   rerun: true
+                 }
+               )
+
+      refute_received {:tool_executed, _spec}
+      assert denied.outputs["answer"] =~ "denied"
+    end
+
     test "multi-case if_else routes the first matching case, else falls through" do
       graph = %{
         "nodes" => [
