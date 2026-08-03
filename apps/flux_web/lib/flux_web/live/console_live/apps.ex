@@ -155,8 +155,10 @@ defmodule FluxWeb.ConsoleLive.Apps do
     >
       <div class="flex items-center justify-between">
         <div>
-          <h1 class="text-2xl font-bold">Apps</h1>
-          <p class="opacity-70 mt-1">Chat applications backed by your configured models.</p>
+          <h1 class="text-2xl font-bold">{gettext("Apps")}</h1>
+          <p class="opacity-70 mt-1">
+            {gettext("Chat applications backed by your configured models.")}
+          </p>
         </div>
         <div class="flex gap-2">
           <button

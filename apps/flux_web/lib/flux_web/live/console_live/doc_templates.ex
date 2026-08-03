@@ -303,11 +303,13 @@ defmodule FluxWeb.ConsoleLive.DocTemplates do
     >
       <div class="flex items-center justify-between">
         <div>
-          <h1 class="text-2xl font-bold">Doc templates</h1>
+          <h1 class="text-2xl font-bold">{gettext("Doc templates")}</h1>
+
           <p class="opacity-70 mt-1">
             Reusable Jinja documents — template nodes plug them in by name.
           </p>
         </div>
+
         <div class="flex gap-2">
           <button
             :if={@can_edit and not @uploading}
@@ -328,10 +330,12 @@ defmodule FluxWeb.ConsoleLive.DocTemplates do
           {(@upload_parent && "Fork \"#{@upload_parent.name}\" — upload the revision") ||
             "Upload a Word template"}
         </h2>
+
         <p :if={@upload_parent} class="text-sm opacity-70">
           The original stays canonical; nodes bound to it keep rendering it. Leave the
           file empty to fork an identical copy.
         </p>
+
         <p class="text-sm opacity-70">
           Author it in Word with Jinja tags: <code>{"{{ client.name }}"}</code>
           inline, <code>{"{%p if ... %}"}</code>
@@ -341,6 +345,7 @@ defmodule FluxWeb.ConsoleLive.DocTemplates do
           rows for repeating table rows. Tags are
           validated on upload.
         </p>
+
         <form
           phx-submit="save_docx"
           phx-change="validate_docx"
@@ -364,14 +369,15 @@ defmodule FluxWeb.ConsoleLive.DocTemplates do
               class="input input-bordered input-sm flex-1 min-w-48"
             />
           </div>
+
           <.live_file_input
             upload={@uploads.docx}
             class="file-input file-input-bordered file-input-sm"
           />
-          <p :for={err <- upload_errors(@uploads.docx)} class="text-sm text-error">
-            {inspect(err)}
-          </p>
+          <p :for={err <- upload_errors(@uploads.docx)} class="text-sm text-error">{inspect(err)}</p>
+
           <p :if={@upload_error} class="text-sm text-error">{@upload_error}</p>
+
           <div class="flex gap-2">
             <button class="btn btn-primary btn-sm">Upload</button>
             <button type="button" class="btn btn-ghost btn-sm" phx-click="cancel">Cancel</button>
@@ -384,6 +390,7 @@ defmodule FluxWeb.ConsoleLive.DocTemplates do
           <.icon name="hero-arrow-path-rounded-square" class="size-4 inline" />
           Forking — saving creates a new canonical template; the original never changes.
         </p>
+
         <form phx-submit="save" phx-change="preview" id="doc-template-form" class="space-y-3">
           <div class="flex gap-2 flex-wrap">
             <input
@@ -408,7 +415,7 @@ defmodule FluxWeb.ConsoleLive.DocTemplates do
               <span class="label-text text-xs opacity-70 mb-1">
                 Template (Jinja: {"{{ vars | filters }}"}, {"{% if %}"}, {"{% for %}"})
               </span>
-              <textarea
+               <textarea
                 name="content"
                 rows="14"
                 class="textarea textarea-bordered font-mono text-xs w-full"
@@ -420,7 +427,7 @@ defmodule FluxWeb.ConsoleLive.DocTemplates do
                 <span class="label-text text-xs opacity-70 mb-1">
                   Preview context (JSON — stands in for the run's variables)
                 </span>
-                <textarea
+                 <textarea
                   name="context"
                   rows="5"
                   class="textarea textarea-bordered font-mono text-xs w-full"
@@ -428,6 +435,7 @@ defmodule FluxWeb.ConsoleLive.DocTemplates do
               </label>
               <div class="rounded-box border border-base-200 p-3 min-h-24">
                 <p class="text-xs font-semibold opacity-70 mb-1">Preview</p>
+
                 <p :if={@preview == nil} class="text-xs opacity-50">Start typing to preview.</p>
                 <pre
                   :if={match?({:ok, _}, @preview)}
@@ -467,6 +475,7 @@ defmodule FluxWeb.ConsoleLive.DocTemplates do
                 Word
               </span>
             </h2>
+
             <div :if={@can_edit} class="flex gap-1">
               <button
                 class="btn btn-ghost btn-xs"
@@ -486,17 +495,21 @@ defmodule FluxWeb.ConsoleLive.DocTemplates do
               </button>
             </div>
           </div>
+
           <p :if={template.description} class="text-sm opacity-70">{template.description}</p>
+
           <p :if={template.parent_id} class="text-xs opacity-60">
             <.icon name="hero-arrow-path-rounded-square" class="size-3 inline" />
             forked from {parent_name(@templates, template.parent_id)}
           </p>
+
           <p :if={@usages[template.id]} class="text-xs opacity-70">
             <.icon name="hero-link" class="size-3 inline" />
             used by {usage_count(@usages[template.id])} node(s) in {@usages[template.id]
             |> Enum.map(& &1.name)
             |> Enum.join(", ")}
           </p>
+
           <button
             :if={@can_edit and template.parent_id != nil and @usages[template.parent_id] != nil}
             class="btn btn-outline btn-xs w-fit"
@@ -507,7 +520,7 @@ defmodule FluxWeb.ConsoleLive.DocTemplates do
           >
             <.icon name="hero-arrow-right-circle" class="size-3" /> Adopt (rebind from parent)
           </button>
-          <pre
+           <pre
             :if={template.kind != "docx"}
             class="rounded bg-base-200 p-2 text-xs overflow-hidden max-h-20"
           >{String.slice(template.content || "", 0, 240)}</pre>
@@ -520,6 +533,7 @@ defmodule FluxWeb.ConsoleLive.DocTemplates do
                 no variables found
               </span>
             </div>
+
             <button
               :if={@can_edit}
               class="btn btn-accent btn-xs w-fit"
@@ -533,6 +547,7 @@ defmodule FluxWeb.ConsoleLive.DocTemplates do
               <summary class="cursor-pointer opacity-70">
                 Test render — download a filled copy
               </summary>
+
               <form
                 method="post"
                 action={~p"/console/templates/#{template.id}/test-render"}
@@ -542,16 +557,15 @@ defmodule FluxWeb.ConsoleLive.DocTemplates do
                   type="hidden"
                   name="_csrf_token"
                   value={Phoenix.Controller.get_csrf_token()}
-                />
-                <textarea
+                /> <textarea
                   name="context"
                   rows="4"
                   class="textarea textarea-bordered font-mono text-xs w-full"
                   placeholder="{&quot;client&quot;: {&quot;name&quot;: &quot;Ada&quot;}}"
-                ></textarea>
-                <button class="btn btn-outline btn-xs">Render &amp; download</button>
+                ></textarea> <button class="btn btn-outline btn-xs">Render &amp; download</button>
               </form>
             </details>
+
             <a
               href={~p"/console/templates/#{template.id}/file"}
               class="link text-xs"

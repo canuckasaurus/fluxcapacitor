@@ -47,7 +47,8 @@ lands in the dev mailbox at `/dev/mailbox`).
    what nodes resolve.
 3. **Fluxes** → *New Flux* opens the canvas, or pick a card from the
    **template gallery** (triage, RAG answer, human review, model
-   trainer) to start with a working graph. Every blank flux starts with
+   trainer, report writer, intent router) to start with a working
+   graph. Every blank flux starts with
    a `start → llm → answer` skeleton; bind the LLM node to a model and
    hit *Run*. Or skip the skeleton: describe what you want in **Draft
    with AI** and the helper generates the nodes and wiring through the
@@ -59,7 +60,9 @@ lands in the dev mailbox at `/dev/mailbox`).
    contains, or LLM-as-judge with a selectable judge model) so draft and
    published versions compare side by side. Mark an eval set as a
    **gate** and publishing runs it automatically — a regression blocks
-   the publish. Publish a version when it works — the API, sites,
+   the publish — or give it a **cron schedule** and it re-scores the
+   latest published version on its own (drift detection between
+   releases). Publish a version when it works — the API, sites,
    schedules, and chatflow apps always run the latest published version,
    never the draft.
 4. **Apps** → create a chat, completion, or chatflow app. Publish it as
@@ -90,8 +93,8 @@ map.
 | Apps, chat settings, publishing, API keys | `/console/apps/:id` |
 | Monitoring, feedback, annotations, search | `/console/apps/:id/monitor` |
 | Datasets, documents, segments, hit testing | `/console/knowledge` |
-| Data labeling: projects, tagging queue, JSONL export | `/console/labeling` |
-| Workspace-wide run history with filters and cost totals | `/console/runs` |
+| Data labeling: projects, tagging queue, consensus + agreement, JSONL export | `/console/labeling` |
+| Workspace-wide run history with filters, cost totals, per-node drill-in | `/console/runs` |
 | Providers, tool/datasource plugins, credentials | `/console/plugins` |
 | API toolsets (OpenAPI imports) | `/console/tools` |
 | Members, roles, invitations | `/console/members` |

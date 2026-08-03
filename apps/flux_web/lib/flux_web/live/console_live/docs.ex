@@ -102,8 +102,8 @@ defmodule FluxWeb.ConsoleLive.Docs do
     >
       <div class="flex items-center justify-between flex-wrap gap-2">
         <div>
-          <h1 class="text-2xl font-bold">Documentation</h1>
-          <p class="opacity-70 mt-1">The guides, right here in the console.</p>
+          <h1 class="text-2xl font-bold">{gettext("Documentation")}</h1>
+          <p class="opacity-70 mt-1">{gettext("The guides, right here in the console.")}</p>
         </div>
         <a href={FluxWeb.docs_url()} target="_blank" class="btn btn-ghost btn-sm">
           View on GitHub <.icon name="hero-arrow-top-right-on-square" class="size-3" />

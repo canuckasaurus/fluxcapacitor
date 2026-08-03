@@ -240,8 +240,8 @@ defmodule FluxWeb.ConsoleLive.Fluxes do
     >
       <div class="flex items-center justify-between">
         <div>
-          <h1 class="text-2xl font-bold">Fluxes</h1>
-          <p class="opacity-70 mt-1">Design, debug, and publish AI workflows.</p>
+          <h1 class="text-2xl font-bold">{gettext("Fluxes")}</h1>
+          <p class="opacity-70 mt-1">{gettext("Design, debug, and publish AI workflows.")}</p>
         </div>
         <div class="flex gap-2">
           <button

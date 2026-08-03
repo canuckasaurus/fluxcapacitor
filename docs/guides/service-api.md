@@ -34,7 +34,7 @@ final `message_end` carrying usage. Quota-exceeded apps return 429 with
 | `POST /v1/workflows/runs/:id/resume` | Answer a paused `human_input` node with `input` |
 | `POST /v1/workflows/batch` | Start a batch: `rows` (array of input objects, ≤ the CSV cap), optional `name` and `version` (defaults to the draft). 202 + `batch_id` |
 | `GET /v1/batches/:id` | Batch progress; `?include_results=true` adds per-row inputs/outputs |
-| `GET /v1/eval-sets` | List the flux's eval sets (with their `gate` flag) |
+| `GET /v1/eval-sets` | List the flux's eval sets (with their `gate` flag and cron `schedule`) |
 | `POST /v1/eval-sets/:id/run` | Start an eval: optional `grader` (`exact`/`contains`/`llm_judge`), `version`, `judge` (`"plugin|model"`). 202 + `eval_run_id` |
 | `GET /v1/eval-runs/:id` | Eval status, pass counts, `avg_score`, per-case results |
 
@@ -71,7 +71,9 @@ final `message_end` carrying usage. Quota-exceeded apps return 429 with
   token.
 - Failure-alert webhooks the platform *sends* are signed:
   `x-flux-signature: sha256=HMAC(body)` with the `whsec_` secret shown
-  in workspace settings.
+  in workspace settings. Subscribable events: `run.*` lifecycle,
+  `batch.completed`, `eval.completed`, `feedback.created`,
+  `labeling.task_labeled`, and `labeling.project_completed`.
 
 ## Example
 

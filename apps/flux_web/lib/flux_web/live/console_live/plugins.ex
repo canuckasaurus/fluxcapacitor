@@ -137,7 +137,8 @@ defmodule FluxWeb.ConsoleLive.Plugins do
       active={:plugins}
     >
       <div>
-        <h1 class="text-2xl font-bold">Plugins</h1>
+        <h1 class="text-2xl font-bold">{gettext("Plugins")}</h1>
+
         <p class="opacity-70 mt-1">
           Model providers available to this workspace. Configure credentials to unlock models.
         </p>
@@ -145,12 +146,15 @@ defmodule FluxWeb.ConsoleLive.Plugins do
 
       <div :if={@can_manage} class="card border border-base-200 p-6 space-y-3" id="default-model">
         <h2 class="font-semibold">Default model</h2>
+
         <p class="text-sm opacity-70">
           LLM and agent nodes that name no model fall back to this workspace default.
         </p>
+
         <form phx-change="set_default_model" id="default-model-form">
           <select name="model_choice" class="select select-bordered select-sm w-full max-w-md">
             <option value="" selected={@default_model == nil}>No default</option>
+
             <option
               :for={%{plugin_id: pid, plugin_name: pname, model: m} <- @models}
               value={"#{pid}|#{m.name}"}
@@ -168,10 +172,12 @@ defmodule FluxWeb.ConsoleLive.Plugins do
 
       <div :if={@installable_plugins != []} class="card border border-base-200 p-6 space-y-3">
         <h2 class="font-semibold">Tool &amp; datasource plugins</h2>
+
         <p class="text-sm opacity-70">
           Installed tool plugins appear as toolsets in tool and agent nodes;
           installed datasources can sync documents into knowledge datasets.
         </p>
+
         <div
           :for={plugin <- @installable_plugins}
           class="flex items-center gap-3"
@@ -182,12 +188,14 @@ defmodule FluxWeb.ConsoleLive.Plugins do
               {plugin.name}
               <span class="badge badge-ghost badge-xs align-middle">{plugin.category}</span>
             </p>
+
             <p class="text-xs opacity-70">{plugin.description}</p>
             <pre
               :if={token = @endpoint_tokens[plugin.id]}
               class="mt-1 rounded bg-base-200 px-2 py-1 text-xs overflow-x-auto"
             >{url(~p"/e/#{token}")}</pre>
           </div>
+
           <span
             :if={MapSet.member?(@installed_plugin_ids, plugin.id)}
             class="badge badge-success badge-sm"
@@ -222,8 +230,7 @@ defmodule FluxWeb.ConsoleLive.Plugins do
           <div class="flex items-center justify-between">
             <div>
               <h2 class="font-semibold flex items-center gap-2">
-                {plugin.name}
-                <span class="badge badge-ghost badge-sm">v{plugin.version}</span>
+                {plugin.name} <span class="badge badge-ghost badge-sm">v{plugin.version}</span>
                 <span
                   :if={@credentials_by_plugin[plugin.id] || plugin.credential_schema == []}
                   class="badge badge-success badge-sm"
@@ -231,8 +238,10 @@ defmodule FluxWeb.ConsoleLive.Plugins do
                   ready
                 </span>
               </h2>
+
               <p class="text-sm opacity-70">{plugin.description}</p>
             </div>
+
             <div :if={@can_manage and plugin.credential_schema != []} class="flex gap-2">
               <button class="btn btn-sm" phx-click="edit" phx-value-plugin-id={plugin.id}>
                 {if @credentials_by_plugin[plugin.id], do: "Add key", else: "Configure"}
@@ -296,6 +305,7 @@ defmodule FluxWeb.ConsoleLive.Plugins do
               />
               <p :if={field.help} class="text-xs opacity-60 mt-1">{field.help}</p>
             </div>
+
             <div class="flex gap-2">
               <button class="btn btn-primary btn-sm">Validate &amp; save</button>
               <button type="button" class="btn btn-ghost btn-sm" phx-click="cancel">Cancel</button>

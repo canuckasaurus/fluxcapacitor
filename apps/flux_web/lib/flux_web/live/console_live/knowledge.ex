@@ -357,11 +357,13 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
     >
       <div class="flex items-center justify-between">
         <div>
-          <h1 class="text-2xl font-bold">Knowledge</h1>
-          <p class="opacity-70 mt-1">Document collections your fluxes can retrieve from.</p>
+          <h1 class="text-2xl font-bold">{gettext("Knowledge")}</h1>
+          <p class="opacity-70 mt-1">
+            {gettext("Document collections your fluxes can retrieve from.")}
+          </p>
         </div>
         <button :if={@can_create and not @creating} class="btn btn-primary" phx-click="new">
-          <.icon name="hero-plus" class="size-4" /> New dataset
+          <.icon name="hero-plus" class="size-4" /> {gettext("New dataset")}
         </button>
       </div>
 

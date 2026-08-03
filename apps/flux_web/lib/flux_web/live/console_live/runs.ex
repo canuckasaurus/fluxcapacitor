@@ -22,7 +22,8 @@ defmodule FluxWeb.ConsoleLive.Runs do
        workflow_options: Workflows.workflow_options(scope),
        filters: %{},
        sources: @sources,
-       statuses: @statuses
+       statuses: @statuses,
+       expanded_run: nil
      )
      |> load_runs()}
   end
@@ -51,7 +52,11 @@ defmodule FluxWeb.ConsoleLive.Runs do
       |> put_filter(:source, parse_enum(params["source"], @sources))
       |> put_filter(:status, parse_enum(params["status"], @statuses))
 
-    {:noreply, socket |> assign(filters: filters) |> load_runs()}
+    {:noreply, socket |> assign(filters: filters, expanded_run: nil) |> load_runs()}
+  end
+
+  def handle_event("toggle_run", %{"id" => id}, socket) do
+    {:noreply, assign(socket, expanded_run: (socket.assigns.expanded_run == id && nil) || id)}
   end
 
   defp put_filter(filters, _key, nil), do: filters
@@ -66,6 +71,18 @@ defmodule FluxWeb.ConsoleLive.Runs do
     (run.usage["input_tokens"] || 0) + (run.usage["output_tokens"] || 0)
   end
 
+  @summary_cap 300
+
+  defp summarize(map) do
+    encoded = Jason.encode!(map)
+
+    if String.length(encoded) > @summary_cap do
+      String.slice(encoded, 0, @summary_cap) <> "…"
+    else
+      encoded
+    end
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -76,11 +93,10 @@ defmodule FluxWeb.ConsoleLive.Runs do
       active={:runs}
     >
       <div>
-        <h1 class="text-2xl font-bold">Runs</h1>
-        <p class="opacity-70 mt-1">
-          Every execution across the workspace — drafts, API calls, batches,
-          and evals.
-        </p>
+        <h1 class="text-2xl font-bold">{gettext("Runs")}</h1>
+
+        <p class="opacity-70 mt-1">Every execution across the workspace — drafts, API calls, batches,
+          and evals.</p>
       </div>
 
       <div class="card border border-base-200 p-6 space-y-3" id="runs-card">
@@ -88,6 +104,7 @@ defmodule FluxWeb.ConsoleLive.Runs do
           <form phx-change="filter" id="runs-filter-form" class="flex flex-wrap gap-2">
             <select name="workflow_id" class="select select-bordered select-sm">
               <option value="">all fluxes</option>
+
               <option
                 :for={{name, id} <- @workflow_options}
                 value={id}
@@ -98,6 +115,7 @@ defmodule FluxWeb.ConsoleLive.Runs do
             </select>
             <select name="source" class="select select-bordered select-sm">
               <option value="">all sources</option>
+
               <option
                 :for={source <- @sources}
                 value={source}
@@ -108,6 +126,7 @@ defmodule FluxWeb.ConsoleLive.Runs do
             </select>
             <select name="status" class="select select-bordered select-sm">
               <option value="">all statuses</option>
+
               <option
                 :for={status <- @statuses}
                 value={status}
@@ -117,6 +136,7 @@ defmodule FluxWeb.ConsoleLive.Runs do
               </option>
             </select>
           </form>
+
           <span class="text-xs opacity-60 ml-auto" id="runs-totals">
             {length(@rows)} runs · {@totals.tokens} tokens
             <span :if={@totals.cost > 0}>
@@ -133,39 +153,113 @@ defmodule FluxWeb.ConsoleLive.Runs do
           <thead>
             <tr>
               <th>When</th>
+
               <th>Flux</th>
+
               <th>Source</th>
+
               <th>Status</th>
+
               <th>Tokens</th>
+
               <th>ms</th>
             </tr>
           </thead>
+
           <tbody>
-            <tr :for={%{run: run, workflow_name: workflow_name} <- @rows} id={"run-#{run.id}"}>
-              <td class="text-xs opacity-70">
-                {Calendar.strftime(run.inserted_at, "%m-%d %H:%M:%S")}
-              </td>
-              <td>
-                <.link navigate={~p"/console/fluxes/#{run.workflow_id}"} class="link link-hover">
-                  {workflow_name}
-                </.link>
-              </td>
-              <td><span class="badge badge-ghost badge-sm">{run.source}</span></td>
-              <td>
-                <span class={[
-                  "badge badge-sm",
-                  run.status == :succeeded && "badge-success",
-                  run.status == :failed && "badge-error",
-                  run.status == :running && "badge-info",
-                  run.status == :paused && "badge-warning",
-                  run.status == :stopped && "badge-warning"
-                ]}>
-                  {run.status}
-                </span>
-              </td>
-              <td class="font-mono text-xs">{run_tokens(run)}</td>
-              <td class="text-xs opacity-70">{run.elapsed_ms}</td>
-            </tr>
+            <%= for %{run: run, workflow_name: workflow_name} <- @rows do %>
+              <tr
+                id={"run-#{run.id}"}
+                class="cursor-pointer hover:bg-base-200/40"
+                phx-click="toggle_run"
+                phx-value-id={run.id}
+              >
+                <td class="text-xs opacity-70">
+                  {Calendar.strftime(run.inserted_at, "%m-%d %H:%M:%S")}
+                </td>
+
+                <td>
+                  <.link navigate={~p"/console/fluxes/#{run.workflow_id}"} class="link link-hover">
+                    {workflow_name}
+                  </.link>
+                </td>
+
+                <td><span class="badge badge-ghost badge-sm">{run.source}</span></td>
+
+                <td>
+                  <span class={[
+                    "badge badge-sm",
+                    run.status == :succeeded && "badge-success",
+                    run.status == :failed && "badge-error",
+                    run.status == :running && "badge-info",
+                    run.status == :paused && "badge-warning",
+                    run.status == :stopped && "badge-warning"
+                  ]}>
+                    {run.status}
+                  </span>
+                </td>
+
+                <td class="font-mono text-xs">{run_tokens(run)}</td>
+
+                <td class="text-xs opacity-70">{run.elapsed_ms}</td>
+              </tr>
+
+              <tr :if={@expanded_run == run.id} id={"run-detail-#{run.id}"}>
+                <td colspan="6" class="bg-base-200/30">
+                  <div class="space-y-2 p-2 text-xs">
+                    <p :if={run.error} class="text-error font-mono">{run.error}</p>
+
+                    <p :if={run.inputs != %{}}>
+                      <span class="font-semibold">Inputs:</span>
+                      <span class="font-mono">{Jason.encode!(run.inputs)}</span>
+                    </p>
+
+                    <p :if={run.outputs != %{}}>
+                      <span class="font-semibold">Outputs:</span>
+                      <span class="font-mono break-all">{summarize(run.outputs)}</span>
+                    </p>
+
+                    <table :if={run.node_executions != []} class="table table-xs max-w-3xl">
+                      <thead>
+                        <tr>
+                          <th>Node</th>
+
+                          <th>Status</th>
+
+                          <th>ms</th>
+
+                          <th>Outputs</th>
+                        </tr>
+                      </thead>
+
+                      <tbody>
+                        <tr :for={node_execution <- run.node_executions}>
+                          <td class="font-mono">
+                            {node_execution["title"] || node_execution["node_id"]}
+                          </td>
+
+                          <td>
+                            <span class={[
+                              "badge badge-xs",
+                              node_execution["status"] == "succeeded" && "badge-success",
+                              node_execution["status"] == "failed" && "badge-error"
+                            ]}>
+                              {node_execution["status"]}
+                            </span>
+                          </td>
+
+                          <td class="opacity-70">{node_execution["elapsed_ms"]}</td>
+
+                          <td class="font-mono break-all max-w-md">
+                            {summarize(node_execution["outputs"] || %{})}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </td>
+              </tr>
+            <% end %>
           </tbody>
         </table>
       </div>

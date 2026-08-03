@@ -149,11 +149,13 @@ msgid "App"
 msgstr "App"
 
 #: lib/flux_web/components/layouts.ex:157
+#: lib/flux_web/live/console_live/apps.ex:158
 #, elixir-autogen, elixir-format
 msgid "Apps"
 msgstr "Apps"
 
 #: lib/flux_web/components/layouts.ex:216
+#: lib/flux_web/live/console_live/audit.ex:36
 #, elixir-autogen, elixir-format
 msgid "Audit log"
 msgstr "Journal d'audit"
@@ -179,6 +181,7 @@ msgid "Day"
 msgstr "Jour"
 
 #: lib/flux_web/components/layouts.ex:163
+#: lib/flux_web/live/console_live/doc_templates.ex:306
 #, elixir-autogen, elixir-format
 msgid "Doc templates"
 msgstr "Modèles de docs"
@@ -205,6 +208,7 @@ msgstr "Invitez votre équipe"
 
 #: lib/flux_web/components/layouts.ex:177
 #: lib/flux_web/live/console_live/dashboard.ex:88
+#: lib/flux_web/live/console_live/knowledge.ex:360
 #, elixir-autogen, elixir-format
 msgid "Knowledge"
 msgstr "Connaissances"
@@ -230,6 +234,7 @@ msgid "Operate"
 msgstr "Exploiter"
 
 #: lib/flux_web/components/layouts.ex:195
+#: lib/flux_web/live/console_live/plugins.ex:140
 #, elixir-autogen, elixir-format
 msgid "Plugins"
 msgstr "Plugins"
@@ -248,6 +253,7 @@ msgstr "Jetons d'exécution"
 
 #: lib/flux_web/components/layouts.ex:203
 #: lib/flux_web/live/console_live/dashboard.ex:64
+#: lib/flux_web/live/console_live/runs.ex:96
 #, elixir-autogen, elixir-format
 msgid "Runs"
 msgstr "Exécutions"
@@ -280,6 +286,7 @@ msgid "Tokens out"
 msgstr "Jetons sortants"
 
 #: lib/flux_web/components/layouts.ex:183
+#: lib/flux_web/live/console_live/tools.ex:127
 #, elixir-autogen, elixir-format
 msgid "Tools"
 msgstr "Outils"
@@ -308,3 +315,43 @@ msgstr "Bienvenue dans"
 #, elixir-autogen, elixir-format
 msgid "You're signed in as"
 msgstr "Vous êtes connecté en tant que"
+
+#: lib/flux_web/live/console_live/apps.ex:159
+#, elixir-autogen, elixir-format
+msgid "Chat applications backed by your configured models."
+msgstr "Des applications de chat propulsées par vos modèles configurés."
+
+#: lib/flux_web/live/console_live/fluxes.ex:244
+#, elixir-autogen, elixir-format
+msgid "Design, debug, and publish AI workflows."
+msgstr "Concevez, déboguez et publiez des workflows IA."
+
+#: lib/flux_web/live/console_live/knowledge.ex:361
+#, elixir-autogen, elixir-format
+msgid "Document collections your fluxes can retrieve from."
+msgstr "Des collections de documents où vos fluxes peuvent puiser."
+
+#: lib/flux_web/live/console_live/docs.ex:105
+#, elixir-autogen, elixir-format
+msgid "Documentation"
+msgstr "Documentation"
+
+#: lib/flux_web/live/console_live/fluxes.ex:243
+#, elixir-autogen, elixir-format
+msgid "Fluxes"
+msgstr "Fluxes"
+
+#: lib/flux_web/live/console_live/knowledge.ex:364
+#, elixir-autogen, elixir-format
+msgid "New dataset"
+msgstr "Nouveau jeu de données"
+
+#: lib/flux_web/live/console_live/docs.ex:106
+#, elixir-autogen, elixir-format
+msgid "The guides, right here in the console."
+msgstr "Les guides, directement dans la console."
+
+#: lib/flux_web/live/console_live/workspace_settings.ex:227
+#, elixir-autogen, elixir-format
+msgid "Workspace settings"
+msgstr "Paramètres de l'espace de travail"

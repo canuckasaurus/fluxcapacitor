@@ -124,11 +124,13 @@ defmodule FluxWeb.ConsoleLive.Tools do
     >
       <div class="flex items-center justify-between">
         <div>
-          <h1 class="text-2xl font-bold">Tools</h1>
+          <h1 class="text-2xl font-bold">{gettext("Tools")}</h1>
+
           <p class="opacity-70 mt-1">
             Import an OpenAPI spec; every operation becomes callable from the Flux canvas.
           </p>
         </div>
+
         <button :if={@can_manage and not @importing} class="btn btn-primary" phx-click="new">
           <.icon name="hero-plus" class="size-4" /> Import API
         </button>
@@ -136,14 +138,14 @@ defmodule FluxWeb.ConsoleLive.Tools do
 
       <div :if={@importing} class="card border border-base-200 p-6 space-y-4">
         <h2 class="font-semibold">Import an OpenAPI spec</h2>
+
         <form phx-submit="import" class="space-y-3">
           <label class="floating-label">
             <span>Name (optional — defaults to the spec title)</span>
             <input type="text" name="name" class="input w-full" placeholder="Petstore" />
           </label>
           <label class="floating-label">
-            <span>OpenAPI 3.x / Swagger 2 — JSON or YAML</span>
-            <textarea
+            <span>OpenAPI 3.x / Swagger 2 — JSON or YAML</span> <textarea
               name="spec"
               rows="12"
               class="textarea w-full font-mono text-xs"
@@ -163,9 +165,8 @@ defmodule FluxWeb.ConsoleLive.Tools do
       >
         <.icon name="hero-wrench-screwdriver" class="size-10 text-primary mx-auto" />
         <h2 class="font-semibold text-lg">No tools yet</h2>
-        <p class="opacity-70 text-sm">
-          Import any API's OpenAPI spec to call it from your fluxes.
-        </p>
+
+        <p class="opacity-70 text-sm">Import any API's OpenAPI spec to call it from your fluxes.</p>
       </div>
 
       <div
@@ -182,6 +183,7 @@ defmodule FluxWeb.ConsoleLive.Tools do
           <.icon name="hero-wrench-screwdriver" class="size-5 text-primary shrink-0" />
           <div class="min-w-0 flex-1">
             <p class="font-semibold">{toolset.name}</p>
+
             <p class="text-xs opacity-60 truncate">{toolset.base_url}</p>
           </div>
           <span class="badge badge-ghost badge-sm">{length(toolset.operations)} operations</span>
@@ -196,27 +198,31 @@ defmodule FluxWeb.ConsoleLive.Tools do
             class="size-4 opacity-60"
           />
         </button>
-
         <div :if={@expanded_id == toolset.id} class="border-t border-base-200 p-4 space-y-6">
           <div class="overflow-x-auto">
             <table class="table table-sm">
               <thead>
                 <tr>
                   <th>Operation</th>
+
                   <th>Method</th>
+
                   <th>Path</th>
+
                   <th>Params</th>
                 </tr>
               </thead>
+
               <tbody>
                 <tr :for={operation <- toolset.operations}>
                   <td class="font-mono text-xs">{operation["operation_id"]}</td>
+
                   <td>
-                    <span class="badge badge-outline badge-sm uppercase">
-                      {operation["method"]}
-                    </span>
+                    <span class="badge badge-outline badge-sm uppercase">{operation["method"]}</span>
                   </td>
+
                   <td class="font-mono text-xs">{operation["path"]}</td>
+
                   <td class="text-xs opacity-70">
                     {Enum.map_join(operation["params"], ", ", & &1["name"])}
                   </td>
@@ -228,9 +234,11 @@ defmodule FluxWeb.ConsoleLive.Tools do
           <div :if={@can_manage} class="grid gap-6 lg:grid-cols-2">
             <div class="space-y-2">
               <h3 class="font-semibold text-sm">Authentication</h3>
+
               <p class="text-xs opacity-60">
                 Stored encrypted with this workspace's key; never shown again.
               </p>
+
               <form phx-submit="save_auth" class="space-y-2">
                 <input type="hidden" name="toolset-id" value={toolset.id} />
                 <div class="flex gap-2">
@@ -245,9 +253,11 @@ defmodule FluxWeb.ConsoleLive.Tools do
                   </select>
                   <select name="in" class="select select-sm">
                     <option value="header">header</option>
+
                     <option value="query">query</option>
                   </select>
                 </div>
+
                 <input
                   type="text"
                   name="name"
@@ -259,23 +269,23 @@ defmodule FluxWeb.ConsoleLive.Tools do
                   name="value"
                   placeholder="Secret value"
                   class="input input-sm w-full"
-                />
-                <button class="btn btn-sm btn-outline">Save auth</button>
+                /> <button class="btn btn-sm btn-outline">Save auth</button>
               </form>
             </div>
 
             <div class="space-y-2">
               <h3 class="font-semibold text-sm">Private variables</h3>
+
               <p class="text-xs opacity-60">
                 Encrypted; reference them in tool arguments as <code class="font-mono">{"{{vars.name}}"}</code>. Values are never displayed.
               </p>
+
               <div class="flex flex-wrap gap-1">
                 <span
                   :for={name <- @summaries[toolset.id].variable_names}
                   class="badge badge-ghost gap-1"
                 >
-                  <.icon name="hero-lock-closed-micro" class="size-3" />
-                  {name}
+                  <.icon name="hero-lock-closed-micro" class="size-3" /> {name}
                   <button
                     type="button"
                     class="text-error"
@@ -288,6 +298,7 @@ defmodule FluxWeb.ConsoleLive.Tools do
                   </button>
                 </span>
               </div>
+
               <form phx-submit="add_variable" class="flex gap-2">
                 <input type="hidden" name="toolset-id" value={toolset.id} />
                 <input
@@ -301,8 +312,7 @@ defmodule FluxWeb.ConsoleLive.Tools do
                   name="value"
                   placeholder="secret value"
                   class="input input-sm flex-1"
-                />
-                <button class="btn btn-sm btn-outline">Add</button>
+                /> <button class="btn btn-sm btn-outline">Add</button>
               </form>
             </div>
           </div>

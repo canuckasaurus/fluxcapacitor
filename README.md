@@ -11,7 +11,7 @@ orchestrator, no queue infrastructure beyond Postgres.
 
 ## What it does
 
-- **Visual workflow engine** — 24 node types (LLM, agent loops, branching,
+- **Visual workflow engine** — 25 node types (LLM, agent loops, branching,
   iteration and bounded loops over sub-fluxes, code execution, HTTP, knowledge
   retrieval, human-input and labeling pause/resume, classifiers, extractors,
   and more) with
@@ -21,7 +21,10 @@ orchestrator, no queue infrastructure beyond Postgres.
   or reusable **doc templates** from a workspace library. **Document
   assembly**, docassemble-style: upload Word templates with Jinja tags, run
   stored **interviews** (reusable question forms that pause a run), and the
-  document node fills the template into a downloadable .docx or PDF. An **AI
+  document node fills the template into a downloadable .docx or PDF. A
+  **file-output node** writes any templated content straight to a
+  downloadable HTML, PDF, Markdown, text, CSV, or JSON file — report
+  writing without a Word template. An **AI
   helper** drafts a flux from a plain-language description (engine-validated
   before it touches the canvas), and code nodes run in a **sandboxed runner**
   with a pre-installed ML toolkit (numpy, pandas, scikit-learn, xgboost,
@@ -32,7 +35,8 @@ orchestrator, no queue infrastructure beyond Postgres.
   an **LLM-as-judge** with a selectable judge model, against the draft or
   any published version, so versions compare side by side before you
   publish — and sets marked as **gates** run automatically on publish and
-  block it on regression. **Batch runs** execute the draft *or a pinned
+  block it on regression, while sets given a **cron schedule** re-score the
+  latest published version unattended (drift detection between releases). **Batch runs** execute the draft *or a pinned
   published version* over a CSV of inputs with live counters, a results
   export, and one-click hand-off of completed rows to labeling. Every run
   records **token usage and an estimated cost** (per-model breakdown;
@@ -42,14 +46,19 @@ orchestrator, no queue infrastructure beyond Postgres.
   labeling projects with a tagging queue (single/multi choice or free-text
   correction, keyboard shortcuts, multi-labeler claims and per-labeler
   stats), rated replies pushed in from the monitor, CSV intake, relabeling,
-  and JSONL export. A **labeling node** pauses a run mid-graph until a
+  and JSONL export. Projects can require **N labels per task** — votes
+  collect until quorum, the majority label wins, and the console reports
+  **inter-labeler agreement** (plus `labeling.*` webhook events for
+  pipelines). A **labeling node** pauses a run mid-graph until a
   human labels the task — the label becomes the node's outputs. Code nodes
   persist trained models as **run artifacts** (`./artifacts/`) and load
   them back as **attachments** (with an artifact picker in the editor) —
   label → train → serve entirely inside fluxes, no external labeling
   service. Batches, evals, and labeling are all drivable over the
-  **`/v1` API** for CI and data pipelines, and a **template gallery**
-  (triage, RAG, human review, model trainer) seeds new fluxes.
+  **`/v1` API** for CI and data pipelines — covered by the strict OpenAPI
+  contract at `GET /v1/spec` — and a **template gallery** (triage, RAG,
+  human review, model trainer, report writer, intent router) seeds new
+  fluxes.
 - **Apps on top of fluxes** — chat, completion (form), and chatflow modes;
   published to logged-out visitors at a public URL, embedded via iframe or a
   floating chat bubble, or consumed through the `/v1` service API with
@@ -107,7 +116,7 @@ flowchart TB
     end
 
     subgraph engine["apps/flux_engine — pure"]
-        runner["Runner\n24 node types · retries\nparallel branches · Jinja\npause/resume · sub-fluxes"]
+        runner["Runner\n25 node types · retries\nparallel branches · Jinja\npause/resume · sub-fluxes"]
     end
 
     subgraph runtime["apps/flux_plugin_runtime"]
@@ -205,7 +214,7 @@ The guides live in `docs/guides` and also render **inside the console** at
 `/console/docs` (they compile into the release):
 
 - [Getting started](docs/guides/getting-started.md) — clone to published app, including `mix flux.demo`, production notes, and localization
-- [Node reference](docs/guides/node-reference.md) — all 24 node types in detail, branching, parallel fan-out, sub-fluxes
+- [Node reference](docs/guides/node-reference.md) — all 25 node types in detail, branching, parallel fan-out, sub-fluxes
 - [Plugin SDK](docs/guides/plugin-sdk.md) — the five capability behaviours with a worked example
 - [Service API](docs/guides/service-api.md) — the `/v1` surface, SSE framing, webhooks, SCIM
 
@@ -234,7 +243,7 @@ scratch drive, and a labeling project wired to the Model trainer flux
 ## Testing
 
 ```bash
-mix test                             # full umbrella suite (~630 tests), hermetic
+mix test                             # full umbrella suite (~640 tests), hermetic
 ```
 
 The suite runs with no network: providers stub through `Req.Test` or the

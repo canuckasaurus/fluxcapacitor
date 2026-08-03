@@ -36,6 +36,7 @@ then see `%{"error", "is_error"}` as its outputs. Retries are per-node
 | `human_input` | Pauses the run for a person | `prompt`, `options` | `output` (the reply, after resume) |
 | `labeling` | Queues a task in a labeling project and pauses until it's labeled | `project_id`, `data` (name/value rows) | `choice` / `choices` / `text`, `output` |
 | `document` | Fills a Word doc template into a downloadable file | `template_id`, `output_name` | `url`, `name`, `file_id`, `size` |
+| `file_output` | Writes templated content to a downloadable file (HTML, PDF, Markdown, text, CSV, JSON) | `format`, `content`, `output_name` | `url`, `name`, `file_id`, `size`, `format` |
 | `interview` | Pauses the run and asks a stored question set as one form | `interview_id`, `intro` | one key per question + `output` |
 | `answer` | Streams/records the user-facing answer | `answer` template | `answer` |
 | `end` | Maps run outputs explicitly | `outputs` (key/value) | the mapped keys |
@@ -200,6 +201,17 @@ assembly step. Author templates in Word with `{{ tags }}` inline,
 rows. `output_name` templates the filename. Outputs `url` (a tokenized
 download link that works from the console, public sites, and the API),
 `name`, `file_id`, and `size`.
+
+### `file_output`
+
+Writes templated `content` to a **downloadable run file** — the
+report-writer counterpart of the document node, no Word template
+required. Formats: `html`, `pdf`, `markdown`, `text`, `csv`, `json`.
+HTML and PDF content is wrapped into a styled full page automatically
+(unless it already is one); PDF converts through the same Gotenberg
+converter as the document node (`FLUX_PDF_URL`, fails honestly when
+unset). `output_name` templates the filename stem. Outputs `url` (a
+tokenized download link), `name`, `file_id`, `size`, and `format`.
 
 ### `interview`
 

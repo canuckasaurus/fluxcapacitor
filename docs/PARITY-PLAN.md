@@ -339,3 +339,34 @@ Locale on_mount added to the console live_session); **perf suite** (new
 quality_load_test: 5k runs / 5k tasks seeded, real 200-row batch + 100-
 case eval on echo; measured: runs page 11ms, batch 16.2s, eval 6.3s,
 labeling next 6ms).
+
+28. ~~Batch 4: quality hardening + the file-output node (#145, 2026-08-02)~~
+DONE: **file_output node** (25th node type, user-requested: templated
+content → downloadable HTML / PDF / Markdown / text / CSV / JSON run
+file; HTML/PDF auto-wrap into a styled page, PDF rides Gotenberg's
+chromium route via new Flux.Pdf.convert_html, content types per
+extension, engine + core + editor panel + golden fixture);
+**/v1 quality contract** (9 new OpenAPI schemas + 10 paths incl. 202/201
+statuses; quality errors now carry the shared Error shape; contract test
+walks batch → eval → labeling end to end); **inter-labeler consensus**
+(projects take required_labels 1-5; labeling_task_votes under the
+tenancy guard; one vote per account, repeat votes replace, majority
+label at quorum with earliest-vote tie-break; next_task never re-serves
+a task you voted on; agreement_stats = avg share of votes matching the
+final label + unanimity, badges in the console header);
+**labeling webhooks** (labeling.task_labeled + labeling.project_completed
+on the signed pipeline); **scheduled evals** (cron expression per set —
+Oban's parser — swept on the minute tick against the latest published
+version, once-per-minute suppression, schedule form on the evals page,
+schedule in /v1 eval-sets); **runs drill-in** (click a row on
+/console/runs → inputs/outputs/error + per-node trace table, no editor
+required); **i18n increment** (Apps/Fluxes/Knowledge/Docs/Doc templates/
+Tools/Runs/Audit/Plugins/Workspace settings headings wrapped; fr catalog
+extended, still fully translated); **2 new gallery templates** (report
+writer — showcases file_output; intent router — classifier fan-out,
+6 total); **golden fixture** for file_output (deterministic outputs
+only); **full image rebuilt & booted** (migrations applied, landing 200).
+Mid-batch a PowerShell array-flattening bug replaced every `<` with `h`
+in six LiveView files — caught immediately, restored from git, edits
+re-applied with the Edit tool; scripted multi-file source edits are
+retired.

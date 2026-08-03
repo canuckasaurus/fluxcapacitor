@@ -149,11 +149,13 @@ msgid "App"
 msgstr ""
 
 #: lib/flux_web/components/layouts.ex:157
+#: lib/flux_web/live/console_live/apps.ex:158
 #, elixir-autogen, elixir-format
 msgid "Apps"
 msgstr ""
 
 #: lib/flux_web/components/layouts.ex:216
+#: lib/flux_web/live/console_live/audit.ex:36
 #, elixir-autogen, elixir-format
 msgid "Audit log"
 msgstr ""
@@ -179,6 +181,7 @@ msgid "Day"
 msgstr ""
 
 #: lib/flux_web/components/layouts.ex:163
+#: lib/flux_web/live/console_live/doc_templates.ex:306
 #, elixir-autogen, elixir-format
 msgid "Doc templates"
 msgstr ""
@@ -205,6 +208,7 @@ msgstr ""
 
 #: lib/flux_web/components/layouts.ex:177
 #: lib/flux_web/live/console_live/dashboard.ex:88
+#: lib/flux_web/live/console_live/knowledge.ex:360
 #, elixir-autogen, elixir-format
 msgid "Knowledge"
 msgstr ""
@@ -230,6 +234,7 @@ msgid "Operate"
 msgstr ""
 
 #: lib/flux_web/components/layouts.ex:195
+#: lib/flux_web/live/console_live/plugins.ex:140
 #, elixir-autogen, elixir-format
 msgid "Plugins"
 msgstr ""
@@ -248,6 +253,7 @@ msgstr ""
 
 #: lib/flux_web/components/layouts.ex:203
 #: lib/flux_web/live/console_live/dashboard.ex:64
+#: lib/flux_web/live/console_live/runs.ex:96
 #, elixir-autogen, elixir-format
 msgid "Runs"
 msgstr ""
@@ -280,6 +286,7 @@ msgid "Tokens out"
 msgstr ""
 
 #: lib/flux_web/components/layouts.ex:183
+#: lib/flux_web/live/console_live/tools.ex:127
 #, elixir-autogen, elixir-format
 msgid "Tools"
 msgstr ""
@@ -307,4 +314,44 @@ msgstr ""
 #: lib/flux_web/live/console_live/dashboard.ex:34
 #, elixir-autogen, elixir-format
 msgid "You're signed in as"
+msgstr ""
+
+#: lib/flux_web/live/console_live/apps.ex:159
+#, elixir-autogen, elixir-format
+msgid "Chat applications backed by your configured models."
+msgstr ""
+
+#: lib/flux_web/live/console_live/fluxes.ex:244
+#, elixir-autogen, elixir-format
+msgid "Design, debug, and publish AI workflows."
+msgstr ""
+
+#: lib/flux_web/live/console_live/knowledge.ex:361
+#, elixir-autogen, elixir-format
+msgid "Document collections your fluxes can retrieve from."
+msgstr ""
+
+#: lib/flux_web/live/console_live/docs.ex:105
+#, elixir-autogen, elixir-format
+msgid "Documentation"
+msgstr ""
+
+#: lib/flux_web/live/console_live/fluxes.ex:243
+#, elixir-autogen, elixir-format
+msgid "Fluxes"
+msgstr ""
+
+#: lib/flux_web/live/console_live/knowledge.ex:364
+#, elixir-autogen, elixir-format
+msgid "New dataset"
+msgstr ""
+
+#: lib/flux_web/live/console_live/docs.ex:106
+#, elixir-autogen, elixir-format
+msgid "The guides, right here in the console."
+msgstr ""
+
+#: lib/flux_web/live/console_live/workspace_settings.ex:227
+#, elixir-autogen, elixir-format
+msgid "Workspace settings"
 msgstr ""

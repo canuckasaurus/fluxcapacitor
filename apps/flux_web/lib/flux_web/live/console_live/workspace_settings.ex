@@ -224,21 +224,19 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
       active={:settings}
     >
       <div>
-        <h1 class="text-2xl font-bold">Workspace settings</h1>
+        <h1 class="text-2xl font-bold">{gettext("Workspace settings")}</h1>
+
         <p class="opacity-70 mt-1">{@current_scope.workspace.name}</p>
+
         <div class="mt-3 flex flex-wrap gap-1">
           <a :if={@can_rename} href="#name-card" class="badge badge-ghost badge-sm">Name</a>
-          <a :if={@can_model} href="#model-card" class="badge badge-ghost badge-sm">
-            Default model
-          </a>
-          <a :if={@can_rename} href="#retention-card" class="badge badge-ghost badge-sm">
-            Retention
-          </a>
+          <a :if={@can_model} href="#model-card" class="badge badge-ghost badge-sm">Default model</a>
+          <a :if={@can_rename} href="#retention-card" class="badge badge-ghost badge-sm">Retention</a>
           <a :if={@can_rename} href="#alerts-card" class="badge badge-ghost badge-sm">Alerts</a>
           <a :if={@can_rename} href="#export-card" class="badge badge-ghost badge-sm">
             Export / Import
           </a>
-          <a :if={@owner?} href="#plan-card" class="badge badge-ghost badge-sm">Plan</a>
+           <a :if={@owner?} href="#plan-card" class="badge badge-ghost badge-sm">Plan</a>
           <a :if={@can_scim} href="#scim-card" class="badge badge-ghost badge-sm">SCIM</a>
           <a :if={@owner?} href="#danger-card" class="badge badge-ghost badge-sm text-error">
             Danger zone
@@ -248,6 +246,7 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
 
       <div :if={@can_rename} class="card border border-base-200 p-6 space-y-3" id="name-card">
         <h2 class="font-semibold">Name</h2>
+
         <form phx-submit="rename" id="rename-form" class="flex gap-2">
           <input
             type="text"
@@ -255,19 +254,19 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
             value={@current_scope.workspace.name}
             required
             class="input input-bordered w-full max-w-md"
-          />
-          <button class="btn btn-primary">Rename</button>
+          /> <button class="btn btn-primary">Rename</button>
         </form>
       </div>
 
       <div :if={@can_model} class="card border border-base-200 p-6 space-y-3" id="model-card">
         <h2 class="font-semibold">Default model</h2>
-        <p class="text-sm opacity-70">
-          LLM and agent nodes that name no model fall back to this.
-        </p>
+
+        <p class="text-sm opacity-70">LLM and agent nodes that name no model fall back to this.</p>
+
         <form phx-change="set_default_model" id="settings-default-model-form">
           <select name="model_choice" class="select select-bordered select-sm w-full max-w-md">
             <option value="" selected={@default_model == nil}>No default</option>
+
             <option
               :for={%{plugin_id: pid, plugin_name: pname, model: m} <- @models}
               value={"#{pid}|#{m.name}"}
@@ -285,10 +284,12 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
 
       <div :if={@can_rename} class="card border border-base-200 p-6 space-y-3" id="retention-card">
         <h2 class="font-semibold">Data retention</h2>
+
         <p class="text-sm opacity-70">
           Runs and chat messages older than this are pruned nightly. Blank keeps
           everything forever; conversations and the audit trail are never pruned.
         </p>
+
         <form phx-submit="set_retention" id="retention-form" class="flex gap-2 items-center">
           <input
             type="number"
@@ -298,17 +299,18 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
             max="3650"
             placeholder="∞"
             class="input input-bordered input-sm w-28"
-          />
-          <span class="text-sm opacity-70">days</span>
+          /> <span class="text-sm opacity-70">days</span>
           <button class="btn btn-primary btn-sm">Save</button>
         </form>
       </div>
 
       <div :if={@can_rename} class="card border border-base-200 p-6 space-y-3" id="alerts-card">
         <h2 class="font-semibold">Failure alerts</h2>
+
         <p class="text-sm opacity-70">
           Failed runs POST a JSON alert to this webhook (blank disables).
         </p>
+
         <form phx-submit="set_alert_url" id="alert-url-form" class="flex gap-2">
           <input
             type="url"
@@ -316,9 +318,9 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
             value={@alert_url}
             placeholder="https://hooks.example.com/flux-alerts"
             class="input input-bordered input-sm w-full max-w-md"
-          />
-          <button class="btn btn-primary btn-sm">Save</button>
+          /> <button class="btn btn-primary btn-sm">Save</button>
         </form>
+
         <p :if={@alert_secret} class="text-xs opacity-70">
           Deliveries are signed: <span class="font-mono">x-flux-signature: sha256=HMAC(body)</span>
           with secret <span class="font-mono select-all">{@alert_secret}</span>
@@ -327,26 +329,32 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
 
       <div :if={@can_webhooks} class="card border border-base-200 p-6 space-y-3" id="webhooks-card">
         <h2 class="font-semibold">Outgoing webhooks</h2>
-        <p class="text-sm opacity-70">
-          Run lifecycle events POST a signed JSON payload to each endpoint
+
+        <p class="text-sm opacity-70">Run lifecycle events POST a signed JSON payload to each endpoint
           (<span class="font-mono">x-flux-signature: sha256=HMAC(body)</span> with the
-          endpoint's secret). Deliveries retry on failure.
-        </p>
+          endpoint's secret). Deliveries retry on failure.</p>
 
         <table :if={@webhooks != []} class="table table-xs">
           <thead>
             <tr>
               <th>URL</th>
+
               <th>Events</th>
+
               <th>Secret</th>
+
               <th></th>
             </tr>
           </thead>
+
           <tbody>
             <tr :for={webhook <- @webhooks} id={"webhook-#{webhook.id}"}>
               <td class="max-w-xs truncate">{webhook.url}</td>
+
               <td class="text-xs">{Enum.join(webhook.events, ", ")}</td>
+
               <td class="font-mono text-xs select-all">{webhook.secret}</td>
+
               <td class="flex gap-1">
                 <button
                   class={["btn btn-xs", (webhook.enabled && "btn-ghost") || "btn-warning"]}
@@ -376,9 +384,9 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
               required
               placeholder="https://hooks.example.com/flux"
               class="input input-bordered input-sm w-full max-w-md"
-            />
-            <button class="btn btn-primary btn-sm">Add webhook</button>
+            /> <button class="btn btn-primary btn-sm">Add webhook</button>
           </div>
+
           <div class="flex flex-wrap gap-3 text-sm">
             <label :for={event <- Flux.Webhooks.events()} class="flex items-center gap-1">
               <input
@@ -387,8 +395,7 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
                 value={event}
                 checked={event in ["run.succeeded", "run.failed"]}
                 class="checkbox checkbox-xs"
-              />
-              {event}
+              /> {event}
             </label>
           </div>
         </form>
@@ -396,11 +403,11 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
 
       <div :if={@can_rename} class="card border border-base-200 p-6 space-y-3" id="export-card">
         <h2 class="font-semibold">Export</h2>
-        <p class="text-sm opacity-70">
-          Download everything — flux and app DSL, dataset documents and
+
+        <p class="text-sm opacity-70">Download everything — flux and app DSL, dataset documents and
           settings, workspace configuration — as one JSON archive. Secrets
-          (provider keys, tokens) are never included.
-        </p>
+          (provider keys, tokens) are never included.</p>
+
         <a href={~p"/console/workspace-export"} class="btn btn-outline btn-sm w-fit">
           <.icon name="hero-arrow-down-tray" class="size-4" /> Download workspace export
         </a>
@@ -418,24 +425,24 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
             accept=".json,application/json"
             required
             class="file-input file-input-sm"
-          />
-          <button class="btn btn-outline btn-sm">Import archive</button>
+          /> <button class="btn btn-outline btn-sm">Import archive</button>
         </form>
-        <p class="text-xs opacity-60">
-          Importing adds the archive's fluxes, apps, and datasets to this
+
+        <p class="text-xs opacity-60">Importing adds the archive's fluxes, apps, and datasets to this
           workspace (existing data is never touched). Cross-references like a
-          chatflow's flux may need rebinding afterwards.
-        </p>
+          chatflow's flux may need rebinding afterwards.</p>
       </div>
 
       <div :if={@owner?} class="card border border-base-200 p-6 space-y-3" id="plan-card">
         <h2 class="font-semibold">Plan</h2>
+
         <p class="text-sm opacity-70">
           Self-hosted deployments run as <span class="font-mono text-xs">enterprise</span>
           (everything on). Lower plans gate custom roles, annotations, datasource
           sync, SCIM, and LLM entity extraction — the hook a licensing backend
           plugs into.
         </p>
+
         <form phx-change="set_plan" id="plan-form">
           <select name="plan" class="select select-bordered select-sm w-48">
             <option
@@ -451,16 +458,19 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
 
       <div :if={@can_scim} class="card border border-base-200 p-6 space-y-3" id="scim-card">
         <h2 class="font-semibold">SCIM provisioning</h2>
+
         <p class="text-sm opacity-70">
           Let your identity provider create and remove members automatically.
           Base URL: <span class="font-mono text-xs">{url(~p"/") <> "scim/v2"}</span>
           — provisioned users join as <span class="font-mono text-xs">normal</span>
           members.
         </p>
+
         <div :if={@scim_token} class="space-y-1">
           <p class="text-sm text-warning">Copy this bearer token now — it is shown once:</p>
           <pre class="rounded bg-base-200 p-2 text-xs overflow-x-auto" id="scim-token">{@scim_token}</pre>
         </div>
+
         <div class="flex gap-2">
           <button class="btn btn-primary btn-sm" phx-click="enable_scim">
             {(@scim_enabled && "Rotate token") || "Enable SCIM"}
@@ -478,12 +488,14 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
 
       <div :if={@owner?} class="card border border-error/40 p-6 space-y-3" id="danger-card">
         <h2 class="font-semibold text-error">Danger zone</h2>
+
         <p class="text-sm opacity-70">
           Deleting the workspace permanently removes every app, flux, dataset,
           run, and member. Type
           <span class="font-mono font-semibold">{@current_scope.workspace.name}</span>
           to confirm.
         </p>
+
         <form phx-submit="delete_workspace" id="delete-workspace-form" class="flex gap-2">
           <input
             type="text"
