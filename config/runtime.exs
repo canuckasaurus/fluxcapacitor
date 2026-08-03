@@ -30,6 +30,23 @@ if tika_url = System.get_env("FLUX_TIKA_URL") do
   config :flux, Flux.Tika, url: tika_url
 end
 
+# FLUX_VECTOR_BACKEND=pgvector: rank similarity in SQL through the
+# pgvector extension (the compose Postgres ships it). Default stays the
+# in-BEAM Naive backend, correct on any Postgres.
+if System.get_env("FLUX_VECTOR_BACKEND") == "pgvector" do
+  config :flux, :vector_store, Flux.RAG.VectorStore.PgVector
+end
+
+# FLUX_ARANGO_URL (+ FLUX_ARANGO_PASSWORD, FLUX_ARANGO_DATABASE): the
+# ArangoDB entity-graph backend — deeper related-entity traversal than
+# the SQL co-occurrence query. The `rag` compose profile provides one.
+if arango_url = System.get_env("FLUX_ARANGO_URL") do
+  config :flux, Flux.RAG.ArangoGraph,
+    url: arango_url,
+    password: System.get_env("FLUX_ARANGO_PASSWORD", "fluxarango"),
+    database: System.get_env("FLUX_ARANGO_DATABASE", "flux")
+end
+
 # FLUX_SSRF_ALLOW: comma-separated hostnames exempt from the outbound
 # HTTP guard (e.g. "localhost" for a local deploy calling local APIs).
 if allow = System.get_env("FLUX_SSRF_ALLOW") do

@@ -10,6 +10,14 @@ defmodule Flux.RAG.Chunker do
   @default_overlap 120
 
   def split(text, opts \\ []) do
+    if Keyword.get(opts, :markdown, false) do
+      split_markdown(text, opts)
+    else
+      split_plain(text, opts)
+    end
+  end
+
+  defp split_plain(text, opts) do
     max_chars = Keyword.get(opts, :max_chars, @default_max)
     overlap = Keyword.get(opts, :overlap, @default_overlap)
 
@@ -19,6 +27,33 @@ defmodule Flux.RAG.Chunker do
     |> Enum.flat_map(&explode(&1, max_chars))
     |> pack([], "", max_chars)
     |> apply_overlap(overlap)
+    |> Enum.reject(&(String.trim(&1) == ""))
+  end
+
+  @doc """
+  Markdown-aware splitting: the text first divides at headings, each
+  section chunks independently, and every chunk carries its heading as a
+  prefix — retrieval hits keep their document context.
+  """
+  def split_markdown(text, opts \\ []) do
+    text
+    |> String.replace("\r\n", "\n")
+    |> String.split(~r/^(?=\#{1,6}[ \t])/m, trim: true)
+    |> Enum.flat_map(fn section ->
+      case String.split(section, "\n", parts: 2) do
+        [heading, body] ->
+          if heading =~ ~r/^\#{1,6}[ \t]/ do
+            body
+            |> split_plain(Keyword.put(opts, :markdown, false))
+            |> Enum.map(&(String.trim(heading) <> "\n\n" <> &1))
+          else
+            split_plain(section, Keyword.put(opts, :markdown, false))
+          end
+
+        [_only_line] ->
+          split_plain(section, Keyword.put(opts, :markdown, false))
+      end
+    end)
     |> Enum.reject(&(String.trim(&1) == ""))
   end
 

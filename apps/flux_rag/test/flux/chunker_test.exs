@@ -22,4 +22,33 @@ defmodule Flux.RAG.ChunkerTest do
     assert Enum.all?(chunks, &(String.length(&1) <= 500))
     assert Enum.join(chunks) == monster
   end
+
+  test "markdown mode splits at headings and prefixes each chunk with its heading" do
+    text = """
+    Intro paragraph before any heading.
+
+    # Refunds
+
+    #{String.duplicate("Refund policy detail sentence. ", 30)}
+
+    ## Shipping
+
+    Standard shipping takes days.
+    """
+
+    chunks = Chunker.split(text, markdown: true, max_chars: 400, overlap: 0)
+
+    assert Enum.at(chunks, 0) =~ "Intro paragraph"
+    refute Enum.at(chunks, 0) =~ "#"
+
+    refund_chunks = Enum.filter(chunks, &String.starts_with?(&1, "# Refunds"))
+    assert length(refund_chunks) > 1
+    assert Enum.all?(refund_chunks, &(&1 =~ "Refund policy detail"))
+
+    assert Enum.any?(chunks, &String.starts_with?(&1, "## Shipping"))
+  end
+
+  test "markdown mode without headings behaves like plain splitting" do
+    assert Chunker.split("no headings here", markdown: true) == ["no headings here"]
+  end
 end

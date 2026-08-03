@@ -18,6 +18,74 @@ defmodule Flux.RAG.VectorStore do
   end
 end
 
+defmodule Flux.RAG.VectorStore.PgVector do
+  @moduledoc """
+  pgvector-backed similarity: the guarded migration adds an
+  `embedding_vec vector` column when the extension is available, `index`
+  mirrors the float-array embeddings into it, and `search` ranks by
+  cosine distance in SQL — exact but database-side, orders of magnitude
+  faster than the Naive backend at corpus scale.
+
+  Select it with `FLUX_VECTOR_BACKEND=pgvector` (the compose Postgres
+  image ships the extension). `available?/0` reports whether the current
+  database can serve it.
+  """
+  @behaviour Flux.RAG.VectorStore
+
+  alias Flux.Repo
+
+  @doc "Whether the connected database has the vector extension installed."
+  def available? do
+    case Repo.query("SELECT 1 FROM pg_extension WHERE extname = 'vector'") do
+      {:ok, %{num_rows: num_rows}} -> num_rows > 0
+      _error -> false
+    end
+  end
+
+  @impl true
+  def index(dataset_id, _segments) do
+    {:ok, dataset_uuid} = Ecto.UUID.dump(dataset_id)
+
+    Repo.query!(
+      """
+      UPDATE rag_segments
+      SET embedding_vec = embedding::vector
+      WHERE dataset_id = $1 AND embedding IS NOT NULL
+        AND (embedding_vec IS NULL OR embedding_vec::text != embedding::vector::text)
+      """,
+      [dataset_uuid]
+    )
+
+    :ok
+  end
+
+  @impl true
+  def search(dataset_id, vector, top_k) do
+    {:ok, dataset_uuid} = Ecto.UUID.dump(dataset_id)
+    literal = "[" <> Enum.map_join(vector, ",", &to_string/1) <> "]"
+
+    %{rows: rows} =
+      Repo.query!(
+        """
+        SELECT id, 1 - (embedding_vec <=> $1::vector) AS score
+        FROM rag_segments
+        WHERE dataset_id = $2 AND enabled AND embedding_vec IS NOT NULL
+        ORDER BY embedding_vec <=> $1::vector
+        LIMIT $3
+        """,
+        [literal, dataset_uuid, top_k]
+      )
+
+    for [id, score] <- rows do
+      {:ok, segment_id} = Ecto.UUID.load(id)
+      %{segment_id: segment_id, score: score * 1.0}
+    end
+  end
+
+  @impl true
+  def drop(_dataset_id), do: :ok
+end
+
 defmodule Flux.RAG.VectorStore.Naive do
   @moduledoc """
   Exact cosine similarity over the segments already stored in Postgres —

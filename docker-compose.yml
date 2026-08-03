@@ -5,7 +5,9 @@
 #   docker compose --profile rag up -d         # + arangodb & tika (WS3)
 services:
   postgres:
-    image: postgres:16-alpine
+    # pgvector's official image = postgres:16 + the vector extension, so
+    # the existing data volume carries over (same major version).
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -104,6 +106,8 @@ services:
       FLUX_METRICS: "1"
       FLUX_PDF_URL: http://gotenberg:3000
       FLUX_TIKA_URL: http://tika:9998
+      FLUX_VECTOR_BACKEND: pgvector
+      FLUX_ARANGO_URL: http://arangodb:8529
       CODE_RUNNER_URL: http://coderunner:8194
       CODE_RUNNER_API_KEY: ${CODE_RUNNER_API_KEY:-}
     ports:

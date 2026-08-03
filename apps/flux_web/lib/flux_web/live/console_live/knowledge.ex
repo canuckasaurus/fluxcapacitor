@@ -308,6 +308,7 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
            RAG.update_dataset(socket.assigns.current_scope, dataset, %{
              "chunk_size" => params["chunk_size"],
              "chunk_overlap" => params["chunk_overlap"],
+             "split_markdown" => params["split_markdown"] == "on",
              "retrieval_top_k" => params["retrieval_top_k"],
              "score_threshold" => params["score_threshold"],
              "entity_plugin_id" => entity_plugin,
@@ -466,6 +467,19 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                   max="500"
                   class="input input-bordered input-sm w-28"
                 />
+              </label>
+              <label class="form-control">
+                <span class="label-text text-xs opacity-70 mb-1">Markdown-aware</span>
+                <label class="label cursor-pointer justify-start gap-2 py-1">
+                  <input
+                    type="checkbox"
+                    name="split_markdown"
+                    checked={@selected.split_markdown}
+                    class="checkbox checkbox-xs"
+                    title="Split at headings and prefix each chunk with its heading"
+                  />
+                  <span class="text-xs opacity-70">split at headings</span>
+                </label>
               </label>
               <label class="form-control">
                 <span class="label-text text-xs opacity-70 mb-1">Top K (default 4)</span>

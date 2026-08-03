@@ -367,7 +367,8 @@ defmodule Flux.RAG do
     chunks =
       Chunker.split(document.content || "",
         max_chars: dataset.chunk_size || 1000,
-        overlap: dataset.chunk_overlap || 120
+        overlap: dataset.chunk_overlap || 120,
+        markdown: dataset.split_markdown || false
       )
 
     case embed(dataset, chunks) do
@@ -454,6 +455,41 @@ defmodule Flux.RAG do
         end
 
       Repo.insert_all(EntityMention, mentions, on_conflict: :nothing)
+    end
+
+    sync_entity_graph(dataset)
+
+    :ok
+  end
+
+  # Best-effort mirror of the dataset's co-occurrence graph into Arango
+  # (Postgres stays the system of record). Never fails indexing.
+  defp sync_entity_graph(dataset) do
+    if Flux.RAG.ArangoGraph.configured?() do
+      rows =
+        EntityMention
+        |> join(:inner, [m], e in Entity, on: m.entity_id == e.id)
+        |> where([m], m.dataset_id == ^dataset.id)
+        |> select([m, e], {m.segment_id, e.name})
+        |> Repo.all(skip_workspace_guard: true)
+
+      entities = rows |> Enum.map(fn {_segment, name} -> %{name: name} end) |> Enum.uniq()
+
+      pairs =
+        rows
+        |> Enum.group_by(fn {segment_id, _name} -> segment_id end, fn {_segment, name} ->
+          name
+        end)
+        |> Enum.flat_map(fn {_segment, names} ->
+          names = Enum.uniq(names)
+          for a <- names, b <- names, a < b, do: {a, b}
+        end)
+        |> Enum.frequencies()
+
+      case Flux.RAG.ArangoGraph.sync_dataset(dataset.id, entities, pairs) do
+        :ok -> :ok
+        {:error, _reason} -> :ok
+      end
     end
 
     :ok
@@ -548,6 +584,16 @@ defmodule Flux.RAG do
   def related_entities(%Scope{} = scope, dataset_id, name, limit \\ 10) do
     normalized = Entities.normalize(name)
 
+    with true <- Flux.RAG.ArangoGraph.configured?(),
+         {:ok, related} when related != [] <-
+           Flux.RAG.ArangoGraph.related(dataset_id, normalized, limit) do
+      for entry <- related, do: %{name: entry.name, shared_segments: round(entry.weight || 0)}
+    else
+      _unconfigured_or_error -> related_entities_sql(scope, dataset_id, normalized, limit)
+    end
+  end
+
+  defp related_entities_sql(scope, dataset_id, normalized, limit) do
     EntityMention
     |> Repo.scoped(scope)
     |> join(:inner, [m], e in Entity, on: m.entity_id == e.id)
