@@ -34,6 +34,7 @@ then see `%{"error", "is_error"}` as its outputs. Retries are per-node
 | `iteration` | Runs a published sub-flux once per list item | `variable`, `workflow_id`, `max_items` | `output` (list), `count` |
 | `loop` | Bounded while over a published sub-flux | `workflow_id`, `initial`, `max_loops`, break `conditions` | `output`, `rounds`, `condition_met`, `history` |
 | `human_input` | Pauses the run for a person | `prompt`, `options` | `output` (the reply, after resume) |
+| `labeling` | Queues a task in a labeling project and pauses until it's labeled | `project_id`, `data` (name/value rows) | `choice` / `choices` / `text`, `output` |
 | `document` | Fills a Word doc template into a downloadable file | `template_id`, `output_name` | `url`, `name`, `file_id`, `size` |
 | `interview` | Pauses the run and asks a stored question set as one form | `interview_id`, `intro` | one key per question + `output` |
 | `answer` | Streams/records the user-facing answer | `answer` template | `answer` |
@@ -174,6 +175,18 @@ Pauses the run and asks a person. Configure the `prompt` and optional
 choice `options`; the run parks as `paused` and resumes from the
 console, a public site, or `POST /v1/workflows/runs/:id/resume`. The
 reply lands in `output`.
+
+### `labeling`
+
+Queues a task into a **labeling project** (`/console/labeling`) and
+pauses the run until someone labels it — human review as a first-class
+graph step. The `data` rows (name → templated value) become the task's
+payload, so labelers see exactly the context you give them. Submitting
+the label resumes the run with the project's answer shape as outputs:
+`choice` (single-select), `choices` (multi-select), or `text`, plus
+`output`. Skipped tasks leave the run parked. Labels captured this way
+also stay in the project for JSONL export — review and training data
+from the same click.
 
 ### `document`
 

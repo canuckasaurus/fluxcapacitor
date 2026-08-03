@@ -11,9 +11,10 @@ orchestrator, no queue infrastructure beyond Postgres.
 
 ## What it does
 
-- **Visual workflow engine** — 23 node types (LLM, agent loops, branching,
+- **Visual workflow engine** — 24 node types (LLM, agent loops, branching,
   iteration and bounded loops over sub-fluxes, code execution, HTTP, knowledge
-  retrieval, human-input pause/resume, classifiers, extractors, and more) with
+  retrieval, human-input and labeling pause/resume, classifiers, extractors,
+  and more) with
   retries, error branches, **parallel branch fan-out**, model fallback chains,
   environment/conversation variables, versioning, and rollback. Template nodes
   render simple `{{refs}}`, a **Jinja subset** (filters, conditionals, loops),
@@ -28,18 +29,27 @@ orchestrator, no queue infrastructure beyond Postgres.
   confined to an **empty network namespace**.
 - **Evaluate and improve** — per-flux **eval sets** (hand-written, CSV
   imports, or captured from real runs) scored by exact/contains graders or
-  an **LLM-as-judge**, against the draft or any published version, so
-  versions compare side by side before you publish. **Batch runs** execute
-  the draft over a CSV of inputs with live counters and a results export.
-  Every run records **token usage and an estimated cost** (per-model
-  breakdown; dashboard rollups). Liked replies and annotations export as
-  **fine-tune JSONL**, and **native data labeling** closes the custom model
-  loop: labeling projects with a tagging queue (single/multi choice or
-  free-text correction), rated replies pushed in from the monitor, CSV
-  intake, relabeling, and JSONL export. Code nodes persist trained models
-  as **run artifacts** (`./artifacts/`) and load them back as
-  **attachments** — label → train → serve entirely inside fluxes, no
-  external labeling service.
+  an **LLM-as-judge** with a selectable judge model, against the draft or
+  any published version, so versions compare side by side before you
+  publish — and sets marked as **gates** run automatically on publish and
+  block it on regression. **Batch runs** execute the draft *or a pinned
+  published version* over a CSV of inputs with live counters, a results
+  export, and one-click hand-off of completed rows to labeling. Every run
+  records **token usage and an estimated cost** (per-model breakdown;
+  dashboard rollups and a workspace-wide **runs page** with filters and
+  cost totals). Liked replies and annotations export as **fine-tune
+  JSONL**, and **native data labeling** closes the custom model loop:
+  labeling projects with a tagging queue (single/multi choice or free-text
+  correction, keyboard shortcuts, multi-labeler claims and per-labeler
+  stats), rated replies pushed in from the monitor, CSV intake, relabeling,
+  and JSONL export. A **labeling node** pauses a run mid-graph until a
+  human labels the task — the label becomes the node's outputs. Code nodes
+  persist trained models as **run artifacts** (`./artifacts/`) and load
+  them back as **attachments** (with an artifact picker in the editor) —
+  label → train → serve entirely inside fluxes, no external labeling
+  service. Batches, evals, and labeling are all drivable over the
+  **`/v1` API** for CI and data pipelines, and a **template gallery**
+  (triage, RAG, human review, model trainer) seeds new fluxes.
 - **Apps on top of fluxes** — chat, completion (form), and chatflow modes;
   published to logged-out visitors at a public URL, embedded via iframe or a
   floating chat bubble, or consumed through the `/v1` service API with
@@ -97,7 +107,7 @@ flowchart TB
     end
 
     subgraph engine["apps/flux_engine — pure"]
-        runner["Runner\n23 node types · retries\nparallel branches · Jinja\npause/resume · sub-fluxes"]
+        runner["Runner\n24 node types · retries\nparallel branches · Jinja\npause/resume · sub-fluxes"]
     end
 
     subgraph runtime["apps/flux_plugin_runtime"]
@@ -195,7 +205,7 @@ The guides live in `docs/guides` and also render **inside the console** at
 `/console/docs` (they compile into the release):
 
 - [Getting started](docs/guides/getting-started.md) — clone to published app, including `mix flux.demo`, production notes, and localization
-- [Node reference](docs/guides/node-reference.md) — all 23 node types in detail, branching, parallel fan-out, sub-fluxes
+- [Node reference](docs/guides/node-reference.md) — all 24 node types in detail, branching, parallel fan-out, sub-fluxes
 - [Plugin SDK](docs/guides/plugin-sdk.md) — the five capability behaviours with a worked example
 - [Service API](docs/guides/service-api.md) — the `/v1` surface, SSE framing, webhooks, SCIM
 
@@ -217,13 +227,14 @@ docker compose --profile rag up -d      # + arangodb/tika (future RAG backends)
 The Echo provider ships built-in with deterministic chat/embedding/rerank
 models, so you can build and run fluxes, apps, and knowledge bases end to end
 before configuring any real provider credentials. `mix flux.demo` seeds a
-showcase workspace — a triage flux, a RAG chatflow, and an agent with a
-scratch drive — entirely on Echo.
+showcase workspace — a triage flux, a RAG chatflow, an agent with a
+scratch drive, and a labeling project wired to the Model trainer flux
+(the label → train loop, ready to click through) — entirely on Echo.
 
 ## Testing
 
 ```bash
-mix test                             # full umbrella suite (~560 tests), hermetic
+mix test                             # full umbrella suite (~630 tests), hermetic
 ```
 
 The suite runs with no network: providers stub through `Req.Test` or the
@@ -242,13 +253,15 @@ Beyond the unit/integration suite:
   our engine and must match its outputs and executed-node set exactly.
 - **`/v1` contract tests** — strict OpenAPI schemas
   (`additionalProperties: false`) validated over every route.
-- **Coderunner live checks** (`coderunner/test_server.py`) — 11 checks
+- **Coderunner live checks** (`coderunner/test_server.py`) — 14 checks
   against the running container proving what mocks can't: JS network
   denial, memory-bomb and timeout kills, dependency-name validation,
   venv caching, and the zero-install ML toolkit.
 - **Perf guard** (opt-in: `mix test --include perf test/perf` in
   `apps/flux_web`) — retrieval/monitor/rollup timings over a
-  10k-segment corpus.
+  10k-segment corpus, plus the quality loop at scale: runs-page reads
+  over 5k runs, a real 200-row batch and 100-case eval on Echo, and
+  labeling-queue reads over 5k tasks.
 
 ## Configuration
 

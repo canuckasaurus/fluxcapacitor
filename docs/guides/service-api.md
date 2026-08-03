@@ -32,6 +32,21 @@ final `message_end` carrying usage. Quota-exceeded apps return 429 with
 |---|---|
 | `POST /v1/workflows/run` | Run the latest published version. SSE by default (`workflow_started`, `node_started`, `text_chunk`, `node_finished`, `agent_part`, `workflow_finished`) or `response_mode: "blocking"`. Finished payloads carry `total_tokens` (input + output across every model call in the run) |
 | `POST /v1/workflows/runs/:id/resume` | Answer a paused `human_input` node with `input` |
+| `POST /v1/workflows/batch` | Start a batch: `rows` (array of input objects, ≤ the CSV cap), optional `name` and `version` (defaults to the draft). 202 + `batch_id` |
+| `GET /v1/batches/:id` | Batch progress; `?include_results=true` adds per-row inputs/outputs |
+| `GET /v1/eval-sets` | List the flux's eval sets (with their `gate` flag) |
+| `POST /v1/eval-sets/:id/run` | Start an eval: optional `grader` (`exact`/`contains`/`llm_judge`), `version`, `judge` (`"plugin|model"`). 202 + `eval_run_id` |
+| `GET /v1/eval-runs/:id` | Eval status, pass counts, `avg_score`, per-case results |
+
+## Labeling (any valid token)
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /v1/labeling/projects` | List projects with label schema and counts |
+| `POST /v1/labeling/projects/:id/tasks` | Push up to 100 `items` (strings or objects) as tasks |
+| `GET /v1/labeling/projects/:id/next` | Claim the next unlabeled task (or `task: null`) |
+| `POST /v1/labeling/tasks/:id/label` | Submit a `label`; 422 `invalid_label` if it doesn't match the project schema |
+| `GET /v1/labeling/projects/:id/export` | Labeled tasks as JSONL (`{"data": …, "label": …}` per line) |
 
 ## Knowledge (any valid token)
 

@@ -313,3 +313,29 @@ zero external services. Also: **batch runs target published versions**
 model** ("plugin|model" per pass, workspace default otherwise, via the
 new Workflows.invoke_model_for_workspace). LS plugin/compose/bridge
 deleted; plugin count back to 9.
+
+27. ~~Batch 3: the quality loop, wall to wall (#144, 2026-08-02)~~ DONE —
+all twelve: **labeling node** (24th node type: queues a task and pauses
+the run; the submitted label resumes it as choice/choices/text outputs —
+human review as a graph step, reusing the pause/resume machinery via a
+queue_label_task host capability); **batch → labeling** ("To labeling" on
+completed batches fans succeeded rows into a project); **labeling UX**
+(keyboard shortcuts 1-9/s via a colocated hook, per-labeler stat badges);
+**multi-labeler claims** (soft 10-minute claims on next_task so parallel
+labelers don't collide); **demo loop** (mix flux.demo seeds a Ticket
+intent project — 5 labeled BTTF-flavored examples + 2 to tag — and the
+Model trainer flux); **eval regression gates** (gate flag per set; publish
+runs gated sets and blocks on regression; score-delta badges + webhook
+previous_avg_score/regressed); **workspace runs page** (/console/runs:
+filter by flux/source/status, token + est-cost totals); **template
+gallery** (triage / RAG answer / human review / model trainer cards on
+the fluxes page, engine-validated graphs with layout); **artifact picker**
+(code-node attachments pick from recent runs' output files); **/v1
+quality API** (batches, eval sets/runs, labeling projects/tasks/next/
+label/export — CI can drive the whole loop; ServiceAuth editor scope
+reused); **console i18n increment** (sidebar + dashboard gettext-wrapped;
+French catalog fully translated and shipped — /console?locale=fr —
+Locale on_mount added to the console live_session); **perf suite** (new
+quality_load_test: 5k runs / 5k tasks seeded, real 200-row batch + 100-
+case eval on echo; measured: runs page 11ms, batch 16.2s, eval 6.3s,
+labeling next 6ms).

@@ -27,7 +27,10 @@ mix flux.demo
 
 This seeds `demo@fluxcapacitor.local` with a **Demo Workspace**
 containing a branching triage flux, a RAG chatflow over a seeded
-handbook, an agent with a scratch drive, and three published apps —
+handbook, an agent with a scratch drive, three published apps, and the
+full **label → train loop**: a "Ticket intent" labeling project with a
+head start of labeled examples (plus a couple left for you to tag) and
+the Model trainer flux ready to consume the project's JSONL export —
 everything running on the built-in **echo provider**, which needs no API
 key. Log in with the demo email via magic link (in development the mail
 lands in the dev mailbox at `/dev/mailbox`).
@@ -42,18 +45,23 @@ lands in the dev mailbox at `/dev/mailbox`).
    credentials are validated against the provider and stored encrypted
    per workspace. Several named keys can coexist; the default one is
    what nodes resolve.
-3. **Fluxes** → *New Flux* opens the canvas. Every flux starts with a
-   `start → llm → answer` skeleton; bind the LLM node to a model and hit
-   *Run*. Or skip the skeleton: describe what you want in **Draft with
-   AI** and the helper generates the nodes and wiring through the
+3. **Fluxes** → *New Flux* opens the canvas, or pick a card from the
+   **template gallery** (triage, RAG answer, human review, model
+   trainer) to start with a working graph. Every blank flux starts with
+   a `start → llm → answer` skeleton; bind the LLM node to a model and
+   hit *Run*. Or skip the skeleton: describe what you want in **Draft
+   with AI** and the helper generates the nodes and wiring through the
    workspace default model — every draft is engine-validated before it
    reaches the canvas, and nothing publishes without you. From the run
-   panel, **Batch runs** executes the draft over a CSV of inputs and
-   **Evals** scores it against a test-case set (exact, contains, or
-   LLM-as-judge) so draft and published versions compare side by side.
-   Publish a version when it works — the API, sites, schedules, and
-   chatflow apps always run the latest published version, never the
-   draft.
+   panel, **Batch runs** executes the draft *or any published version*
+   over a CSV of inputs (and can send completed results to a labeling
+   project), and **Evals** scores it against a test-case set (exact,
+   contains, or LLM-as-judge with a selectable judge model) so draft and
+   published versions compare side by side. Mark an eval set as a
+   **gate** and publishing runs it automatically — a regression blocks
+   the publish. Publish a version when it works — the API, sites,
+   schedules, and chatflow apps always run the latest published version,
+   never the draft.
 4. **Apps** → create a chat, completion, or chatflow app. Publish it as
    a public site, embed it with the iframe/bubble snippets, or mint an
    API key and call `/v1` (see the [service API guide](service-api.md)).
@@ -64,7 +72,7 @@ lands in the dev mailbox at `/dev/mailbox`).
 
 ## Testing
 
-`mix test` at the umbrella root runs everything (~600 tests) with no
+`mix test` at the umbrella root runs everything (~630 tests) with no
 network — fake providers, injected converters, temp-dir storage. To run
 a single app's tests, `cd` into the app first; `mix test apps/flux`
 from the root silently runs nothing. Golden replay fixtures, `/v1`
@@ -83,6 +91,7 @@ map.
 | Monitoring, feedback, annotations, search | `/console/apps/:id/monitor` |
 | Datasets, documents, segments, hit testing | `/console/knowledge` |
 | Data labeling: projects, tagging queue, JSONL export | `/console/labeling` |
+| Workspace-wide run history with filters and cost totals | `/console/runs` |
 | Providers, tool/datasource plugins, credentials | `/console/plugins` |
 | API toolsets (OpenAPI imports) | `/console/tools` |
 | Members, roles, invitations | `/console/members` |
@@ -110,5 +119,8 @@ To add a language, from `apps/flux_web` run
 the strings in `priv/gettext/<code>/LC_MESSAGES/default.po`, and
 recompile. New translatable strings are wrapped with `gettext("...")`
 in the templates and collected with `mix gettext.extract --merge`. The
-account and landing pages are wrapped today; the console is wrapped
-incrementally.
+account and landing pages, the console shell (sidebar and navigation),
+and the dashboard are wrapped today; the rest of the console is wrapped
+incrementally. A **French (`fr`) catalog ships translated** — try
+`/console?locale=fr` — and is the reference for adding further
+languages.
