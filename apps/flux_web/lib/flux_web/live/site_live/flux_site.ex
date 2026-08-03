@@ -13,7 +13,7 @@ defmodule FluxWeb.SiteLive.FluxSite do
   def mount(%{"token" => token}, _session, socket) do
     with {:ok, workflow} <- Workflows.get_workflow_by_site_token(token),
          scope = Workflows.site_scope(workflow),
-         %{} = version <- Workflows.latest_version(scope, workflow.id) || {:error, :not_published} do
+         %{} = version <- Workflows.serving_version(scope, workflow) || {:error, :not_published} do
       {:ok,
        assign(socket,
          page_title: workflow.name,

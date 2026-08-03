@@ -289,6 +289,45 @@ defmodule Flux.WorkflowsTest do
     {:ok, _} = Accounts.set_token_budget(scope, nil)
   end
 
+  test "A/B split routes live traffic between published versions", %{
+    scope: scope,
+    workflow: workflow
+  } do
+    {:ok, workflow} = Workflows.update_draft(scope, workflow, echo_graph())
+    {:ok, _v1} = Workflows.publish(scope, workflow)
+    {:ok, _v2} = Workflows.publish(scope, workflow)
+
+    workflow = Workflows.get_workflow(scope, workflow.id)
+
+    # No split: always the latest.
+    assert Workflows.serving_version(scope, workflow).version == 2
+
+    # 100% to B: always version 1.
+    {:ok, workflow} = Workflows.set_ab_split(scope, workflow, 1, 100)
+    assert workflow.ab_split == 100
+
+    for _try <- 1..10 do
+      assert Workflows.serving_version(scope, workflow).version == 1
+    end
+
+    # Unknown version B refused; split 0 clears.
+    assert {:error, :version_not_found} = Workflows.set_ab_split(scope, workflow, 99, 50)
+    {:ok, workflow} = Workflows.set_ab_split(scope, workflow, nil, 0)
+    assert workflow.ab_version_b == nil
+    assert Workflows.serving_version(scope, workflow).version == 2
+
+    # Stats group runs by the version that served them.
+    {:ok, _run} =
+      Workflows.start_run(scope, workflow, %{"query" => "arm"},
+        source: :api,
+        graph: echo_graph(),
+        version: 1
+      )
+
+    assert_receive {:run_finished, _finished}, 5_000
+    assert [%{version: 1, runs: 1, success_rate: 1.0}] = Workflows.ab_stats(scope, workflow.id)
+  end
+
   test "diff_graphs reports node and edge changes, ignoring positions" do
     old_graph = %{
       "nodes" => [

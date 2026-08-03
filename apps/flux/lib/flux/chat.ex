@@ -894,7 +894,7 @@ defmodule Flux.Chat do
              Repo.get_by(Flux.Workflows.Workflow, [id: app.workflow_id],
                skip_workspace_guard: true
              ),
-         %{} = version <- Flux.Workflows.latest_version(scope, workflow.id) do
+         %{} = version <- Flux.Workflows.serving_version(scope, workflow) do
       # The message is offered both as {{sys.query}} (chatflow convention)
       # and as the "query" start variable so the default starter graph
       # works as a chatflow unchanged. Prior completed turns arrive as

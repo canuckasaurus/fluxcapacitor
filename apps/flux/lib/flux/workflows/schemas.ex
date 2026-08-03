@@ -21,6 +21,8 @@ defmodule Flux.Workflows.Workflow do
     field :site_enabled, :boolean, default: false
     field :site_theme, :map, default: %{}
     field :deleted_at, :utc_datetime
+    field :ab_version_b, :integer
+    field :ab_split, :integer, default: 0
 
     timestamps(type: :utc_datetime)
   end

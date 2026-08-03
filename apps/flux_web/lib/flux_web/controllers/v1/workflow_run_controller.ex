@@ -26,7 +26,7 @@ defmodule FluxWeb.V1.WorkflowRunController do
     scope = conn.assigns.service_scope
     inputs = as_map(params["inputs"])
 
-    case Workflows.latest_version(scope, workflow.id) do
+    case Workflows.serving_version(scope, workflow) do
       nil ->
         error(conn, 400, "workflow_not_published", "Publish this flux before calling the API")
 

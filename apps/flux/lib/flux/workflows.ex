@@ -315,6 +315,71 @@ defmodule Flux.Workflows do
     ) || {:error, :not_found}
   end
 
+  @doc """
+  The version a *live* run should execute: the latest published version,
+  or — when an A/B split is configured — version B for `ab_split`% of
+  traffic. Chatflow turns, public sites, triggers, and `/v1` runs all
+  resolve through here; the run records which version served it, so the
+  arms compare on the runs data.
+  """
+  def serving_version(%Scope{} = scope, %Workflow{} = workflow) do
+    latest = latest_version(scope, workflow.id)
+
+    with %WorkflowVersion{} <- latest,
+         split when is_integer(split) and split > 0 <- workflow.ab_split,
+         version_b when is_integer(version_b) <- workflow.ab_version_b,
+         true <- :rand.uniform(100) <= split,
+         %WorkflowVersion{} = arm_b <- get_version(scope, workflow.id, version_b) do
+      arm_b
+    else
+      _no_split_or_arm_a -> latest
+    end
+  end
+
+  @doc "Configures (split 1–100 to version B) or clears (split 0) the A/B test."
+  def set_ab_split(%Scope{} = scope, %Workflow{} = workflow, version_b, split)
+      when is_integer(split) and split in 0..100 do
+    with :ok <- RBAC.authorize(scope, :app_release_and_version),
+         :ok <- owned(scope, workflow),
+         true <-
+           split == 0 or match?(%WorkflowVersion{}, get_version(scope, workflow.id, version_b)) ||
+             {:error, :version_not_found} do
+      workflow
+      |> Ecto.Changeset.change(
+        ab_version_b: (split > 0 && version_b) || nil,
+        ab_split: split
+      )
+      |> Repo.update()
+    end
+  end
+
+  @doc "Per-version run stats for the A/B view: count, success rate, avg tokens."
+  def ab_stats(%Scope{} = scope, workflow_id) do
+    WorkflowRun
+    |> Repo.scoped(scope)
+    |> where([r], r.workflow_id == ^workflow_id and not is_nil(r.version))
+    |> select([r], %{version: r.version, status: r.status, usage: r.usage})
+    |> Repo.all()
+    |> Enum.group_by(& &1.version)
+    |> Enum.map(fn {version, runs} ->
+      succeeded = Enum.count(runs, &(&1.status == :succeeded))
+
+      tokens =
+        Enum.sum(
+          for run <- runs,
+              do: (run.usage["input_tokens"] || 0) + (run.usage["output_tokens"] || 0)
+        )
+
+      %{
+        version: version,
+        runs: length(runs),
+        success_rate: Float.round(succeeded / length(runs), 4),
+        avg_tokens: (length(runs) > 0 && div(tokens, length(runs))) || 0
+      }
+    end)
+    |> Enum.sort_by(& &1.version, :desc)
+  end
+
   def latest_version(%Scope{} = scope, workflow_id) do
     WorkflowVersion
     |> Repo.scoped(scope)
@@ -972,7 +1037,7 @@ defmodule Flux.Workflows do
            Repo.get_by(Workflow, [id: trigger.workflow_id], skip_workspace_guard: true) ||
              {:error, :not_found},
          %WorkflowVersion{} = version <-
-           latest_version(scope, workflow.id) || {:error, :not_published} do
+           serving_version(scope, workflow) || {:error, :not_published} do
       trigger
       |> Ecto.Changeset.change(last_run_at: DateTime.utc_now(:second))
       |> Repo.update()

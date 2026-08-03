@@ -230,6 +230,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
            show_site: false,
            show_versions: false,
            version_diff: nil,
+           ab_stats: [],
            versions: [],
            show_variables: false,
            show_ai_edit: false,
@@ -957,8 +958,48 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
      assign(socket,
        show_versions: not socket.assigns.show_versions,
        versions: versions,
-       version_diff: nil
+       version_diff: nil,
+       ab_stats:
+         (versions != [] &&
+            Workflows.ab_stats(socket.assigns.current_scope, socket.assigns.workflow.id)) || []
      )}
+  end
+
+  def handle_event("set_ab", %{"version_b" => version_b, "split" => split}, socket) do
+    version_b =
+      case Integer.parse(version_b) do
+        {n, ""} -> n
+        _none -> nil
+      end
+
+    split =
+      case Integer.parse(split) do
+        {n, ""} when n in 0..100 -> n
+        _invalid -> 0
+      end
+
+    case Workflows.set_ab_split(
+           socket.assigns.current_scope,
+           socket.assigns.workflow,
+           version_b,
+           split
+         ) do
+      {:ok, workflow} ->
+        message =
+          if split > 0 do
+            "A/B on — #{split}% of live traffic runs v#{version_b}."
+          else
+            "A/B off — all traffic runs the latest version."
+          end
+
+        {:noreply, socket |> assign(workflow: workflow) |> put_flash(:info, message)}
+
+      {:error, :version_not_found} ->
+        {:noreply, put_flash(socket, :error, "That version doesn't exist.")}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not update the A/B split.")}
+    end
   end
 
   def handle_event("diff_version", %{"version" => version}, socket) do
@@ -4808,6 +4849,63 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
             </button>
           </div>
           <p :if={@versions == []} class="text-sm opacity-60">Nothing published yet.</p>
+
+          <div
+            :if={length(@versions) > 1 and @can_publish}
+            class="rounded-box border border-base-200 p-3 space-y-2"
+            id="ab-card"
+          >
+            <p class="text-sm font-semibold">
+              A/B split
+              <span :if={@workflow.ab_split > 0} class="badge badge-info badge-xs ml-1">
+                {@workflow.ab_split}% → v{@workflow.ab_version_b}
+              </span>
+            </p>
+            <p class="text-xs opacity-60">
+              Send a share of live traffic (chatflows, sites, API, triggers) to
+              another published version; each run records its arm.
+            </p>
+            <form phx-submit="set_ab" class="flex gap-2 items-center">
+              <select name="version_b" class="select select-bordered select-xs">
+                <option
+                  :for={version <- @versions}
+                  value={version.version}
+                  selected={@workflow.ab_version_b == version.version}
+                >
+                  v{version.version}
+                </option>
+              </select>
+              <input
+                type="number"
+                name="split"
+                value={@workflow.ab_split}
+                min="0"
+                max="100"
+                class="input input-bordered input-xs w-16"
+              />
+              <span class="text-xs opacity-60">% to B (0 = off)</span>
+              <button class="btn btn-primary btn-xs">Apply</button>
+            </form>
+
+            <table :if={@ab_stats != []} class="table table-xs">
+              <thead>
+                <tr>
+                  <th>Version</th>
+                  <th>Runs</th>
+                  <th>Success</th>
+                  <th>Avg tokens</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr :for={row <- @ab_stats}>
+                  <td><span class="badge badge-ghost badge-xs">v{row.version}</span></td>
+                  <td class="text-xs">{row.runs}</td>
+                  <td class="text-xs">{round(row.success_rate * 100)}%</td>
+                  <td class="font-mono text-xs">{row.avg_tokens}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
           <div
             :for={version <- @versions}
             class="flex items-center gap-3 rounded-box border border-base-200 px-3 py-2"
