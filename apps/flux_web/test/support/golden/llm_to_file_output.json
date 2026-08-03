@@ -1,0 +1,76 @@
+{
+  "format": "fluxcapacitor-run-fixture",
+  "version": 1,
+  "name": "Golden: llm to file output",
+  "graph": {
+    "nodes": [
+      {
+        "id": "start",
+        "type": "start",
+        "title": "Start",
+        "position": {"x": 0, "y": 0},
+        "config": {
+          "variables": [
+            {"name": "topic", "label": "Topic", "type": "text", "required": true}
+          ]
+        }
+      },
+      {
+        "id": "write",
+        "type": "llm",
+        "title": "Write",
+        "position": {"x": 280, "y": 0},
+        "config": {
+          "provider_plugin_id": "echo",
+          "model": "echo-1",
+          "prompt": "Report on {{start.topic}}"
+        }
+      },
+      {
+        "id": "publish",
+        "type": "file_output",
+        "title": "Publish",
+        "position": {"x": 560, "y": 0},
+        "config": {
+          "format": "html",
+          "content": "<h1>{{start.topic}}</h1>\n<p>{{write.text}}</p>",
+          "output_name": "report-{{start.topic}}"
+        }
+      },
+      {
+        "id": "end_1",
+        "type": "end",
+        "title": "End",
+        "position": {"x": 840, "y": 0},
+        "config": {
+          "outputs": [
+            {"key": "name", "value": "{{publish.name}}"},
+            {"key": "format", "value": "{{publish.format}}"},
+            {"key": "body", "value": "{{write.text}}"}
+          ]
+        }
+      }
+    ],
+    "edges": [
+      {"id": "e1", "source": "start", "source_handle": "default", "target": "write"},
+      {"id": "e2", "source": "write", "source_handle": "default", "target": "publish"},
+      {"id": "e3", "source": "publish", "source_handle": "default", "target": "end_1"}
+    ]
+  },
+  "inputs": {"topic": "hoverboards"},
+  "expected": {
+    "status": "succeeded",
+    "outputs": {
+      "name": "report-hoverboards.html",
+      "format": "html",
+      "body": "You said: Report on hoverboards "
+    },
+    "error": null,
+    "node_sequence": [
+      {"node_id": "start", "status": "succeeded"},
+      {"node_id": "write", "status": "succeeded"},
+      {"node_id": "publish", "status": "succeeded"},
+      {"node_id": "end_1", "status": "succeeded"}
+    ]
+  }
+}

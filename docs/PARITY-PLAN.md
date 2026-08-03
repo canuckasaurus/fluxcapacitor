@@ -370,3 +370,26 @@ Mid-batch a PowerShell array-flattening bug replaced every `<` with `h`
 in six LiveView files — caught immediately, restored from git, edits
 re-applied with the Edit tool; scripted multi-file source edits are
 retired.
+
+29. ~~Batch 5: labeler trust, recurring batches, files, quality panel
+(#146, 2026-08-02)~~ DONE: **gold-standard QC** (labeled tasks promote
+to honeypots — the label becomes gold_label, the task re-enters the
+queue, votes/labels score per-labeler accuracy shown as ★ badges;
+consensus projects score every vote, single-label projects the applied
+label); **scheduled batches** (batch_schedules table + Repeat button on
+completed batches: the row set re-runs on a cron against draft or the
+pinned version, pause/resume/delete, minute-tick sweep with last_run_at
+suppression); **/console/files** (workspace file browser: run outputs,
+artifacts, uploads, tokenized downloads — sidebar Operate section);
+**dashboard Quality panel** (Usage.quality_summary: gate/schedule
+counts, last 5 eval scores, labeling queue depth, avg agreement);
+**regex grader + case weights** (weights scale avg_score; `weight` CSV
+column handled at import; invalid patterns fail cases honestly);
+**file_output chat chips** (already worked by output-shape matching —
+now pinned by a chatflow test); **Edit with AI** (Copilot.revise sends
+the current graph + instruction, validated like a draft, applied as one
+undoable edit via a toolbar modal); **i18n** (5 more page headings +
+**Spanish catalog fully translated** — /console?locale=es; the fuzzy
+"Files"→"Fluxes" mistranslation caught and fixed); **2 golden fixtures**
+(classifier routing on echo's text-match fallback; llm → file_output —
+echo's streamed trailing space pinned in expectations).

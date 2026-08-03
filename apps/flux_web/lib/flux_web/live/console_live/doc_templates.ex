@@ -415,7 +415,7 @@ defmodule FluxWeb.ConsoleLive.DocTemplates do
               <span class="label-text text-xs opacity-70 mb-1">
                 Template (Jinja: {"{{ vars | filters }}"}, {"{% if %}"}, {"{% for %}"})
               </span>
-               <textarea
+              <textarea
                 name="content"
                 rows="14"
                 class="textarea textarea-bordered font-mono text-xs w-full"
@@ -427,7 +427,7 @@ defmodule FluxWeb.ConsoleLive.DocTemplates do
                 <span class="label-text text-xs opacity-70 mb-1">
                   Preview context (JSON — stands in for the run's variables)
                 </span>
-                 <textarea
+                <textarea
                   name="context"
                   rows="5"
                   class="textarea textarea-bordered font-mono text-xs w-full"
@@ -520,7 +520,7 @@ defmodule FluxWeb.ConsoleLive.DocTemplates do
           >
             <.icon name="hero-arrow-right-circle" class="size-3" /> Adopt (rebind from parent)
           </button>
-           <pre
+          <pre
             :if={template.kind != "docx"}
             class="rounded bg-base-200 p-2 text-xs overflow-hidden max-h-20"
           >{String.slice(template.content || "", 0, 240)}</pre>

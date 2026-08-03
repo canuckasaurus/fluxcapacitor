@@ -53,11 +53,14 @@ lands in the dev mailbox at `/dev/mailbox`).
    hit *Run*. Or skip the skeleton: describe what you want in **Draft
    with AI** and the helper generates the nodes and wiring through the
    workspace default model — every draft is engine-validated before it
-   reaches the canvas, and nothing publishes without you. From the run
+   reaches the canvas, and nothing publishes without you. On an existing
+   flux, **Edit with AI** revises the draft from an instruction — the
+   result is validated first and lands as one undoable edit. From the run
    panel, **Batch runs** executes the draft *or any published version*
-   over a CSV of inputs (and can send completed results to a labeling
-   project), and **Evals** scores it against a test-case set (exact,
-   contains, or LLM-as-judge with a selectable judge model) so draft and
+   over a CSV of inputs (send completed results to a labeling project, or
+   save the row set as a **recurring cron batch**), and **Evals** scores
+   it against a test-case set (exact, contains, regex, or LLM-as-judge
+   with a selectable judge model; cases can carry weights) so draft and
    published versions compare side by side. Mark an eval set as a
    **gate** and publishing runs it automatically — a regression blocks
    the publish — or give it a **cron schedule** and it re-scores the
@@ -93,8 +96,9 @@ map.
 | Apps, chat settings, publishing, API keys | `/console/apps/:id` |
 | Monitoring, feedback, annotations, search | `/console/apps/:id/monitor` |
 | Datasets, documents, segments, hit testing | `/console/knowledge` |
-| Data labeling: projects, tagging queue, consensus + agreement, JSONL export | `/console/labeling` |
+| Data labeling: projects, tagging queue, consensus + agreement, gold standards + labeler accuracy, JSONL export | `/console/labeling` |
 | Workspace-wide run history with filters, cost totals, per-node drill-in | `/console/runs` |
+| Stored files: run outputs, artifacts, uploads, downloads | `/console/files` |
 | Providers, tool/datasource plugins, credentials | `/console/plugins` |
 | API toolsets (OpenAPI imports) | `/console/tools` |
 | Members, roles, invitations | `/console/members` |
@@ -124,6 +128,6 @@ recompile. New translatable strings are wrapped with `gettext("...")`
 in the templates and collected with `mix gettext.extract --merge`. The
 account and landing pages, the console shell (sidebar and navigation),
 and the dashboard are wrapped today; the rest of the console is wrapped
-incrementally. A **French (`fr`) catalog ships translated** — try
-`/console?locale=fr` — and is the reference for adding further
-languages.
+incrementally. **French (`fr`) and Spanish (`es`) catalogs ship
+translated** — try `/console?locale=fr` or `?locale=es` — and are the
+reference for adding further languages.

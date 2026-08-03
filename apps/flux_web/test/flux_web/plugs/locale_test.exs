@@ -15,7 +15,7 @@ defmodule FluxWeb.Plugs.LocaleTest do
   test "Accept-Language with no matching catalog falls back to English", %{conn: conn} do
     conn =
       conn
-      |> put_req_header("accept-language", "de-DE, es;q=0.8")
+      |> put_req_header("accept-language", "de-DE, it;q=0.8")
       |> get(~p"/accounts/log-in")
 
     assert get_session(conn, :locale) == nil

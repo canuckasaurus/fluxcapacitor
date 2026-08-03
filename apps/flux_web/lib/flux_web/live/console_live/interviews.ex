@@ -199,7 +199,7 @@ defmodule FluxWeb.ConsoleLive.Interviews do
     >
       <div class="flex items-center justify-between">
         <div>
-          <h1 class="text-2xl font-bold">Interviews</h1>
+          <h1 class="text-2xl font-bold">{gettext("Interviews")}</h1>
           <p class="opacity-70 mt-1">
             Reusable question sets — an interview node pauses the run and asks them as one form.
           </p>

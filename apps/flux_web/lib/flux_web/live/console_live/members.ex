@@ -278,7 +278,7 @@ defmodule FluxWeb.ConsoleLive.Members do
       active={:members}
     >
       <div>
-        <h1 class="text-2xl font-bold">Members</h1>
+        <h1 class="text-2xl font-bold">{gettext("Members")}</h1>
         <p class="opacity-70 mt-1">
           People with access to {@current_scope.workspace.name}.
         </p>

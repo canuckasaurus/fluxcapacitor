@@ -58,6 +58,15 @@ defmodule FluxWeb.ConsoleLiveTest do
       assert html =~ "Exécutions"
     end
 
+    test "?locale=es renders the console in Spanish", %{conn: conn, workspace: workspace} do
+      conn = get(conn, ~p"/console?locale=es")
+      {:ok, _lv, html} = live(conn, ~p"/console")
+      assert html =~ "Bienvenido a #{workspace.name}"
+      assert html =~ "Etiquetado"
+      assert html =~ "Archivos"
+      assert html =~ "Ejecuciones"
+    end
+
     test "dashboard usage rolls up chat and run activity", %{conn: conn, account: account} do
       scope = Accounts.scope_for(account)
 

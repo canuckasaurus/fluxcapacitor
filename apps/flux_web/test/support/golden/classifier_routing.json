@@ -1,0 +1,92 @@
+{
+  "format": "fluxcapacitor-run-fixture",
+  "version": 1,
+  "name": "Golden: classifier routing",
+  "graph": {
+    "nodes": [
+      {
+        "id": "start",
+        "type": "start",
+        "title": "Start",
+        "position": {"x": 0, "y": 0},
+        "config": {
+          "variables": [
+            {"name": "query", "label": "Message", "type": "text", "required": true}
+          ]
+        }
+      },
+      {
+        "id": "classify",
+        "type": "question_classifier",
+        "title": "Intent",
+        "position": {"x": 280, "y": 0},
+        "config": {
+          "provider_plugin_id": "echo",
+          "model": "echo-1",
+          "query": "{{start.query}}",
+          "classes": [
+            {"id": "class_complaint", "name": "complaint"},
+            {"id": "class_question", "name": "question"}
+          ]
+        }
+      },
+      {
+        "id": "soothe",
+        "type": "llm",
+        "title": "Complaint reply",
+        "position": {"x": 560, "y": -80},
+        "config": {
+          "provider_plugin_id": "echo",
+          "model": "echo-1",
+          "prompt": "Soothe: {{start.query}}"
+        }
+      },
+      {
+        "id": "inform",
+        "type": "llm",
+        "title": "Question reply",
+        "position": {"x": 560, "y": 120},
+        "config": {
+          "provider_plugin_id": "echo",
+          "model": "echo-1",
+          "prompt": "Inform: {{start.query}}"
+        }
+      },
+      {
+        "id": "merge",
+        "type": "variable_aggregator",
+        "title": "Reply",
+        "position": {"x": 840, "y": 0},
+        "config": {"variables": ["soothe.text", "inform.text"]}
+      },
+      {
+        "id": "answer_1",
+        "type": "answer",
+        "title": "Answer",
+        "position": {"x": 1120, "y": 0},
+        "config": {"answer": "{{merge.output}}"}
+      }
+    ],
+    "edges": [
+      {"id": "e1", "source": "start", "source_handle": "default", "target": "classify"},
+      {"id": "e2", "source": "classify", "source_handle": "class_complaint", "target": "soothe"},
+      {"id": "e3", "source": "classify", "source_handle": "class_question", "target": "inform"},
+      {"id": "e4", "source": "soothe", "source_handle": "default", "target": "merge"},
+      {"id": "e5", "source": "inform", "source_handle": "default", "target": "merge"},
+      {"id": "e6", "source": "merge", "source_handle": "default", "target": "answer_1"}
+    ]
+  },
+  "inputs": {"query": "this is a complaint about my flux capacitor"},
+  "expected": {
+    "status": "succeeded",
+    "outputs": {"answer": "You said: Soothe: this is a complaint about my flux capacitor "},
+    "error": null,
+    "node_sequence": [
+      {"node_id": "start", "status": "succeeded"},
+      {"node_id": "classify", "status": "succeeded"},
+      {"node_id": "soothe", "status": "succeeded"},
+      {"node_id": "merge", "status": "succeeded"},
+      {"node_id": "answer_1", "status": "succeeded"}
+    ]
+  }
+}

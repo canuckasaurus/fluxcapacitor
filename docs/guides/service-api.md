@@ -35,7 +35,7 @@ final `message_end` carrying usage. Quota-exceeded apps return 429 with
 | `POST /v1/workflows/batch` | Start a batch: `rows` (array of input objects, ≤ the CSV cap), optional `name` and `version` (defaults to the draft). 202 + `batch_id` |
 | `GET /v1/batches/:id` | Batch progress; `?include_results=true` adds per-row inputs/outputs |
 | `GET /v1/eval-sets` | List the flux's eval sets (with their `gate` flag and cron `schedule`) |
-| `POST /v1/eval-sets/:id/run` | Start an eval: optional `grader` (`exact`/`contains`/`llm_judge`), `version`, `judge` (`"plugin|model"`). 202 + `eval_run_id` |
+| `POST /v1/eval-sets/:id/run` | Start an eval: optional `grader` (`exact`/`contains`/`regex`/`llm_judge`), `version`, `judge` (`"plugin|model"`). 202 + `eval_run_id`. Case weights (set via the console or a `weight` CSV column) scale each case's influence on `avg_score` |
 | `GET /v1/eval-runs/:id` | Eval status, pass counts, `avg_score`, per-case results |
 
 ## Labeling (any valid token)

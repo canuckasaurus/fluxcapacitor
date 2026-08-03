@@ -236,7 +236,7 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
           <a :if={@can_rename} href="#export-card" class="badge badge-ghost badge-sm">
             Export / Import
           </a>
-           <a :if={@owner?} href="#plan-card" class="badge badge-ghost badge-sm">Plan</a>
+          <a :if={@owner?} href="#plan-card" class="badge badge-ghost badge-sm">Plan</a>
           <a :if={@can_scim} href="#scim-card" class="badge badge-ghost badge-sm">SCIM</a>
           <a :if={@owner?} href="#danger-card" class="badge badge-ghost badge-sm text-error">
             Danger zone

@@ -25,20 +25,24 @@ orchestrator, no queue infrastructure beyond Postgres.
   **file-output node** writes any templated content straight to a
   downloadable HTML, PDF, Markdown, text, CSV, or JSON file — report
   writing without a Word template. An **AI
-  helper** drafts a flux from a plain-language description (engine-validated
-  before it touches the canvas), and code nodes run in a **sandboxed runner**
+  helper** drafts a flux from a plain-language description and **revises
+  existing drafts on instruction** (both engine-validated before they touch
+  the canvas), and code nodes run in a **sandboxed runner**
   with a pre-installed ML toolkit (numpy, pandas, scikit-learn, xgboost,
   lightgbm, and friends — zero-install imports) where python user code is
   confined to an **empty network namespace**.
 - **Evaluate and improve** — per-flux **eval sets** (hand-written, CSV
-  imports, or captured from real runs) scored by exact/contains graders or
+  imports, or captured from real runs; cases carry **weights**) scored by
+  exact/contains/**regex** graders or
   an **LLM-as-judge** with a selectable judge model, against the draft or
   any published version, so versions compare side by side before you
   publish — and sets marked as **gates** run automatically on publish and
   block it on regression, while sets given a **cron schedule** re-score the
-  latest published version unattended (drift detection between releases). **Batch runs** execute the draft *or a pinned
-  published version* over a CSV of inputs with live counters, a results
-  export, and one-click hand-off of completed rows to labeling. Every run
+  latest published version unattended (drift detection between releases).
+  **Batch runs** execute the draft *or a pinned published version* over a
+  CSV of inputs with live counters, a results export, one-click hand-off
+  of completed rows to labeling, and a **Repeat button** that saves the
+  row set as a recurring cron batch. Every run
   records **token usage and an estimated cost** (per-model breakdown;
   dashboard rollups and a workspace-wide **runs page** with filters and
   cost totals). Liked replies and annotations export as **fine-tune
@@ -49,7 +53,11 @@ orchestrator, no queue infrastructure beyond Postgres.
   and JSONL export. Projects can require **N labels per task** — votes
   collect until quorum, the majority label wins, and the console reports
   **inter-labeler agreement** (plus `labeling.*` webhook events for
-  pipelines). A **labeling node** pauses a run mid-graph until a
+  pipelines). Labeled tasks promote to **gold standards** (honeypots) that
+  re-enter the queue and score **per-labeler accuracy**; a **Quality
+  panel** on the dashboard rolls up gates, recent eval scores, queue
+  depth, and agreement, and a **Files page** browses every stored run
+  output and artifact. A **labeling node** pauses a run mid-graph until a
   human labels the task — the label becomes the node's outputs. Code nodes
   persist trained models as **run artifacts** (`./artifacts/`) and load
   them back as **attachments** (with an artifact picker in the editor) —
@@ -243,7 +251,7 @@ scratch drive, and a labeling project wired to the Model trainer flux
 ## Testing
 
 ```bash
-mix test                             # full umbrella suite (~640 tests), hermetic
+mix test                             # full umbrella suite (~650 tests), hermetic
 ```
 
 The suite runs with no network: providers stub through `Req.Test` or the

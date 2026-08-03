@@ -306,7 +306,7 @@ defmodule FluxWeb.ConsoleLive.FluxEvals do
         <.link navigate={~p"/console/fluxes/#{@workflow.id}"} class="btn btn-ghost btn-sm">
           <.icon name="hero-arrow-left" class="size-4" /> {@workflow.name}
         </.link>
-        <h1 class="text-2xl font-bold">Evaluations</h1>
+        <h1 class="text-2xl font-bold">{gettext("Evaluations")}</h1>
       </div>
 
       <div class="card border border-base-200 p-6 space-y-3" id="eval-sets-card">
