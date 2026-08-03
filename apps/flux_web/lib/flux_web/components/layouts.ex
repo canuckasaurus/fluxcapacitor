@@ -198,6 +198,12 @@ defmodule FluxWeb.Layouts do
 
             <.sidebar_section label="Operate" />
             <.sidebar_link
+              navigate={~p"/console/runs"}
+              icon="hero-play-circle"
+              label="Runs"
+              active={@active == :runs}
+            />
+            <.sidebar_link
               navigate={~p"/console/members"}
               icon="hero-user-group"
               label="Members"

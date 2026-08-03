@@ -217,6 +217,25 @@ defmodule FluxWeb.ConsoleLive.FluxEvals do
     end
   end
 
+  def handle_event("toggle_gate", _params, socket) do
+    set = socket.assigns.selected_set
+
+    case Evals.set_gate(socket.assigns.current_scope, set.id, !set.gate) do
+      {:ok, updated} ->
+        message =
+          if updated.gate do
+            "Gate on — this set now scores every published version."
+          else
+            "Gate off."
+          end
+
+        {:noreply, socket |> put_flash(:info, message) |> reload_sets(updated.id)}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not update the gate.")}
+    end
+  end
+
   def handle_event("toggle_results", %{"id" => id}, socket) do
     {:noreply, assign(socket, expanded_eval: (socket.assigns.expanded_eval == id && nil) || id)}
   end
@@ -238,6 +257,18 @@ defmodule FluxWeb.ConsoleLive.FluxEvals do
 
   defp expanded_results(assigns) do
     Enum.find(assigns.eval_runs, &(&1.id == assigns.expanded_eval))
+  end
+
+  # Score delta vs the next-older completed run in the (desc-sorted) list.
+  defp score_delta(eval_run, eval_runs) do
+    with true <- eval_run.status == :completed and is_number(eval_run.avg_score),
+         index = Enum.find_index(eval_runs, &(&1.id == eval_run.id)),
+         %{avg_score: previous} when is_number(previous) <-
+           eval_runs |> Enum.drop(index + 1) |> Enum.find(&(&1.status == :completed)) do
+      Float.round((eval_run.avg_score - previous) * 100, 1)
+    else
+      _no_baseline -> nil
+    end
   end
 
   @impl true
@@ -280,6 +311,14 @@ defmodule FluxWeb.ConsoleLive.FluxEvals do
             />
             <button class="btn btn-sm">Create set</button>
           </form>
+          <label :if={@selected_set} class="flex items-center gap-1 text-sm" id="gate-toggle">
+            <input
+              type="checkbox"
+              class="checkbox checkbox-xs"
+              checked={@selected_set.gate}
+              phx-click="toggle_gate"
+            /> run on publish
+          </label>
           <button
             :if={@selected_set}
             class="btn btn-ghost btn-sm text-error"
@@ -428,6 +467,16 @@ defmodule FluxWeb.ConsoleLive.FluxEvals do
                   :if={eval_run.avg_score}
                   class="opacity-60"
                 >%</span>
+                <span
+                  :if={delta = score_delta(eval_run, @eval_runs)}
+                  class={[
+                    "badge badge-xs ml-1",
+                    (delta < 0 && "badge-error") || (delta > 0 && "badge-success") ||
+                      "badge-ghost"
+                  ]}
+                >
+                  {(delta >= 0 && "+") || ""}{delta}
+                </span>
               </td>
               <td>
                 <span class="text-success">{eval_run.passed}</span>

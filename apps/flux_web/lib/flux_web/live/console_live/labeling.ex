@@ -34,13 +34,14 @@ defmodule FluxWeb.ConsoleLive.Labeling do
 
     case socket.assigns.selected_project do
       nil ->
-        assign(socket, current_task: nil, counts: nil, labeled: [])
+        assign(socket, current_task: nil, counts: nil, labeled: [], labeler_stats: [])
 
       project ->
         assign(socket,
           current_task: socket.assigns[:current_task] || Labeling.next_task(scope, project.id),
           counts: Labeling.counts(scope, project.id),
-          labeled: Labeling.list_labeled(scope, project.id)
+          labeled: Labeling.list_labeled(scope, project.id),
+          labeler_stats: Labeling.labeler_stats(scope, project.id)
         )
     end
   end
@@ -93,6 +94,27 @@ defmodule FluxWeb.ConsoleLive.Labeling do
 
   def handle_event("label_choice", %{"task-id" => task_id, "choice" => choice}, socket) do
     apply_label(socket, task_id, %{"choice" => choice})
+  end
+
+  # Keyboard tagging (1-9 pick a choice, s skips) — only wired for
+  # single-choice projects, where no text field competes for keystrokes.
+  def handle_event("queue_shortcut", %{"key" => key}, socket) do
+    with %{} = task <- socket.assigns.current_task,
+         %{label_type: :choice, options: options} <- socket.assigns.selected_project do
+      cond do
+        key in ~w(s S) ->
+          {:noreply, elem(handle_event("skip_task", %{"task-id" => task.id}, socket), 1)}
+
+        key =~ ~r/^[1-9]$/ and String.to_integer(key) <= length(options) ->
+          choice = Enum.at(options, String.to_integer(key) - 1)
+          apply_label(socket, task.id, %{"choice" => choice})
+
+        true ->
+          {:noreply, socket}
+      end
+    else
+      _no_task_or_not_choice -> {:noreply, socket}
+    end
   end
 
   def handle_event("label_multi", %{"task-id" => task_id} = params, socket) do
@@ -247,11 +269,32 @@ defmodule FluxWeb.ConsoleLive.Labeling do
         :if={@selected_project}
         class="card border border-base-200 p-6 space-y-4"
         id="labeling-queue-card"
+        phx-hook=".LabelShortcuts"
       >
-        <div class="flex items-center gap-3">
+        <script :type={Phoenix.LiveView.ColocatedHook} name=".LabelShortcuts">
+          export default {
+            mounted() {
+              this.handler = (e) => {
+                if (e.target.matches("input, textarea, select")) return
+                if (e.metaKey || e.ctrlKey || e.altKey) return
+                this.pushEvent("queue_shortcut", {key: e.key})
+              }
+              window.addEventListener("keydown", this.handler)
+            },
+            destroyed() { window.removeEventListener("keydown", this.handler) }
+          }
+        </script>
+        <div class="flex items-center gap-3 flex-wrap">
           <h2 class="font-semibold">Queue — {@selected_project.name}</h2>
           <span :if={@counts} class="text-xs opacity-60">
             {@counts.labeled} labeled · {@counts.unlabeled} to go · {@counts.skipped} skipped
+          </span>
+          <span
+            :for={{email, count} <- @labeler_stats}
+            class="badge badge-ghost badge-sm"
+            title="labeled by"
+          >
+            {email}: {count}
           </span>
           <a
             :if={@counts && @counts.labeled > 0}
@@ -286,14 +329,17 @@ defmodule FluxWeb.ConsoleLive.Labeling do
 
           <div :if={@selected_project.label_type == :choice} class="flex flex-wrap gap-2">
             <button
-              :for={option <- @selected_project.options}
+              :for={{option, index} <- Enum.with_index(@selected_project.options, 1)}
               class="btn btn-outline btn-sm"
               phx-click="label_choice"
               phx-value-task-id={@current_task.id}
               phx-value-choice={option}
             >
-              {option}
+              <kbd :if={index <= 9} class="kbd kbd-xs">{index}</kbd> {option}
             </button>
+            <span class="text-xs opacity-50 self-center">
+              keys 1–{min(length(@selected_project.options), 9)} label · s skips
+            </span>
           </div>
 
           <form

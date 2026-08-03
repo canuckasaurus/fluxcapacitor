@@ -102,6 +102,11 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
       icon: "hero-hand-raised",
       accent: "bg-warning/10 text-warning"
     },
+    "labeling" => %{
+      label: "Labeling",
+      icon: "hero-tag",
+      accent: "bg-warning/10 text-warning"
+    },
     "knowledge_retrieval" => %{
       label: "Knowledge",
       icon: "hero-book-open",
@@ -146,6 +151,8 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     "iteration" => "Runs a published sub-flux once per item of a list and collects the results.",
     "loop" => "Repeats a published sub-flux until a break condition matches (a bounded while).",
     "human_input" => "Pauses the run and asks a person; it resumes with their reply.",
+    "labeling" =>
+      "Queues its data in a labeling project and pauses; the human's label becomes its outputs.",
     "knowledge_retrieval" =>
       "Searches your knowledge datasets (hybrid retrieval) and returns the best passages with citations.",
     "document" =>
@@ -155,8 +162,8 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
   }
 
   @addable_types ~w(llm knowledge_retrieval if_else question_classifier parameter_extractor
-                    document_extractor iteration loop human_input interview template document
-                    tool http_request code agent variable_aggregator variable_assigner
+                    document_extractor iteration loop human_input labeling interview template
+                    document tool http_request code agent variable_aggregator variable_assigner
                     list_operator answer end)
   @zoom_levels [50, 65, 80, 100, 125, 150]
   @failable_types ~w(llm tool http_request code agent question_classifier parameter_extractor
@@ -193,6 +200,8 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
              Flux.Tools.list_toolsets(scope) ++ Flux.Tools.installed_plugin_toolsets(scope),
            fluxes: Workflows.list_workflows(scope),
            datasets: Flux.RAG.list_datasets(scope),
+           labeling_projects: Flux.Labeling.list_projects(scope),
+           artifact_options: artifact_options(scope, workflow.id),
            latest_version: Workflows.latest_version(scope, workflow.id),
            can_edit: RBAC.can?(scope, :app_edit),
            can_export: RBAC.can?(scope, :app_import_export_dsl),
@@ -1350,6 +1359,9 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
   defp default_config("human_input"),
     do: %{"prompt" => "Please review and reply:", "options" => []}
 
+  defp default_config("labeling"),
+    do: %{"project_id" => "", "data" => [%{"name" => "text", "value" => "{{start.query}}"}]}
+
   defp default_config("knowledge_retrieval"),
     do: %{"dataset_id" => "", "query" => "{{start.query}}", "top_k" => 4}
 
@@ -1377,6 +1389,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
   defp row_key("assignment"), do: "assignments"
   defp row_key("class"), do: "classes"
   defp row_key("parameter"), do: "parameters"
+  defp row_key("labeling_data"), do: "data"
 
   defp empty_row("variable"),
     do: %{"name" => "", "label" => "", "type" => "text", "required" => false}
@@ -1388,6 +1401,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
   defp empty_row("output"), do: %{"key" => "", "value" => ""}
   defp empty_row("assignment"), do: %{"name" => "", "value" => ""}
   defp empty_row("class"), do: %{"id" => "", "name" => ""}
+  defp empty_row("labeling_data"), do: %{"name" => "", "value" => ""}
 
   defp empty_row("parameter"),
     do: %{"name" => "", "type" => "string", "description" => "", "required" => false}
@@ -1491,6 +1505,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
       "attachments",
       parse_attachments(params["attachments_text"], config["attachments"])
     )
+    |> maybe_append_attachment(params["attachment_pick"])
   end
 
   defp build_config("agent", config, params) do
@@ -1584,6 +1599,12 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     config
     |> Map.put("prompt", Map.get(params, "prompt", config["prompt"] || ""))
     |> Map.put("options", options)
+  end
+
+  defp build_config("labeling", config, params) do
+    config
+    |> Map.put("project_id", Map.get(params, "project_id", config["project_id"] || ""))
+    |> Map.put("data", indexed_rows(params["ldata"], ~w(name value), %{}))
   end
 
   defp build_config("knowledge_retrieval", config, params) do
@@ -1692,6 +1713,26 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
   end
 
   defp build_config(_type, config, _params), do: config
+
+  # The artifact picker select: choosing an option appends it (once).
+  defp maybe_append_attachment(config, pick) when is_binary(pick) and pick != "" do
+    {file_id, name} =
+      case String.split(pick, " ", parts: 2) do
+        [file_id, name] -> {file_id, name}
+        [file_id] -> {file_id, nil}
+      end
+
+    existing = List.wrap(config["attachments"])
+
+    if Enum.any?(existing, &(&1["file_id"] == file_id)) do
+      config
+    else
+      entry = if name, do: %{"file_id" => file_id, "name" => name}, else: %{"file_id" => file_id}
+      Map.put(config, "attachments", existing ++ [entry])
+    end
+  end
+
+  defp maybe_append_attachment(config, _no_pick), do: config
 
   # "file_id" or "file_id name.ext", one per line.
   defp parse_attachments(nil, existing), do: List.wrap(existing)
@@ -1947,6 +1988,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     "iteration" => ~w(output count),
     "loop" => ~w(output rounds condition_met),
     "human_input" => ~w(output),
+    "labeling" => ~w(choice choices text output),
     "knowledge_retrieval" => ~w(result citations count),
     "document" => ~w(url name file_id size),
     "interview" => ~w(output)
@@ -2044,6 +2086,23 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     else
       max(round((execution["elapsed_ms"] || 0) / slowest * 100), 2)
     end
+  end
+
+  # Artifacts from this flux's recent runs — the code node's attachment
+  # picker options ({label, "file_id name"} pairs feeding the textarea).
+  defp artifact_options(scope, workflow_id) do
+    scope
+    |> Workflows.list_runs(workflow_id, 30)
+    |> Enum.flat_map(fn run ->
+      for execution <- run.node_executions,
+          file <- List.wrap(execution["outputs"]["files"]),
+          is_binary(file["file_id"]) do
+        date = run.inserted_at |> DateTime.to_date() |> Date.to_string()
+        {"#{file["name"]} (#{date})", "#{file["file_id"]} #{file["name"]}"}
+      end
+    end)
+    |> Enum.uniq_by(&elem(&1, 1))
+    |> Enum.take(20)
   end
 
   defp run_tokens(run) do
@@ -3157,6 +3216,17 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                       no dependency entry. Add entries only for anything else.
                     </p>
                   </div>
+                  <select
+                    :if={@artifact_options != []}
+                    name="attachment_pick"
+                    class="select select-sm w-full"
+                    disabled={not @can_edit}
+                  >
+                    <option value="">Attach a run artifact…</option>
+                    <option :for={{label, value} <- @artifact_options} value={value}>
+                      {label}
+                    </option>
+                  </select>
                   <label class="floating-label">
                     <span>Attachments — run-output file ids, one per line (id [filename])</span>
                     <textarea
@@ -3627,6 +3697,74 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                   </label>
                   <p class="text-xs opacity-60">
                     The run pauses here; the reply continues it as <code>{"{{#{node["id"]}.output}}"}</code>.
+                  </p>
+                <% "labeling" -> %>
+                  <label class="floating-label">
+                    <span>Labeling project</span>
+                    <select
+                      name="project_id"
+                      class="select select-sm w-full"
+                      disabled={not @can_edit}
+                    >
+                      <option value="">— pick a project —</option>
+                      <option
+                        :for={project <- @labeling_projects}
+                        value={project.id}
+                        selected={node["config"]["project_id"] == project.id}
+                      >
+                        {project.name} ({project.label_type})
+                      </option>
+                    </select>
+                  </label>
+                  <p :if={@labeling_projects == []} class="text-xs text-warning">
+                    No labeling projects yet — create one under Labeling.
+                  </p>
+                  <div class="space-y-2">
+                    <p class="text-xs font-semibold opacity-70">Task data shown to the labeler</p>
+                    <div
+                      :for={{field, index} <- Enum.with_index(List.wrap(node["config"]["data"]))}
+                      class="flex gap-2"
+                    >
+                      <input
+                        type="text"
+                        name={"ldata[#{index}][name]"}
+                        value={field["name"]}
+                        placeholder="field"
+                        class="input input-xs w-28 font-mono"
+                        disabled={not @can_edit}
+                      />
+                      <input
+                        type="text"
+                        name={"ldata[#{index}][value]"}
+                        value={field["value"]}
+                        placeholder="{{draft.text}}"
+                        class="input input-xs flex-1 font-mono"
+                        disabled={not @can_edit}
+                      />
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-xs text-error"
+                        phx-click="remove_row"
+                        phx-value-kind="labeling_data"
+                        phx-value-index={index}
+                        disabled={not @can_edit}
+                      >
+                        x
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      class="btn btn-outline btn-xs"
+                      phx-click="add_row"
+                      phx-value-kind="labeling_data"
+                      disabled={not @can_edit}
+                    >
+                      <.icon name="hero-plus" class="size-3" /> Add field
+                    </button>
+                  </div>
+                  <p class="text-xs opacity-60">
+                    The run pauses until a human labels the task; the label resumes it as <code>{"{{#{node["id"]}.choice}}"}</code>, <code>{"{{#{node["id"]}.choices}}"}</code>,
+                    or <code>{"{{#{node["id"]}.text}}"}</code>.
                   </p>
                 <% "knowledge_retrieval" -> %>
                   <div class="space-y-1">

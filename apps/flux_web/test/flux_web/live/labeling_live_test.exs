@@ -82,6 +82,33 @@ defmodule FluxWeb.LabelingLiveTest do
     assert Enum.any?(lines, &(&1["label"] == %{"choice" => "question"}))
   end
 
+  test "keyboard shortcuts label and skip choice tasks", %{conn: conn, scope: scope} do
+    {:ok, project} =
+      Labeling.create_project(scope, %{
+        "name" => "Keys",
+        "label_type" => "choice",
+        "options" => ["complaint", "question"]
+      })
+
+    {:ok, _} = Labeling.add_task(scope, project, %{"text" => "refund me"})
+    {:ok, _} = Labeling.add_task(scope, project, %{"text" => "unclear noise"})
+
+    {:ok, lv, html} = live(conn, ~p"/console/labeling")
+    assert html =~ "keys 1–2 label"
+
+    # "2" labels the current task with the second option.
+    html = render_hook(lv, "queue_shortcut", %{"key" => "2"})
+    assert html =~ "1 labeled · 1 to go"
+
+    # "s" skips; unknown keys are ignored.
+    render_hook(lv, "queue_shortcut", %{"key" => "x"})
+    html = render_hook(lv, "queue_shortcut", %{"key" => "s"})
+    assert html =~ "1 labeled · 0 to go · 1 skipped"
+
+    [labeled] = Labeling.list_labeled(scope, project.id)
+    assert labeled.label == %{"choice" => "question"}
+  end
+
   test "the app monitor queues rated replies into a project", %{conn: conn, scope: scope} do
     {:ok, project} =
       Labeling.create_project(scope, %{"name" => "Review", "label_type" => "text"})

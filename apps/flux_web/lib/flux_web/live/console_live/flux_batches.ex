@@ -23,7 +23,10 @@ defmodule FluxWeb.ConsoleLive.FluxBatches do
            page_title: "Batch runs — #{workflow.name}",
            workflow: workflow,
            versions: Workflows.list_versions(scope, workflow.id),
-           batches: Workflows.list_batches(scope, workflow.id)
+           batches: Workflows.list_batches(scope, workflow.id),
+           labeling_projects: Flux.Labeling.list_projects(scope),
+           selected_labeling_project:
+             scope |> Flux.Labeling.list_projects() |> List.first() |> then(&(&1 && &1.id))
          )
          |> allow_upload(:csv, accept: ~w(.csv .txt), max_entries: 1, max_file_size: 2_000_000)}
 
@@ -80,6 +83,26 @@ defmodule FluxWeb.ConsoleLive.FluxBatches do
 
       {:error, :version_not_found} ->
         {:noreply, put_flash(socket, :error, "That published version no longer exists.")}
+    end
+  end
+
+  def handle_event("select_labeling_project", %{"project_id" => project_id}, socket) do
+    {:noreply, assign(socket, selected_labeling_project: project_id)}
+  end
+
+  def handle_event("send_batch_to_labeling", %{"batch-id" => batch_id}, socket) do
+    scope = socket.assigns.current_scope
+
+    with project_id when is_binary(project_id) <- socket.assigns.selected_labeling_project,
+         %Flux.Labeling.Project{} = project <- Flux.Labeling.get_project(scope, project_id),
+         {:ok, tasks} <- Flux.Labeling.add_tasks_from_batch(scope, project, batch_id) do
+      {:noreply, put_flash(socket, :info, "#{length(tasks)} results queued in #{project.name}.")}
+    else
+      {:error, :no_succeeded_runs} ->
+        {:noreply, put_flash(socket, :error, "That batch has no succeeded rows to label.")}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not queue the batch for labeling.")}
     end
   end
 
@@ -152,7 +175,26 @@ defmodule FluxWeb.ConsoleLive.FluxBatches do
       </div>
 
       <div class="card border border-base-200 p-6 space-y-3" id="batch-list-card">
-        <h2 class="font-semibold">Batches</h2>
+        <div class="flex items-center gap-3">
+          <h2 class="font-semibold">Batches</h2>
+          <form
+            :if={@labeling_projects != []}
+            phx-change="select_labeling_project"
+            id="labeling-project-form"
+            class="ml-auto flex items-center gap-2 text-xs"
+          >
+            <span class="opacity-60">labeling target:</span>
+            <select name="project_id" class="select select-bordered select-xs">
+              <option
+                :for={project <- @labeling_projects}
+                value={project.id}
+                selected={@selected_labeling_project == project.id}
+              >
+                {project.name}
+              </option>
+            </select>
+          </form>
+        </div>
         <p :if={@batches == []} class="text-sm opacity-60">
           No batches yet — upload a CSV above. Where we're going, we don't
           need roads; rows, however, are required.
@@ -187,13 +229,21 @@ defmodule FluxWeb.ConsoleLive.FluxBatches do
                   {batch.status}
                 </span>
               </td>
-              <td>
+              <td class="flex gap-1">
                 <a
                   href={~p"/console/fluxes/#{@workflow.id}/batches/#{batch.id}/results"}
                   class="btn btn-ghost btn-xs"
                 >
                   Results CSV
                 </a>
+                <button
+                  :if={batch.status == :completed and @selected_labeling_project}
+                  class="btn btn-ghost btn-xs"
+                  phx-click="send_batch_to_labeling"
+                  phx-value-batch-id={batch.id}
+                >
+                  To labeling
+                </button>
               </td>
             </tr>
           </tbody>

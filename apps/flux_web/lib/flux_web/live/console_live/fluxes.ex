@@ -72,6 +72,32 @@ defmodule FluxWeb.ConsoleLive.Fluxes do
     end
   end
 
+  def handle_event("from_template", %{"template-id" => template_id}, socket) do
+    scope = socket.assigns.current_scope
+
+    with %{} = template <- Flux.Workflows.Templates.get(template_id),
+         {:ok, workflow} <-
+           Workflows.create_workflow(scope, %{
+             "name" => template.name,
+             "description" => template.description
+           }),
+         {:ok, workflow} <- Workflows.update_draft(scope, workflow, template.graph) do
+      {:noreply,
+       socket
+       |> put_flash(:info, ~s(Created "#{template.name}" from the template.))
+       |> push_navigate(to: ~p"/console/fluxes/#{workflow.id}")}
+    else
+      nil ->
+        {:noreply, put_flash(socket, :error, "Unknown template.")}
+
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "You don't have permission to create fluxes.")}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not create from the template.")}
+    end
+  end
+
   def handle_event("ai_draft", %{"description" => description}, socket) do
     scope = socket.assigns.current_scope
 
@@ -294,6 +320,19 @@ defmodule FluxWeb.ConsoleLive.Fluxes do
               <.icon name="hero-sparkles" class="size-4" /> Draft with AI
             </button>
           </form>
+        </div>
+
+        <div class="divider text-xs opacity-60">or start from a template</div>
+        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" id="template-gallery">
+          <button
+            :for={template <- Flux.Workflows.Templates.all()}
+            class="card border border-base-200 p-4 text-left hover:border-primary transition-colors space-y-1"
+            phx-click="from_template"
+            phx-value-template-id={template.id}
+          >
+            <span class="font-semibold text-sm">{template.name}</span>
+            <span class="text-xs opacity-70">{template.description}</span>
+          </button>
         </div>
       </div>
 
