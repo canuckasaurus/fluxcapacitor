@@ -1208,6 +1208,56 @@ defmodule Flux.Engine.Nodes.HumanInput do
   end
 end
 
+defmodule Flux.Engine.Nodes.Labeling do
+  @moduledoc """
+  Human-in-the-loop labeling: renders its `data` fields, queues them as
+  a task in a labeling project (host capability `queue_label_task`), and
+  pauses the run. When someone labels the task in the console the run
+  resumes with the label as this node's outputs — `"choice"`,
+  `"choices"`, or `"text"` per the project's schema, plus `"output"`.
+
+  Config: `project_id`, `data` ([{name, value-template}]).
+  """
+  @behaviour Flux.Engine.Node
+
+  alias Flux.Engine.{Host, Template}
+
+  @impl true
+  def run(node, pool, host) do
+    project_id = to_string(node.config["project_id"] || "")
+
+    with :ok <- (project_id != "" && :ok) || {:error, "the labeling node names no project"},
+         {:ok, queue} <- capability(host) do
+      data =
+        node.config["data"]
+        |> List.wrap()
+        |> Map.new(fn field ->
+          {to_string(field["name"] || ""), Template.render(field["value"], pool)}
+        end)
+        |> Map.delete("")
+
+      case queue.(%{project_id: project_id, data: data, node_id: node.id}) do
+        {:ok, task_id} ->
+          {:pause,
+           %{
+             "type" => "labeling",
+             "task_id" => task_id,
+             "prompt" => "waiting for a human label in the labeling queue"
+           }}
+
+        {:error, reason} when is_binary(reason) ->
+          {:error, reason}
+
+        {:error, reason} ->
+          {:error, inspect(reason)}
+      end
+    end
+  end
+
+  defp capability(%Host{queue_label_task: fun}) when is_function(fun, 1), do: {:ok, fun}
+  defp capability(_host), do: {:error, "this run's host cannot queue labeling tasks"}
+end
+
 defmodule Flux.Engine.Nodes.Iteration do
   @moduledoc """
   Runs another published flux once per item of a list (see

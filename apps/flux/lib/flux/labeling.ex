@@ -85,14 +85,48 @@ defmodule Flux.Labeling do
     end
   end
 
-  @doc "The oldest unlabeled task — what the tagging queue shows next."
+  @claim_seconds 600
+
+  @doc """
+  The oldest unlabeled task that isn't freshly claimed by someone else —
+  and claims it for the caller, so two labelers never see the same task
+  (claims expire after #{@claim_seconds}s).
+  """
   def next_task(%Scope{} = scope, project_id) do
-    Task
-    |> Repo.scoped(scope)
-    |> where([t], t.project_id == ^project_id and t.status == :unlabeled)
-    |> order_by([t], asc: t.inserted_at, asc: t.id)
-    |> limit(1)
-    |> Repo.one()
+    cutoff = DateTime.add(DateTime.utc_now(:second), -@claim_seconds, :second)
+    account_id = scope.account && scope.account.id
+
+    base =
+      Task
+      |> Repo.scoped(scope)
+      |> where([t], t.project_id == ^project_id and t.status == :unlabeled)
+
+    query =
+      if account_id do
+        where(
+          base,
+          [t],
+          is_nil(t.claimed_at) or t.claimed_at < ^cutoff or t.assigned_to_id == ^account_id
+        )
+      else
+        where(base, [t], is_nil(t.claimed_at) or t.claimed_at < ^cutoff)
+      end
+
+    case query |> order_by([t], asc: t.inserted_at, asc: t.id) |> limit(1) |> Repo.one() do
+      nil ->
+        nil
+
+      task when is_nil(account_id) ->
+        task
+
+      task ->
+        task
+        |> Ecto.Changeset.change(
+          assigned_to_id: account_id,
+          claimed_at: DateTime.utc_now(:second)
+        )
+        |> Repo.update!()
+    end
   end
 
   def get_task(%Scope{} = scope, task_id) do
@@ -132,22 +166,48 @@ defmodule Flux.Labeling do
     with :ok <- RBAC.authorize(scope, :app_edit),
          %Task{} = task <- get_task(scope, task_id),
          %Project{} = project <- get_project(scope, task.project_id),
-         :ok <- validate_label(project, label) do
-      task
-      |> Ecto.Changeset.change(
-        status: :labeled,
-        label: label,
-        labeled_by_id: scope.account && scope.account.id
-      )
-      |> Repo.update()
+         :ok <- validate_label(project, label),
+         {:ok, labeled} <-
+           task
+           |> Ecto.Changeset.change(
+             status: :labeled,
+             label: label,
+             labeled_by_id: scope.account && scope.account.id,
+             claimed_at: nil
+           )
+           |> Repo.update() do
+      maybe_resume_run(scope, labeled)
+      {:ok, labeled}
     end
+  end
+
+  # A task queued by a labeling node resumes its paused run with the
+  # label as the node's outputs. Best-effort: a stopped or already
+  # resumed run just leaves the label recorded.
+  defp maybe_resume_run(_scope, %Task{run_id: nil}), do: :ok
+
+  defp maybe_resume_run(scope, %Task{run_id: run_id, label: label}) do
+    Flux.Workflows.resume_run(scope, run_id, label)
+    :ok
   end
 
   def skip_task(%Scope{} = scope, task_id) do
     with :ok <- RBAC.authorize(scope, :app_edit),
          %Task{} = task <- get_task(scope, task_id) do
-      task |> Ecto.Changeset.change(status: :skipped) |> Repo.update()
+      task |> Ecto.Changeset.change(status: :skipped, claimed_at: nil) |> Repo.update()
     end
+  end
+
+  @doc "Labeled-count per labeler for a project's header."
+  def labeler_stats(%Scope{} = scope, project_id) do
+    Task
+    |> Repo.scoped(scope)
+    |> where([t], t.project_id == ^project_id and t.status == :labeled)
+    |> join(:left, [t], a in Flux.Accounts.Account, on: t.labeled_by_id == a.id)
+    |> group_by([t, a], a.email)
+    |> select([t, a], {coalesce(a.email, "unknown"), count(t.id)})
+    |> order_by([t], desc: count(t.id))
+    |> Repo.all()
   end
 
   def delete_task(%Scope{} = scope, task_id) do
@@ -179,6 +239,76 @@ defmodule Flux.Labeling do
   def queue_item(%Scope{} = scope, project_id, item, source \\ "feedback") when is_map(item) do
     with %Project{} = project <- get_project(scope, project_id) do
       add_task(scope, project, item, source)
+    end
+  end
+
+  @doc """
+  Fans a finished batch's succeeded runs into a project: each run's
+  inputs plus its primary output become one task.
+  """
+  def add_tasks_from_batch(%Scope{} = scope, %Project{} = project, batch_id) do
+    with :ok <- RBAC.authorize(scope, :app_edit),
+         runs = Flux.Workflows.list_batch_runs(scope, batch_id),
+         succeeded = Enum.filter(runs, &(&1.status == :succeeded)),
+         true <- succeeded != [] || {:error, :no_succeeded_runs} do
+      tasks =
+        for run <- succeeded do
+          Repo.insert!(%Task{
+            workspace_id: project.workspace_id,
+            project_id: project.id,
+            data: Map.put(run.inputs, "output", primary_output(run.outputs)),
+            source: "batch"
+          })
+        end
+
+      {:ok, tasks}
+    end
+  end
+
+  defp primary_output(outputs) when is_map(outputs) do
+    case outputs do
+      %{"answer" => answer} when is_binary(answer) -> answer
+      %{"text" => text} when is_binary(text) -> text
+      outputs when map_size(outputs) == 1 -> outputs |> Map.values() |> hd() |> stringify()
+      outputs -> Jason.encode!(outputs)
+    end
+  end
+
+  defp stringify(value) when is_binary(value), do: value
+  defp stringify(value), do: Jason.encode!(value)
+
+  @doc """
+  The labeling node's path in — no scope, called from a run's host. The
+  project must belong to the run's workspace; the task remembers the run
+  so the label resumes it.
+  """
+  def queue_from_run(workspace_id, run_id, project_id, data, node_id \\ nil) do
+    with {:ok, _uuid} <- cast_uuid(project_id),
+         %Project{workspace_id: ^workspace_id} = project <-
+           Repo.get(Project, project_id, skip_workspace_guard: true) ||
+             {:error, "labeling project #{project_id} was not found in this workspace"} do
+      task =
+        Repo.insert!(%Task{
+          workspace_id: workspace_id,
+          project_id: project.id,
+          run_id: run_id,
+          node_id: node_id,
+          data: data,
+          source: "flux"
+        })
+
+      {:ok, task.id}
+    else
+      %Project{} -> {:error, "labeling project #{project_id} was not found in this workspace"}
+      {:error, message} when is_binary(message) -> {:error, message}
+      :error -> {:error, "labeling project id #{inspect(project_id)} is not a valid id"}
+    end
+  end
+
+  defp cast_uuid(value) do
+    case Ecto.UUID.cast(to_string(value)) do
+      {:ok, uuid} -> {:ok, uuid}
+      :error -> :error
     end
   end
 

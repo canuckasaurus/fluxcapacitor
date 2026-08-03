@@ -130,6 +130,168 @@ defmodule Flux.LabelingTest do
     assert decoded["label"] == %{"choice" => "complaint"}
   end
 
+  test "a labeling node pauses the run and the label resumes it", %{scope: scope} do
+    {:ok, project} =
+      Labeling.create_project(scope, %{
+        "name" => "Review",
+        "label_type" => "text"
+      })
+
+    graph = %{
+      "nodes" => [
+        %{
+          "id" => "start",
+          "type" => "start",
+          "title" => "Start",
+          "config" => %{
+            "variables" => [%{"name" => "question", "type" => "text", "required" => true}]
+          }
+        },
+        %{
+          "id" => "draft",
+          "type" => "llm",
+          "title" => "Draft",
+          "config" => %{
+            "provider_plugin_id" => "echo",
+            "model" => "echo-1",
+            "prompt" => "{{start.question}}"
+          }
+        },
+        %{
+          "id" => "review",
+          "type" => "labeling",
+          "title" => "Human review",
+          "config" => %{
+            "project_id" => project.id,
+            "data" => [
+              %{"name" => "question", "value" => "{{start.question}}"},
+              %{"name" => "answer", "value" => "{{draft.text}}"}
+            ]
+          }
+        },
+        %{
+          "id" => "answer",
+          "type" => "answer",
+          "title" => "Answer",
+          "config" => %{"answer" => "Reviewed: {{review.text}}"}
+        }
+      ],
+      "edges" => [
+        %{"id" => "e1", "source" => "start", "source_handle" => "default", "target" => "draft"},
+        %{"id" => "e2", "source" => "draft", "source_handle" => "default", "target" => "review"},
+        %{"id" => "e3", "source" => "review", "source_handle" => "default", "target" => "answer"}
+      ]
+    }
+
+    {:ok, workflow} = Flux.Workflows.create_workflow(scope, %{"name" => "Reviewed Flux"})
+    {:ok, workflow} = Flux.Workflows.update_draft(scope, workflow, graph)
+    {:ok, run} = Flux.Workflows.start_run(scope, workflow, %{"question" => "may I?"})
+
+    assert_receive {:run_finished, %{status: :paused} = paused}, 5_000
+    assert paused.snapshot["prompt"]["type"] == "labeling"
+
+    # The node queued a task carrying its run.
+    task = Labeling.next_task(scope, project.id)
+    assert task.run_id == run.id
+    assert task.node_id == "review"
+    assert task.data["question"] == "may I?"
+    assert task.data["answer"] =~ "You said: may I?"
+
+    # Labeling it resumes the run with the label as the node's outputs.
+    {:ok, _} = Labeling.label_task(scope, task.id, %{"text" => "Yes, approved."})
+
+    assert_receive {:run_finished, %{status: :succeeded} = finished}, 5_000
+    assert finished.outputs["answer"] == "Reviewed: Yes, approved."
+  end
+
+  test "claims keep two labelers off the same task", %{scope: scope, workspace: workspace} do
+    {:ok, project} =
+      Labeling.create_project(scope, %{"name" => "Shared", "label_type" => "text"})
+
+    {:ok, _} = Labeling.add_task(scope, project, %{"text" => "one"})
+    {:ok, _} = Labeling.add_task(scope, project, %{"text" => "two"})
+
+    # A second editor in the same workspace.
+    other = account_fixture()
+
+    {:ok, _} =
+      %Flux.Accounts.Membership{}
+      |> Flux.Accounts.Membership.changeset(%{
+        workspace_id: workspace.id,
+        account_id: other.id,
+        role: :editor
+      })
+      |> Repo.insert()
+
+    {:ok, _} = Accounts.switch_workspace(other, workspace.id)
+    other_scope = Accounts.scope_for(other)
+
+    mine = Labeling.next_task(scope, project.id)
+    theirs = Labeling.next_task(other_scope, project.id)
+
+    assert mine.id != theirs.id
+    # Re-fetching keeps my own claim stable.
+    assert Labeling.next_task(scope, project.id).id == mine.id
+
+    {:ok, _} = Labeling.label_task(scope, mine.id, %{"text" => "done"})
+    {:ok, _} = Labeling.label_task(other_scope, theirs.id, %{"text" => "also done"})
+
+    stats = Labeling.labeler_stats(scope, project.id)
+    assert length(stats) == 2
+    assert Enum.all?(stats, fn {_email, count} -> count == 1 end)
+  end
+
+  test "batch results fan into a project", %{scope: scope} do
+    {:ok, project} =
+      Labeling.create_project(scope, %{"name" => "Batchy", "label_type" => "text"})
+
+    graph = %{
+      "nodes" => [
+        %{
+          "id" => "start",
+          "type" => "start",
+          "title" => "Start",
+          "config" => %{
+            "variables" => [%{"name" => "query", "type" => "text", "required" => true}]
+          }
+        },
+        %{
+          "id" => "llm_1",
+          "type" => "llm",
+          "title" => "LLM",
+          "config" => %{
+            "provider_plugin_id" => "echo",
+            "model" => "echo-1",
+            "prompt" => "{{start.query}}"
+          }
+        },
+        %{
+          "id" => "answer_1",
+          "type" => "answer",
+          "title" => "Answer",
+          "config" => %{"answer" => "{{llm_1.text}}"}
+        }
+      ],
+      "edges" => [
+        %{"id" => "e1", "source" => "start", "source_handle" => "default", "target" => "llm_1"},
+        %{"id" => "e2", "source" => "llm_1", "source_handle" => "default", "target" => "answer_1"}
+      ]
+    }
+
+    {:ok, workflow} = Flux.Workflows.create_workflow(scope, %{"name" => "Fan"})
+    {:ok, workflow} = Flux.Workflows.update_draft(scope, workflow, graph)
+
+    {:ok, batch} =
+      Flux.Workflows.start_batch(scope, workflow, [%{"query" => "a"}, %{"query" => "b"}])
+
+    :ok = Flux.Workflows.perform_batch(batch.id)
+
+    {:ok, tasks} = Labeling.add_tasks_from_batch(scope, project, batch.id)
+    assert length(tasks) == 2
+    assert Enum.all?(tasks, &(&1.source == "batch"))
+    assert hd(tasks).data["output"] =~ "You said:"
+  end
+
   test "the monitor's queue_item path and RBAC", %{scope: scope, workspace: workspace} do
     {:ok, project} =
       Labeling.create_project(scope, %{"name" => "Review", "label_type" => "text"})

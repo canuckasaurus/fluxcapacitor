@@ -45,6 +45,28 @@ defmodule Flux.Evals do
     end
   end
 
+  @doc "Toggles a set as a publish gate (auto-runs against every new version)."
+  def set_gate(%Scope{} = scope, set_id, gate?) when is_boolean(gate?) do
+    with :ok <- RBAC.authorize(scope, :app_edit),
+         %EvalSet{} = set <- get_set(scope, set_id) do
+      set |> EvalSet.changeset(%{"gate" => gate?}) |> Repo.update()
+    end
+  end
+
+  @doc """
+  Publish hook: starts an eval of every gated set against the freshly
+  published version. Sets with no cases are skipped quietly.
+  """
+  def run_gates(%Scope{} = scope, workflow_id, version) when is_integer(version) do
+    for set <- list_sets(scope, workflow_id), set.gate do
+      case start_eval(scope, set, version: version) do
+        {:ok, eval_run} -> eval_run
+        {:error, _skip} -> nil
+      end
+    end
+    |> Enum.reject(&is_nil/1)
+  end
+
   def delete_set(%Scope{} = scope, set_id) do
     with :ok <- RBAC.authorize(scope, :app_edit),
          %EvalSet{} = set <- get_set(scope, set_id) do
@@ -267,6 +289,8 @@ defmodule Flux.Evals do
         {:eval_updated, eval_run.id}
       )
 
+      previous_avg = previous_avg_score(eval_run)
+
       Flux.Webhooks.dispatch(eval_run.workspace_id, "eval.completed", %{
         "eval_run_id" => eval_run.id,
         "eval_set_id" => eval_run.eval_set_id,
@@ -275,11 +299,31 @@ defmodule Flux.Evals do
         "grader" => eval_run.grader,
         "passed" => passed,
         "failed" => length(results) - passed,
-        "avg_score" => avg
+        "avg_score" => avg,
+        "previous_avg_score" => previous_avg,
+        "regressed" => is_number(avg) and is_number(previous_avg) and avg < previous_avg
       })
     end
 
     :ok
+  end
+
+  # The most recent completed run of the same set before this one — the
+  # regression baseline.
+  defp previous_avg_score(eval_run) do
+    EvalRun
+    |> where(
+      [r],
+      r.eval_set_id == ^eval_run.eval_set_id and r.id != ^eval_run.id and
+        r.status == :completed and r.workspace_id == ^eval_run.workspace_id
+    )
+    |> order_by([r], desc: r.inserted_at)
+    |> limit(1)
+    |> Repo.one()
+    |> case do
+      %EvalRun{avg_score: avg} -> avg
+      nil -> nil
+    end
   end
 
   # Runs one case as a real workflow run (source :eval) so token usage

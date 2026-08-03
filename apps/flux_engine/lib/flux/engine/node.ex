@@ -35,6 +35,7 @@ defmodule Flux.Engine.Node do
     "iteration" => Flux.Engine.Nodes.Iteration,
     "loop" => Flux.Engine.Nodes.Loop,
     "human_input" => Flux.Engine.Nodes.HumanInput,
+    "labeling" => Flux.Engine.Nodes.Labeling,
     "knowledge_retrieval" => Flux.Engine.Nodes.KnowledgeRetrieval,
     "document" => Flux.Engine.Nodes.Document,
     "interview" => Flux.Engine.Nodes.Interview

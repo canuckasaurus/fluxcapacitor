@@ -61,11 +61,15 @@ defmodule Flux.Labeling.Task do
     belongs_to :workspace, Flux.Accounts.Workspace
     belongs_to :project, Flux.Labeling.Project
     belongs_to :labeled_by, Flux.Accounts.Account
+    belongs_to :run, Flux.Workflows.WorkflowRun
+    belongs_to :assigned_to, Flux.Accounts.Account
 
+    field :node_id, :string
     field :data, :map, default: %{}
     field :status, Ecto.Enum, values: [:unlabeled, :labeled, :skipped], default: :unlabeled
     field :label, :map
     field :source, :string
+    field :claimed_at, :utc_datetime
 
     timestamps(type: :utc_datetime)
   end

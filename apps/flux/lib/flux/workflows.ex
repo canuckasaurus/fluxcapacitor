@@ -228,6 +228,9 @@ defmodule Flux.Workflows do
         metadata: %{"version" => inserted.version}
       )
 
+      # Gated eval sets score every new version automatically.
+      Flux.Evals.run_gates(scope, workflow.id, inserted.version)
+
       {:ok, inserted}
     else
       {:error, errors} when is_list(errors) -> {:error, {:invalid_graph, errors}}
@@ -458,6 +461,53 @@ defmodule Flux.Workflows do
       batch_topic(batch.workflow_id),
       {:batch_updated, batch.id}
     )
+  end
+
+  @doc """
+  Workspace-wide run history with workflow names — the `/console/runs`
+  page. `filters` may carry `:workflow_id`, `:source`, `:status`.
+  """
+  def list_workspace_runs(%Scope{} = scope, filters \\ %{}, limit \\ 100) do
+    WorkflowRun
+    |> Repo.scoped(scope)
+    |> join(:inner, [r], w in Workflow, on: r.workflow_id == w.id)
+    |> filter_runs(filters)
+    |> order_by([r], desc: r.inserted_at)
+    |> limit(^limit)
+    |> select([r, w], %{run: r, workflow_name: w.name})
+    |> Repo.all()
+  end
+
+  defp filter_runs(query, filters) do
+    query
+    |> then(fn q ->
+      case filters[:workflow_id] do
+        nil -> q
+        workflow_id -> where(q, [r], r.workflow_id == ^workflow_id)
+      end
+    end)
+    |> then(fn q ->
+      case filters[:source] do
+        nil -> q
+        source -> where(q, [r], r.source == ^source)
+      end
+    end)
+    |> then(fn q ->
+      case filters[:status] do
+        nil -> q
+        status -> where(q, [r], r.status == ^status)
+      end
+    end)
+  end
+
+  @doc "The workspace's fluxes as {name, id} options (runs page filter)."
+  def workflow_options(%Scope{} = scope) do
+    Workflow
+    |> Repo.scoped(scope)
+    |> where([w], is_nil(w.deleted_at))
+    |> order_by([w], asc: w.name)
+    |> select([w], {w.name, w.id})
+    |> Repo.all()
   end
 
   @doc "PubSub topic carrying a run's engine events."
@@ -802,9 +852,13 @@ defmodule Flux.Workflows do
 
     host =
       workspace_id
-      |> build_host(fn event ->
-        Phoenix.PubSub.broadcast(Flux.PubSub, topic(run.id), {:engine_event, event})
-      end)
+      |> build_host(
+        fn event ->
+          Phoenix.PubSub.broadcast(Flux.PubSub, topic(run.id), {:engine_event, event})
+        end,
+        0,
+        run.id
+      )
       |> track_llm_usage(usage_acc)
 
     result = Engine.run(graph, inputs, host, run_opts)
@@ -1033,9 +1087,18 @@ defmodule Flux.Workflows do
     :ok
   end
 
-  defp build_host(workspace_id, emit, depth \\ 0) do
+  defp build_host(workspace_id, emit, depth \\ 0, run_id \\ nil) do
     %Host{
       emit: emit,
+      queue_label_task: fn %{project_id: project_id, data: data} = request ->
+        Flux.Labeling.queue_from_run(
+          workspace_id,
+          run_id,
+          project_id,
+          data,
+          request[:node_id]
+        )
+      end,
       invoke_llm: build_llm_invoker(workspace_id),
       invoke_tool: fn %{toolset_id: toolset_id, operation_id: operation_id, args: args} ->
         Flux.Tools.invoke_for_workspace(workspace_id, toolset_id, operation_id, args)

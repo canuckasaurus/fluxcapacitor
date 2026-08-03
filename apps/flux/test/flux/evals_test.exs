@@ -176,6 +176,29 @@ defmodule Flux.EvalsTest do
              Evals.start_eval(scope, set, grader: "contains", version: 99)
   end
 
+  test "gated sets auto-run against every published version", %{
+    scope: scope,
+    workflow: workflow
+  } do
+    {:ok, set} = Evals.create_set(scope, workflow, %{"name" => "Gate"})
+    {:ok, set} = Evals.set_gate(scope, set.id, true) |> then(fn {:ok, s} -> {:ok, s} end)
+    assert set.gate
+
+    {:ok, _} =
+      Evals.add_case(scope, set, %{"inputs" => %{"query" => "g"}, "expected" => "you said: g"})
+
+    {:ok, version} = Workflows.publish(scope, workflow)
+
+    assert [gated_run] = Evals.list_eval_runs(scope, set.id)
+    assert gated_run.target == "v#{version.version}"
+
+    # Ungated publishes of other sets don't fire.
+    {:ok, quiet} = Evals.create_set(scope, workflow, %{"name" => "Quiet"})
+    {:ok, _} = Evals.add_case(scope, quiet, %{"inputs" => %{}, "expected" => "x"})
+    {:ok, _} = Workflows.publish(scope, workflow)
+    assert Evals.list_eval_runs(scope, quiet.id) == []
+  end
+
   test "start_eval refuses empty sets and unknown graders", %{scope: scope, workflow: workflow} do
     {:ok, set} = Evals.create_set(scope, workflow, %{"name" => "Empty"})
     assert {:error, :no_cases} = Evals.start_eval(scope, set)

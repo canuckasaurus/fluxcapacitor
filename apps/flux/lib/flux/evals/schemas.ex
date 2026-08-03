@@ -11,13 +11,14 @@ defmodule Flux.Evals.EvalSet do
     belongs_to :workflow, Flux.Workflows.Workflow
 
     field :name, :string
+    field :gate, :boolean, default: false
 
     timestamps(type: :utc_datetime)
   end
 
   def changeset(set, attrs) do
     set
-    |> cast(attrs, [:name])
+    |> cast(attrs, [:name, :gate])
     |> validate_required([:name])
     |> validate_length(:name, min: 1, max: 255)
   end

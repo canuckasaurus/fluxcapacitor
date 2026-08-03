@@ -20,6 +20,7 @@ defmodule Flux.Engine.Host do
             fetch_docx_template: nil,
             store_file: nil,
             fetch_interview: nil,
+            queue_label_task: nil,
             default_llm: nil
 
   @typedoc """
@@ -44,6 +45,7 @@ defmodule Flux.Engine.Host do
           fetch_docx_template: (String.t() -> {:ok, map()} | {:error, term()}) | nil,
           store_file: (map() -> {:ok, map()} | {:error, term()}) | nil,
           fetch_interview: (String.t() -> {:ok, map()} | {:error, term()}) | nil,
+          queue_label_task: (map() -> {:ok, String.t()} | {:error, term()}) | nil,
           default_llm: %{optional(String.t()) => String.t()} | nil
         }
 
