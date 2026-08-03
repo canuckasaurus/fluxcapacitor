@@ -53,6 +53,43 @@ defmodule FluxWeb.RAGIntegrationTest do
     assert Enum.all?(segments, &is_list(&1.embedding))
   end
 
+  test "retrieval evals score golden cases with hit rate and MRR", %{
+    scope: scope,
+    dataset: dataset
+  } do
+    ingest!(scope, dataset, "vacation.md", "Vacation policy: employees receive 25 paid days.")
+    ingest!(scope, dataset, "shipping.md", "Shipping takes 3 to 5 business days by ground.")
+
+    {:ok, _} =
+      RAG.add_retrieval_case(scope, dataset, %{
+        "question" => "how many vacation days do we get?",
+        "expected" => "25 paid days"
+      })
+
+    {:ok, _} =
+      RAG.add_retrieval_case(scope, dataset, %{
+        "question" => "when does the office open?",
+        "expected" => "text that appears nowhere at all"
+      })
+
+    assert [_case_a, _case_b] = RAG.list_retrieval_cases(scope, dataset.id)
+
+    summary = RAG.evaluate_retrieval(scope, dataset.id)
+    assert summary.total == 2
+    assert summary.hits == 1
+    assert summary.hit_rate == 0.5
+
+    hit = Enum.find(summary.results, &(&1.expected == "25 paid days"))
+    assert hit.rank >= 1
+    assert summary.mrr > 0.0
+
+    # Blank cases are refused; deletes narrow the set.
+    assert {:error, _changeset} = RAG.add_retrieval_case(scope, dataset, %{"question" => "x"})
+    [first | _] = RAG.list_retrieval_cases(scope, dataset.id)
+    {:ok, _} = RAG.delete_retrieval_case(scope, first.id)
+    assert length(RAG.list_retrieval_cases(scope, dataset.id)) == 1
+  end
+
   test "hybrid retrieval finds the relevant segment first", %{scope: scope, dataset: dataset} do
     ingest!(scope, dataset, "vacation.md", """
     Vacation policy: employees receive 25 paid days of vacation per year.

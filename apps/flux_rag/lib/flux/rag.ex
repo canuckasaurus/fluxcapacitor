@@ -609,6 +609,77 @@ defmodule Flux.RAG do
     |> Repo.all()
   end
 
+  ## Retrieval evals (golden question → expected-passage cases)
+
+  def add_retrieval_case(%Scope{} = scope, %Dataset{} = dataset, attrs) do
+    with :ok <- RBAC.authorize(scope, :dataset_edit) do
+      %Flux.RAG.RetrievalCase{workspace_id: dataset.workspace_id, dataset_id: dataset.id}
+      |> Flux.RAG.RetrievalCase.changeset(attrs)
+      |> Repo.insert()
+    end
+  end
+
+  def list_retrieval_cases(%Scope{} = scope, dataset_id) do
+    Flux.RAG.RetrievalCase
+    |> Repo.scoped(scope)
+    |> where([c], c.dataset_id == ^dataset_id)
+    |> order_by([c], asc: c.inserted_at)
+    |> Repo.all()
+  end
+
+  def delete_retrieval_case(%Scope{} = scope, case_id) do
+    with :ok <- RBAC.authorize(scope, :dataset_edit),
+         %Flux.RAG.RetrievalCase{} = retrieval_case <-
+           Repo.one(Repo.scoped(where(Flux.RAG.RetrievalCase, id: ^case_id), scope)) ||
+             {:error, :not_found} do
+      Repo.delete(retrieval_case)
+    end
+  end
+
+  @doc """
+  Scores retrieval against the dataset's golden cases: for each, the
+  rank of the first returned passage containing `expected`
+  (case-insensitive). Returns `%{total, hits, hit_rate, mrr, results}` —
+  hit rate says how often the answer came back at all, MRR how high.
+  """
+  def evaluate_retrieval(%Scope{} = scope, dataset_id) do
+    cases = list_retrieval_cases(scope, dataset_id)
+
+    results =
+      for retrieval_case <- cases do
+        rank =
+          case retrieve(scope, dataset_id, retrieval_case.question) do
+            {:ok, hits} ->
+              needle = String.downcase(retrieval_case.expected)
+
+              hits
+              |> Enum.find_index(&String.contains?(String.downcase(&1.content), needle))
+              |> then(&(&1 && &1 + 1))
+
+            _error ->
+              nil
+          end
+
+        %{
+          case_id: retrieval_case.id,
+          question: retrieval_case.question,
+          expected: retrieval_case.expected,
+          rank: rank
+        }
+      end
+
+    hits = Enum.count(results, & &1.rank)
+    ranks = for %{rank: rank} <- results, rank, do: 1 / rank
+
+    %{
+      total: length(results),
+      hits: hits,
+      hit_rate: (results != [] && Float.round(hits / length(results), 4)) || nil,
+      mrr: (results != [] && Float.round(Enum.sum(ranks) / length(results), 4)) || nil,
+      results: results
+    }
+  end
+
   defp embed(_dataset, []), do: {:ok, []}
 
   defp embed(dataset, chunks) do

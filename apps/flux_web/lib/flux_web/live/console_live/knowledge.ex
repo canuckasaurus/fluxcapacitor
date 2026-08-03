@@ -34,6 +34,8 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
        can_edit: RBAC.can?(scope, :dataset_edit),
        can_create: RBAC.can?(scope, :dataset_create_and_management),
        selected: nil,
+       retrieval_cases: [],
+       retrieval_summary: nil,
        documents: [],
        expanded_document_id: nil,
        editing_segment_id: nil,
@@ -96,7 +98,13 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
       {:ok, dataset} ->
         {:noreply,
          socket
-         |> assign(creating: false, datasets: RAG.list_datasets(scope), selected: dataset)
+         |> assign(
+           creating: false,
+           datasets: RAG.list_datasets(scope),
+           selected: dataset,
+           retrieval_cases: [],
+           retrieval_summary: nil
+         )
          |> refresh_documents()}
 
       {:error, :unauthorized} ->
@@ -115,9 +123,52 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
       dataset ->
         {:noreply,
          socket
-         |> assign(selected: dataset, hits: nil, expanded_document_id: nil, segments: [])
+         |> assign(
+           selected: dataset,
+           hits: nil,
+           expanded_document_id: nil,
+           segments: [],
+           retrieval_cases: RAG.list_retrieval_cases(socket.assigns.current_scope, dataset.id),
+           retrieval_summary: nil
+         )
          |> refresh_documents()}
     end
+  end
+
+  def handle_event("add_retrieval_case", params, socket) do
+    scope = socket.assigns.current_scope
+
+    case RAG.add_retrieval_case(scope, socket.assigns.selected, %{
+           "question" => params["question"],
+           "expected" => params["expected"]
+         }) do
+      {:ok, _case} ->
+        {:noreply,
+         assign(socket,
+           retrieval_cases: RAG.list_retrieval_cases(scope, socket.assigns.selected.id)
+         )}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Both a question and an expected passage, please.")}
+    end
+  end
+
+  def handle_event("delete_retrieval_case", %{"case-id" => case_id}, socket) do
+    scope = socket.assigns.current_scope
+    RAG.delete_retrieval_case(scope, case_id)
+
+    {:noreply,
+     assign(socket,
+       retrieval_cases: RAG.list_retrieval_cases(scope, socket.assigns.selected.id),
+       retrieval_summary: nil
+     )}
+  end
+
+  def handle_event("run_retrieval_eval", _params, socket) do
+    summary =
+      RAG.evaluate_retrieval(socket.assigns.current_scope, socket.assigns.selected.id)
+
+    {:noreply, assign(socket, retrieval_summary: summary)}
   end
 
   def handle_event("delete_dataset", %{"dataset-id" => id}, socket) do
@@ -745,6 +796,86 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
               </p>
               <p class="text-sm whitespace-pre-wrap">{hit.content}</p>
             </div>
+          </div>
+
+          <div class="card border border-base-200 p-4 space-y-2" id="retrieval-evals-card">
+            <div class="flex items-center gap-2">
+              <p class="text-sm font-semibold">Retrieval evals</p>
+              <button
+                :if={@retrieval_cases != []}
+                class="btn btn-primary btn-xs ml-auto"
+                phx-click="run_retrieval_eval"
+              >
+                Score retrieval
+              </button>
+            </div>
+            <p class="text-xs opacity-60">
+              Golden cases: for each question, a passage containing the
+              expected text should come back. Re-score after chunking or
+              backend changes to see if retrieval got better or worse.
+            </p>
+
+            <form phx-submit="add_retrieval_case" class="flex gap-2" id="retrieval-case-form">
+              <input
+                type="text"
+                name="question"
+                placeholder="Question"
+                class="input input-bordered input-sm flex-1"
+              />
+              <input
+                type="text"
+                name="expected"
+                placeholder="expected passage text"
+                class="input input-bordered input-sm flex-1"
+              />
+              <button class="btn btn-sm">Add case</button>
+            </form>
+
+            <div
+              :if={@retrieval_summary}
+              class="rounded-box bg-base-200/50 p-2 text-sm"
+              id="retrieval-summary"
+            >
+              Hit rate {@retrieval_summary.hit_rate} · MRR {@retrieval_summary.mrr} · {@retrieval_summary.hits}/{@retrieval_summary.total} found
+            </div>
+
+            <table :if={@retrieval_cases != []} class="table table-xs">
+              <thead>
+                <tr>
+                  <th>Question</th>
+                  <th>Expected</th>
+                  <th>Rank</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr :for={retrieval_case <- @retrieval_cases} id={"rcase-#{retrieval_case.id}"}>
+                  <td class="max-w-xs truncate">{retrieval_case.question}</td>
+                  <td class="max-w-xs truncate opacity-70">{retrieval_case.expected}</td>
+                  <td>
+                    <span :if={@retrieval_summary} class="font-mono text-xs">
+                      {case Enum.find(
+                              @retrieval_summary.results,
+                              &(&1.case_id == retrieval_case.id)
+                            ) do
+                        %{rank: nil} -> "miss"
+                        %{rank: rank} -> "#" <> to_string(rank)
+                        _not_scored -> "—"
+                      end}
+                    </span>
+                  </td>
+                  <td>
+                    <button
+                      class="btn btn-ghost btn-xs text-error"
+                      phx-click="delete_retrieval_case"
+                      phx-value-case-id={retrieval_case.id}
+                    >
+                      ✕
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
 

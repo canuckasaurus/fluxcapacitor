@@ -30,11 +30,19 @@ if tika_url = System.get_env("FLUX_TIKA_URL") do
   config :flux, Flux.Tika, url: tika_url
 end
 
-# FLUX_VECTOR_BACKEND=pgvector: rank similarity in SQL through the
-# pgvector extension (the compose Postgres ships it). Default stays the
-# in-BEAM Naive backend, correct on any Postgres.
-if System.get_env("FLUX_VECTOR_BACKEND") == "pgvector" do
-  config :flux, :vector_store, Flux.RAG.VectorStore.PgVector
+# FLUX_VECTOR_BACKEND: `pgvector` ranks similarity in SQL through the
+# pgvector extension (the compose Postgres ships it); `arango` ranks in
+# AQL next to the entity graph. Default stays the in-BEAM Naive backend,
+# correct anywhere. FLUX_VECTOR_DIMS (pgvector only) types the column
+# and builds an HNSW index at boot for approximate search at scale.
+case System.get_env("FLUX_VECTOR_BACKEND") do
+  "pgvector" -> config :flux, :vector_store, Flux.RAG.VectorStore.PgVector
+  "arango" -> config :flux, :vector_store, Flux.RAG.VectorStore.Arango
+  _default -> :ok
+end
+
+if dims = System.get_env("FLUX_VECTOR_DIMS") do
+  config :flux, :vector_dims, String.to_integer(dims)
 end
 
 # FLUX_ARANGO_URL (+ FLUX_ARANGO_PASSWORD, FLUX_ARANGO_DATABASE): the

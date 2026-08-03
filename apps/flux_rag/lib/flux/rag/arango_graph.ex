@@ -91,7 +91,21 @@ defmodule Flux.RAG.ArangoGraph do
     end
   end
 
-  ## HTTP plumbing
+  ## HTTP plumbing (shared with the Arango vector backend)
+
+  @doc false
+  def ensure_collection(name, type), do: create_collection(name, type)
+
+  @doc false
+  def ensure_database do
+    request(:post, "/_api/database", %{"name" => database()}, root: true)
+  end
+
+  @doc false
+  def import_docs(collection, documents), do: import_documents(collection, documents)
+
+  @doc false
+  def aql(query, bind_vars), do: cursor(query, bind_vars)
 
   # Database + collections are created lazily, once per node (an ETS
   # marker avoids re-asserting on every sync).

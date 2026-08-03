@@ -143,3 +143,34 @@ defmodule Flux.RAG.EntityMention do
     belongs_to(:segment, Flux.RAG.Segment)
   end
 end
+
+defmodule Flux.RAG.RetrievalCase do
+  @moduledoc """
+  A golden retrieval case: for `question`, a passage containing
+  `expected` should come back. Scored by hit rate and MRR — the signal
+  that a chunking/backend change helped or hurt retrieval itself.
+  """
+  use Ecto.Schema
+  import Ecto.Changeset
+
+  @primary_key {:id, UUIDv7, autogenerate: true}
+  @foreign_key_type :binary_id
+
+  schema "retrieval_cases" do
+    belongs_to(:workspace, Flux.Accounts.Workspace)
+    belongs_to(:dataset, Flux.RAG.Dataset)
+
+    field(:question, :string)
+    field(:expected, :string)
+
+    timestamps(type: :utc_datetime)
+  end
+
+  def changeset(retrieval_case, attrs) do
+    retrieval_case
+    |> cast(attrs, [:question, :expected])
+    |> validate_required([:question, :expected])
+    |> validate_length(:question, min: 1, max: 500)
+    |> validate_length(:expected, min: 1, max: 500)
+  end
+end

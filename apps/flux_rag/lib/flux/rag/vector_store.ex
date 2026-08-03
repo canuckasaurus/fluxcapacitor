@@ -84,6 +84,118 @@ defmodule Flux.RAG.VectorStore.PgVector do
 
   @impl true
   def drop(_dataset_id), do: :ok
+
+  @doc """
+  Types the vector column and builds an HNSW cosine index — approximate
+  nearest-neighbor at corpus scale. Needs fixed dimensions
+  (`FLUX_VECTOR_DIMS`, your embedding model's size); called at boot,
+  failures log and leave exact scan in place.
+  """
+  def ensure_hnsw(dims) when is_integer(dims) and dims > 0 do
+    if available?() do
+      Repo.query!(
+        "ALTER TABLE rag_segments ALTER COLUMN embedding_vec TYPE vector(#{dims}) " <>
+          "USING embedding_vec::vector(#{dims})"
+      )
+
+      Repo.query!(
+        "CREATE INDEX IF NOT EXISTS rag_segments_embedding_vec_hnsw " <>
+          "ON rag_segments USING hnsw (embedding_vec vector_cosine_ops)"
+      )
+
+      :ok
+    else
+      {:error, :pgvector_unavailable}
+    end
+  rescue
+    exception ->
+      require Logger
+      Logger.warning("hnsw setup failed: #{Exception.message(exception)}")
+      {:error, exception}
+  end
+end
+
+defmodule Flux.RAG.VectorStore.Arango do
+  @moduledoc """
+  ArangoDB-backed similarity (`FLUX_VECTOR_BACKEND=arango`, needs
+  `FLUX_ARANGO_URL`): segment embeddings mirror into a `segments`
+  collection and search ranks by `COSINE_SIMILARITY` in AQL — exact,
+  server-side, and colocated with the entity graph so one Arango serves
+  both retrieval sources. Any error degrades to an empty ranking (the
+  hybrid RRF still has keyword + entity sources).
+  """
+  @behaviour Flux.RAG.VectorStore
+
+  alias Flux.RAG.ArangoGraph
+
+  @impl true
+  def index(dataset_id, segments) do
+    with :ok <- ready() do
+      documents =
+        for segment <- segments, is_list(segment.embedding) do
+          %{
+            "_key" => segment.id,
+            "dataset_id" => dataset_id,
+            "embedding" => segment.embedding
+          }
+        end
+
+      case ArangoGraph.import_docs("segments", documents) do
+        {:ok, _result} -> :ok
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  @impl true
+  def search(dataset_id, vector, top_k) do
+    query = """
+    FOR d IN segments
+      FILTER d.dataset_id == @dataset_id AND d.embedding != null
+      LET score = COSINE_SIMILARITY(d.embedding, @vector)
+      SORT score DESC
+      LIMIT @top_k
+      RETURN {id: d._key, score: score}
+    """
+
+    case ready() == :ok &&
+           ArangoGraph.aql(query, %{
+             "dataset_id" => dataset_id,
+             "vector" => vector,
+             "top_k" => top_k
+           }) do
+      {:ok, results} ->
+        for result <- results, do: %{segment_id: result["id"], score: result["score"] * 1.0}
+
+      _error_or_not_ready ->
+        []
+    end
+  end
+
+  @impl true
+  def drop(dataset_id) do
+    if ready() == :ok do
+      ArangoGraph.aql(
+        "FOR d IN segments FILTER d.dataset_id == @dataset_id REMOVE d IN segments",
+        %{"dataset_id" => dataset_id}
+      )
+    end
+
+    :ok
+  end
+
+  defp ready do
+    if ArangoGraph.configured?() do
+      with {:ok, _} <- ArangoGraph.ensure_database(),
+           {:ok, _} <- ArangoGraph.ensure_collection("segments", 2) do
+        :ok
+      else
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      {:error, :not_configured}
+    end
+  end
 end
 
 defmodule Flux.RAG.VectorStore.Naive do

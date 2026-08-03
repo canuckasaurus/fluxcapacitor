@@ -56,6 +56,41 @@ defmodule Flux.RAG.ArangoGraphTest do
     assert edges_body =~ "entities/"
   end
 
+  test "the Arango vector backend indexes embeddings and ranks by cosine" do
+    alias Flux.RAG.VectorStore.Arango
+
+    Req.Test.stub(ArangoGraph, fn conn ->
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+
+      case conn.request_path do
+        "/_api/database" ->
+          Req.Test.json(conn, %{"result" => true})
+
+        "/_db/flux_test/_api/collection" ->
+          Req.Test.json(conn, %{"name" => "segments"})
+
+        "/_db/flux_test/_api/import" ->
+          assert body =~ ~s("embedding":[1.0,0.0])
+          Req.Test.json(conn, %{"created" => 1})
+
+        "/_db/flux_test/_api/cursor" ->
+          decoded = Jason.decode!(body)
+          assert decoded["query"] =~ "COSINE_SIMILARITY"
+          assert decoded["bindVars"]["dataset_id"] == "ds-1"
+
+          Req.Test.json(conn, %{"result" => [%{"id" => "seg-1", "score" => 0.97}]})
+      end
+    end)
+
+    assert :ok = Arango.index("ds-1", [%{id: "seg-1", embedding: [1.0, 0.0]}])
+
+    assert [%{segment_id: "seg-1", score: 0.97}] = Arango.search("ds-1", [1.0, 0.1], 4)
+
+    # Unconfigured: empty ranking, hybrid retrieval degrades gracefully.
+    Application.delete_env(:flux, ArangoGraph)
+    assert Arango.search("ds-1", [1.0], 4) == []
+  end
+
   test "related runs the traversal and maps results (errors surface for fallback)" do
     Req.Test.stub(ArangoGraph, fn conn ->
       case conn.request_path do
