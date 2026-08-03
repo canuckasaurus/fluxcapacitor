@@ -44,6 +44,7 @@ defmodule Flux.Workflows.ScheduleWorker do
 
     Flux.Evals.run_scheduled(now)
     Workflows.run_scheduled_batches(now)
+    Flux.Export.run_scheduled(now)
 
     plugin_due =
       from(t in Trigger,

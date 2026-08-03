@@ -74,6 +74,124 @@ defmodule FluxWeb.V1.QualityController do
     end
   end
 
+  @stream_timeout 300_000
+
+  @doc false
+  # SSE progress for a batch: `batch_progress` events as rows land, a
+  # final `batch_completed`. Symmetric with /v1/workflows/run streaming.
+  def batch_events(conn, %{"id" => id}) do
+    with {:ok, workflow} <- require_workflow(conn),
+         %Workflows.WorkflowBatch{workflow_id: workflow_id} = batch
+         when workflow_id == workflow.id <-
+           Workflows.get_batch(conn.assigns.service_scope, id) do
+      Workflows.subscribe_batches(workflow.id)
+
+      conn =
+        conn
+        |> put_resp_content_type("text/event-stream")
+        |> put_resp_header("cache-control", "no-cache")
+        |> send_chunked(200)
+
+      {_status, conn} = sse(conn, batch_progress_payload(batch))
+
+      if batch.status == :completed do
+        conn
+      else
+        batch_stream_loop(conn, batch.id)
+      end
+    else
+      {:error, :no_workflow_token} -> workflow_token_error(conn)
+      _not_found -> error(conn, 404, "not_found", "batch not found")
+    end
+  end
+
+  defp batch_stream_loop(conn, batch_id) do
+    receive do
+      {:batch_updated, ^batch_id} ->
+        batch = Flux.Repo.get(Workflows.WorkflowBatch, batch_id, skip_workspace_guard: true)
+        {_status, conn} = sse(conn, batch_progress_payload(batch))
+
+        if batch.status == :completed, do: conn, else: batch_stream_loop(conn, batch_id)
+
+      {:batch_updated, _other} ->
+        batch_stream_loop(conn, batch_id)
+    after
+      @stream_timeout ->
+        {_status, conn} = sse(conn, %{event: "error", code: "timeout"})
+        conn
+    end
+  end
+
+  defp batch_progress_payload(batch) do
+    %{
+      event: (batch.status == :completed && "batch_completed") || "batch_progress",
+      batch_id: batch.id,
+      status: batch.status,
+      total: batch.total,
+      succeeded: batch.succeeded,
+      failed: batch.failed
+    }
+  end
+
+  @doc false
+  # SSE progress for an eval run: one `eval_progress` per re-score, a
+  # final `eval_completed` with the summary.
+  def eval_events(conn, %{"id" => id}) do
+    with {:ok, workflow} <- require_workflow(conn),
+         %Evals.EvalRun{workflow_id: workflow_id} = eval_run when workflow_id == workflow.id <-
+           Evals.get_eval_run(conn.assigns.service_scope, id) do
+      Evals.subscribe(workflow.id)
+
+      conn =
+        conn
+        |> put_resp_content_type("text/event-stream")
+        |> put_resp_header("cache-control", "no-cache")
+        |> send_chunked(200)
+
+      {_status, conn} = sse(conn, eval_progress_payload(eval_run))
+
+      if eval_run.status == :completed do
+        conn
+      else
+        eval_stream_loop(conn, eval_run.id)
+      end
+    else
+      {:error, :no_workflow_token} -> workflow_token_error(conn)
+      _not_found -> error(conn, 404, "not_found", "eval run not found")
+    end
+  end
+
+  defp eval_stream_loop(conn, eval_run_id) do
+    receive do
+      {:eval_updated, ^eval_run_id} ->
+        eval_run = Flux.Repo.get(Evals.EvalRun, eval_run_id, skip_workspace_guard: true)
+        {_status, conn} = sse(conn, eval_progress_payload(eval_run))
+
+        if eval_run.status == :completed, do: conn, else: eval_stream_loop(conn, eval_run_id)
+
+      {:eval_updated, _other} ->
+        eval_stream_loop(conn, eval_run_id)
+    after
+      @stream_timeout ->
+        {_status, conn} = sse(conn, %{event: "error", code: "timeout"})
+        conn
+    end
+  end
+
+  defp eval_progress_payload(eval_run) do
+    %{
+      event: (eval_run.status == :completed && "eval_completed") || "eval_progress",
+      eval_run_id: eval_run.id,
+      status: eval_run.status,
+      total: eval_run.total,
+      passed: eval_run.passed,
+      failed: eval_run.failed,
+      avg_score: eval_run.avg_score
+    }
+  end
+
+  defp sse(conn, payload), do: chunk(conn, "data: " <> Jason.encode!(payload) <> "\n\n")
+
   ## Evals (flux-… tokens)
 
   def eval_sets(conn, _params) do

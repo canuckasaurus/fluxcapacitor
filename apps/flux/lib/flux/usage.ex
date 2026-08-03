@@ -81,6 +81,52 @@ defmodule Flux.Usage do
     }
   end
 
+  @doc """
+  Per-flux run/token/cost totals over the window, most expensive first —
+  the dedicated cost surface (runs page card + CSV export).
+  """
+  def flux_costs(%Scope{} = scope, days \\ 30) do
+    since = DateTime.add(DateTime.utc_now(:second), -days, :day)
+
+    runs =
+      Flux.Workflows.WorkflowRun
+      |> Repo.scoped(scope)
+      |> where([r], r.inserted_at >= ^since)
+      |> join(:inner, [r], w in Flux.Workflows.Workflow, on: r.workflow_id == w.id)
+      |> select([r, w], %{workflow_id: r.workflow_id, name: w.name, usage: r.usage})
+      |> Repo.all()
+
+    runs
+    |> Enum.group_by(& &1.workflow_id)
+    |> Enum.map(fn {workflow_id, group} ->
+      %{
+        workflow_id: workflow_id,
+        name: hd(group).name,
+        runs: length(group),
+        tokens:
+          Enum.sum(
+            for row <- group,
+                do: (row.usage["input_tokens"] || 0) + (row.usage["output_tokens"] || 0)
+          ),
+        cost: Enum.sum(for row <- group, do: row.usage["estimated_cost_usd"] || 0.0)
+      }
+    end)
+    |> Enum.sort_by(&(-&1.cost))
+  end
+
+  @doc "The cost table as CSV rows (header + one line per flux)."
+  def flux_costs_csv(%Scope{} = scope, days \\ 30) do
+    rows =
+      for row <- flux_costs(scope, days) do
+        Enum.join(
+          [row.name, row.runs, row.tokens, :erlang.float_to_binary(row.cost * 1.0, decimals: 6)],
+          ","
+        )
+      end
+
+    Enum.join(["flux,runs,tokens,estimated_cost_usd" | rows], "\n") <> "\n"
+  end
+
   defp token_totals(scope, since) do
     Message
     |> Repo.scoped(scope)

@@ -19,6 +19,7 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
        models: Providers.available_models(scope),
        default_model: Providers.default_model(scope),
        retention_days: Accounts.retention_days(scope),
+       export_schedule: Accounts.export_schedule(scope),
        alert_url: Accounts.alert_url(scope),
        alert_secret: Accounts.alert_secret(scope),
        can_webhooks: RBAC.can?(scope, :api_extension_manage),
@@ -65,6 +66,28 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
 
       {:error, :unauthorized} ->
         {:noreply, put_flash(socket, :error, "You don't have permission to set the default.")}
+    end
+  end
+
+  def handle_event("set_export_schedule", %{"cron" => cron}, socket) do
+    case Accounts.set_export_schedule(socket.assigns.current_scope, cron) do
+      {:ok, _workspace} ->
+        cron = String.trim(cron)
+
+        {:noreply,
+         socket
+         |> put_flash(
+           :info,
+           (cron == "" && "Scheduled backups off.") ||
+             "Backups scheduled — archives land on the Files page."
+         )
+         |> assign(export_schedule: (cron == "" && nil) || cron)}
+
+      {:error, :invalid_cron} ->
+        {:noreply, put_flash(socket, :error, "That isn't a valid cron expression.")}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not update the schedule.")}
     end
   end
 
@@ -411,6 +434,18 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
         <a href={~p"/console/workspace-export"} class="btn btn-outline btn-sm w-fit">
           <.icon name="hero-arrow-down-tray" class="size-4" /> Download workspace export
         </a>
+
+        <form phx-submit="set_export_schedule" id="export-schedule-form" class="flex gap-2">
+          <input
+            type="text"
+            name="cron"
+            value={@export_schedule}
+            placeholder="cron, e.g. 0 3 * * * (blank = off)"
+            class="input input-bordered input-sm w-56 font-mono"
+            title="Writes the export archive to storage on this schedule; it appears on the Files page."
+          />
+          <button class="btn btn-outline btn-sm">Schedule backups</button>
+        </form>
         <form
           action={~p"/console/workspace-import"}
           method="post"

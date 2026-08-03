@@ -4,6 +4,15 @@ defmodule FluxWeb.WorkspaceExportController do
 
   plug FluxWeb.Plugs.RequirePermission, :app_import_export_dsl
 
+  def usage(conn, _params) do
+    send_download(
+      conn,
+      {:binary, Flux.Usage.flux_costs_csv(conn.assigns.current_scope)},
+      filename: "flux-costs.csv",
+      content_type: "text/csv"
+    )
+  end
+
   def export(conn, _params) do
     case Flux.Export.workspace(conn.assigns.current_scope) do
       {:ok, payload} ->

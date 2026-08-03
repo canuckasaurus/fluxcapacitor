@@ -200,6 +200,35 @@ defmodule Flux.WorkflowsTest do
     assert Workflows.list_batch_schedules(scope, workflow.id) == []
   end
 
+  test "flux costs roll up per workflow and export as CSV", %{scope: scope, workflow: workflow} do
+    Application.put_env(:flux, :model_pricing, %{"echo-1" => {1.0, 2.0}})
+    on_exit(fn -> Application.delete_env(:flux, :model_pricing) end)
+
+    {:ok, workflow} = Workflows.update_draft(scope, workflow, echo_graph())
+    {:ok, _run} = Workflows.start_run(scope, workflow, %{"query" => "bill me"})
+    assert_receive {:run_finished, %{status: :succeeded}}, 5_000
+
+    assert [row] = Flux.Usage.flux_costs(scope)
+    assert row.name == "Test Flux"
+    assert row.runs == 1
+    assert row.tokens == 15
+    assert row.cost > 0
+
+    csv = Flux.Usage.flux_costs_csv(scope)
+    assert csv =~ "flux,runs,tokens,estimated_cost_usd"
+    assert csv =~ "Test Flux,1,15,"
+  end
+
+  test "workspace run filters narrow by date", %{scope: scope, workflow: workflow} do
+    {:ok, workflow} = Workflows.update_draft(scope, workflow, echo_graph())
+    {:ok, _run} = Workflows.start_run(scope, workflow, %{"query" => "dated"})
+    assert_receive {:run_finished, _finished}, 5_000
+
+    today = Date.utc_today()
+    assert [_row] = Workflows.list_workspace_runs(scope, %{from: today, to: today})
+    assert [] = Workflows.list_workspace_runs(scope, %{to: Date.add(today, -2)})
+  end
+
   test "start_batch rejects empty and oversized uploads", %{scope: scope, workflow: workflow} do
     {:ok, workflow} = Workflows.update_draft(scope, workflow, echo_graph())
 

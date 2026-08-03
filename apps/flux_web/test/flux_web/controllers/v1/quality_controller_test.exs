@@ -82,6 +82,36 @@ defmodule FluxWeb.V1.QualityControllerTest do
     assert Workflows.list_batches(scope, hd(Workflows.list_workflows(scope)).id) != []
   end
 
+  test "batch and eval SSE endpoints stream progress", %{
+    conn: conn,
+    scope: scope,
+    workflow: workflow
+  } do
+    conn_create =
+      post(conn, ~p"/v1/workflows/batch", %{"rows" => [%{"query" => "sse"}]})
+
+    %{"batch_id" => batch_id} = json_response(conn_create, 202)
+    :ok = Workflows.perform_batch(batch_id)
+
+    events_conn = get(conn, ~p"/v1/batches/#{batch_id}/events")
+    assert response_content_type(events_conn, :"event-stream") =~ "text/event-stream"
+    assert events_conn.resp_body =~ "batch_completed"
+    assert events_conn.resp_body =~ ~s("succeeded":1)
+
+    {:ok, set} = Evals.create_set(scope, workflow, %{"name" => "SSE"})
+
+    {:ok, _} =
+      Evals.add_case(scope, set, %{"inputs" => %{"query" => "s"}, "expected" => "you said: s"})
+
+    conn_run = post(conn, ~p"/v1/eval-sets/#{set.id}/run", %{"grader" => "contains"})
+    %{"eval_run_id" => eval_run_id} = json_response(conn_run, 202)
+    :ok = Evals.perform_eval(eval_run_id)
+
+    eval_events = get(conn, ~p"/v1/eval-runs/#{eval_run_id}/events")
+    assert eval_events.resp_body =~ "eval_completed"
+    assert eval_events.resp_body =~ ~s("passed":1)
+  end
+
   test "eval sets run and report over the API", %{conn: conn, scope: scope, workflow: workflow} do
     {:ok, set} = Evals.create_set(scope, workflow, %{"name" => "CI"})
 

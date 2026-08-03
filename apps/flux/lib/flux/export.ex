@@ -12,6 +12,71 @@ defmodule Flux.Export do
 
   @secret_settings ~w(scim_token_hash)
 
+  @doc """
+  Minute-tick sweep: workspaces with an `export_schedule` cron in their
+  custom_config get their export archive written to storage when it
+  fires (once per minute at most, `last_export_at` marker). The archive
+  lands on the Files page with a download token, and an `export_ready`
+  notification points at it.
+  """
+  def run_scheduled(now \\ DateTime.utc_now(:second)) do
+    minute_start = %{now | second: 0}
+
+    workspaces =
+      Flux.Accounts.Workspace
+      |> Repo.all()
+      |> Enum.filter(&is_binary(get_in(&1.custom_config, ["export_schedule"])))
+
+    for workspace <- workspaces,
+        cron_due?(workspace.custom_config["export_schedule"], now),
+        not exported_since?(workspace, minute_start) do
+      scope = %Scope{
+        workspace: workspace,
+        membership: %Flux.Accounts.Membership{workspace_id: workspace.id, role: :owner}
+      }
+
+      with {:ok, payload} <- workspace(scope) do
+        name = "workspace-export-#{Date.to_iso8601(DateTime.to_date(now))}.json"
+
+        {:ok, stored} =
+          Flux.Workflows.store_workspace_file(workspace.id, name, Jason.encode!(payload))
+
+        workspace
+        |> Ecto.Changeset.change(
+          custom_config:
+            Map.put(workspace.custom_config, "last_export_at", DateTime.to_iso8601(now))
+        )
+        |> Repo.update!()
+
+        Flux.Notifications.notify(
+          workspace.id,
+          "export_ready",
+          "Scheduled workspace export ready: #{name}",
+          "/console/files"
+        )
+
+        stored
+      else
+        _error -> nil
+      end
+    end
+    |> Enum.filter(& &1)
+  end
+
+  defp cron_due?(cron, now) do
+    case Oban.Cron.Expression.parse(cron) do
+      {:ok, expression} -> Oban.Cron.Expression.now?(expression, now)
+      {:error, _reason} -> false
+    end
+  end
+
+  defp exported_since?(workspace, minute_start) do
+    case DateTime.from_iso8601(workspace.custom_config["last_export_at"] || "") do
+      {:ok, last, _offset} -> DateTime.compare(last, minute_start) != :lt
+      _never -> false
+    end
+  end
+
   def workspace(%Scope{} = scope) do
     with :ok <- Flux.RBAC.authorize(scope, :app_import_export_dsl) do
       workspace = Repo.get!(Flux.Accounts.Workspace, Scope.workspace_id(scope))

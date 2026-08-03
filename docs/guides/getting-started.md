@@ -74,7 +74,11 @@ lands in the dev mailbox at `/dev/mailbox`).
 5. **Knowledge** → create a dataset (echo embeddings work for trying it
    out), add documents by upload, paste, or URL, watch them index, and
    hit-test retrieval. Wire a `knowledge` node to the dataset in any
-   flux.
+   flux. Per-dataset settings cover chunk size/overlap and
+   **markdown-aware splitting** (chunks keep their headings). At corpus
+   scale, set `FLUX_VECTOR_BACKEND=pgvector` (the compose Postgres ships
+   the extension) to rank similarity in SQL, and `FLUX_ARANGO_URL` (the
+   `rag` profile) for deeper related-entity graph traversal.
 
 ## Testing
 
@@ -98,7 +102,8 @@ map.
 | Datasets, documents, segments, hit testing | `/console/knowledge` |
 | Data labeling: projects, tagging queue, consensus + agreement, gold standards + labeler accuracy, JSONL export | `/console/labeling` |
 | Workspace-wide run history with filters, cost totals, per-node drill-in | `/console/runs` |
-| Stored files: run outputs, artifacts, uploads, downloads | `/console/files` |
+| Stored files, model registry, scheduled export archives | `/console/files` |
+| Notification feed: failures, regressions, completions | `/console/notifications` |
 | Providers, tool/datasource plugins, credentials | `/console/plugins` |
 | API toolsets (OpenAPI imports) | `/console/tools` |
 | Members, roles, invitations | `/console/members` |
@@ -111,8 +116,12 @@ Set `DATABASE_URL`, `SECRET_KEY_BASE`, `PHX_HOST`, and `FLUX_MASTER_KEY`
 (the root key for per-workspace credential encryption). Optional:
 `STORAGE_BACKEND=s3` + `S3_*` for object storage, `FLUX_METRICS=1` for
 Prometheus, `FLUX_LOG_JSON=1` for structured logs,
-`OTEL_EXPORTER_OTLP_ENDPOINT` for traces, `FLUX_OIDC_*` for SSO, and
-`FLUX_ROLE=web|worker` to split serving from queue processing.
+`OTEL_EXPORTER_OTLP_ENDPOINT` for traces, `FLUX_OIDC_*` for SSO,
+`FLUX_VECTOR_BACKEND=pgvector` for SQL-side similarity,
+`FLUX_ARANGO_URL` for the entity-graph backend, and
+`FLUX_ROLE=web|worker` to split serving from queue processing. Workspace
+settings can schedule **automatic export archives** (cron) that land on
+the Files page as backups.
 
 ## Localization
 

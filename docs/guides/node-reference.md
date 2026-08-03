@@ -18,7 +18,7 @@ then see `%{"error", "is_error"}` as its outputs. Retries are per-node
 |---|---|---|---|
 | `start` | Validates run inputs against declared variables | `variables` (name/label/type/required) | one key per variable |
 | `llm` | Calls a model, streaming | provider+model, `system_prompt`, `prompt`, optional `output_schema`, optional fallback model | `text`, `usage`, `model_used`, `fallback_used`, `output` (with schema) |
-| `agent` | Autonomous tool loop with an iteration cap | provider+model, `instructions`, `query`, `max_iterations`, `tools`, `output_schema`, `enable_drive`, deferred tools | `text`, `output`, `status`, `iterations`, `tool_calls`, `files` |
+| `agent` | Autonomous tool loop with an iteration cap | provider+model, `instructions`, `query`, `max_iterations`, `tools`, `output_schema`, `enable_drive`, `approval_tools`, deferred tools | `text`, `output`, `status`, `iterations`, `tool_calls`, `files` |
 | `if_else` | Case chain (if/elif/else) | `cases` with conditions | handle per case + `false` |
 | `question_classifier` | LLM-forced classification | provider+model, `classes` | handle per class, `class` |
 | `parameter_extractor` | LLM-forced structured extraction | provider+model, `parameters` | one key per parameter |
@@ -64,7 +64,10 @@ An autonomous tool-calling loop: the model decides which of the
 attached toolsets to call, up to `max_iterations` rounds.
 `enable_drive` gives it a sandboxed scratch drive (`files` output);
 `output_schema` forces a final structured answer; deferred tools pause
-the run for outside execution. Outputs `text`, `output`, `status`,
+the run for outside execution. Tools listed in `approval_tools` pause
+the run for a **human approve/deny** before executing — approval runs
+the call and the loop continues in the same run; denial feeds the model
+a refusal it can adapt to. Outputs `text`, `output`, `status`,
 `iterations`, `tool_calls`.
 
 ### `if_else`

@@ -11,7 +11,9 @@ orchestrator, no queue infrastructure beyond Postgres.
 
 ## What it does
 
-- **Visual workflow engine** — 25 node types (LLM, agent loops, branching,
+- **Visual workflow engine** — 25 node types (LLM, agent loops — with
+  **human tool approval**: flagged tools pause the run for an
+  approve/deny before executing — branching,
   iteration and bounded loops over sub-fluxes, code execution, HTTP, knowledge
   retrieval, human-input and labeling pause/resume, classifiers, extractors,
   and more) with
@@ -62,7 +64,12 @@ orchestrator, no queue infrastructure beyond Postgres.
   persist trained models as **run artifacts** (`./artifacts/`) and load
   them back as **attachments** (with an artifact picker in the editor) —
   label → train → serve entirely inside fluxes, no external labeling
-  service. Batches, evals, and labeling are all drivable over the
+  service — and a **model registry** names and versions those artifacts
+  ("ticket-intent v3"), leading the attachment picker. A **version
+  comparison matrix** on the evals page shows the latest score per set
+  and target side by side, and **in-console notifications** surface run
+  failures, eval regressions, and labeling completions with an unread
+  badge. Batches, evals, and labeling are all drivable over the
   **`/v1` API** for CI and data pipelines — covered by the strict OpenAPI
   contract at `GET /v1/spec` — and a **template gallery** (triage, RAG,
   human review, model trainer, report writer, intent router) seeds new
@@ -76,8 +83,12 @@ orchestrator, no queue infrastructure beyond Postgres.
 - **Knowledge (RAG)** — datasets → documents → embedded segments, hybrid
   retrieval (vector cosine + Postgres full-text + **entity mentions**, merged
   by reciprocal rank fusion), optional reranking, URL ingestion, datasource
-  auto-sync, multi-dataset queries, per-dataset retrieval settings, and
-  citations that flow onto chat answers.
+  auto-sync, multi-dataset queries, per-dataset retrieval settings
+  (including **markdown-aware chunking**), and citations that flow onto
+  chat answers. Similarity ranks in-BEAM by default, in SQL with the
+  **pgvector backend** (`FLUX_VECTOR_BACKEND=pgvector`), and an
+  **ArangoDB entity-graph backend** (`FLUX_ARANGO_URL`) upgrades
+  related-entity lookups to real 1–2 hop weighted traversals.
 - **Plugins** — one SDK (`packages/flux_plugin`) with five capability
   behaviours: **model providers** (OpenAI, Anthropic, Gemini, any
   OpenAI-compatible endpoint), **tools**, **datasources** (external document
@@ -251,7 +262,7 @@ scratch drive, and a labeling project wired to the Model trainer flux
 ## Testing
 
 ```bash
-mix test                             # full umbrella suite (~650 tests), hermetic
+mix test                             # full umbrella suite (~665 tests), hermetic
 ```
 
 The suite runs with no network: providers stub through `Req.Test` or the
@@ -298,3 +309,5 @@ Key environment variables in production (see `.env.docker.example`):
 | `FLUX_LOG_JSON` | Structured JSON logs |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | OpenTelemetry trace export |
 | `FLUX_SSRF_ALLOW` | Hostnames exempted from the outbound-HTTP SSRF guard |
+| `FLUX_VECTOR_BACKEND` | `pgvector` ranks similarity in SQL (compose Postgres ships the extension) |
+| `FLUX_ARANGO_URL` | ArangoDB entity-graph backend for related-entity traversal (`rag` compose profile) |

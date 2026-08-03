@@ -10,6 +10,7 @@ defmodule FluxWeb.ConsoleLive.Runs do
 
   @sources ~w(draft api batch eval)
   @statuses ~w(succeeded failed running paused stopped)
+  @page_size 100
 
   @impl true
   def mount(_params, _session, socket) do
@@ -23,14 +24,20 @@ defmodule FluxWeb.ConsoleLive.Runs do
        filters: %{},
        sources: @sources,
        statuses: @statuses,
-       expanded_run: nil
+       expanded_run: nil,
+       limit: @page_size,
+       flux_costs: Flux.Usage.flux_costs(scope)
      )
      |> load_runs()}
   end
 
   defp load_runs(socket) do
     rows =
-      Workflows.list_workspace_runs(socket.assigns.current_scope, socket.assigns.filters)
+      Workflows.list_workspace_runs(
+        socket.assigns.current_scope,
+        socket.assigns.filters,
+        socket.assigns.limit
+      )
 
     totals =
       Enum.reduce(rows, %{tokens: 0, cost: 0.0}, fn %{run: run}, acc ->
@@ -41,7 +48,7 @@ defmodule FluxWeb.ConsoleLive.Runs do
         }
       end)
 
-    assign(socket, rows: rows, totals: totals)
+    assign(socket, rows: rows, totals: totals, more?: length(rows) >= socket.assigns.limit)
   end
 
   @impl true
@@ -51,12 +58,28 @@ defmodule FluxWeb.ConsoleLive.Runs do
       |> put_filter(:workflow_id, params["workflow_id"])
       |> put_filter(:source, parse_enum(params["source"], @sources))
       |> put_filter(:status, parse_enum(params["status"], @statuses))
+      |> put_filter(:from, parse_date(params["from"]))
+      |> put_filter(:to, parse_date(params["to"]))
 
-    {:noreply, socket |> assign(filters: filters, expanded_run: nil) |> load_runs()}
+    {:noreply,
+     socket
+     |> assign(filters: filters, expanded_run: nil, limit: @page_size)
+     |> load_runs()}
+  end
+
+  def handle_event("load_more", _params, socket) do
+    {:noreply, socket |> update(:limit, &(&1 + @page_size)) |> load_runs()}
   end
 
   def handle_event("toggle_run", %{"id" => id}, socket) do
     {:noreply, assign(socket, expanded_run: (socket.assigns.expanded_run == id && nil) || id)}
+  end
+
+  defp parse_date(value) do
+    case Date.from_iso8601(to_string(value || "")) do
+      {:ok, date} -> date
+      _invalid -> nil
+    end
   end
 
   defp put_filter(filters, _key, nil), do: filters
@@ -135,6 +158,20 @@ defmodule FluxWeb.ConsoleLive.Runs do
                 {status}
               </option>
             </select>
+            <input
+              type="date"
+              name="from"
+              value={@filters[:from]}
+              class="input input-bordered input-sm"
+              title="From date"
+            />
+            <input
+              type="date"
+              name="to"
+              value={@filters[:to]}
+              class="input input-bordered input-sm"
+              title="To date"
+            />
           </form>
 
           <span class="text-xs opacity-60 ml-auto" id="runs-totals">
@@ -260,6 +297,50 @@ defmodule FluxWeb.ConsoleLive.Runs do
                 </td>
               </tr>
             <% end %>
+          </tbody>
+        </table>
+
+        <button :if={@more?} class="btn btn-ghost btn-sm" phx-click="load_more">
+          Load more
+        </button>
+      </div>
+
+      <div
+        :if={@flux_costs != []}
+        class="card border border-base-200 p-6 space-y-3"
+        id="flux-costs-card"
+      >
+        <div class="flex items-center gap-2">
+          <h2 class="font-semibold">Cost by flux (30 days)</h2>
+          <a href={~p"/console/usage-export"} class="btn btn-ghost btn-xs ml-auto">
+            <.icon name="hero-arrow-down-tray" class="size-3" /> Export CSV
+          </a>
+        </div>
+        <table class="table table-xs max-w-2xl">
+          <thead>
+            <tr>
+              <th>Flux</th>
+              <th>Runs</th>
+              <th>Tokens</th>
+              <th>Est. cost</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={row <- @flux_costs} id={"cost-#{row.workflow_id}"}>
+              <td>
+                <.link navigate={~p"/console/fluxes/#{row.workflow_id}"} class="link link-hover">
+                  {row.name}
+                </.link>
+              </td>
+              <td class="text-xs">{row.runs}</td>
+              <td class="font-mono text-xs">{row.tokens}</td>
+              <td class="font-mono text-xs">
+                <span :if={row.cost > 0}>
+                  ~${:erlang.float_to_binary(row.cost * 1.0, decimals: 4)}
+                </span>
+                <span :if={row.cost == 0} class="opacity-40">—</span>
+              </td>
+            </tr>
           </tbody>
         </table>
       </div>

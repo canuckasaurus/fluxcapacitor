@@ -595,6 +595,43 @@ defmodule Flux.Accounts do
     end
   end
 
+  @doc """
+  Sets (or with nil/blank, clears) the scheduled-export cron: the sweep
+  writes the workspace export archive to storage on this schedule.
+  """
+  def set_export_schedule(%Scope{} = scope, cron) do
+    cron = String.trim(to_string(cron || ""))
+
+    with :ok <- Flux.RBAC.authorize(scope, :customization_manage),
+         :ok <- validate_export_cron(cron),
+         %Workspace{} = workspace <- Repo.get(Workspace, Scope.workspace_id(scope)) do
+      custom_config =
+        if cron == "" do
+          Map.delete(workspace.custom_config || %{}, "export_schedule")
+        else
+          Map.put(workspace.custom_config || %{}, "export_schedule", cron)
+        end
+
+      workspace |> Ecto.Changeset.change(custom_config: custom_config) |> Repo.update()
+    end
+  end
+
+  defp validate_export_cron(""), do: :ok
+
+  defp validate_export_cron(cron) do
+    case Oban.Cron.Expression.parse(cron) do
+      {:ok, _expression} -> :ok
+      {:error, _reason} -> {:error, :invalid_cron}
+    end
+  end
+
+  def export_schedule(%Scope{} = scope) do
+    case Repo.get(Workspace, Scope.workspace_id(scope)) do
+      %{custom_config: %{"export_schedule" => cron}} -> cron
+      _none -> nil
+    end
+  end
+
   @doc "Sets (or with nil/blank, clears) the failed-run alert webhook URL."
   def set_alert_url(%Scope{} = scope, url) do
     url = url && String.trim(url)

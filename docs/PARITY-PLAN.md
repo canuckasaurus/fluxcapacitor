@@ -393,3 +393,31 @@ undoable edit via a toolbar modal); **i18n** (5 more page headings +
 "Files"→"Fluxes" mistranslation caught and fixed); **2 golden fixtures**
 (classifier routing on echo's text-match fallback; llm → file_output —
 echo's streamed trailing space pinned in expectations).
+
+30. ~~Batch 6: RAG backends, registry, notifications, approvals, ops
+(#147, 2026-08-02)~~ DONE — ArangoDB BUSL-1.1 accepted by the user, so
+both graph items shipped: **pgvector backend** (guarded migration adds
+embedding_vec when the extension exists; FLUX_VECTOR_BACKEND=pgvector
+ranks cosine in SQL; compose Postgres now pgvector/pgvector:pg16 — the
+alpine→debian volume carried over, extension 0.8.6 live-verified);
+**ArangoDB entity graph** (Flux.RAG.ArangoGraph: lazy database/collection
+setup, NDJSON bulk import of co-occurrence vertices/edges, 1..2-hop
+weighted AQL traversal; related_entities prefers it and falls back to
+SQL; live-verified against arangodb 3.12.9 — found a depth-2 neighbor
+SQL can't see); **markdown-aware chunking** (per-dataset toggle, chunks
+carry their headings); **model registry** (model_artifacts: name +
+auto-incrementing version over stored files, register from the Files
+page, ★ entries lead the editor's attachment picker); **version
+comparison matrix** (latest score per set × target on the evals page,
+best cell highlighted); **in-console notifications** (workspace feed +
+sidebar unread badge; emitted on run failure, eval regression, labeling
+completion, export ready); **agent tool approval** (approval_tools on
+the agent node; flagged calls pause the run — a new rerun resume mode
+re-enters the agent loop; approve executes, deny feeds the model a
+refusal; Approve/Deny buttons in the run panel); **cost surface**
+(Usage.flux_costs + card on /console/runs + CSV download);
+**pagination + date filters** (runs & files Load more; from/to date
+range); **scheduled workspace exports** (cron in workspace settings →
+archive stored with a download token, appears on Files, export_ready
+notification); **/v1 SSE for batches and evals** (:id/events endpoints
+streaming progress frames, contract-consistent payloads).
