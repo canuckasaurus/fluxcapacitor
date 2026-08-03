@@ -173,6 +173,32 @@ defmodule Flux.WebhooksTest do
     assert "labeling.task_labeled" in events
     assert "labeling.project_completed" in events
 
+    # deliveries keep a log row; the worker records the outcome, and a
+    # retry re-enqueues the same payload
+    deliveries = Webhooks.list_deliveries(scope)
+    assert deliveries != []
+    [delivery | _rest] = deliveries
+    assert delivery.attempts == 0
+
+    Application.put_env(:flux, :alert_req_options, plug: {Req.Test, :webhook_alerts})
+    on_exit(fn -> Application.delete_env(:flux, :alert_req_options) end)
+    Req.Test.stub(:webhook_alerts, fn conn -> Req.Test.json(conn, %{"ok" => true}) end)
+
+    [job | _others] = all_enqueued(worker: Flux.Workflows.AlertWorker)
+    assert :ok = perform_job(Flux.Workflows.AlertWorker, job.args)
+
+    recorded = Enum.find(Webhooks.list_deliveries(scope), &(&1.id == job.args["delivery_id"]))
+    assert recorded.status == 200
+    assert recorded.attempts == 1
+
+    {:ok, _retried} = Webhooks.retry_delivery(scope, recorded.id)
+
+    retry_jobs =
+      all_enqueued(worker: Flux.Workflows.AlertWorker)
+      |> Enum.filter(&(&1.args["delivery_id"] == recorded.id))
+
+    assert length(retry_jobs) >= 2
+
     # unknown event names are rejected at registration
     assert {:error, changeset} =
              Webhooks.create_endpoint(scope, %{

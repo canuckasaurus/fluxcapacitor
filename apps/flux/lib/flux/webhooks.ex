@@ -76,6 +76,28 @@ defmodule Flux.Webhooks do
     dispatch(run.workspace_id, "run.#{run.status}", run_payload("run.#{run.status}", run))
   end
 
+  defmodule Delivery do
+    @moduledoc "One webhook delivery: its outcome across Oban attempts."
+    use Ecto.Schema
+
+    @primary_key {:id, UUIDv7, autogenerate: true}
+    @foreign_key_type :binary_id
+
+    schema "webhook_deliveries" do
+      belongs_to :workspace, Flux.Accounts.Workspace
+      belongs_to :endpoint, Flux.Webhooks.Endpoint
+
+      field :event, :string
+      field :url, :string
+      field :status, :integer
+      field :attempts, :integer, default: 0
+      field :last_error, :string
+      field :payload, :map, default: %{}
+
+      timestamps(type: :utc_datetime)
+    end
+  end
+
   @doc "Thin fan-out for any event; the payload gets the event name merged in."
   def dispatch(workspace_id, event, payload) do
     endpoints =
@@ -87,12 +109,80 @@ defmodule Flux.Webhooks do
     payload = Map.put(payload, "event", event)
 
     for endpoint <- endpoints, event in endpoint.events or "*" in endpoint.events do
-      %{"url" => endpoint.url, "secret" => endpoint.secret, "payload" => payload}
+      delivery =
+        Repo.insert!(%Delivery{
+          workspace_id: endpoint.workspace_id,
+          endpoint_id: endpoint.id,
+          event: event,
+          url: endpoint.url,
+          payload: payload
+        })
+
+      %{
+        "url" => endpoint.url,
+        "secret" => endpoint.secret,
+        "payload" => payload,
+        "delivery_id" => delivery.id
+      }
       |> Flux.Workflows.AlertWorker.new()
       |> Oban.insert()
     end
 
     :ok
+  end
+
+  @doc "Recent deliveries, newest first — the delivery log in settings."
+  def list_deliveries(%Scope{} = scope, limit \\ 50) do
+    Delivery
+    |> Repo.scoped(scope)
+    |> order_by([d], desc: d.inserted_at, desc: d.id)
+    |> limit(^limit)
+    |> Repo.all()
+  end
+
+  @doc "Re-enqueues a delivery (fresh attempt counter on the same payload)."
+  def retry_delivery(%Scope{} = scope, delivery_id) do
+    with :ok <- RBAC.authorize(scope, :api_extension_manage),
+         %Delivery{} = delivery <-
+           Repo.one(Repo.scoped(where(Delivery, id: ^delivery_id), scope)) ||
+             {:error, :not_found},
+         %Endpoint{} = endpoint <-
+           Repo.one(Repo.scoped(where(Endpoint, id: ^delivery.endpoint_id), scope)) ||
+             {:error, :endpoint_gone} do
+      {:ok, _job} =
+        %{
+          "url" => endpoint.url,
+          "secret" => endpoint.secret,
+          "payload" => delivery.payload,
+          "delivery_id" => delivery.id
+        }
+        |> Flux.Workflows.AlertWorker.new()
+        |> Oban.insert()
+
+      {:ok, delivery}
+    end
+  end
+
+  @doc false
+  # Called from the delivery worker after each attempt.
+  def record_attempt(nil, _attempt, _status, _error), do: :ok
+
+  def record_attempt(delivery_id, attempt, status, error) do
+    case Repo.get(Delivery, delivery_id, skip_workspace_guard: true) do
+      nil ->
+        :ok
+
+      delivery ->
+        delivery
+        |> Ecto.Changeset.change(
+          attempts: max(delivery.attempts, attempt),
+          status: status,
+          last_error: error && String.slice(error, 0, 255)
+        )
+        |> Repo.update()
+
+        :ok
+    end
   end
 
   defp run_payload(event, run) do

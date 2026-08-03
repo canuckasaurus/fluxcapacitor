@@ -113,6 +113,18 @@ defmodule FluxWeb.ConsoleLive.Runs do
     (run.usage["input_tokens"] || 0) + (run.usage["output_tokens"] || 0)
   end
 
+  # The waterfall: each node's bar scales to the slowest node (min 2% so
+  # instant nodes stay visible).
+  defp bar_width(node_execution, node_executions) do
+    slowest =
+      node_executions
+      |> Enum.map(&(&1["elapsed_ms"] || 0))
+      |> Enum.max(fn -> 1 end)
+      |> max(1)
+
+    max(round((node_execution["elapsed_ms"] || 0) / slowest * 100), 2)
+  end
+
   @summary_cap 300
 
   defp summarize(map) do
@@ -283,7 +295,7 @@ defmodule FluxWeb.ConsoleLive.Runs do
                       <span class="font-mono break-all">{summarize(run.outputs)}</span>
                     </p>
 
-                    <table :if={run.node_executions != []} class="table table-xs max-w-3xl">
+                    <table :if={run.node_executions != []} class="table table-xs max-w-4xl">
                       <thead>
                         <tr>
                           <th>Node</th>
@@ -291,6 +303,8 @@ defmodule FluxWeb.ConsoleLive.Runs do
                           <th>Status</th>
 
                           <th>ms</th>
+
+                          <th class="w-48">Timeline</th>
 
                           <th>Outputs</th>
                         </tr>
@@ -313,6 +327,19 @@ defmodule FluxWeb.ConsoleLive.Runs do
                           </td>
 
                           <td class="opacity-70">{node_execution["elapsed_ms"]}</td>
+
+                          <td>
+                            <div
+                              class={[
+                                "h-2 rounded",
+                                (node_execution["status"] == "failed" && "bg-error/70") ||
+                                  "bg-primary/60"
+                              ]}
+                              style={"width: #{bar_width(node_execution, run.node_executions)}%"}
+                              title={"#{node_execution["elapsed_ms"]} ms"}
+                            >
+                            </div>
+                          </td>
 
                           <td class="font-mono break-all max-w-md">
                             {summarize(node_execution["outputs"] || %{})}

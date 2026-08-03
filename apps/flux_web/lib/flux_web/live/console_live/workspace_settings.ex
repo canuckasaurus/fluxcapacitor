@@ -26,6 +26,7 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
        alert_secret: Accounts.alert_secret(scope),
        can_webhooks: RBAC.can?(scope, :api_extension_manage),
        webhooks: Flux.Webhooks.list_endpoints(scope),
+       webhook_deliveries: Flux.Webhooks.list_deliveries(scope, 25),
        can_scim: RBAC.can?(scope, :workspace_member_manage),
        scim_enabled: Accounts.scim_enabled?(scope),
        scim_token: nil,
@@ -240,6 +241,24 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
     else
       _error ->
         {:noreply, put_flash(socket, :error, "Could not update the webhook.")}
+    end
+  end
+
+  def handle_event("retry_delivery", %{"id" => id}, socket) do
+    case Flux.Webhooks.retry_delivery(socket.assigns.current_scope, id) do
+      {:ok, _delivery} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Delivery re-queued.")
+         |> assign(
+           webhook_deliveries: Flux.Webhooks.list_deliveries(socket.assigns.current_scope, 25)
+         )}
+
+      {:error, :endpoint_gone} ->
+        {:noreply, put_flash(socket, :error, "That endpoint no longer exists.")}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not retry the delivery.")}
     end
   end
 
@@ -497,6 +516,54 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
             </label>
           </div>
         </form>
+
+        <details :if={@webhook_deliveries != []} id="deliveries-log">
+          <summary class="text-sm font-semibold cursor-pointer">
+            Delivery log ({length(@webhook_deliveries)} recent)
+          </summary>
+          <table class="table table-xs mt-2">
+            <thead>
+              <tr>
+                <th>When</th>
+                <th>Event</th>
+                <th>Status</th>
+                <th>Attempts</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :for={delivery <- @webhook_deliveries} id={"delivery-#{delivery.id}"}>
+                <td class="text-xs opacity-70">
+                  {Calendar.strftime(delivery.inserted_at, "%m-%d %H:%M:%S")}
+                </td>
+                <td class="text-xs">{delivery.event}</td>
+                <td>
+                  <span class={[
+                    "badge badge-xs",
+                    (delivery.status in 200..299 && "badge-success") ||
+                      (delivery.status == nil && delivery.attempts == 0 && "badge-ghost") ||
+                      "badge-error"
+                  ]}>
+                    {delivery.status || (delivery.attempts == 0 && "queued") || "error"}
+                  </span>
+                  <span :if={delivery.last_error} class="text-xs opacity-60 ml-1">
+                    {delivery.last_error}
+                  </span>
+                </td>
+                <td class="text-xs">{delivery.attempts}</td>
+                <td>
+                  <button
+                    class="btn btn-ghost btn-xs"
+                    phx-click="retry_delivery"
+                    phx-value-id={delivery.id}
+                  >
+                    Retry
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </details>
       </div>
 
       <div :if={@can_rename} class="card border border-base-200 p-6 space-y-3" id="export-card">

@@ -9,20 +9,33 @@ defmodule Flux.Workflows.AlertWorker do
   use Oban.Worker, queue: :default, max_attempts: 5
 
   @impl Oban.Worker
-  def perform(%Oban.Job{args: %{"url" => url, "payload" => payload} = args}) do
+  def perform(%Oban.Job{attempt: attempt, args: %{"url" => url, "payload" => payload} = args}) do
     with :ok <- Flux.SSRF.verify_url(url) do
       body = Jason.encode!(payload)
 
       headers =
         [{"content-type", "application/json"}] ++ signature_headers(args["secret"], body)
 
-      case Req.post(
-             [url: url, body: body, headers: headers, receive_timeout: 10_000] ++
-               Application.get_env(:flux, :alert_req_options, [])
-           ) do
-        {:ok, %{status: status}} when status in 200..299 -> :ok
-        {:ok, %{status: status}} -> {:error, "alert endpoint returned HTTP #{status}"}
-        {:error, reason} -> {:error, inspect(reason)}
+      result =
+        Req.post(
+          [url: url, body: body, headers: headers, receive_timeout: 10_000] ++
+            Application.get_env(:flux, :alert_req_options, [])
+        )
+
+      # Endpoint deliveries keep a log row; run-failure alerts don't.
+      case result do
+        {:ok, %{status: status}} when status in 200..299 ->
+          Flux.Webhooks.record_attempt(args["delivery_id"], attempt, status, nil)
+          :ok
+
+        {:ok, %{status: status}} ->
+          error = "endpoint returned HTTP #{status}"
+          Flux.Webhooks.record_attempt(args["delivery_id"], attempt, status, error)
+          {:error, error}
+
+        {:error, reason} ->
+          Flux.Webhooks.record_attempt(args["delivery_id"], attempt, nil, inspect(reason))
+          {:error, inspect(reason)}
       end
     end
   end
