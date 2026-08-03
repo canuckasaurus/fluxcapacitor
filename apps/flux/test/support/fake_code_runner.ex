@@ -11,7 +11,8 @@ defmodule Flux.FakeCodeRunner do
        result: %{
          "echo" => spec.inputs,
          "language" => spec.language,
-         "deps" => length(spec.dependencies)
+         "deps" => length(spec.dependencies),
+         "files" => Enum.map(Map.get(spec, :files, []), & &1["name"])
        },
        stdout: "fake-run ok\n"
      }}

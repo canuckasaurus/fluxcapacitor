@@ -229,6 +229,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
            trigger_plugins: [],
            show_site: false,
            show_versions: false,
+           version_diff: nil,
            versions: [],
            show_variables: false,
            show_ai_edit: false,
@@ -953,7 +954,34 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
       end
 
     {:noreply,
-     assign(socket, show_versions: not socket.assigns.show_versions, versions: versions)}
+     assign(socket,
+       show_versions: not socket.assigns.show_versions,
+       versions: versions,
+       version_diff: nil
+     )}
+  end
+
+  def handle_event("diff_version", %{"version" => version}, socket) do
+    version = String.to_integer(version)
+
+    case socket.assigns.version_diff do
+      {^version, _diff} ->
+        {:noreply, assign(socket, version_diff: nil)}
+
+      _other_or_nil ->
+        case Workflows.get_version(
+               socket.assigns.current_scope,
+               socket.assigns.workflow.id,
+               version
+             ) do
+          %{graph: old_graph} ->
+            diff = Workflows.diff_graphs(old_graph, socket.assigns.graph)
+            {:noreply, assign(socket, version_diff: {version, diff})}
+
+          _not_found ->
+            {:noreply, put_flash(socket, :error, "That version no longer exists.")}
+        end
+    end
   end
 
   def handle_event("restore_version", %{"version" => version}, socket) do
@@ -2147,10 +2175,17 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
   # picker options ({label, "file_id name"} pairs feeding the textarea).
   defp artifact_options(scope, workflow_id) do
     # Registered models lead (named, versioned); raw run artifacts follow.
+    # Space-free names attach as registry:<name> — resolved to the LATEST
+    # version at run time; names with spaces pin the current file id.
     registered =
       for artifact <- Flux.Registry.latest(scope) do
-        {"★ #{artifact.name} v#{artifact.version} (#{artifact.file.name})",
-         "#{artifact.file_id} #{artifact.file.name}"}
+        if String.contains?(artifact.name, " ") do
+          {"★ #{artifact.name} v#{artifact.version} (#{artifact.file.name})",
+           "#{artifact.file_id} #{artifact.file.name}"}
+        else
+          {"★ #{artifact.name} (latest — now v#{artifact.version})",
+           "registry:#{artifact.name} #{artifact.file.name}"}
+        end
       end
 
     run_artifacts =
@@ -4786,14 +4821,62 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
               {length(version.graph["nodes"] || [])} nodes
             </span>
             <button
+              class="btn btn-ghost btn-xs ml-auto"
+              phx-click="diff_version"
+              phx-value-version={version.version}
+            >
+              {(@version_diff && elem(@version_diff, 0) == version.version && "Hide diff") ||
+                "Diff vs draft"}
+            </button>
+            <button
               :if={@can_edit}
-              class="btn btn-outline btn-xs ml-auto"
+              class="btn btn-outline btn-xs"
               phx-click="restore_version"
               phx-value-version={version.version}
               data-confirm={"Replace the draft with v#{version.version}? (Undo restores it.)"}
             >
               Restore to draft
             </button>
+          </div>
+
+          <div
+            :if={@version_diff}
+            class="rounded-box border border-base-200 p-3 space-y-2 text-sm"
+            id="version-diff"
+          >
+            <% {diff_version, diff} = @version_diff %>
+            <p class="font-semibold text-xs opacity-70">
+              v{diff_version} → draft
+            </p>
+            <p :if={
+              diff.added == [] and diff.removed == [] and diff.changed == [] and
+                diff.edges_added == [] and diff.edges_removed == []
+            }>
+              No structural changes — the draft matches v{diff_version}.
+            </p>
+            <div :for={node <- diff.added} class="flex gap-2 items-center">
+              <span class="badge badge-success badge-xs">+ node</span>
+              <span class="font-mono text-xs">{node.id}</span>
+              <span class="text-xs opacity-60">{node.type} · {node.title}</span>
+            </div>
+            <div :for={node <- diff.removed} class="flex gap-2 items-center">
+              <span class="badge badge-error badge-xs">− node</span>
+              <span class="font-mono text-xs">{node.id}</span>
+              <span class="text-xs opacity-60">{node.type} · {node.title}</span>
+            </div>
+            <div :for={node <- diff.changed} class="flex gap-2 items-center">
+              <span class="badge badge-warning badge-xs">~ node</span>
+              <span class="font-mono text-xs">{node.id}</span>
+              <span class="text-xs opacity-60">{Enum.join(node.fields, ", ")}</span>
+            </div>
+            <div :for={edge <- diff.edges_added} class="flex gap-2 items-center">
+              <span class="badge badge-success badge-xs">+ edge</span>
+              <span class="font-mono text-xs">{edge}</span>
+            </div>
+            <div :for={edge <- diff.edges_removed} class="flex gap-2 items-center">
+              <span class="badge badge-error badge-xs">− edge</span>
+              <span class="font-mono text-xs">{edge}</span>
+            </div>
           </div>
         </div>
         <div class="modal-backdrop" phx-click="toggle_versions"></div>

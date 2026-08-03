@@ -98,6 +98,33 @@ defmodule Flux.NotificationsRegistryTest do
     assert [%{version: 1}] = Registry.latest(scope)
   end
 
+  test "registry: attachments resolve latest version at run time", %{
+    scope: scope,
+    workspace: workspace
+  } do
+    {:ok, old} = Workflows.store_workspace_file(workspace.id, "model-v1.joblib", "old model")
+    {:ok, new} = Workflows.store_workspace_file(workspace.id, "model-v2.joblib", "new model")
+
+    {:ok, _v1} = Registry.register(scope, "intent", old["file_id"])
+    {:ok, _v2} = Registry.register(scope, "intent", new["file_id"])
+
+    spec = %{
+      language: "python3",
+      code: "def main(): return {}",
+      dependencies: [],
+      inputs: %{},
+      attachments: [%{"file_id" => "registry:intent", "name" => "model.joblib"}]
+    }
+
+    assert {:ok, %{result: %{"files" => ["model.joblib"]}}} =
+             Flux.CodeRunner.run(spec, workspace.id)
+
+    # Unknown registry names fail honestly instead of resolving.
+    bad = %{spec | attachments: [%{"file_id" => "registry:ghost"}]}
+    assert {:error, message} = Flux.CodeRunner.run(bad, workspace.id)
+    assert message =~ "not found"
+  end
+
   test "scheduled exports write the archive and notify", %{scope: scope} do
     assert {:error, :invalid_cron} = Accounts.set_export_schedule(scope, "nope")
     {:ok, _workspace} = Accounts.set_export_schedule(scope, "* * * * *")

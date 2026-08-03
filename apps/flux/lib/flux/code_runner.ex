@@ -67,6 +67,7 @@ defmodule Flux.CodeRunner do
     fetched =
       Enum.reduce_while(attachments, {[], 0}, fn attachment, {files, total} ->
         file_id = to_string(attachment["file_id"] || attachment[:file_id] || "")
+        file_id = resolve_registry_ref(file_id, workspace_id)
 
         with {:ok, _uuid} <- Ecto.UUID.cast(file_id),
              %Flux.Chat.UploadedFile{workspace_id: ^workspace_id} = file <-
@@ -93,6 +94,25 @@ defmodule Flux.CodeRunner do
         {:ok, spec |> Map.delete(:attachments) |> Map.put(:files, Enum.reverse(files))}
     end
   end
+
+  # "registry:name" resolves to the LATEST registered version of that
+  # model at run time — promote a new version and every serving flux
+  # picks it up without edits. Unknown names fall through untouched (the
+  # UUID cast produces the honest not-found error).
+  defp resolve_registry_ref("registry:" <> name, workspace_id) do
+    import Ecto.Query
+
+    latest =
+      Flux.Registry.ModelArtifact
+      |> where([m], m.workspace_id == ^workspace_id and m.name == ^String.trim(name))
+      |> order_by([m], desc: m.version)
+      |> limit(1)
+      |> Flux.Repo.one(skip_workspace_guard: true)
+
+    (latest && latest.file_id) || "registry:" <> name
+  end
+
+  defp resolve_registry_ref(file_id, _workspace_id), do: file_id
 
   defp impl, do: Application.get_env(:flux, :code_runner, Flux.CodeRunner.Sandbox)
 end
