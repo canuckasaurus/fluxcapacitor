@@ -144,82 +144,82 @@ defmodule FluxWeb.Layouts do
               active={@active == :dashboard}
             />
 
-            <.sidebar_section label="Build" />
+            <.sidebar_section label={gettext("Build")} />
             <.sidebar_link
               navigate={~p"/console/fluxes"}
               icon="hero-squares-2x2"
-              label="Flux Creator"
+              label={gettext("Flux Creator")}
               active={@active == :fluxes}
             />
             <.sidebar_link
               navigate={~p"/console/apps"}
               icon="hero-chat-bubble-left-right"
-              label="Apps"
+              label={gettext("Apps")}
               active={@active == :apps}
             />
             <.sidebar_link
               navigate={~p"/console/templates"}
               icon="hero-document-duplicate"
-              label="Doc templates"
+              label={gettext("Doc templates")}
               active={@active == :templates}
             />
             <.sidebar_link
               navigate={~p"/console/interviews"}
               icon="hero-clipboard-document-check"
-              label="Interviews"
+              label={gettext("Interviews")}
               active={@active == :interviews}
             />
 
-            <.sidebar_section label="Ground" />
+            <.sidebar_section label={gettext("Ground")} />
             <.sidebar_link
               navigate={~p"/console/knowledge"}
               icon="hero-book-open"
-              label="Knowledge"
+              label={gettext("Knowledge")}
               active={@active == :knowledge}
             />
             <.sidebar_link
               navigate={~p"/console/tools"}
               icon="hero-wrench-screwdriver"
-              label="Tools"
+              label={gettext("Tools")}
               active={@active == :tools}
             />
             <.sidebar_link
               navigate={~p"/console/labeling"}
               icon="hero-tag"
-              label="Labeling"
+              label={gettext("Labeling")}
               active={@active == :labeling}
             />
             <.sidebar_link
               navigate={~p"/console/plugins"}
               icon="hero-puzzle-piece"
-              label="Plugins"
+              label={gettext("Plugins")}
               active={@active == :plugins}
             />
 
-            <.sidebar_section label="Operate" />
+            <.sidebar_section label={gettext("Operate")} />
             <.sidebar_link
               navigate={~p"/console/runs"}
               icon="hero-play-circle"
-              label="Runs"
+              label={gettext("Runs")}
               active={@active == :runs}
             />
             <.sidebar_link
               navigate={~p"/console/members"}
               icon="hero-user-group"
-              label="Members"
+              label={gettext("Members")}
               active={@active == :members}
             />
             <.sidebar_link
               :if={Flux.RBAC.can?(@current_scope, :workspace_member_manage)}
               navigate={~p"/console/audit"}
               icon="hero-clipboard-document-list"
-              label="Audit log"
+              label={gettext("Audit log")}
               active={@active == :audit}
             />
             <.sidebar_link
               navigate={~p"/console/settings"}
               icon="hero-cog-6-tooth"
-              label="Settings"
+              label={gettext("Settings")}
               active={@active == :settings}
             />
 
@@ -227,7 +227,7 @@ defmodule FluxWeb.Layouts do
               <.sidebar_link
                 navigate={~p"/console/docs"}
                 icon="hero-academic-cap"
-                label="Docs"
+                label={gettext("Docs")}
                 active={@active == :docs}
               />
             </div>

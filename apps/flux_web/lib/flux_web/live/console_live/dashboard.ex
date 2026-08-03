@@ -28,10 +28,10 @@ defmodule FluxWeb.ConsoleLive.Dashboard do
     >
       <div>
         <h1 class="text-2xl font-bold">
-          Welcome to {@current_scope.workspace.name}
+          {gettext("Welcome to")} {@current_scope.workspace.name}
         </h1>
         <p class="opacity-70 mt-1">
-          You're signed in as {@current_scope.account.email} ({@current_scope.membership.role}).
+          {gettext("You're signed in as")} {@current_scope.account.email} ({@current_scope.membership.role}).
         </p>
         <p class="opacity-50 mt-1 text-sm italic">
           Where we're going, we don't need boilerplate.
@@ -39,29 +39,29 @@ defmodule FluxWeb.ConsoleLive.Dashboard do
       </div>
 
       <div class="card border border-base-200 p-6 space-y-4" id="workspace-usage">
-        <h2 class="font-semibold">Usage (last {@usage.days} days)</h2>
+        <h2 class="font-semibold">{gettext("Usage (last %{days} days)", days: @usage.days)}</h2>
 
         <div class="stats stats-horizontal flex-wrap circuit-panel">
           <div class="stat py-2 px-4">
-            <div class="stat-title text-xs">Replies</div>
+            <div class="stat-title text-xs">{gettext("Replies")}</div>
             <div class="stat-value text-lg circuit-value circuit-green">
               {@usage.tokens.replies}
             </div>
           </div>
           <div class="stat py-2 px-4">
-            <div class="stat-title text-xs">Tokens in</div>
+            <div class="stat-title text-xs">{gettext("Tokens in")}</div>
             <div class="stat-value text-lg circuit-value circuit-amber">
               {@usage.tokens.input}
             </div>
           </div>
           <div class="stat py-2 px-4">
-            <div class="stat-title text-xs">Tokens out</div>
+            <div class="stat-title text-xs">{gettext("Tokens out")}</div>
             <div class="stat-value text-lg circuit-value circuit-red">
               {@usage.tokens.output}
             </div>
           </div>
           <div class="stat py-2 px-4">
-            <div class="stat-title text-xs">Runs</div>
+            <div class="stat-title text-xs">{gettext("Runs")}</div>
             <div class="stat-value text-lg circuit-value circuit-green">
               {@usage.runs |> Map.values() |> Enum.sum()}
             </div>
@@ -70,7 +70,7 @@ defmodule FluxWeb.ConsoleLive.Dashboard do
             </div>
           </div>
           <div class="stat py-2 px-4">
-            <div class="stat-title text-xs">Run tokens</div>
+            <div class="stat-title text-xs">{gettext("Run tokens")}</div>
             <div class="stat-value text-lg circuit-value circuit-cyan" id="run-token-total">
               {@usage.run_tokens.input + @usage.run_tokens.output}
             </div>
@@ -79,13 +79,13 @@ defmodule FluxWeb.ConsoleLive.Dashboard do
             </div>
           </div>
           <div class="stat py-2 px-4">
-            <div class="stat-title text-xs">Uploads</div>
+            <div class="stat-title text-xs">{gettext("Uploads")}</div>
             <div class="stat-value text-lg circuit-value circuit-amber">
               {humanize_bytes(@usage.storage_bytes)}
             </div>
           </div>
           <div class="stat py-2 px-4">
-            <div class="stat-title text-xs">Knowledge</div>
+            <div class="stat-title text-xs">{gettext("Knowledge")}</div>
             <div class="stat-value text-lg circuit-value circuit-cyan">
               {@usage.knowledge.segments}
             </div>
@@ -96,13 +96,13 @@ defmodule FluxWeb.ConsoleLive.Dashboard do
         </div>
 
         <div :if={@usage.top_apps != []} class="space-y-1">
-          <p class="text-sm font-semibold">Top apps by tokens</p>
+          <p class="text-sm font-semibold">{gettext("Top apps by tokens")}</p>
           <table class="table table-xs max-w-xl">
             <thead>
               <tr>
-                <th>App</th>
-                <th>Replies</th>
-                <th>Tokens</th>
+                <th>{gettext("App")}</th>
+                <th>{gettext("Replies")}</th>
+                <th>{gettext("Tokens")}</th>
               </tr>
             </thead>
             <tbody>
@@ -116,14 +116,14 @@ defmodule FluxWeb.ConsoleLive.Dashboard do
         </div>
 
         <div :if={@usage.daily != []} class="space-y-1">
-          <p class="text-sm font-semibold">Daily</p>
+          <p class="text-sm font-semibold">{gettext("Daily")}</p>
           <table class="table table-xs max-w-xl">
             <thead>
               <tr>
-                <th>Day</th>
-                <th>Replies</th>
-                <th>Tokens in</th>
-                <th>Tokens out</th>
+                <th>{gettext("Day")}</th>
+                <th>{gettext("Replies")}</th>
+                <th>{gettext("Tokens in")}</th>
+                <th>{gettext("Tokens out")}</th>
               </tr>
             </thead>
             <tbody>
@@ -141,7 +141,7 @@ defmodule FluxWeb.ConsoleLive.Dashboard do
           :if={@usage.tokens.replies == 0 and @usage.runs == %{}}
           class="text-sm opacity-60"
         >
-          Nothing to report yet — usage appears here once apps and fluxes run.
+          {gettext("Nothing to report yet — usage appears here once apps and fluxes run.")}
         </p>
       </div>
 
@@ -151,7 +151,7 @@ defmodule FluxWeb.ConsoleLive.Dashboard do
           class="card border border-base-200 p-6 hover:border-primary transition-colors space-y-2"
         >
           <.icon name="hero-squares-2x2" class="size-6 text-primary" />
-          <h2 class="font-semibold">Create a Flux</h2>
+          <h2 class="font-semibold">{gettext("Create a Flux")}</h2>
           <p class="text-sm opacity-70">
             Build an AI workflow on the visual canvas and publish it for your team.
           </p>
@@ -162,7 +162,7 @@ defmodule FluxWeb.ConsoleLive.Dashboard do
           class="card border border-base-200 p-6 hover:border-primary transition-colors space-y-2"
         >
           <.icon name="hero-book-open" class="size-6 text-primary" />
-          <h2 class="font-semibold">Add knowledge</h2>
+          <h2 class="font-semibold">{gettext("Add knowledge")}</h2>
           <p class="text-sm opacity-70">
             Upload documents so your Fluxes can answer with your organization's content.
           </p>
@@ -173,7 +173,7 @@ defmodule FluxWeb.ConsoleLive.Dashboard do
           class="card border border-base-200 p-6 hover:border-primary transition-colors space-y-2"
         >
           <.icon name="hero-puzzle-piece" class="size-6 text-primary" />
-          <h2 class="font-semibold">Set up plugins</h2>
+          <h2 class="font-semibold">{gettext("Set up plugins")}</h2>
           <p class="text-sm opacity-70">
             Connect model providers and tools your workspace can use.
           </p>
@@ -184,7 +184,7 @@ defmodule FluxWeb.ConsoleLive.Dashboard do
           class="card border border-base-200 p-6 hover:border-primary transition-colors space-y-2"
         >
           <.icon name="hero-user-group" class="size-6 text-primary" />
-          <h2 class="font-semibold">Invite your team</h2>
+          <h2 class="font-semibold">{gettext("Invite your team")}</h2>
           <p class="text-sm opacity-70">
             Add teammates and assign roles so everyone can collaborate.
           </p>

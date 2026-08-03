@@ -47,6 +47,17 @@ defmodule FluxWeb.ConsoleLiveTest do
       assert html =~ "Members"
     end
 
+    test "?locale=fr renders the console in French", %{conn: conn, workspace: workspace} do
+      # The Locale plug remembers ?locale= in the session, so the LiveView
+      # mount (via the on_mount hook) picks it up too.
+      conn = get(conn, ~p"/console?locale=fr")
+      {:ok, _lv, html} = live(conn, ~p"/console")
+      assert html =~ "Bienvenue dans #{workspace.name}"
+      assert html =~ "Créateur de Flux"
+      assert html =~ "Étiquetage"
+      assert html =~ "Exécutions"
+    end
+
     test "dashboard usage rolls up chat and run activity", %{conn: conn, account: account} do
       scope = Accounts.scope_for(account)
 
