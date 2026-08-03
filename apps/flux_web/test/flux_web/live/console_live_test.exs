@@ -111,6 +111,28 @@ defmodule FluxWeb.ConsoleLiveTest do
       end
     end
 
+    test "the instance admin panel gates on FLUX_ADMIN_EMAILS", %{
+      conn: conn,
+      account: account,
+      workspace: workspace
+    } do
+      # Not an admin: bounced to the dashboard.
+      assert {:error, {:live_redirect, %{to: "/console"}}} = live(conn, ~p"/console/admin")
+
+      Application.put_env(:flux, :instance_admins, [account.email])
+      on_exit(fn -> Application.delete_env(:flux, :instance_admins) end)
+
+      {:ok, lv, html} = live(conn, ~p"/console/admin")
+      assert html =~ "Instance admin"
+      assert html =~ workspace.name
+
+      lv
+      |> element("#admin-ws-#{workspace.id} form")
+      |> render_change(%{"workspace-id" => workspace.id, "plan" => "team"})
+
+      assert Flux.Features.plan_for_workspace(workspace.id) == "team"
+    end
+
     test "members screen lists the owner and can invite", %{
       conn: conn,
       account: account

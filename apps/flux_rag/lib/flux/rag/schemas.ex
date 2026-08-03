@@ -16,6 +16,7 @@ defmodule Flux.RAG.Dataset do
     field(:chunk_size, :integer, default: 1000)
     field(:chunk_overlap, :integer, default: 120)
     field(:split_markdown, :boolean, default: false)
+    field(:query_expansion, :boolean, default: false)
     field(:rerank_plugin_id, :string)
     field(:rerank_model, :string)
     field(:sync_plugin_id, :string)
@@ -39,6 +40,7 @@ defmodule Flux.RAG.Dataset do
       :chunk_size,
       :chunk_overlap,
       :split_markdown,
+      :query_expansion,
       :rerank_plugin_id,
       :rerank_model,
       :sync_plugin_id,

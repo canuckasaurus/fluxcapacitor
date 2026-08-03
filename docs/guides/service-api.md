@@ -40,6 +40,15 @@ final `message_end` carrying usage. Quota-exceeded apps return 429 with
 | `POST /v1/eval-sets/:id/run` | Start an eval: optional `grader` (`exact`/`contains`/`regex`/`llm_judge`), `version`, `judge` (`"plugin|model"`). 202 + `eval_run_id`. Case weights (set via the console or a `weight` CSV column) scale each case's influence on `avg_score` |
 | `GET /v1/eval-runs/:id` | Eval status, pass counts, `avg_score`, per-case results |
 
+## Models, notifications, retrieval evals (any valid token)
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /v1/models` · `POST /v1/models` | List / register model-registry entries (`name`, `file_id`, optional `metrics`; versions auto-increment) |
+| `GET /v1/notifications` | The workspace notification feed (`?limit=`) |
+| `GET/POST /v1/datasets/:id/retrieval-cases` | List / add golden retrieval cases (`question`, `expected`) |
+| `POST /v1/datasets/:id/retrieval-eval` | Score retrieval: hit rate, MRR, per-case ranks |
+
 ## Labeling (any valid token)
 
 | Endpoint | Purpose |

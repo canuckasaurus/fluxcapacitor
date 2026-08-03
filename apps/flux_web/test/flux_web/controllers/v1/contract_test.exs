@@ -304,6 +304,66 @@ defmodule FluxWeb.V1.ContractTest do
     assert_schema(body, "Error", spec)
   end
 
+  test "models, notifications, and retrieval evals match their schemas", %{
+    conn: conn,
+    scope: scope,
+    api_spec: spec
+  } do
+    workspace_id = scope.workspace.id
+    {:ok, stored} = Workflows.store_workspace_file(workspace_id, "model.bin", <<1, 2>>)
+
+    registered =
+      conn
+      |> post(~p"/v1/models", %{
+        "name" => "contract-model",
+        "file_id" => stored["file_id"],
+        "metrics" => %{"acc" => 0.9}
+      })
+      |> json_response(201)
+
+    assert_schema(registered, "ModelRegistered", spec)
+
+    body = conn |> get(~p"/v1/models") |> json_response(200)
+    assert_schema(body, "ModelList", spec)
+    assert [%{"name" => "contract-model", "version" => 1}] = body["data"]
+
+    Flux.Notifications.notify(workspace_id, "run_failed", "Contract failure", "/console/runs")
+    body = conn |> get(~p"/v1/notifications") |> json_response(200)
+    assert_schema(body, "NotificationList", spec)
+    assert [%{"kind" => "run_failed", "read" => false}] = body["data"]
+
+    dataset_created =
+      conn |> post(~p"/v1/datasets", %{"name" => "Contract RKB"}) |> json_response(200)
+
+    dataset_id = dataset_created["id"]
+
+    conn
+    |> post(~p"/v1/datasets/#{dataset_id}/document/create-by-text", %{
+      "name" => "gold.md",
+      "text" => "Golden retrievers fetch golden passages."
+    })
+    |> json_response(200)
+
+    Oban.drain_queue(queue: :ingest)
+
+    created =
+      conn
+      |> post(~p"/v1/datasets/#{dataset_id}/retrieval-cases", %{
+        "question" => "who fetches passages?",
+        "expected" => "golden passages"
+      })
+      |> json_response(201)
+
+    assert_schema(created, "RetrievalCaseCreated", spec)
+
+    body = conn |> get(~p"/v1/datasets/#{dataset_id}/retrieval-cases") |> json_response(200)
+    assert_schema(body, "RetrievalCaseList", spec)
+
+    body = conn |> post(~p"/v1/datasets/#{dataset_id}/retrieval-eval") |> json_response(200)
+    assert_schema(body, "RetrievalEvalResult", spec)
+    assert body["hits"] == 1
+  end
+
   test "GET /v1/spec serves the OpenAPI document", %{conn: conn} do
     body = conn |> get(~p"/v1/spec") |> json_response(200)
 

@@ -53,6 +53,31 @@ defmodule FluxWeb.RAGIntegrationTest do
     assert Enum.all?(segments, &is_list(&1.embedding))
   end
 
+  test "query expansion fuses rankings from rephrased queries", %{
+    scope: scope,
+    dataset: dataset
+  } do
+    ingest!(scope, dataset, "spice.md", "The secret ingredient is paprika, nothing else.")
+
+    # The injected expander stands in for the workspace model.
+    Application.put_env(:flux, :query_expander, fn query ->
+      send(self(), {:expanded, query})
+      ["secret ingredient paprika"]
+    end)
+
+    on_exit(fn -> Application.delete_env(:flux, :query_expander) end)
+
+    # Off (default): the expander never runs.
+    {:ok, _hits} = RAG.retrieve(scope, dataset.id, "zzz unrelated")
+    refute_received {:expanded, _query}
+
+    {:ok, dataset} = RAG.update_dataset(scope, dataset, %{"query_expansion" => true})
+
+    {:ok, hits} = RAG.retrieve(scope, dataset.id, "zzz unrelated")
+    assert_received {:expanded, "zzz unrelated"}
+    assert Enum.any?(hits, &(&1.content =~ "paprika"))
+  end
+
   test "retrieval evals score golden cases with hit rate and MRR", %{
     scope: scope,
     dataset: dataset

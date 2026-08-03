@@ -45,6 +45,14 @@ if dims = System.get_env("FLUX_VECTOR_DIMS") do
   config :flux, :vector_dims, String.to_integer(dims)
 end
 
+# FLUX_ADMIN_EMAILS: comma-separated account emails allowed into the
+# instance admin panel (/console/admin) — all workspaces, plans, usage.
+if admins = System.get_env("FLUX_ADMIN_EMAILS") do
+  config :flux,
+         :instance_admins,
+         admins |> String.split(",") |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))
+end
+
 # FLUX_ARANGO_URL (+ FLUX_ARANGO_PASSWORD, FLUX_ARANGO_DATABASE): the
 # ArangoDB entity-graph backend — deeper related-entity traversal than
 # the SQL co-occurrence query. The `rag` compose profile provides one.

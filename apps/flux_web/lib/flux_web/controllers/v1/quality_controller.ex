@@ -340,6 +340,142 @@ defmodule FluxWeb.V1.QualityController do
     end
   end
 
+  ## Model registry (any valid token)
+
+  def models(conn, _params) do
+    models =
+      for artifact <- Flux.Registry.list(conn.assigns.service_scope) do
+        %{
+          id: artifact.id,
+          name: artifact.name,
+          version: artifact.version,
+          file_id: artifact.file_id,
+          file_name: artifact.file.name,
+          metrics: artifact.metrics
+        }
+      end
+
+    json(conn, %{data: models})
+  end
+
+  def model_register(conn, params) do
+    case Flux.Registry.register(
+           conn.assigns.service_scope,
+           params["name"],
+           to_string(params["file_id"] || ""),
+           metrics: (is_map(params["metrics"]) && params["metrics"]) || %{}
+         ) do
+      {:ok, artifact} ->
+        conn
+        |> put_status(201)
+        |> json(%{id: artifact.id, name: artifact.name, version: artifact.version})
+
+      {:error, :blank_name} ->
+        error(conn, 400, "invalid_param", "name is required")
+
+      {:error, :file_not_found} ->
+        error(conn, 404, "not_found", "file not found in this workspace")
+
+      _error ->
+        error(conn, 400, "invalid_param", "could not register the model")
+    end
+  end
+
+  ## Notifications (any valid token)
+
+  def notifications(conn, params) do
+    limit = min(max(parse_int(params["limit"], 30), 1), 100)
+
+    notifications =
+      for notification <- Flux.Notifications.list(conn.assigns.service_scope, limit) do
+        %{
+          id: notification.id,
+          kind: notification.kind,
+          title: notification.title,
+          path: notification.path,
+          read: notification.read_at != nil,
+          created_at: DateTime.to_unix(notification.inserted_at)
+        }
+      end
+
+    json(conn, %{data: notifications})
+  end
+
+  ## Retrieval evals (any valid token)
+
+  def retrieval_cases(conn, %{"id" => dataset_id}) do
+    scope = conn.assigns.service_scope
+
+    with %{} = _dataset <- rag().get_dataset(scope, dataset_id) do
+      cases =
+        for retrieval_case <- rag().list_retrieval_cases(scope, dataset_id) do
+          %{
+            id: retrieval_case.id,
+            question: retrieval_case.question,
+            expected: retrieval_case.expected
+          }
+        end
+
+      json(conn, %{data: cases})
+    else
+      _not_found -> error(conn, 404, "not_found", "dataset not found")
+    end
+  end
+
+  def retrieval_case_create(conn, %{"id" => dataset_id} = params) do
+    scope = conn.assigns.service_scope
+
+    with %{} = dataset <- rag().get_dataset(scope, dataset_id),
+         {:ok, retrieval_case} <-
+           rag().add_retrieval_case(scope, dataset, %{
+             "question" => params["question"],
+             "expected" => params["expected"]
+           }) do
+      conn |> put_status(201) |> json(%{id: retrieval_case.id})
+    else
+      {:error, %Ecto.Changeset{}} ->
+        error(conn, 400, "invalid_param", "question and expected are both required")
+
+      _not_found ->
+        error(conn, 404, "not_found", "dataset not found")
+    end
+  end
+
+  def retrieval_eval(conn, %{"id" => dataset_id}) do
+    scope = conn.assigns.service_scope
+
+    with %{} = _dataset <- rag().get_dataset(scope, dataset_id) do
+      summary = rag().evaluate_retrieval(scope, dataset_id)
+
+      json(conn, %{
+        total: summary.total,
+        hits: summary.hits,
+        hit_rate: summary.hit_rate,
+        mrr: summary.mrr,
+        results:
+          for result <- summary.results do
+            %{
+              case_id: result.case_id,
+              question: result.question,
+              expected: result.expected,
+              rank: result.rank
+            }
+          end
+      })
+    else
+      _not_found -> error(conn, 404, "not_found", "dataset not found")
+    end
+  end
+
+  defp rag, do: Application.get_env(:flux, :rag_module, Flux.RAG)
+
+  defp parse_int(value, default) do
+    case Integer.parse(to_string(value || "")) do
+      {n, ""} -> n
+      _invalid -> default
+    end
+  end
+
   ## Helpers
 
   defp require_workflow(conn) do

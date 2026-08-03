@@ -710,12 +710,21 @@ defmodule Flux.RAG do
       rerank? = dataset.rerank_plugin_id not in [nil, ""]
       candidates = if rerank?, do: top_k * 3, else: top_k
 
-      semantic_hits = semantic_hits(dataset, query, top_k * 3)
-      keyword_hits = keyword_hits(scope, dataset_id, query, top_k * 3)
-      entity_hits = entity_hits(scope, dataset_id, query, top_k * 3)
+      # Query expansion (per-dataset opt-in): alternate phrasings each
+      # contribute their own rankings to the RRF fusion.
+      queries = [query | expand_query(scope, dataset, query)]
+
+      rankings =
+        Enum.flat_map(queries, fn variant ->
+          [
+            semantic_hits(dataset, variant, top_k * 3),
+            keyword_hits(scope, dataset_id, variant, top_k * 3),
+            entity_hits(scope, dataset_id, variant, top_k * 3)
+          ]
+        end)
 
       ranked =
-        [semantic_hits, keyword_hits, entity_hits]
+        rankings
         |> Enum.reduce(%{}, fn hits, acc ->
           hits
           |> Enum.with_index(1)
@@ -747,6 +756,38 @@ defmodule Flux.RAG do
       {:ok, hits}
     end
   end
+
+  # Up to two alternate phrasings from the workspace default model —
+  # best-effort (a failed or absent model expands to nothing), and tests
+  # inject `config :flux, :query_expander`.
+  defp expand_query(scope, %Dataset{query_expansion: true}, query) do
+    case Application.get_env(:flux, :query_expander) do
+      expander when is_function(expander, 1) ->
+        expander.(query)
+
+      nil ->
+        prompt = """
+        Rephrase this search query two different ways — different words,
+        same meaning. One rephrasing per line, nothing else.
+
+        Query: #{query}
+        """
+
+        case Flux.Workflows.invoke_default_llm(scope, [%{role: :user, content: prompt}]) do
+          {:ok, content} when is_binary(content) ->
+            content
+            |> String.split(~r/\r?\n/, trim: true)
+            |> Enum.map(&String.trim(&1, "- "))
+            |> Enum.reject(&(&1 == "" or String.length(&1) > 300))
+            |> Enum.take(2)
+
+          _error_or_no_model ->
+            []
+        end
+    end
+  end
+
+  defp expand_query(_scope, _dataset, _query), do: []
 
   defp apply_threshold(hits, nil), do: hits
 

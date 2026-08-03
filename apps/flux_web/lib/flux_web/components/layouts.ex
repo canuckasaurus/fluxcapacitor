@@ -241,6 +241,13 @@ defmodule FluxWeb.Layouts do
               active={@active == :audit}
             />
             <.sidebar_link
+              :if={Flux.Accounts.instance_admin?(@current_scope.account)}
+              navigate={~p"/console/admin"}
+              icon="hero-server-stack"
+              label="Instance admin"
+              active={@active == :admin}
+            />
+            <.sidebar_link
               navigate={~p"/console/settings"}
               icon="hero-cog-6-tooth"
               label={gettext("Settings")}

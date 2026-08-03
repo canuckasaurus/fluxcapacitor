@@ -632,6 +632,52 @@ defmodule Flux.Accounts do
     end
   end
 
+  @doc "Whether the account may open the instance admin panel (FLUX_ADMIN_EMAILS)."
+  def instance_admin?(%{email: email}) do
+    email in Application.get_env(:flux, :instance_admins, [])
+  end
+
+  def instance_admin?(_account), do: false
+
+  @doc """
+  The operator's view: every workspace with plan, member count, 30-day
+  run/token totals, and storage. Instance-admin only — callers gate with
+  `instance_admin?/1`.
+  """
+  def instance_overview do
+    since = DateTime.add(DateTime.utc_now(:second), -30, :day)
+
+    members =
+      Membership
+      |> group_by([m], m.workspace_id)
+      |> select([m], {m.workspace_id, count(m.id)})
+      |> Repo.all()
+      |> Map.new()
+
+    runs =
+      Flux.Workflows.WorkflowRun
+      |> where([r], r.inserted_at >= ^since)
+      |> select([r], %{workspace_id: r.workspace_id, usage: r.usage})
+      |> Repo.all(skip_workspace_guard: true)
+      |> Enum.group_by(& &1.workspace_id)
+
+    for workspace <- Repo.all(order_by(Workspace, asc: :inserted_at)) do
+      workspace_runs = Map.get(runs, workspace.id, [])
+
+      %{
+        workspace: workspace,
+        plan: Flux.Features.plan_for_workspace(workspace.id),
+        members: Map.get(members, workspace.id, 0),
+        runs_30d: length(workspace_runs),
+        tokens_30d:
+          Enum.sum(
+            for run <- workspace_runs,
+                do: (run.usage["input_tokens"] || 0) + (run.usage["output_tokens"] || 0)
+          )
+      }
+    end
+  end
+
   @doc "Sets the LLM response-cache TTL in minutes (0/nil = off)."
   def set_llm_cache_minutes(%Scope{} = scope, minutes)
       when is_nil(minutes) or minutes in 0..10_080 do

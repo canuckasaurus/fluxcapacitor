@@ -444,3 +444,24 @@ the column and builds the index at boot, best-effort);
 **Arango vector backend** (FLUX_VECTOR_BACKEND=arango: embeddings
 mirror into a segments collection, COSINE_SIMILARITY ranking in AQL —
 live-verified ordering + drop against arangodb 3.12.9).
+
+32. ~~Batch 8: operate and measure (#149, 2026-08-03)~~ DONE:
+**/v1 parity for the quality tooling** (GET/POST /v1/models,
+GET /v1/notifications, GET/POST /v1/datasets/:id/retrieval-cases,
+POST .../retrieval-eval — six routes, six strict OpenAPI schemas,
+contract-tested end to end); **timeline waterfall** (per-node duration
+bars in the runs drill-in, scaled to the slowest node, failure bars in
+red); **query expansion** (per-dataset toggle: the workspace model
+rephrases each query, every variant contributes rankings to the RRF
+fusion; injectable expander for tests, best-effort in production);
+**webhook delivery log** (webhook_deliveries rows per dispatch,
+AlertWorker records status/attempts/error per attempt, settings shows
+the log with manual retry); **A/B version routing** (ab_version_b +
+ab_split on workflows; serving_version routes chatflow/site/trigger/API
+traffic — split% to B, rest to latest — with per-arm run/success/token
+stats in the versions modal); **instance admin panel**
+(FLUX_ADMIN_EMAILS → /console/admin: every workspace with plan
+selector, members, 30-day volume; set_plan_for_workspace);
+**retrieval bench** (perf-suite: 10k embedded segments, same query
+against Naive/PgVector/Arango — backends auto-skip where absent; naive
+measured at 97ms locally).

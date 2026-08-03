@@ -360,6 +360,7 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
              "chunk_size" => params["chunk_size"],
              "chunk_overlap" => params["chunk_overlap"],
              "split_markdown" => params["split_markdown"] == "on",
+             "query_expansion" => params["query_expansion"] == "on",
              "retrieval_top_k" => params["retrieval_top_k"],
              "score_threshold" => params["score_threshold"],
              "entity_plugin_id" => entity_plugin,
@@ -530,6 +531,19 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                     title="Split at headings and prefix each chunk with its heading"
                   />
                   <span class="text-xs opacity-70">split at headings</span>
+                </label>
+              </label>
+              <label class="form-control">
+                <span class="label-text text-xs opacity-70 mb-1">Query expansion</span>
+                <label class="label cursor-pointer justify-start gap-2 py-1">
+                  <input
+                    type="checkbox"
+                    name="query_expansion"
+                    checked={@selected.query_expansion}
+                    class="checkbox checkbox-xs"
+                    title="Rephrase each query with the workspace model and fuse all rankings — better recall, one extra model call per retrieval"
+                  />
+                  <span class="text-xs opacity-70">rephrase queries</span>
                 </label>
               </label>
               <label class="form-control">

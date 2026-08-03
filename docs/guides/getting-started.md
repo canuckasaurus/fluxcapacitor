@@ -67,15 +67,19 @@ lands in the dev mailbox at `/dev/mailbox`).
    latest published version on its own (drift detection between
    releases). Publish a version when it works — the API, sites,
    schedules, and chatflow apps always run the latest published version,
-   never the draft.
+   never the draft — unless you configure an **A/B split** in the
+   versions modal, which sends a share of live traffic to another
+   published version and reports runs/success/tokens per arm.
 4. **Apps** → create a chat, completion, or chatflow app. Publish it as
    a public site, embed it with the iframe/bubble snippets, or mint an
    API key and call `/v1` (see the [service API guide](service-api.md)).
 5. **Knowledge** → create a dataset (echo embeddings work for trying it
    out), add documents by upload, paste, or URL, watch them index, and
    hit-test retrieval. Wire a `knowledge` node to the dataset in any
-   flux. Per-dataset settings cover chunk size/overlap and
+   flux. Per-dataset settings cover chunk size/overlap,
    **markdown-aware splitting** (chunks keep their headings), and
+   **query expansion** (the workspace model rephrases each query and all
+   rankings fuse — better recall for one extra model call), and
    **retrieval evals** score golden question → expected-passage cases
    (hit rate + MRR) so chunking/backend changes are measurable. At corpus
    scale, set `FLUX_VECTOR_BACKEND=pgvector` (SQL-side similarity; add
@@ -128,6 +132,10 @@ settings can schedule **automatic export archives** (cron) that land on
 the Files page as backups, set a **monthly token budget** (warns at 80%,
 refuses runs past the cap), and enable the **LLM response cache**
 (identical prompts within the TTL answer from memory, billed at zero).
+Outgoing webhooks keep a **delivery log** (status, attempts, manual
+retry) in settings. `FLUX_ADMIN_EMAILS` unlocks the **instance admin
+panel** (`/console/admin`): every workspace on the deployment with plan
+control and 30-day volume.
 
 ## Localization
 

@@ -70,4 +70,17 @@ defmodule Flux.Features do
   end
 
   def set_plan(%Scope{}, _unknown_plan), do: {:error, :unknown_plan}
+
+  @doc "Instance-admin plan change (no workspace scope; the admin panel)."
+  def set_plan_for_workspace(workspace_id, plan) when is_map_key(@plans, plan) do
+    with %Workspace{} = workspace <- Repo.get(Workspace, workspace_id) do
+      workspace
+      |> Ecto.Changeset.change(
+        custom_config: Map.put(workspace.custom_config || %{}, "plan", plan)
+      )
+      |> Repo.update()
+    end
+  end
+
+  def set_plan_for_workspace(_workspace_id, _unknown_plan), do: {:error, :unknown_plan}
 end

@@ -51,7 +51,12 @@ orchestrator, no queue infrastructure beyond Postgres.
   warns at 80% and refuses runs past the cap, and an opt-in **LLM
   response cache** answers identical prompts from memory at zero cost.
   Published versions **diff structurally** against the draft (nodes
-  added/removed/changed, edges rewired) right in the versions modal. Liked replies and annotations export as **fine-tune
+  added/removed/changed, edges rewired) right in the versions modal, and
+  an **A/B split** sends a share of live traffic (chatflows, sites, API,
+  triggers) to a second published version with per-arm run stats. Run
+  drill-ins render a **timeline waterfall** per node, webhooks keep a
+  **delivery log** with manual retry, and `FLUX_ADMIN_EMAILS` unlocks an
+  **instance admin panel** for self-host operators. Liked replies and annotations export as **fine-tune
   JSONL**, and **native data labeling** closes the custom model loop:
   labeling projects with a tagging queue (single/multi choice or free-text
   correction, keyboard shortcuts, multi-labeler claims and per-labeler
@@ -90,8 +95,8 @@ orchestrator, no queue infrastructure beyond Postgres.
   retrieval (vector cosine + Postgres full-text + **entity mentions**, merged
   by reciprocal rank fusion), optional reranking, URL ingestion, datasource
   auto-sync, multi-dataset queries, per-dataset retrieval settings
-  (including **markdown-aware chunking**), and citations that flow onto
-  chat answers. Similarity ranks in-BEAM by default, in SQL with the
+  (including **markdown-aware chunking** and model-backed **query
+  expansion**), and citations that flow onto chat answers. Similarity ranks in-BEAM by default, in SQL with the
   **pgvector backend** (`FLUX_VECTOR_BACKEND=pgvector`, HNSW-indexed with
   `FLUX_VECTOR_DIMS`) or in AQL with the **Arango vector backend**, and
   the **ArangoDB entity graph** (`FLUX_ARANGO_URL`) upgrades
@@ -271,7 +276,7 @@ scratch drive, and a labeling project wired to the Model trainer flux
 ## Testing
 
 ```bash
-mix test                             # full umbrella suite (~670 tests), hermetic
+mix test                             # full umbrella suite (~675 tests), hermetic
 ```
 
 The suite runs with no network: providers stub through `Req.Test` or the
@@ -320,3 +325,4 @@ Key environment variables in production (see `.env.docker.example`):
 | `FLUX_SSRF_ALLOW` | Hostnames exempted from the outbound-HTTP SSRF guard |
 | `FLUX_VECTOR_BACKEND` | `pgvector` ranks similarity in SQL (compose Postgres ships the extension) |
 | `FLUX_ARANGO_URL` | ArangoDB entity-graph backend for related-entity traversal (`rag` compose profile) |
+| `FLUX_ADMIN_EMAILS` | Comma-separated accounts allowed into the instance admin panel |

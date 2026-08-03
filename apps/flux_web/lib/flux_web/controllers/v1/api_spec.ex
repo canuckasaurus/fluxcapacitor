@@ -649,6 +649,157 @@ defmodule FluxWeb.V1.ApiSpec do
       })
     end
 
+    defmodule ModelList do
+      @moduledoc false
+      require OpenApiSpex
+
+      OpenApiSpex.schema(%{
+        title: "ModelList",
+        type: :object,
+        properties: %{
+          data: %Schema{
+            type: :array,
+            items: %Schema{
+              type: :object,
+              properties: %{
+                id: %Schema{type: :string, format: :uuid},
+                name: %Schema{type: :string},
+                version: %Schema{type: :integer},
+                file_id: %Schema{type: :string, format: :uuid},
+                file_name: %Schema{type: :string},
+                metrics: %Schema{type: :object}
+              },
+              required: [:id, :name, :version, :file_id, :file_name, :metrics],
+              additionalProperties: false
+            }
+          }
+        },
+        required: [:data],
+        additionalProperties: false
+      })
+    end
+
+    defmodule ModelRegistered do
+      @moduledoc false
+      require OpenApiSpex
+
+      OpenApiSpex.schema(%{
+        title: "ModelRegistered",
+        description: "201 response of POST /v1/models",
+        type: :object,
+        properties: %{
+          id: %Schema{type: :string, format: :uuid},
+          name: %Schema{type: :string},
+          version: %Schema{type: :integer}
+        },
+        required: [:id, :name, :version],
+        additionalProperties: false
+      })
+    end
+
+    defmodule NotificationList do
+      @moduledoc false
+      require OpenApiSpex
+
+      OpenApiSpex.schema(%{
+        title: "NotificationList",
+        type: :object,
+        properties: %{
+          data: %Schema{
+            type: :array,
+            items: %Schema{
+              type: :object,
+              properties: %{
+                id: %Schema{type: :string, format: :uuid},
+                kind: %Schema{type: :string},
+                title: %Schema{type: :string},
+                path: %Schema{type: :string, nullable: true},
+                read: %Schema{type: :boolean},
+                created_at: %Schema{type: :integer}
+              },
+              required: [:id, :kind, :title, :read, :created_at],
+              additionalProperties: false
+            }
+          }
+        },
+        required: [:data],
+        additionalProperties: false
+      })
+    end
+
+    defmodule RetrievalCaseList do
+      @moduledoc false
+      require OpenApiSpex
+
+      OpenApiSpex.schema(%{
+        title: "RetrievalCaseList",
+        type: :object,
+        properties: %{
+          data: %Schema{
+            type: :array,
+            items: %Schema{
+              type: :object,
+              properties: %{
+                id: %Schema{type: :string, format: :uuid},
+                question: %Schema{type: :string},
+                expected: %Schema{type: :string}
+              },
+              required: [:id, :question, :expected],
+              additionalProperties: false
+            }
+          }
+        },
+        required: [:data],
+        additionalProperties: false
+      })
+    end
+
+    defmodule RetrievalCaseCreated do
+      @moduledoc false
+      require OpenApiSpex
+
+      OpenApiSpex.schema(%{
+        title: "RetrievalCaseCreated",
+        description: "201 response of POST /v1/datasets/{id}/retrieval-cases",
+        type: :object,
+        properties: %{id: %Schema{type: :string, format: :uuid}},
+        required: [:id],
+        additionalProperties: false
+      })
+    end
+
+    defmodule RetrievalEvalResult do
+      @moduledoc false
+      require OpenApiSpex
+
+      OpenApiSpex.schema(%{
+        title: "RetrievalEvalResult",
+        type: :object,
+        properties: %{
+          total: %Schema{type: :integer},
+          hits: %Schema{type: :integer},
+          hit_rate: %Schema{type: :number, nullable: true},
+          mrr: %Schema{type: :number, nullable: true},
+          results: %Schema{
+            type: :array,
+            items: %Schema{
+              type: :object,
+              properties: %{
+                case_id: %Schema{type: :string, format: :uuid},
+                question: %Schema{type: :string},
+                expected: %Schema{type: :string},
+                rank: %Schema{type: :integer, nullable: true}
+              },
+              required: [:case_id, :question, :expected],
+              additionalProperties: false
+            }
+          }
+        },
+        required: [:total, :hits, :results],
+        additionalProperties: false
+      })
+    end
+
     defmodule LabelingLabeled do
       @moduledoc false
       require OpenApiSpex
@@ -692,7 +843,13 @@ defmodule FluxWeb.V1.ApiSpec do
     Schemas.LabelingProjectList,
     Schemas.LabelingTasksCreated,
     Schemas.LabelingNextTask,
-    Schemas.LabelingLabeled
+    Schemas.LabelingLabeled,
+    Schemas.ModelList,
+    Schemas.ModelRegistered,
+    Schemas.NotificationList,
+    Schemas.RetrievalCaseList,
+    Schemas.RetrievalCaseCreated,
+    Schemas.RetrievalEvalResult
   ]
 
   alias OpenApiSpex.{MediaType, Operation, PathItem, Reference, Response}
@@ -735,7 +892,18 @@ defmodule FluxWeb.V1.ApiSpec do
     "/labeling/projects/{id}/tasks" =>
       {:post, "Push items as labeling tasks", "LabelingTasksCreated", 201},
     "/labeling/projects/{id}/next" => {:get, "Claim the next unlabeled task", "LabelingNextTask"},
-    "/labeling/tasks/{id}/label" => {:post, "Submit a label", "LabelingLabeled"}
+    "/labeling/tasks/{id}/label" => {:post, "Submit a label", "LabelingLabeled"},
+    "/models" => [
+      {:get, "List registered models", "ModelList"},
+      {:post, "Register a stored file as a model", "ModelRegistered", 201}
+    ],
+    "/notifications" => {:get, "Workspace notification feed", "NotificationList"},
+    "/datasets/{id}/retrieval-cases" => [
+      {:get, "List golden retrieval cases", "RetrievalCaseList"},
+      {:post, "Add a golden retrieval case", "RetrievalCaseCreated", 201}
+    ],
+    "/datasets/{id}/retrieval-eval" =>
+      {:post, "Score retrieval (hit rate + MRR)", "RetrievalEvalResult"}
   }
 
   @impl OpenApiSpex.OpenApi

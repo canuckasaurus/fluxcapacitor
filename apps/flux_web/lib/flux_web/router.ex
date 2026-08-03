@@ -71,6 +71,12 @@ defmodule FluxWeb.Router do
     get "/labeling/projects/:id/next", QualityController, :labeling_next
     post "/labeling/tasks/:id/label", QualityController, :labeling_label
     get "/labeling/projects/:id/export", QualityController, :labeling_export
+    get "/models", QualityController, :models
+    post "/models", QualityController, :model_register
+    get "/notifications", QualityController, :notifications
+    get "/datasets/:id/retrieval-cases", QualityController, :retrieval_cases
+    post "/datasets/:id/retrieval-cases", QualityController, :retrieval_case_create
+    post "/datasets/:id/retrieval-eval", QualityController, :retrieval_eval
 
     get "/datasets/:id/documents", DatasetController, :documents
     delete "/datasets/:id/documents/:document_id", DatasetController, :delete_document
@@ -235,6 +241,7 @@ defmodule FluxWeb.Router do
       live "/runs", ConsoleLive.Runs, :index
       live "/files", ConsoleLive.Files, :index
       live "/notifications", ConsoleLive.Notifications, :index
+      live "/admin", ConsoleLive.Admin, :index
       live "/plugins", ConsoleLive.Plugins, :index
       live "/tools", ConsoleLive.Tools, :index
       live "/templates", ConsoleLive.DocTemplates, :index
