@@ -39,7 +39,8 @@ defmodule FluxWeb.ConsoleLive.Labeling do
           counts: nil,
           labeled: [],
           labeler_stats: [],
-          agreement: nil
+          agreement: nil,
+          accuracy: []
         )
 
       project ->
@@ -48,7 +49,8 @@ defmodule FluxWeb.ConsoleLive.Labeling do
           counts: Labeling.counts(scope, project.id),
           labeled: Labeling.list_labeled(scope, project.id),
           labeler_stats: Labeling.labeler_stats(scope, project.id),
-          agreement: Labeling.agreement_stats(scope, project.id)
+          agreement: Labeling.agreement_stats(scope, project.id),
+          accuracy: Labeling.labeler_accuracy(scope, project)
         )
     end
   end
@@ -140,6 +142,22 @@ defmodule FluxWeb.ConsoleLive.Labeling do
     end
   end
 
+  def handle_event("promote_gold", %{"task-id" => task_id}, socket) do
+    case Labeling.promote_to_gold(socket.assigns.current_scope, task_id) do
+      {:ok, _gold} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Gold standard set — the task is back in the queue as a honeypot.")
+         |> advance()}
+
+      {:error, :not_labeled} ->
+        {:noreply, put_flash(socket, :error, "Only labeled tasks can become gold standards.")}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not promote the task.")}
+    end
+  end
+
   def handle_event("relabel", %{"task-id" => task_id}, socket) do
     case Labeling.get_task(socket.assigns.current_scope, task_id) do
       {:error, :not_found} -> {:noreply, put_flash(socket, :error, "Task not found.")}
@@ -211,7 +229,7 @@ defmodule FluxWeb.ConsoleLive.Labeling do
       active={:labeling}
     >
       <div>
-        <h1 class="text-2xl font-bold">Labeling</h1>
+        <h1 class="text-2xl font-bold">{gettext("Labeling")}</h1>
         <p class="opacity-70 mt-1">
           Tag data for evals and custom models — labeled sets export as
           JSONL straight into a training code node.
@@ -321,6 +339,13 @@ defmodule FluxWeb.ConsoleLive.Labeling do
             title="average share of votes matching the final label"
           >
             agreement {round(@agreement.avg_agreement * 100)}% · {@agreement.unanimous}/{@agreement.tasks} unanimous
+          </span>
+          <span
+            :for={{email, correct, total} <- @accuracy}
+            class="badge badge-outline badge-sm"
+            title="accuracy on gold-standard tasks"
+          >
+            ★ {email}: {correct}/{total}
           </span>
           <a
             :if={@counts && @counts.labeled > 0}
@@ -455,7 +480,7 @@ defmodule FluxWeb.ConsoleLive.Labeling do
             <tr :for={task <- @labeled} id={"labeled-#{task.id}"}>
               <td class="font-mono text-xs max-w-md truncate">{Jason.encode!(task.data)}</td>
               <td class="max-w-xs truncate">{summarize_label(task.label)}</td>
-              <td>
+              <td class="whitespace-nowrap">
                 <button
                   class="btn btn-ghost btn-xs"
                   phx-click="relabel"
@@ -463,6 +488,15 @@ defmodule FluxWeb.ConsoleLive.Labeling do
                 >
                   Relabel
                 </button>
+                <button
+                  class="btn btn-ghost btn-xs"
+                  phx-click="promote_gold"
+                  phx-value-task-id={task.id}
+                  title="Make this a gold-standard honeypot: the current label becomes the reference and the task re-enters the queue to score labelers"
+                >
+                  ★ Gold
+                </button>
+                <span :if={task.gold_label} class="badge badge-warning badge-xs">gold</span>
               </td>
             </tr>
           </tbody>

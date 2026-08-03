@@ -17,7 +17,7 @@ defmodule Flux.Evals do
   alias Flux.Workflows
   alias Flux.Workflows.Workflow
 
-  @graders ~w(exact contains llm_judge)
+  @graders ~w(exact contains regex llm_judge)
   @max_cases 100
   @pass_threshold 0.5
 
@@ -158,19 +158,33 @@ defmodule Flux.Evals do
          :ok <- check_case_budget(scope, set, length(rows)) do
       cases =
         for row <- rows do
-          {expected, inputs} = Map.pop(row, "expected")
+          {expected, row} = Map.pop(row, "expected")
+          {weight, inputs} = Map.pop(row, "weight")
 
           Repo.insert!(%EvalCase{
             workspace_id: set.workspace_id,
             eval_set_id: set.id,
             inputs: inputs,
-            expected: expected
+            expected: expected,
+            weight: parse_weight(weight)
           })
         end
 
       {:ok, cases}
     end
   end
+
+  defp parse_weight(nil), do: 1.0
+  defp parse_weight(weight) when is_number(weight) and weight > 0, do: weight * 1.0
+
+  defp parse_weight(weight) when is_binary(weight) do
+    case Float.parse(weight) do
+      {parsed, ""} when parsed > 0 -> parsed
+      _invalid -> 1.0
+    end
+  end
+
+  defp parse_weight(_other), do: 1.0
 
   @doc "Turns a finished run into a case: its inputs, its output as the reference."
   def add_case_from_run(%Scope{} = scope, %EvalSet{} = set, run_id) do
@@ -315,6 +329,7 @@ defmodule Flux.Evals do
             "output" => output,
             "error" => run_error,
             "score" => score,
+            "weight" => eval_case.weight,
             "verdict" => (score >= @pass_threshold && "pass") || "fail",
             "reason" => reason
           }
@@ -322,10 +337,21 @@ defmodule Flux.Evals do
 
       passed = Enum.count(results, &(&1["verdict"] == "pass"))
 
+      # Weighted average: a case's weight scales its influence, not its
+      # own score.
       avg =
         case results do
-          [] -> nil
-          results -> Float.round(Enum.sum(Enum.map(results, & &1["score"])) / length(results), 4)
+          [] ->
+            nil
+
+          results ->
+            total_weight = Enum.sum(Enum.map(results, & &1["weight"]))
+
+            Float.round(
+              Enum.sum(Enum.map(results, &(&1["score"] * &1["weight"]))) /
+                max(total_weight, 1.0e-9),
+              4
+            )
         end
 
       eval_run
@@ -414,6 +440,20 @@ defmodule Flux.Evals do
       {1.0, "expected text found in output"}
     else
       {0.0, "expected text not found in output"}
+    end
+  end
+
+  defp grade(%EvalRun{grader: "regex"}, eval_case, output, _error) do
+    case Regex.compile(to_string(eval_case.expected), "s") do
+      {:ok, regex} ->
+        if Regex.match?(regex, to_string(output)) do
+          {1.0, "output matches the expected pattern"}
+        else
+          {0.0, "output does not match the expected pattern"}
+        end
+
+      {:error, {message, position}} ->
+        {0.0, "the expected value is not a valid regex: #{message} at #{position}"}
     end
   end
 

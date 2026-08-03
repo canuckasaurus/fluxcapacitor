@@ -327,6 +327,84 @@ defmodule Flux.Labeling do
     |> Repo.all()
   end
 
+  @doc """
+  Promotes a labeled task to a **gold standard** (honeypot): its current
+  label becomes the reference answer, the task re-enters the unlabeled
+  queue, and every future label or vote on it scores the labeler against
+  the gold answer. Prior votes are cleared for a fresh round.
+  """
+  def promote_to_gold(%Scope{} = scope, task_id) do
+    with :ok <- RBAC.authorize(scope, :app_edit),
+         %Task{status: :labeled, label: label} = task when is_map(label) <-
+           get_task(scope, task_id) do
+      Repo.delete_all(from(v in Vote, where: v.task_id == ^task.id), skip_workspace_guard: true)
+
+      task
+      |> Ecto.Changeset.change(
+        gold_label: label,
+        status: :unlabeled,
+        label: nil,
+        labeled_by_id: nil,
+        assigned_to_id: nil,
+        claimed_at: nil
+      )
+      |> Repo.update()
+    else
+      %Task{} -> {:error, :not_labeled}
+      other -> other
+    end
+  end
+
+  @doc """
+  Per-labeler accuracy against the project's gold tasks: consensus
+  projects score each vote, single-label projects score the applied
+  label. Returns `[{email, correct, total}]`, best first; `[]` when the
+  project has no scored gold answers yet.
+  """
+  def labeler_accuracy(%Scope{} = scope, %Project{} = project) do
+    gold_tasks =
+      Task
+      |> Repo.scoped(scope)
+      |> where([t], t.project_id == ^project.id and not is_nil(t.gold_label))
+      |> Repo.all()
+
+    scores =
+      if project.required_labels > 1 do
+        votes =
+          Vote
+          |> where([v], v.task_id in ^Enum.map(gold_tasks, & &1.id))
+          |> Repo.all(skip_workspace_guard: true)
+
+        gold_by_task = Map.new(gold_tasks, &{&1.id, &1.gold_label})
+
+        for vote <- votes, gold = gold_by_task[vote.task_id] do
+          {vote.account_id, vote.label == gold}
+        end
+      else
+        for task <- gold_tasks, task.status == :labeled, is_map(task.label) do
+          {task.labeled_by_id, task.label == task.gold_label}
+        end
+      end
+
+    emails = account_emails(Enum.map(scores, &elem(&1, 0)))
+
+    scores
+    |> Enum.group_by(fn {account_id, _correct?} -> account_id end)
+    |> Enum.map(fn {account_id, group} ->
+      correct = Enum.count(group, fn {_id, correct?} -> correct? end)
+      {Map.get(emails, account_id, "unknown"), correct, length(group)}
+    end)
+    |> Enum.sort_by(fn {_email, correct, total} -> -correct / max(total, 1) end)
+  end
+
+  defp account_emails(account_ids) do
+    Flux.Accounts.Account
+    |> where([a], a.id in ^Enum.reject(account_ids, &is_nil/1))
+    |> select([a], {a.id, a.email})
+    |> Repo.all()
+    |> Map.new()
+  end
+
   def delete_task(%Scope{} = scope, task_id) do
     with :ok <- RBAC.authorize(scope, :app_edit),
          %Task{} = task <- get_task(scope, task_id) do

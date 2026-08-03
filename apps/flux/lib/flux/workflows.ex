@@ -394,6 +394,110 @@ defmodule Flux.Workflows do
     |> Repo.all()
   end
 
+  ## Batch schedules (recurring batches on a cron)
+
+  @doc "Saves a completed batch's row set as a recurring cron schedule."
+  def schedule_batch(%Scope{} = scope, batch_id, cron) do
+    with :ok <- RBAC.authorize(scope, :app_edit),
+         %WorkflowBatch{} = batch <- get_batch(scope, batch_id) do
+      %Flux.Workflows.BatchSchedule{
+        workspace_id: batch.workspace_id,
+        workflow_id: batch.workflow_id
+      }
+      |> Flux.Workflows.BatchSchedule.changeset(%{
+        "name" => batch.name,
+        "rows" => batch.rows,
+        "cron" => cron,
+        "target" => batch.target
+      })
+      |> Repo.insert()
+    end
+  end
+
+  def list_batch_schedules(%Scope{} = scope, workflow_id) do
+    Flux.Workflows.BatchSchedule
+    |> Repo.scoped(scope)
+    |> where([s], s.workflow_id == ^workflow_id)
+    |> order_by([s], asc: s.inserted_at)
+    |> Repo.all()
+  end
+
+  def toggle_batch_schedule(%Scope{} = scope, schedule_id) do
+    with :ok <- RBAC.authorize(scope, :app_edit),
+         %Flux.Workflows.BatchSchedule{} = schedule <-
+           Repo.one(Repo.scoped(where(Flux.Workflows.BatchSchedule, id: ^schedule_id), scope)) ||
+             {:error, :not_found} do
+      schedule |> Ecto.Changeset.change(enabled: not schedule.enabled) |> Repo.update()
+    end
+  end
+
+  def delete_batch_schedule(%Scope{} = scope, schedule_id) do
+    with :ok <- RBAC.authorize(scope, :app_edit),
+         %Flux.Workflows.BatchSchedule{} = schedule <-
+           Repo.one(Repo.scoped(where(Flux.Workflows.BatchSchedule, id: ^schedule_id), scope)) ||
+             {:error, :not_found} do
+      Repo.delete(schedule)
+    end
+  end
+
+  @doc """
+  Minute-tick sweep: starts a batch for every enabled schedule whose
+  cron matches this minute (`last_run_at` suppresses double fires).
+  """
+  def run_scheduled_batches(now \\ DateTime.utc_now(:second)) do
+    minute_start = %{now | second: 0}
+
+    schedules =
+      Flux.Workflows.BatchSchedule
+      |> where([s], s.enabled == true)
+      |> Repo.all(skip_workspace_guard: true)
+
+    for schedule <- schedules,
+        batch_cron_due?(schedule.cron, now),
+        schedule.last_run_at == nil or
+          DateTime.compare(schedule.last_run_at, minute_start) == :lt do
+      scope = batch_worker_scope(schedule.workspace_id)
+
+      {:ok, _updated} =
+        schedule |> Ecto.Changeset.change(last_run_at: now) |> Repo.update()
+
+      with %Workflow{} = workflow <- get_workflow(scope, schedule.workflow_id),
+           {:ok, batch} <-
+             start_batch(scope, workflow, schedule.rows,
+               name: schedule.name,
+               version: parse_schedule_version(schedule.target)
+             ) do
+        batch
+      else
+        _error -> nil
+      end
+    end
+    |> Enum.filter(& &1)
+  end
+
+  defp batch_cron_due?(cron, now) do
+    case Oban.Cron.Expression.parse(cron) do
+      {:ok, expression} -> Oban.Cron.Expression.now?(expression, now)
+      {:error, _reason} -> false
+    end
+  end
+
+  defp parse_schedule_version("v" <> version) do
+    case Integer.parse(version) do
+      {n, ""} -> n
+      _invalid -> nil
+    end
+  end
+
+  defp parse_schedule_version(_draft), do: nil
+
+  defp batch_worker_scope(workspace_id) do
+    %Scope{
+      workspace: %Flux.Accounts.Workspace{id: workspace_id},
+      membership: %Flux.Accounts.Membership{workspace_id: workspace_id, role: :editor}
+    }
+  end
+
   def batch_topic(workflow_id), do: "workflow_batches:#{workflow_id}"
 
   def subscribe_batches(workflow_id),
@@ -1175,6 +1279,19 @@ defmodule Flux.Workflows do
       ".json" -> "application/json"
       _other -> "application/octet-stream"
     end
+  end
+
+  @doc """
+  The workspace's stored files, newest first — run outputs (documents,
+  file_output, code artifacts) and chat uploads alike. Rows with a
+  `download_token` are downloadable at `/files/:token`.
+  """
+  def list_workspace_files(%Scope{} = scope, limit \\ 100) do
+    Flux.Chat.UploadedFile
+    |> Repo.scoped(scope)
+    |> order_by([f], desc: f.inserted_at, desc: f.id)
+    |> limit(^limit)
+    |> Repo.all()
   end
 
   @doc """

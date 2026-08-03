@@ -144,6 +144,48 @@ defmodule Flux.EvalsTest do
     assert Enum.all?(eval_runs, &(&1.usage["output_tokens"] > 0))
   end
 
+  test "regex grader and case weights shape the average", %{scope: scope, workflow: workflow} do
+    {:ok, set} = Evals.create_set(scope, workflow, %{"name" => "Weighted regex"})
+
+    # Echo answers "You said: <query>". The heavy case passes, the light
+    # one fails, so the weighted average leans toward the pass.
+    {:ok, _} =
+      Evals.add_case(scope, set, %{
+        "inputs" => %{"query" => "alpha"},
+        "expected" => "You said: alph.",
+        "weight" => 3.0
+      })
+
+    {:ok, _} =
+      Evals.add_case(scope, set, %{
+        "inputs" => %{"query" => "beta"},
+        "expected" => "^never$",
+        "weight" => 1.0
+      })
+
+    {:ok, eval_run} = Evals.start_eval(scope, set, grader: "regex")
+    :ok = Evals.perform_eval(eval_run.id)
+
+    finished = Evals.get_eval_run(scope, eval_run.id)
+    assert finished.passed == 1
+    assert finished.failed == 1
+    # (3.0 * 1.0 + 1.0 * 0.0) / 4.0
+    assert finished.avg_score == 0.75
+
+    # An invalid pattern fails the case with an honest reason.
+    {:ok, bad_set} = Evals.create_set(scope, workflow, %{"name" => "Bad regex"})
+
+    {:ok, _} =
+      Evals.add_case(scope, bad_set, %{"inputs" => %{"query" => "x"}, "expected" => "([unclosed"})
+
+    {:ok, bad_run} = Evals.start_eval(scope, bad_set, grader: "regex")
+    :ok = Evals.perform_eval(bad_run.id)
+
+    assert [result] = Evals.get_eval_run(scope, bad_run.id).results
+    assert result["score"] == 0.0
+    assert result["reason"] =~ "not a valid regex"
+  end
+
   test "llm_judge grades through the (injected) judge", %{scope: scope, workflow: workflow} do
     Application.put_env(:flux, :eval_judge, fn _workspace_id, [%{content: prompt}] ->
       assert prompt =~ "Reference"

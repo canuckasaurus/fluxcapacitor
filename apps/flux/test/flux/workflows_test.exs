@@ -165,6 +165,41 @@ defmodule Flux.WorkflowsTest do
              Workflows.start_batch(scope, workflow, [%{"query" => "x"}], version: 9)
   end
 
+  test "batch schedules re-run a saved row set on their cron minute", %{
+    scope: scope,
+    workflow: workflow
+  } do
+    {:ok, workflow} = Workflows.update_draft(scope, workflow, echo_graph())
+
+    {:ok, batch} =
+      Workflows.start_batch(scope, workflow, [%{"query" => "nightly"}], name: "nightly.csv")
+
+    :ok = Workflows.perform_batch(batch.id)
+
+    # Bad cron refused; a valid one saves the batch's rows.
+    assert {:error, changeset} = Workflows.schedule_batch(scope, batch.id, "not cron")
+    assert %{cron: [message]} = errors_on(changeset)
+    assert message =~ "cron"
+
+    {:ok, schedule} = Workflows.schedule_batch(scope, batch.id, "* * * * *")
+    assert schedule.rows == [%{"query" => "nightly"}]
+    assert schedule.target == "draft"
+    assert [_schedule] = Workflows.list_batch_schedules(scope, workflow.id)
+
+    now = DateTime.utc_now(:second)
+    assert [new_batch] = Workflows.run_scheduled_batches(now)
+    assert new_batch.name == "nightly.csv"
+    assert new_batch.total == 1
+
+    # Same minute: suppressed. Disabled: never fires.
+    assert Workflows.run_scheduled_batches(now) == []
+    {:ok, _} = Workflows.toggle_batch_schedule(scope, schedule.id)
+    assert Workflows.run_scheduled_batches(DateTime.add(now, 60, :second)) == []
+
+    {:ok, _} = Workflows.delete_batch_schedule(scope, schedule.id)
+    assert Workflows.list_batch_schedules(scope, workflow.id) == []
+  end
+
   test "start_batch rejects empty and oversized uploads", %{scope: scope, workflow: workflow} do
     {:ok, workflow} = Workflows.update_draft(scope, workflow, echo_graph())
 

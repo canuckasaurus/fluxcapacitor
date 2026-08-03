@@ -60,14 +60,16 @@ defmodule Flux.Evals.EvalCase do
 
     field :inputs, :map, default: %{}
     field :expected, :string
+    field :weight, :float, default: 1.0
 
     timestamps(type: :utc_datetime)
   end
 
   def changeset(eval_case, attrs) do
     eval_case
-    |> cast(attrs, [:inputs, :expected])
+    |> cast(attrs, [:inputs, :expected, :weight])
     |> validate_required([:expected])
+    |> validate_number(:weight, greater_than: 0.0, less_than_or_equal_to: 100.0)
   end
 end
 

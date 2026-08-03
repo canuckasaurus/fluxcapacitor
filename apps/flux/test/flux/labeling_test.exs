@@ -295,6 +295,99 @@ defmodule Flux.LabelingTest do
     assert_in_delta stats.avg_agreement, 2 / 3, 1.0e-9
   end
 
+  test "gold tasks score labeler accuracy (single-label path)", %{
+    scope: scope,
+    workspace: workspace
+  } do
+    {:ok, project} =
+      Labeling.create_project(scope, %{
+        "name" => "Gold",
+        "label_type" => "choice",
+        "options" => ["complaint", "question"]
+      })
+
+    {:ok, task} = Labeling.add_task(scope, project, %{"text" => "refund me"})
+    {:ok, _} = Labeling.label_task(scope, task.id, %{"choice" => "complaint"})
+
+    # Unlabeled tasks can't be promoted; labeled ones re-enter the queue.
+    {:ok, other} = Labeling.add_task(scope, project, %{"text" => "hours?"})
+    assert {:error, :not_labeled} = Labeling.promote_to_gold(scope, other.id)
+
+    {:ok, gold} = Labeling.promote_to_gold(scope, task.id)
+    assert gold.status == :unlabeled
+    assert gold.gold_label == %{"choice" => "complaint"}
+    assert gold.label == nil
+
+    # A second labeler answers wrong; the owner answers right.
+    other_account = account_fixture()
+
+    {:ok, _} =
+      %Flux.Accounts.Membership{}
+      |> Flux.Accounts.Membership.changeset(%{
+        workspace_id: workspace.id,
+        account_id: other_account.id,
+        role: :editor
+      })
+      |> Repo.insert()
+
+    {:ok, _} = Accounts.switch_workspace(other_account, workspace.id)
+    other_scope = Accounts.scope_for(other_account)
+
+    {:ok, _} = Labeling.label_task(other_scope, gold.id, %{"choice" => "question"})
+    {:ok, _} = Labeling.label_task(scope, other.id, %{"choice" => "question"})
+
+    # Only the gold task scores; the wrong answer shows as 0/1.
+    accuracy = Labeling.labeler_accuracy(scope, project)
+    assert [{email, 0, 1}] = accuracy
+    assert email == other_account.email
+  end
+
+  test "gold tasks score every vote in consensus projects", %{
+    scope: scope,
+    workspace: workspace
+  } do
+    {:ok, project} =
+      Labeling.create_project(scope, %{
+        "name" => "Gold votes",
+        "label_type" => "choice",
+        "options" => ["a", "b"],
+        "required_labels" => 2
+      })
+
+    {:ok, task} = Labeling.add_task(scope, project, %{"text" => "x"})
+
+    other = account_fixture()
+
+    {:ok, _} =
+      %Flux.Accounts.Membership{}
+      |> Flux.Accounts.Membership.changeset(%{
+        workspace_id: workspace.id,
+        account_id: other.id,
+        role: :editor
+      })
+      |> Repo.insert()
+
+    {:ok, _} = Accounts.switch_workspace(other, workspace.id)
+    other_scope = Accounts.scope_for(other)
+
+    # First consensus round labels it a; promote that to gold.
+    {:ok, _} = Labeling.label_task(scope, task.id, %{"choice" => "a"})
+    {:ok, labeled} = Labeling.label_task(other_scope, task.id, %{"choice" => "a"})
+    assert labeled.status == :labeled
+
+    {:ok, _gold} = Labeling.promote_to_gold(scope, task.id)
+
+    # Fresh round: one right vote, one wrong vote.
+    {:ok, _} = Labeling.label_task(scope, task.id, %{"choice" => "a"})
+    {:ok, _} = Labeling.label_task(other_scope, task.id, %{"choice" => "b"})
+
+    accuracy = Labeling.labeler_accuracy(scope, project)
+    assert length(accuracy) == 2
+    assert {_right_email, 1, 1} = List.first(accuracy)
+    assert {wrong_email, 0, 1} = List.last(accuracy)
+    assert wrong_email == other.email
+  end
+
   test "single-labeler projects report no agreement stats", %{scope: scope} do
     {:ok, project} =
       Labeling.create_project(scope, %{"name" => "Solo", "label_type" => "text"})

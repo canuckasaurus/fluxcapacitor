@@ -71,6 +71,7 @@ defmodule Flux.Labeling.Task do
     field :data, :map, default: %{}
     field :status, Ecto.Enum, values: [:unlabeled, :labeled, :skipped], default: :unlabeled
     field :label, :map
+    field :gold_label, :map
     field :source, :string
     field :claimed_at, :utc_datetime
 

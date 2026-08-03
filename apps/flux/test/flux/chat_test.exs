@@ -367,6 +367,69 @@ defmodule Flux.ChatTest do
                final.usage["files"]
     end
 
+    test "file_output files ride chatflow replies as download chips too", %{scope: scope} do
+      {:ok, workflow} = Flux.Workflows.create_workflow(scope, %{"name" => "Report Chatflow"})
+
+      graph =
+        workflow.graph
+        |> update_in(["nodes"], fn nodes ->
+          Enum.map(nodes, fn
+            %{"id" => "llm_1"} = node ->
+              node
+              |> put_in(["config", "provider_plugin_id"], "echo")
+              |> put_in(["config", "model"], "echo-1")
+              |> put_in(["config", "prompt"], "{{sys.query}}")
+
+            node ->
+              node
+          end)
+        end)
+        |> Map.update!("nodes", fn nodes ->
+          nodes ++
+            [
+              %{
+                "id" => "file_1",
+                "type" => "file_output",
+                "title" => "Report",
+                "position" => %{"x" => 900, "y" => 400},
+                "config" => %{
+                  "format" => "markdown",
+                  "content" => "# {{sys.query}}",
+                  "output_name" => "chat-report"
+                }
+              }
+            ]
+        end)
+        |> Map.update!("edges", fn edges ->
+          edges ++
+            [
+              %{
+                "id" => "e_answer_file",
+                "source" => "answer_1",
+                "source_handle" => "default",
+                "target" => "file_1"
+              }
+            ]
+        end)
+
+      {:ok, workflow} = Flux.Workflows.update_draft(scope, workflow, graph)
+      {:ok, _version} = Flux.Workflows.publish(scope, workflow)
+
+      {:ok, app} =
+        Chat.create_app(scope, %{
+          "name" => "Report App",
+          "mode" => "advanced_chat",
+          "workflow_id" => workflow.id
+        })
+
+      conversation = Chat.create_conversation(scope, app)
+      {:ok, _user, _assistant} = Chat.send_message(scope, app, conversation, "gigawatts")
+      assert_receive {:done, final}, 5_000
+
+      assert [%{"name" => "chat-report.md", "url" => "/files/file_" <> _t}] =
+               final.usage["files"]
+    end
+
     test "chatflow turns see prior history as {{sys.history}}", %{scope: scope} do
       {:ok, workflow} = Flux.Workflows.create_workflow(scope, %{"name" => "Memory Flux"})
 

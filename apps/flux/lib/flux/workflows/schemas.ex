@@ -52,6 +52,56 @@ defmodule Flux.Workflows.WorkflowVersion do
   end
 end
 
+defmodule Flux.Workflows.BatchSchedule do
+  @moduledoc """
+  A recurring batch: a saved row set re-executed on a cron schedule
+  against the draft or a pinned published version — nightly
+  re-processing without re-uploading the CSV.
+  """
+  use Ecto.Schema
+  import Ecto.Changeset
+
+  @primary_key {:id, UUIDv7, autogenerate: true}
+  @foreign_key_type :binary_id
+
+  schema "batch_schedules" do
+    belongs_to :workspace, Flux.Accounts.Workspace
+    belongs_to :workflow, Flux.Workflows.Workflow
+
+    field :name, :string
+    field :rows, {:array, :map}, default: []
+    field :cron, :string
+    field :target, :string, default: "draft"
+    field :enabled, :boolean, default: true
+    field :last_run_at, :utc_datetime
+
+    timestamps(type: :utc_datetime)
+  end
+
+  def changeset(schedule, attrs) do
+    schedule
+    |> cast(attrs, [:name, :rows, :cron, :target, :enabled])
+    |> validate_required([:name, :cron])
+    |> validate_length(:name, min: 1, max: 255)
+    |> validate_length(:rows, min: 1)
+    |> validate_cron()
+  end
+
+  # Oban's parser, same as schedule triggers and eval schedules.
+  defp validate_cron(changeset) do
+    case get_change(changeset, :cron) do
+      nil ->
+        changeset
+
+      cron ->
+        case Oban.Cron.Expression.parse(cron) do
+          {:ok, _expression} -> changeset
+          {:error, _reason} -> add_error(changeset, :cron, "is not a valid cron expression")
+        end
+    end
+  end
+end
+
 defmodule Flux.Workflows.WorkflowBatch do
   @moduledoc """
   A batch execution: one graph snapshot run once per input row. Counters
