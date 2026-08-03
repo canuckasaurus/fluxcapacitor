@@ -59,6 +59,17 @@ defmodule FluxWeb.Router do
     delete "/datasets/:id", DatasetController, :delete
     post "/datasets/:id/document/create-by-text", DatasetController, :create_by_text
     post "/datasets/:id/document/create-by-url", DatasetController, :create_by_url
+    post "/workflows/batch", QualityController, :batch_create
+    get "/batches/:id", QualityController, :batch_show
+    get "/eval-sets", QualityController, :eval_sets
+    post "/eval-sets/:id/run", QualityController, :eval_run_create
+    get "/eval-runs/:id", QualityController, :eval_run_show
+    get "/labeling/projects", QualityController, :labeling_projects
+    post "/labeling/projects/:id/tasks", QualityController, :labeling_tasks_create
+    get "/labeling/projects/:id/next", QualityController, :labeling_next
+    post "/labeling/tasks/:id/label", QualityController, :labeling_label
+    get "/labeling/projects/:id/export", QualityController, :labeling_export
+
     get "/datasets/:id/documents", DatasetController, :documents
     delete "/datasets/:id/documents/:document_id", DatasetController, :delete_document
     get "/datasets/:id/documents/:document_id/segments", DatasetController, :segments
@@ -204,6 +215,7 @@ defmodule FluxWeb.Router do
 
     live_session :console,
       on_mount: [
+        FluxWeb.Plugs.Locale,
         {FluxWeb.AccountAuth, :require_authenticated},
         {FluxWeb.ConsoleHooks, :require_workspace}
       ] do

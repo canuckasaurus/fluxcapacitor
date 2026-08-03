@@ -30,6 +30,7 @@ defmodule Flux.Demo do
       triage = seed_triage_flux(scope)
       qa_flux = seed_qa_flux(scope, dataset)
       agent_flux = seed_agent_flux(scope)
+      trainer = seed_labeling_loop(scope)
       apps = seed_apps(scope, qa_flux)
 
       {:ok,
@@ -37,7 +38,7 @@ defmodule Flux.Demo do
          account: account,
          workspace: workspace,
          dataset: dataset,
-         fluxes: [triage, qa_flux, agent_flux],
+         fluxes: [triage, qa_flux, agent_flux, trainer],
          apps: apps
        }}
     end
@@ -261,6 +262,45 @@ defmodule Flux.Demo do
     {:ok, workflow} = Flux.Workflows.update_draft(scope, workflow, graph)
     {:ok, _version} = Flux.Workflows.publish(scope, workflow)
     workflow
+  end
+
+  # The label → train → serve loop, clickable end to end: an intent
+  # project with a head start of labeled examples plus a few unlabeled
+  # ones to tag, and the Model trainer template ready to consume the
+  # project's JSONL export.
+  defp seed_labeling_loop(scope) do
+    {:ok, project} =
+      Flux.Labeling.create_project(scope, %{
+        "name" => "Ticket intent",
+        "label_type" => "choice",
+        "options" => ["complaint", "question", "praise"],
+        "instructions" => "Pick the intent of the customer message."
+      })
+
+    labeled = [
+      {"My flux capacitor arrived broken and support won't answer.", "complaint"},
+      {"Does the DeLorean model need 1.21 gigawatts or will 110V do?", "question"},
+      {"Ordered Tuesday, arrived in 1955 — I mean, instantly. Great Scott!", "praise"},
+      {"You billed me twice for one temporal displacement.", "complaint"},
+      {"What are your hours on Saturdays?", "question"}
+    ]
+
+    for {text, choice} <- labeled do
+      {:ok, task} = Flux.Labeling.add_task(scope, project, %{"text" => text}, "demo")
+      {:ok, _} = Flux.Labeling.label_task(scope, task.id, %{"choice" => choice})
+    end
+
+    for text <- [
+          "The time circuits blink twice then nothing happens.",
+          "Loved the packaging — very 1985."
+        ] do
+      {:ok, _} = Flux.Labeling.add_task(scope, project, %{"text" => text}, "demo")
+    end
+
+    template = Flux.Workflows.Templates.get("model_trainer")
+    {:ok, trainer} = Flux.Workflows.create_workflow(scope, %{"name" => template.name})
+    {:ok, trainer} = Flux.Workflows.update_draft(scope, trainer, template.graph)
+    trainer
   end
 
   defp seed_apps(scope, qa_flux) do
