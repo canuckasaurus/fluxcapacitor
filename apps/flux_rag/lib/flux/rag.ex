@@ -29,11 +29,37 @@ defmodule Flux.RAG do
   ## Datasets
 
   def list_datasets(%Scope{} = scope) do
-    Dataset |> Repo.scoped(scope) |> order_by([d], desc: d.inserted_at) |> Repo.all()
+    Dataset
+    |> Repo.scoped(scope)
+    |> where([d], is_nil(d.deleted_at))
+    |> order_by([d], desc: d.inserted_at)
+    |> Repo.all()
+  end
+
+  @doc "Trashed datasets, newest deletion first (purged after 30 days)."
+  def list_trashed_datasets(%Scope{} = scope) do
+    Dataset
+    |> Repo.scoped(scope)
+    |> where([d], not is_nil(d.deleted_at))
+    |> order_by([d], desc: d.deleted_at)
+    |> Repo.all()
+  end
+
+  def restore_dataset(%Scope{} = scope, dataset_id) do
+    with :ok <- RBAC.authorize(scope, :dataset_delete),
+         %Dataset{} = dataset <-
+           Repo.one(Repo.scoped(where(Dataset, id: ^dataset_id), scope)) ||
+             {:error, :not_found} do
+      dataset |> Ecto.Changeset.change(deleted_at: nil) |> Repo.update()
+    end
   end
 
   def get_dataset(%Scope{} = scope, id) do
-    Repo.one(Repo.scoped(where(Dataset, id: ^id), scope)) || {:error, :not_found}
+    Dataset
+    |> where([d], d.id == ^id and is_nil(d.deleted_at))
+    |> Repo.scoped(scope)
+    |> Repo.one()
+    |> Kernel.||({:error, :not_found})
   end
 
   def create_dataset(%Scope{} = scope, attrs) do
@@ -94,13 +120,16 @@ defmodule Flux.RAG do
     end
   end
 
+  @doc "Soft delete: the dataset moves to the trash (30-day purge, restorable)."
   def delete_dataset(%Scope{} = scope, %Dataset{} = dataset) do
     with :ok <- RBAC.authorize(scope, :dataset_delete),
          true <- dataset.workspace_id == Scope.workspace_id(scope) || {:error, :not_found},
-         {:ok, deleted} <- Repo.delete(dataset) do
-      VectorStore.backend().drop(dataset.id)
-      Flux.Audit.record(scope, "dataset.delete", resource: dataset)
-      {:ok, deleted}
+         {:ok, trashed} <-
+           dataset
+           |> Ecto.Changeset.change(deleted_at: DateTime.utc_now(:second))
+           |> Repo.update() do
+      Flux.Audit.record(scope, "dataset.trash", resource: dataset)
+      {:ok, trashed}
     end
   end
 

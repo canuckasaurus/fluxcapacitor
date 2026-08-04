@@ -125,6 +125,68 @@ defmodule Flux.NotificationsRegistryTest do
     assert message =~ "not found"
   end
 
+  test "labeling trash restores; the cleanup sweep bounds the logs", %{
+    scope: scope,
+    workspace: workspace
+  } do
+    {:ok, project} =
+      Flux.Labeling.create_project(scope, %{"name" => "Trashy", "label_type" => "text"})
+
+    {:ok, _} = Flux.Labeling.delete_project(scope, project.id)
+
+    assert Flux.Labeling.list_projects(scope) == []
+    assert [%{name: "Trashy"}] = Flux.Labeling.list_trashed_projects(scope)
+
+    {:ok, restored} = Flux.Labeling.restore_project(scope, project.id)
+    assert restored.deleted_at == nil
+    assert [_project] = Flux.Labeling.list_projects(scope)
+
+    # Old notifications and deliveries sweep out on the nightly job.
+    old = DateTime.add(DateTime.utc_now(:second), -120, :day)
+
+    Repo.insert!(%Notifications.Notification{
+      workspace_id: workspace.id,
+      kind: "run_failed",
+      title: "ancient",
+      inserted_at: old,
+      updated_at: old
+    })
+
+    :ok = Notifications.notify(workspace.id, "run_failed", "fresh")
+
+    assert :ok = Flux.Workflows.CleanupWorker.perform(%Oban.Job{args: %{}})
+
+    titles = Enum.map(Notifications.list(scope, 50), & &1.title)
+    assert "fresh" in titles
+    refute "ancient" in titles
+  end
+
+  test "the weekly digest fires on Monday mornings, once", %{scope: scope, workspace: workspace} do
+    {:ok, workflow} = Workflows.create_workflow(scope, %{"name" => "Digest Flux"})
+
+    Repo.insert!(%Flux.Workflows.WorkflowRun{
+      workspace_id: workspace.id,
+      workflow_id: workflow.id,
+      status: :succeeded,
+      usage: %{"input_tokens" => 5, "output_tokens" => 10}
+    })
+
+    monday_8am = DateTime.new!(~D[2026-08-03], ~T[08:00:00])
+    :ok = Flux.Usage.send_weekly_digests(monday_8am)
+
+    assert [digest | _rest] = Enum.filter(Notifications.list(scope), &(&1.kind == "digest"))
+    assert digest.title =~ "Weekly digest: 1 runs"
+    assert digest.title =~ "15 tokens"
+
+    # Same Monday: the marker suppresses a repeat.
+    :ok = Flux.Usage.send_weekly_digests(monday_8am)
+    assert Enum.count(Notifications.list(scope, 50), &(&1.kind == "digest")) == 1
+
+    # Not Monday 08:00 → nothing.
+    :ok = Flux.Usage.send_weekly_digests(DateTime.new!(~D[2026-08-04], ~T[08:00:00]))
+    assert Enum.count(Notifications.list(scope, 50), &(&1.kind == "digest")) == 1
+  end
+
   test "scheduled exports write the archive and notify", %{scope: scope} do
     assert {:error, :invalid_cron} = Accounts.set_export_schedule(scope, "nope")
     {:ok, _workspace} = Accounts.set_export_schedule(scope, "* * * * *")

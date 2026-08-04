@@ -54,9 +54,14 @@ orchestrator, no queue infrastructure beyond Postgres.
   added/removed/changed, edges rewired) right in the versions modal, and
   an **A/B split** sends a share of live traffic (chatflows, sites, API,
   triggers) to a second published version with per-arm run stats. Run
-  drill-ins render a **timeline waterfall** per node, webhooks keep a
-  **delivery log** with manual retry, and `FLUX_ADMIN_EMAILS` unlocks an
-  **instance admin panel** for self-host operators. Liked replies and annotations export as **fine-tune
+  drill-ins render a **timeline waterfall** per node with **per-node
+  token attribution**, runs are **text-searchable** by content, webhooks
+  keep a **delivery log** with manual retry, and `FLUX_ADMIN_EMAILS`
+  unlocks an **instance admin panel** for self-host operators.
+  **Guardrails** (regex deny patterns) block or flag inputs and flag
+  outputs, a **weekly digest** rolls up each workspace's activity, and
+  datasets and labeling projects get the same **30-day trash** as fluxes
+  and apps. Liked replies and annotations export as **fine-tune
   JSONL**, and **native data labeling** closes the custom model loop:
   labeling projects with a tagging queue (single/multi choice or free-text
   correction, keyboard shortcuts, multi-labeler claims and per-labeler
@@ -283,7 +288,7 @@ scratch drive, and a labeling project wired to the Model trainer flux
 ## Testing
 
 ```bash
-mix test                             # full umbrella suite (~680 tests), hermetic
+mix test                             # full umbrella suite (~685 tests), hermetic
 ```
 
 The suite runs with no network: providers stub through `Req.Test` or the

@@ -19,7 +19,8 @@ defmodule FluxWeb.ConsoleLive.Labeling do
        page_title: "Labeling",
        projects: projects,
        selected_project: List.first(projects),
-       current_task: nil
+       current_task: nil,
+       trashed_projects: Labeling.list_trashed_projects(socket.assigns.current_scope)
      )
      |> assign_queue()
      |> allow_upload(:tasks_csv,
@@ -64,7 +65,12 @@ defmodule FluxWeb.ConsoleLive.Labeling do
     selected = Enum.find(projects, List.first(projects), &(&1.id == keep_id))
 
     socket
-    |> assign(projects: projects, selected_project: selected, current_task: nil)
+    |> assign(
+      projects: projects,
+      selected_project: selected,
+      current_task: nil,
+      trashed_projects: Labeling.list_trashed_projects(socket.assigns.current_scope)
+    )
     |> assign_queue()
   end
 
@@ -97,8 +103,27 @@ defmodule FluxWeb.ConsoleLive.Labeling do
 
   def handle_event("delete_project", %{"id" => id}, socket) do
     case Labeling.delete_project(socket.assigns.current_scope, id) do
-      {:ok, _} -> {:noreply, socket |> put_flash(:info, "Project deleted.") |> reload_projects()}
-      _error -> {:noreply, put_flash(socket, :error, "Could not delete the project.")}
+      {:ok, _} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Project moved to the trash (restorable for 30 days).")
+         |> reload_projects()}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not delete the project.")}
+    end
+  end
+
+  def handle_event("restore_project", %{"id" => id}, socket) do
+    case Labeling.restore_project(socket.assigns.current_scope, id) do
+      {:ok, project} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "\"#{project.name}\" restored.")
+         |> reload_projects(project.id)}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not restore the project.")}
     end
   end
 
@@ -502,6 +527,35 @@ defmodule FluxWeb.ConsoleLive.Labeling do
           </tbody>
         </table>
       </div>
+
+      <details
+        :if={@trashed_projects != []}
+        class="card border border-base-200 p-4"
+        id="labeling-trash"
+      >
+        <summary class="cursor-pointer text-sm font-semibold">
+          Trash ({length(@trashed_projects)}) — purged after 30 days
+        </summary>
+        <div class="mt-2 space-y-2">
+          <div
+            :for={project <- @trashed_projects}
+            class="flex items-center gap-2 text-sm"
+            id={"trashed-project-#{project.id}"}
+          >
+            <span>{project.name}</span>
+            <span class="text-xs opacity-50">
+              deleted {Calendar.strftime(project.deleted_at, "%Y-%m-%d %H:%M")}
+            </span>
+            <button
+              class="btn btn-ghost btn-xs ml-auto"
+              phx-click="restore_project"
+              phx-value-id={project.id}
+            >
+              Restore
+            </button>
+          </div>
+        </div>
+      </details>
     </Layouts.console>
     """
   end

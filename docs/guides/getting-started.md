@@ -113,7 +113,7 @@ map.
 | Monitoring, feedback, annotations, search | `/console/apps/:id/monitor` |
 | Datasets, documents, segments, hit testing | `/console/knowledge` |
 | Data labeling: projects, tagging queue, consensus + agreement, gold standards + labeler accuracy, JSONL export | `/console/labeling` |
-| Workspace-wide run history with filters, cost totals, per-node drill-in | `/console/runs` |
+| Workspace-wide run history: filters, text search, cost totals, per-node drill-in with token attribution | `/console/runs` |
 | Stored files, model registry, scheduled export archives | `/console/files` |
 | Notification feed: failures, regressions, completions | `/console/notifications` |
 | Providers, tool/datasource plugins, credentials | `/console/plugins` |
@@ -136,8 +136,10 @@ settings can schedule **automatic export archives** (cron) that land on
 the Files page as backups, set a **monthly token budget** (warns at 80%,
 refuses runs past the cap), and enable the **LLM response cache**
 (identical prompts within the TTL answer from memory, billed at zero).
-A **concurrent-run cap** refuses interactive runs past the limit
-(batches/evals exempt — they serialize anyway). Outgoing webhooks keep a
+**Guardrails** (regex deny patterns, one per line) block or flag chat
+and run inputs and always flag outputs, raising routable `guardrail`
+notifications. A **concurrent-run cap** refuses interactive runs past
+the limit (batches/evals exempt — they serialize anyway). Outgoing webhooks keep a
 **delivery log** (status, attempts, manual retry) in settings, and
 endpoints can subscribe to **`notification.*` events** to route exactly
 the console notifications they care about. `FLUX_ADMIN_EMAILS` unlocks

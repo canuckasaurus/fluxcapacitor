@@ -47,7 +47,10 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
        max_entries: 5,
        max_file_size: 15_000_000
      )
-     |> assign(datasets: RAG.list_datasets(scope))}
+     |> assign(
+       datasets: RAG.list_datasets(scope),
+       trashed_datasets: RAG.list_trashed_datasets(scope)
+     )}
   end
 
   defp plugin_runtime, do: Application.get_env(:flux, :plugin_runtime, Flux.PluginRuntime)
@@ -192,10 +195,33 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
          {:ok, _} <- RAG.delete_dataset(scope, dataset) do
       {:noreply,
        socket
-       |> put_flash(:info, "Dataset deleted.")
-       |> assign(datasets: RAG.list_datasets(scope), selected: nil, documents: [])}
+       |> put_flash(:info, "Dataset moved to the trash (restorable for 30 days).")
+       |> assign(
+         datasets: RAG.list_datasets(scope),
+         trashed_datasets: RAG.list_trashed_datasets(scope),
+         selected: nil,
+         documents: []
+       )}
     else
       _error -> {:noreply, put_flash(socket, :error, "Could not delete that dataset.")}
+    end
+  end
+
+  def handle_event("restore_dataset", %{"dataset-id" => id}, socket) do
+    scope = socket.assigns.current_scope
+
+    case RAG.restore_dataset(scope, id) do
+      {:ok, dataset} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "\"#{dataset.name}\" restored.")
+         |> assign(
+           datasets: RAG.list_datasets(scope),
+           trashed_datasets: RAG.list_trashed_datasets(scope)
+         )}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not restore that dataset.")}
     end
   end
 
@@ -930,6 +956,36 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
           <p class="opacity-60 text-sm">Select a dataset to manage documents and test retrieval.</p>
         </div>
       </div>
+
+      <details
+        :if={@trashed_datasets != []}
+        class="card border border-base-200 p-4"
+        id="dataset-trash"
+      >
+        <summary class="cursor-pointer text-sm font-semibold">
+          Trash ({length(@trashed_datasets)}) — purged after 30 days
+        </summary>
+        <div class="mt-2 space-y-2">
+          <div
+            :for={dataset <- @trashed_datasets}
+            class="flex items-center gap-2 text-sm"
+            id={"trashed-dataset-#{dataset.id}"}
+          >
+            <span>{dataset.name}</span>
+            <span class="text-xs opacity-50">
+              deleted {Calendar.strftime(dataset.deleted_at, "%Y-%m-%d %H:%M")}
+            </span>
+            <button
+              :if={@can_edit}
+              class="btn btn-ghost btn-xs ml-auto"
+              phx-click="restore_dataset"
+              phx-value-dataset-id={dataset.id}
+            >
+              Restore
+            </button>
+          </div>
+        </div>
+      </details>
     </Layouts.console>
     """
   end

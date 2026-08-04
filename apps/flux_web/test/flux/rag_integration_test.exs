@@ -53,6 +53,20 @@ defmodule FluxWeb.RAGIntegrationTest do
     assert Enum.all?(segments, &is_list(&1.embedding))
   end
 
+  test "deleted datasets land in the trash and restore", %{scope: scope, dataset: dataset} do
+    {:ok, trashed} = RAG.delete_dataset(scope, dataset)
+    assert trashed.deleted_at != nil
+
+    # Gone from listings, retrieval, and lookups — but restorable.
+    assert RAG.list_datasets(scope) == []
+    assert {:error, :not_found} = RAG.get_dataset(scope, dataset.id)
+    assert [%{name: "Handbook"}] = RAG.list_trashed_datasets(scope)
+
+    {:ok, restored} = RAG.restore_dataset(scope, dataset.id)
+    assert restored.deleted_at == nil
+    assert [_dataset] = RAG.list_datasets(scope)
+  end
+
   test "document tags filter retrieval", %{scope: scope, dataset: dataset} do
     policy = ingest!(scope, dataset, "policy.md", "Refunds follow the thirty day policy window.")
     _blog = ingest!(scope, dataset, "blog.md", "Our blog post also mentions the policy loosely.")

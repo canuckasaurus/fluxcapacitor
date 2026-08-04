@@ -486,3 +486,25 @@ model calls, provider-agnostic); **canvas sticky notes** (graph-stored
 notes list, rendered as draggable warning-tinted cards reusing the
 node-drag hook via note: id prefixes; add/edit/delete all undoable
 through the normal graph history).
+
+34. ~~Batch 10: hardening (#151, 2026-08-03)~~ DONE: **per-node token
+attribution** (the engine stamps the executing node id in the process
+dictionary — branch-safe, each parallel task owns its own — and the
+invoke_llm wrapper accumulates usage["by_node"] alongside by_model;
+the runs waterfall shows tokens per node); **guardrails**
+(Flux.Guardrails: newline-separated case-insensitive regexes in
+settings, action block|flag; inputs gate chat + runs — chat UIs flash,
+/v1 answers 403 guardrail — outputs always flag; every match raises a
+routable guardrail notification; invalid patterns refused at save);
+**run text search** (ILIKE over inputs/outputs ::text with a debounced
+search box); **cleanup sweeps** (notifications >90d and webhook
+deliveries >30d age out nightly for everyone); **trash parity**
+(datasets + labeling projects soft-delete with 30-day purge — dataset
+purge drops the vector index via a runtime-resolved backend to keep
+flux free of flux_rag compile deps — restore UIs on both pages;
+labeling queue_from_run refuses trashed projects); **weekly digest**
+(Monday 08:00 UTC minute-tick: workspaces with 7-day run activity get
+one digest notification with runs/failures/tokens/cost; ISO-week marker
+prevents repeats); bulk re-index turned out already shipped (dataset
+settings card) — verified rather than duplicated, my redundant copy
+removed before commit.

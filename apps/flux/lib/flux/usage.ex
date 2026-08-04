@@ -82,6 +82,59 @@ defmodule Flux.Usage do
   end
 
   @doc """
+  Monday-morning digests (minute-tick sweep, 08:00 UTC): every workspace
+  with run activity in the past week gets one `digest` notification —
+  runs, failures, tokens, and estimated cost — routable to webhooks like
+  any other kind. A per-week marker in custom_config stops repeats.
+  """
+  def send_weekly_digests(now \\ DateTime.utc_now(:second)) do
+    if Date.day_of_week(DateTime.to_date(now)) == 1 and now.hour == 8 and now.minute == 0 do
+      {year, week_number} = :calendar.iso_week_number(Date.to_erl(DateTime.to_date(now)))
+      week = "#{year}-#{week_number}"
+      since = DateTime.add(now, -7, :day)
+
+      for workspace <- Repo.all(Flux.Accounts.Workspace),
+          (workspace.custom_config || %{})["digest_sent"] != week do
+        runs =
+          Flux.Workflows.WorkflowRun
+          |> where([r], r.workspace_id == ^workspace.id and r.inserted_at >= ^since)
+          |> select([r], %{status: r.status, usage: r.usage})
+          |> Repo.all(skip_workspace_guard: true)
+
+        if runs != [] do
+          failed = Enum.count(runs, &(&1.status == :failed))
+
+          tokens =
+            Enum.sum(
+              for run <- runs,
+                  do: (run.usage["input_tokens"] || 0) + (run.usage["output_tokens"] || 0)
+            )
+
+          cost = Enum.sum(for run <- runs, do: run.usage["estimated_cost_usd"] || 0.0)
+
+          cost_text =
+            (cost > 0 && " · ~$#{:erlang.float_to_binary(cost * 1.0, decimals: 4)}") || ""
+
+          Flux.Notifications.notify(
+            workspace.id,
+            "digest",
+            "Weekly digest: #{length(runs)} runs (#{failed} failed) · #{tokens} tokens#{cost_text}",
+            "/console/runs"
+          )
+
+          workspace
+          |> Ecto.Changeset.change(
+            custom_config: Map.put(workspace.custom_config || %{}, "digest_sent", week)
+          )
+          |> Repo.update()
+        end
+      end
+    end
+
+    :ok
+  end
+
+  @doc """
   Tokens spent this calendar month across workflow runs and chat replies
   — the number the monthly budget gate compares against. Worker-safe (no
   scope).

@@ -24,12 +24,35 @@ defmodule Flux.Labeling do
   def list_projects(%Scope{} = scope) do
     Project
     |> Repo.scoped(scope)
+    |> where([p], is_nil(p.deleted_at))
     |> order_by([p], asc: p.inserted_at)
     |> Repo.all()
   end
 
+  @doc "Trashed projects, newest deletion first (purged after 30 days)."
+  def list_trashed_projects(%Scope{} = scope) do
+    Project
+    |> Repo.scoped(scope)
+    |> where([p], not is_nil(p.deleted_at))
+    |> order_by([p], desc: p.deleted_at)
+    |> Repo.all()
+  end
+
+  def restore_project(%Scope{} = scope, project_id) do
+    with :ok <- RBAC.authorize(scope, :app_edit),
+         %Project{} = project <-
+           Repo.one(Repo.scoped(where(Project, id: ^project_id), scope)) ||
+             {:error, :not_found} do
+      project |> Ecto.Changeset.change(deleted_at: nil) |> Repo.update()
+    end
+  end
+
   def get_project(%Scope{} = scope, project_id) do
-    Repo.one(Repo.scoped(where(Project, id: ^project_id), scope)) || {:error, :not_found}
+    Project
+    |> where([p], p.id == ^project_id and is_nil(p.deleted_at))
+    |> Repo.scoped(scope)
+    |> Repo.one()
+    |> Kernel.||({:error, :not_found})
   end
 
   def create_project(%Scope{} = scope, attrs) do
@@ -40,10 +63,13 @@ defmodule Flux.Labeling do
     end
   end
 
+  @doc "Soft delete: the project moves to the trash (30-day purge, restorable)."
   def delete_project(%Scope{} = scope, project_id) do
     with :ok <- RBAC.authorize(scope, :app_edit),
          %Project{} = project <- get_project(scope, project_id) do
-      Repo.delete(project)
+      project
+      |> Ecto.Changeset.change(deleted_at: DateTime.utc_now(:second))
+      |> Repo.update()
     end
   end
 
@@ -486,7 +512,7 @@ defmodule Flux.Labeling do
   """
   def queue_from_run(workspace_id, run_id, project_id, data, node_id \\ nil) do
     with {:ok, _uuid} <- cast_uuid(project_id),
-         %Project{workspace_id: ^workspace_id} = project <-
+         %Project{workspace_id: ^workspace_id, deleted_at: nil} = project <-
            Repo.get(Project, project_id, skip_workspace_guard: true) ||
              {:error, "labeling project #{project_id} was not found in this workspace"} do
       task =

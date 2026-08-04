@@ -18,6 +18,7 @@ defmodule Flux.Labeling.Project do
     field :options, {:array, :string}, default: []
     field :instructions, :string
     field :required_labels, :integer, default: 1
+    field :deleted_at, :utc_datetime
 
     timestamps(type: :utc_datetime)
   end

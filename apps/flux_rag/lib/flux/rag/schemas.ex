@@ -26,6 +26,7 @@ defmodule Flux.RAG.Dataset do
     field(:score_threshold, :float)
     field(:entity_plugin_id, :string)
     field(:entity_model, :string)
+    field(:deleted_at, :utc_datetime)
 
     timestamps(type: :utc_datetime)
   end
