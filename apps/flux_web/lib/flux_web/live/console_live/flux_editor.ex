@@ -2694,6 +2694,8 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                       class="ml-auto opacity-40 hover:opacity-100 text-error"
                       phx-click="delete_note"
                       phx-value-id={note["id"]}
+                      aria-label="Delete this note"
+                      title="Delete this note"
                     >
                       <.icon name="hero-x-mark" class="size-3" />
                     </button>
@@ -5463,6 +5465,10 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
             surface.addEventListener("pointerdown", (e) => {
               // Docs links inside node cards are plain links, not drag handles.
               if (e.target.closest("[data-docs-link]")) return
+
+              // Interactive elements win over dragging — preventDefault on a
+              // note's textarea would make it impossible to focus and type.
+              if (e.target.closest("textarea, input, select, button, a")) return
 
               const out = e.target.closest("[data-out-port]")
               if (out) {

@@ -31,8 +31,8 @@ then see `%{"error", "is_error"}` as its outputs. Retries are per-node
 | `tool` | Calls one operation of a toolset or tool plugin | `toolset_id`, `operation_id`, args | `status`, `body`, `text` |
 | `knowledge_retrieval` | Hybrid retrieval across datasets | `dataset_ids`, `query`, `top_k` (blank = dataset default) | `result`, `citations`, `count` |
 | `document_extractor` | Uploaded file → text | `variable` (file id) | `text`, `name`, `size` |
-| `iteration` | Runs a published sub-flux once per list item | `variable`, `workflow_id`, `max_items` | `output` (list), `count` |
-| `loop` | Bounded while over a published sub-flux | `workflow_id`, `initial`, `max_loops`, break `conditions` | `output`, `rounds`, `condition_met`, `history` |
+| `iteration` | Runs a published sub-flux once per list item | `variable`, `workflow_id`, `max_items`, `subflux_version` | `output` (list), `count` |
+| `loop` | Bounded while over a published sub-flux | `workflow_id`, `initial`, `max_loops`, break `conditions`, `subflux_version` | `output`, `rounds`, `condition_met`, `history` |
 | `human_input` | Pauses the run for a person | `prompt`, `options` | `output` (the reply, after resume) |
 | `labeling` | Queues a task in a labeling project and pauses until it's labeled | `project_id`, `data` (name/value rows) | `choice` / `choices` / `text`, `output` |
 | `document` | Fills a Word doc template into a downloadable file | `template_id`, `output_name` | `url`, `name`, `file_id`, `size` |
@@ -164,14 +164,17 @@ text — native for text/HTML formats. Outputs `text`, `name`, `size`.
 Runs a *published* sub-flux once per item of a list, in order, and
 collects the results. The sub-flux sees `{{sys.item}}` /
 `{{sys.index}}`. `max_items` caps the fan-out. Outputs `output` (list)
-and `count`.
+and `count`. By default the *latest* published version runs;
+`subflux_version` (`"v3"` or `3`) pins a specific one so composed
+fluxes stay reproducible while the sub-flux evolves.
 
 ### `loop`
 
 A bounded while: runs a published sub-flux repeatedly, feeding each
 round's outputs in as the next round's input, until the break
 `conditions` match or `max_loops` (≤ 100) is reached. Outputs `output`,
-`rounds`, `condition_met`, `history`.
+`rounds`, `condition_met`, `history`. Accepts the same
+`subflux_version` pin as iteration.
 
 ### `human_input`
 

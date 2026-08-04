@@ -14,9 +14,10 @@ orchestrator, no queue infrastructure beyond Postgres.
 - **Visual workflow engine** — 25 node types (LLM, agent loops — with
   **human tool approval**: flagged tools pause the run for an
   approve/deny before executing — branching,
-  iteration and bounded loops over sub-fluxes, code execution, HTTP, knowledge
-  retrieval, human-input and labeling pause/resume, classifiers, extractors,
-  and more) with
+  iteration and bounded loops over sub-fluxes — **pinnable to a specific
+  published version** for reproducible composition — code execution, HTTP,
+  knowledge retrieval, human-input and labeling pause/resume, classifiers,
+  extractors, and more) with
   retries, error branches, **parallel branch fan-out**, model fallback chains,
   environment/conversation variables, versioning, and rollback. Template nodes
   render simple `{{refs}}`, a **Jinja subset** (filters, conditionals, loops),
@@ -100,8 +101,13 @@ orchestrator, no queue infrastructure beyond Postgres.
   track usage, feedback and quality trends, **topic clusters** of what
   people actually ask, and **annotation replies** promote
   liked answers into canonical responses (exact + embedding-fuzzy matched).
-  A **concurrent-run cap** protects provider limits, and notification
-  kinds **route to chosen webhook endpoints** (`notification.*` events).
+  Assistant replies **render markdown** (safely — escape-first, no raw
+  HTML) in both the console and public sites, and a **Regenerate button**
+  redoes the last answer in place. A **concurrent-run cap** protects
+  provider limits, and notification kinds **route to chosen webhook
+  endpoints** (`notification.*` events). A dashboard **getting-started
+  checklist** walks new workspaces through provider → flux → publish →
+  knowledge → first run → invite.
 - **Knowledge (RAG)** — datasets → documents → embedded segments, hybrid
   retrieval (vector cosine + Postgres full-text + **entity mentions**, merged
   by reciprocal rank fusion), optional reranking, URL ingestion, datasource
@@ -116,8 +122,9 @@ orchestrator, no queue infrastructure beyond Postgres.
   **Retrieval evals** (golden question → expected-passage cases, hit rate
   + MRR per dataset) make chunking and backend changes measurable.
 - **Plugins** — one SDK (`packages/flux_plugin`) with five capability
-  behaviours: **model providers** (OpenAI, Anthropic, Gemini, any
-  OpenAI-compatible endpoint), **tools**, **datasources** (external document
+  behaviours: **model providers** (OpenAI, Anthropic, Gemini, **Azure
+  OpenAI** deployments, **Amazon Bedrock** Claude models with hand-rolled
+  SigV4, any OpenAI-compatible endpoint), **tools**, **datasources** (external document
   collections that sync into datasets), **triggers** (polled event sources
   that start runs), and **endpoints** (plugins that serve HTTP). Installed
   per workspace, credentials encrypted per workspace. Built-in **LlamaIndex
@@ -288,7 +295,7 @@ scratch drive, and a labeling project wired to the Model trainer flux
 ## Testing
 
 ```bash
-mix test                             # full umbrella suite (~685 tests), hermetic
+mix test                             # full umbrella suite (~700 tests), hermetic
 ```
 
 The suite runs with no network: providers stub through `Req.Test` or the

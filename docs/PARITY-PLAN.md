@@ -508,3 +508,47 @@ one digest notification with runs/failures/tokens/cost; ISO-week marker
 prevents repeats); bulk re-index turned out already shipped (dataset
 settings card) — verified rather than duplicated, my redundant copy
 removed before commit.
+
+35. ~~Batch 11: providers, polish, and the first live QA pass (#152, 2026-08-03)~~
+DONE: **Azure OpenAI provider** (per-deployment routing with api-key
+auth and api-version query; delegates the chat-completions wire
+protocol to the OpenAI plugin; GA api-versions omit stream_options, so
+missing usage falls back to a bytes/4 estimate; optional embedding
+deployments) and **Amazon Bedrock provider** (Claude through the
+runtime invoke endpoint with the anthropic bedrock-2023-05-31 payload;
+SigV4 signed by hand — ExAws has no Bedrock module — session-token
+aware, non-streaming reply emitted as one chunk, anthropic.* ids only,
+honest errors otherwise); **chat markdown** (FluxWeb.Markdown: an
+escape-first renderer — headings, lists, quotes, fences, inline
+code/bold/italic, http(s)-only links; raw HTML can never pass — used
+for assistant bubbles in console chat and public sites); **regenerate**
+(Chat.regenerate discards the last completed reply and streams a fresh
+one from the same user message; button on the last assistant bubble);
+**sub-flux version pinning** (iteration/loop accept subflux_version
+"v3"/3; the runner resolves that exact version or fails with an honest
+"does not exist"; blank = latest as before; pin inputs in both editor
+panels); **onboarding checklist** (Flux.Usage.onboarding: provider
+beyond echo, first flux, publish, dataset, first run/reply, invite —
+dashboard card with progress bar, struck-through done steps, links on
+the pending ones; hides itself when complete); **demo refresh**
+(mix flux.demo now seeds the quality loop too: a gated eval set with
+routing cases, retrieval goldens, flag-mode guardrails, a v2 refund
+desk behind a 50% A/B split, a canvas note, a workspace template, and
+a registered ticket-intent model artifact); **v0.1.0** (CHANGELOG.md
+distilled from this ledger; umbrella already versioned 0.1.0; tag
+v0.1.0 on main — the GitHub release draft still waits on gh auth);
+and a **live QA sweep** — the first time this console was actually
+clicked through end to end (dev server + browser automation): caught
+and fixed a real editor bug (the canvas drag hook preventDefault-ed
+pointerdown on note textareas, making notes impossible to type into —
+interactive elements now win over dragging), chat bubbles bloated by
+HEEx indentation rendered under whitespace-pre-wrap (pre-wrap now
+scoped to content spans in console chat, site chat, and streaming
+bubbles), a missing empty state on Knowledge (OUTATIME plate added),
+and a11y labels on the note-delete and regenerate icon buttons.
+Verified live along the way: template gallery → canvas → keyboard
+delete → publish → run (echo fallback, per-node waterfall tokens),
+markdown + regenerate in a real conversation, dark mode, and the
+checklist advancing 0/6 → 3/6. Lesson repeated: data-confirm dialogs
+freeze browser automation — the node Delete button is confirm-guarded,
+the Del key path is not.

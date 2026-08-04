@@ -512,6 +512,15 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
           <p :if={@datasets == []} class="text-sm opacity-60">No datasets yet.</p>
         </div>
 
+        <div :if={@datasets == []} class="flex-1">
+          <Layouts.empty_state icon="hero-book-open" title="No knowledge yet">
+            <p>
+              Create a dataset and upload documents — fluxes retrieve from them
+              to answer with your content.
+            </p>
+          </Layouts.empty_state>
+        </div>
+
         <div :if={@selected} class="flex-1 min-w-0 space-y-4">
           <div class="flex items-center justify-between">
             <h2 class="font-semibold text-lg">{@selected.name}</h2>

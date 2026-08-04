@@ -392,18 +392,16 @@ defmodule FluxWeb.ConsoleLive.AppChat do
           >
             <div class={[
               "chat-bubble",
-              (message.role == :assistant and message.status != :error) ||
-                "whitespace-pre-wrap",
               message.role == :user && "chat-bubble-primary",
               message.status == :error && "chat-bubble-error"
             ]}>
               <%= cond do %>
                 <% message.status == :error -> %>
-                  {message.error}
+                  <span class="whitespace-pre-wrap">{message.error}</span>
                 <% message.role == :assistant -> %>
                   <div class="markdown-chat">{FluxWeb.Markdown.render(message.content)}</div>
                 <% true -> %>
-                  {message.content}
+                  <span class="whitespace-pre-wrap">{message.content}</span>
               <% end %>
             </div>
             <div
@@ -448,8 +446,8 @@ defmodule FluxWeb.ConsoleLive.AppChat do
             </div>
           </div>
           <div :if={@streaming_id} class="chat chat-start" id="streaming-bubble">
-            <div class="chat-bubble whitespace-pre-wrap">
-              {@streaming_text}<span class="animate-pulse">▌</span>
+            <div class="chat-bubble">
+              <span class="whitespace-pre-wrap">{@streaming_text}</span><span class="animate-pulse">▌</span>
             </div>
           </div>
         </div>

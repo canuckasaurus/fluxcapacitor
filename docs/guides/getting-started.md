@@ -40,11 +40,13 @@ lands in the dev mailbox at `/dev/mailbox`).
 1. **Register** at `/accounts/register` (magic-link login; the dev
    mailbox shows the email locally) and create a workspace.
 2. **Plugins** → the echo provider is ready out of the box. To use real
-   models, click *Configure* on OpenAI/Anthropic/Gemini (or *OpenAI
-   compatible* for Grok/Together/Ollama/vLLM) and paste a key —
-   credentials are validated against the provider and stored encrypted
-   per workspace. Several named keys can coexist; the default one is
-   what nodes resolve.
+   models, click *Configure* on OpenAI/Anthropic/Gemini, *Azure OpenAI*
+   (endpoint + deployment names), *Amazon Bedrock* (IAM keys + region,
+   Claude models), or *OpenAI compatible* (Grok/Together/Ollama/vLLM)
+   and paste a key — credentials are validated against the provider and
+   stored encrypted per workspace. Several named keys can coexist; the
+   default one is what nodes resolve. The dashboard's **Getting started
+   checklist** tracks these first steps.
 3. **Fluxes** → *New Flux* opens the canvas, or pick a card from the
    **template gallery** (triage, RAG answer, human review, model
    trainer, report writer, intent router — plus anything your team has
