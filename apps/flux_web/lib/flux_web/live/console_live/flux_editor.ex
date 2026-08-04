@@ -253,10 +253,49 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
   ## Graph mutations (all auto-save the draft)
 
   @impl true
+  def handle_event("node_moved", %{"id" => "note:" <> note_id, "x" => x, "y" => y}, socket) do
+    update_graph(socket, fn graph ->
+      update_note_in(graph, note_id, fn note ->
+        note
+        |> Map.put("x", max(round_num(x), 0))
+        |> Map.put("y", max(round_num(y), 0))
+      end)
+    end)
+  end
+
   def handle_event("node_moved", %{"id" => id, "x" => x, "y" => y}, socket) do
     update_graph(socket, fn graph ->
       update_node_in(graph, id, fn node ->
         Map.put(node, "position", %{"x" => max(round_num(x), 0), "y" => max(round_num(y), 0)})
+      end)
+    end)
+  end
+
+  def handle_event("add_note", _params, socket) do
+    count = length(List.wrap(socket.assigns.graph["notes"]))
+
+    note = %{
+      "id" => "n#{System.unique_integer([:positive])}",
+      "x" => 80 + rem(count, 4) * 60,
+      "y" => 40 + rem(count, 4) * 40,
+      "text" => ""
+    }
+
+    update_graph(socket, fn graph ->
+      Map.update(graph, "notes", [note], &(&1 ++ [note]))
+    end)
+  end
+
+  def handle_event("note_text", %{"id" => note_id, "value" => text}, socket) do
+    update_graph(socket, fn graph ->
+      update_note_in(graph, note_id, &Map.put(&1, "text", String.slice(to_string(text), 0, 500)))
+    end)
+  end
+
+  def handle_event("delete_note", %{"id" => note_id}, socket) do
+    update_graph(socket, fn graph ->
+      Map.update(graph, "notes", [], fn notes ->
+        Enum.reject(notes, &(&1["id"] == note_id))
       end)
     end)
   end
@@ -1354,6 +1393,15 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     end)
   end
 
+  defp update_note_in(graph, id, fun) do
+    Map.update(graph, "notes", [], fn notes ->
+      Enum.map(notes, fn
+        %{"id" => ^id} = note -> fun.(note)
+        note -> note
+      end)
+    end)
+  end
+
   # Retry settings apply to every failable node type, so they merge in
   # after the type-specific config is built.
   defp put_retry(config, %{"max_retries" => max_retries}) do
@@ -1746,11 +1794,19 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
           knowledge_dataset_ids(config)
       end
 
+    tags =
+      params
+      |> Map.get("tags", Enum.join(List.wrap(config["tags"]), ", "))
+      |> String.split(",")
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+
     config
     |> Map.put("dataset_ids", dataset_ids)
     |> Map.delete("dataset_id")
     |> Map.put("query", Map.get(params, "query", config["query"] || ""))
     |> Map.put("top_k", top_k)
+    |> Map.put("tags", tags)
   end
 
   defp build_config("iteration", config, params) do
@@ -2464,6 +2520,14 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
               <.icon name="hero-sparkles" class="size-4" /> Edit with AI
             </button>
             <button
+              :if={@can_edit}
+              class="btn btn-sm btn-ghost"
+              phx-click="add_note"
+              title="Add a sticky note to the canvas (saved with the graph)"
+            >
+              <.icon name="hero-pencil-square" class="size-4" /> Note
+            </button>
+            <button
               class="btn btn-sm btn-ghost"
               phx-click="toggle_history"
               title="Browse past runs of this flux"
@@ -2602,6 +2666,38 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                     </g>
                   <% end %>
                 </svg>
+
+                <div
+                  :for={note <- @graph["notes"] || []}
+                  id={"note-#{note["id"]}"}
+                  data-node={"note:" <> note["id"]}
+                  class="absolute w-48 rounded-box border border-warning/40 bg-warning/10 shadow-sm select-none"
+                  style={"left: #{note["x"] || 0}px; top: #{note["y"] || 0}px;"}
+                >
+                  <div
+                    data-drag-handle
+                    class="flex items-center gap-1 px-2 py-1 cursor-grab text-warning"
+                  >
+                    <.icon name="hero-pencil-square" class="size-3" />
+                    <span class="text-xs font-semibold">Note</span>
+                    <button
+                      :if={@can_edit}
+                      class="ml-auto opacity-40 hover:opacity-100 text-error"
+                      phx-click="delete_note"
+                      phx-value-id={note["id"]}
+                    >
+                      <.icon name="hero-x-mark" class="size-3" />
+                    </button>
+                  </div>
+                  <textarea
+                    class="textarea textarea-xs w-full bg-transparent border-0 focus:outline-none resize-none"
+                    rows="3"
+                    placeholder="Write a note…"
+                    phx-blur="note_text"
+                    phx-value-id={note["id"]}
+                    disabled={not @can_edit}
+                  >{note["text"]}</textarea>
+                </div>
 
                 <div
                   :for={node <- @graph["nodes"] || []}
@@ -4022,6 +4118,21 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                       disabled={not @can_edit}
                     />
                   </label>
+                  <label class="floating-label">
+                    <span>Tag filter (comma-separated, templatable, optional)</span>
+                    <input
+                      type="text"
+                      name="tags"
+                      value={Enum.join(List.wrap(node["config"]["tags"]), ", ")}
+                      placeholder="policy, {{start.category}}"
+                      class="input input-sm w-full font-mono"
+                      disabled={not @can_edit}
+                    />
+                  </label>
+                  <p class="text-xs opacity-60">
+                    With tags set, only documents carrying at least one of them
+                    are searched (tag documents on the Knowledge page).
+                  </p>
                 <% "iteration" -> %>
                   <label class="floating-label">
                     <span>List variable (one sub-flux run per item)</span>

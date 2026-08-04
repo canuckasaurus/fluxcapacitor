@@ -1257,7 +1257,13 @@ defmodule Flux.Engine.Nodes.KnowledgeRetrieval do
       # nil defers to per-dataset retrieval settings in the capability.
       top_k = node.config["top_k"]
 
-      case retrieve.(%{dataset_ids: dataset_ids, query: query, top_k: top_k}) do
+      tags =
+        node.config["tags"]
+        |> List.wrap()
+        |> Enum.map(&Template.render(to_string(&1), pool))
+        |> Enum.reject(&(&1 == ""))
+
+      case retrieve.(%{dataset_ids: dataset_ids, query: query, top_k: top_k, tags: tags}) do
         {:ok, hits} ->
           citations =
             Enum.map(hits, fn hit ->

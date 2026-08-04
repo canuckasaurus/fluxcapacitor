@@ -54,6 +54,36 @@ defmodule Flux.Workflows.WorkflowVersion do
   end
 end
 
+defmodule Flux.Workflows.WorkspaceTemplate do
+  @moduledoc """
+  A workspace-owned flux template: any flux saved as a starting point,
+  listed in the gallery next to the built-ins so teams standardize their
+  own patterns.
+  """
+  use Ecto.Schema
+  import Ecto.Changeset
+
+  @primary_key {:id, UUIDv7, autogenerate: true}
+  @foreign_key_type :binary_id
+
+  schema "workflow_templates" do
+    belongs_to :workspace, Flux.Accounts.Workspace
+
+    field :name, :string
+    field :description, :string
+    field :graph, :map, default: %{}
+
+    timestamps(type: :utc_datetime)
+  end
+
+  def changeset(template, attrs) do
+    template
+    |> cast(attrs, [:name, :description])
+    |> validate_required([:name])
+    |> validate_length(:name, min: 1, max: 255)
+  end
+end
+
 defmodule Flux.Workflows.BatchSchedule do
   @moduledoc """
   A recurring batch: a saved row set re-executed on a cron schedule

@@ -164,6 +164,20 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
      )}
   end
 
+  def handle_event("set_document_tags", %{"document-id" => document_id, "tags" => tags}, socket) do
+    case RAG.set_document_tags(
+           socket.assigns.current_scope,
+           document_id,
+           String.split(to_string(tags), ",")
+         ) do
+      {:ok, _document} ->
+        {:noreply, socket |> put_flash(:info, "Tags saved.") |> refresh_documents()}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not save the tags.")}
+    end
+  end
+
   def handle_event("run_retrieval_eval", _params, socket) do
     summary =
       RAG.evaluate_retrieval(socket.assigns.current_scope, socket.assigns.selected.id)
@@ -718,6 +732,22 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                 class="border-t border-base-200 p-3 space-y-2"
               >
                 <p :if={document.error} class="text-sm text-error">{document.error}</p>
+                <form
+                  :if={@can_edit}
+                  phx-submit="set_document_tags"
+                  class="flex gap-2"
+                  id={"tags-form-#{document.id}"}
+                >
+                  <input type="hidden" name="document-id" value={document.id} />
+                  <input
+                    type="text"
+                    name="tags"
+                    value={Enum.join(document.tags, ", ")}
+                    placeholder="tags, comma-separated (retrieval filters)"
+                    class="input input-bordered input-xs w-64"
+                  />
+                  <button class="btn btn-ghost btn-xs">Save tags</button>
+                </form>
                 <div
                   :for={segment <- @segments}
                   class={["rounded bg-base-200 p-2 text-xs", not segment.enabled && "opacity-50"]}

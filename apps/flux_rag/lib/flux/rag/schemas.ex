@@ -89,6 +89,7 @@ defmodule Flux.RAG.Document do
     field(:error, :string)
     field(:segment_count, :integer, default: 0)
     field(:content, :string)
+    field(:tags, {:array, :string}, default: [])
 
     timestamps(type: :utc_datetime)
   end

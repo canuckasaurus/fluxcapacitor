@@ -53,6 +53,26 @@ defmodule FluxWeb.RAGIntegrationTest do
     assert Enum.all?(segments, &is_list(&1.embedding))
   end
 
+  test "document tags filter retrieval", %{scope: scope, dataset: dataset} do
+    policy = ingest!(scope, dataset, "policy.md", "Refunds follow the thirty day policy window.")
+    _blog = ingest!(scope, dataset, "blog.md", "Our blog post also mentions the policy loosely.")
+
+    {:ok, _document} = RAG.set_document_tags(scope, policy.id, ["Policy", " official ", ""])
+
+    tagged = Flux.Repo.get!(Flux.RAG.Document, policy.id, skip_workspace_guard: true)
+    assert tagged.tags == ["policy", "official"]
+
+    {:ok, all_hits} = RAG.retrieve(scope, dataset.id, "policy window")
+    assert length(Enum.uniq_by(all_hits, & &1.document_id)) == 2
+
+    {:ok, filtered} = RAG.retrieve(scope, dataset.id, "policy window", tags: ["policy"])
+    assert filtered != []
+    assert Enum.all?(filtered, &(&1.document_id == policy.id))
+
+    {:ok, none} = RAG.retrieve(scope, dataset.id, "policy window", tags: ["nonexistent"])
+    assert none == []
+  end
+
   test "query expansion fuses rankings from rephrased queries", %{
     scope: scope,
     dataset: dataset

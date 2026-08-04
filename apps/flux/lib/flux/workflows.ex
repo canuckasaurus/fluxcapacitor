@@ -207,6 +207,44 @@ defmodule Flux.Workflows do
     end
   end
 
+  ## Workspace templates ("save as template" → the gallery)
+
+  @doc "Saves a flux's current draft graph as a workspace template."
+  def save_as_template(%Scope{} = scope, %Workflow{} = workflow) do
+    with :ok <- RBAC.authorize(scope, :app_edit),
+         :ok <- owned(scope, workflow) do
+      %Flux.Workflows.WorkspaceTemplate{
+        workspace_id: workflow.workspace_id,
+        graph: workflow.graph
+      }
+      |> Flux.Workflows.WorkspaceTemplate.changeset(%{
+        "name" => workflow.name,
+        "description" => workflow.description
+      })
+      |> Repo.insert()
+    end
+  end
+
+  def list_workspace_templates(%Scope{} = scope) do
+    Flux.Workflows.WorkspaceTemplate
+    |> Repo.scoped(scope)
+    |> order_by([t], asc: t.name)
+    |> Repo.all()
+  end
+
+  def get_workspace_template(%Scope{} = scope, template_id) do
+    Repo.one(Repo.scoped(where(Flux.Workflows.WorkspaceTemplate, id: ^template_id), scope)) ||
+      {:error, :not_found}
+  end
+
+  def delete_workspace_template(%Scope{} = scope, template_id) do
+    with :ok <- RBAC.authorize(scope, :app_edit),
+         %Flux.Workflows.WorkspaceTemplate{} = template <-
+           get_workspace_template(scope, template_id) do
+      Repo.delete(template)
+    end
+  end
+
   ## Publishing
 
   def publish(%Scope{} = scope, %Workflow{} = workflow) do
@@ -409,8 +447,29 @@ defmodule Flux.Workflows do
   def start_run(%Scope{} = scope, %Workflow{} = workflow, inputs, opts \\ []) do
     graph_map = Keyword.get(opts, :graph, workflow.graph)
 
-    with :ok <- check_token_budget(workflow.workspace_id) do
+    with :ok <- check_token_budget(workflow.workspace_id),
+         :ok <- check_concurrency(workflow.workspace_id, Keyword.get(opts, :source, :draft)) do
       do_start_run(scope, workflow, graph_map, inputs, opts)
+    end
+  end
+
+  # A max_concurrent_runs setting caps simultaneous interactive runs
+  # (drafts, API, sites) — batch and eval rows already execute
+  # sequentially inside their workers and stay exempt.
+  defp check_concurrency(_workspace_id, source) when source in [:batch, :eval], do: :ok
+
+  defp check_concurrency(workspace_id, _source) do
+    case Repo.get(Flux.Accounts.Workspace, workspace_id) do
+      %{custom_config: %{"max_concurrent_runs" => cap}} when is_integer(cap) and cap > 0 ->
+        running =
+          WorkflowRun
+          |> where([r], r.workspace_id == ^workspace_id and r.status == :running)
+          |> Repo.aggregate(:count, skip_workspace_guard: true)
+
+        if running >= cap, do: {:error, :concurrency_limit}, else: :ok
+
+      _uncapped ->
+        :ok
     end
   end
 
@@ -1543,7 +1602,7 @@ defmodule Flux.Workflows do
   # (dependency direction is flux_rag -> flux), mirroring the plugin
   # runtime indirection.
   defp build_knowledge_retriever(workspace_id) do
-    fn %{dataset_ids: dataset_ids, query: query, top_k: top_k} ->
+    fn %{dataset_ids: dataset_ids, query: query, top_k: top_k} = request ->
       rag = Application.get_env(:flux, :rag_module, Flux.RAG)
       scope = %Scope{workspace: %Flux.Accounts.Workspace{id: workspace_id}}
 
@@ -1552,7 +1611,10 @@ defmodule Flux.Workflows do
           {:error, "knowledge retrieval is unavailable in this deployment"}
 
         true ->
-          case rag.retrieve_many(scope, dataset_ids, query, top_k: top_k) do
+          case rag.retrieve_many(scope, dataset_ids, query,
+                 top_k: top_k,
+                 tags: Map.get(request, :tags, [])
+               ) do
             {:ok, []} when dataset_ids != [] ->
               # Distinguish "no matches" from "no such dataset".
               if Enum.any?(dataset_ids, &match?(%{}, safe_get_dataset(rag, scope, &1))) do

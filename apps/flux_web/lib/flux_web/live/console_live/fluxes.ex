@@ -30,7 +30,8 @@ defmodule FluxWeb.ConsoleLive.Fluxes do
     assign(socket,
       workflows: Workflows.list_workflows(scope),
       versions: Workflows.latest_versions(scope),
-      trashed: Workflows.list_trashed_workflows(scope)
+      trashed: Workflows.list_trashed_workflows(scope),
+      workspace_templates: Workflows.list_workspace_templates(scope)
     )
   end
 
@@ -69,6 +70,47 @@ defmodule FluxWeb.ConsoleLive.Fluxes do
 
       {:error, %Ecto.Changeset{}} ->
         {:noreply, put_flash(socket, :error, "Could not save the imported flux.")}
+    end
+  end
+
+  def handle_event("save_as_template", %{"id" => id}, socket) do
+    scope = socket.assigns.current_scope
+
+    with workflow when not is_tuple(workflow) <- Workflows.get_workflow(scope, id),
+         {:ok, template} <- Workflows.save_as_template(scope, workflow) do
+      {:noreply,
+       socket
+       |> put_flash(:info, ~s("#{template.name}" saved to the template gallery.))
+       |> assign(workspace_templates: Workflows.list_workspace_templates(scope))}
+    else
+      _error -> {:noreply, put_flash(socket, :error, "Could not save the template.")}
+    end
+  end
+
+  def handle_event("delete_workspace_template", %{"template-id" => template_id}, socket) do
+    scope = socket.assigns.current_scope
+    Workflows.delete_workspace_template(scope, template_id)
+
+    {:noreply, assign(socket, workspace_templates: Workflows.list_workspace_templates(scope))}
+  end
+
+  def handle_event("from_workspace_template", %{"template-id" => template_id}, socket) do
+    scope = socket.assigns.current_scope
+
+    with template when not is_tuple(template) <-
+           Workflows.get_workspace_template(scope, template_id),
+         {:ok, workflow} <-
+           Workflows.create_workflow(scope, %{
+             "name" => template.name,
+             "description" => template.description
+           }),
+         {:ok, workflow} <- Workflows.update_draft(scope, workflow, template.graph) do
+      {:noreply,
+       socket
+       |> put_flash(:info, ~s(Created "#{template.name}" from your template.))
+       |> push_navigate(to: ~p"/console/fluxes/#{workflow.id}")}
+    else
+      _error -> {:noreply, put_flash(socket, :error, "Could not create from that template.")}
     end
   end
 
@@ -333,6 +375,30 @@ defmodule FluxWeb.ConsoleLive.Fluxes do
             <span class="font-semibold text-sm">{template.name}</span>
             <span class="text-xs opacity-70">{template.description}</span>
           </button>
+          <div
+            :for={template <- @workspace_templates}
+            class="card border border-base-200 p-4 text-left hover:border-primary transition-colors space-y-1 relative"
+            id={"ws-template-#{template.id}"}
+          >
+            <button
+              class="text-left space-y-1 w-full"
+              phx-click="from_workspace_template"
+              phx-value-template-id={template.id}
+            >
+              <span class="font-semibold text-sm">★ {template.name}</span>
+              <span class="text-xs opacity-70 block">
+                {template.description || "Workspace template"}
+              </span>
+            </button>
+            <button
+              class="btn btn-ghost btn-xs absolute top-1 right-1 text-error"
+              phx-click="delete_workspace_template"
+              phx-value-template-id={template.id}
+              data-confirm="Remove this template from the gallery?"
+            >
+              ✕
+            </button>
+          </div>
         </div>
       </div>
 
@@ -415,12 +481,23 @@ defmodule FluxWeb.ConsoleLive.Fluxes do
             </span>
           </p>
           <p :if={workflow.description} class="text-sm opacity-70">{workflow.description}</p>
-          <.link
-            navigate={~p"/console/fluxes/#{workflow.id}"}
-            class="btn btn-sm btn-outline w-fit"
-          >
-            Open canvas
-          </.link>
+          <div class="flex gap-2">
+            <.link
+              navigate={~p"/console/fluxes/#{workflow.id}"}
+              class="btn btn-sm btn-outline w-fit"
+            >
+              Open canvas
+            </.link>
+            <button
+              :if={@can_create}
+              class="btn btn-sm btn-ghost"
+              phx-click="save_as_template"
+              phx-value-id={workflow.id}
+              title="Save the current draft to the workspace template gallery"
+            >
+              ★ Save as template
+            </button>
+          </div>
         </div>
       </div>
 

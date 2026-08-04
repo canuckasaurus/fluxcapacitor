@@ -609,6 +609,22 @@ defmodule Flux.RAG do
     |> Repo.all()
   end
 
+  @doc "Sets a document's tags (comma-splittable metadata for retrieval filters)."
+  def set_document_tags(%Scope{} = scope, document_id, tags) when is_list(tags) do
+    with :ok <- RBAC.authorize(scope, :dataset_edit),
+         %Document{} = document <-
+           Repo.one(Repo.scoped(where(Document, id: ^document_id), scope)) ||
+             {:error, :not_found} do
+      normalized =
+        tags
+        |> Enum.map(&(&1 |> to_string() |> String.trim() |> String.downcase()))
+        |> Enum.reject(&(&1 == ""))
+        |> Enum.uniq()
+
+      document |> Ecto.Changeset.change(tags: normalized) |> Repo.update()
+    end
+  end
+
   ## Retrieval evals (golden question → expected-passage cases)
 
   def add_retrieval_case(%Scope{} = scope, %Dataset{} = dataset, attrs) do
@@ -737,12 +753,22 @@ defmodule Flux.RAG do
 
       ids = Enum.map(ranked, fn {segment_id, _score} -> segment_id end)
       scores = Map.new(ranked)
+      tags = opts |> Keyword.get(:tags, []) |> List.wrap() |> Enum.reject(&(&1 == ""))
 
       segments =
         Segment
         |> Repo.scoped(scope)
         |> where([s], s.id in ^ids and s.enabled)
         |> join(:inner, [s], d in assoc(s, :document))
+        |> then(fn query ->
+          # Tag filter: only segments from documents carrying any of the
+          # requested tags.
+          if tags == [] do
+            query
+          else
+            where(query, [s, d], fragment("? && ?", d.tags, ^tags))
+          end
+        end)
         |> preload([s, d], document: d)
         |> Repo.all()
         |> Enum.sort_by(&Map.fetch!(scores, &1.id), :desc)

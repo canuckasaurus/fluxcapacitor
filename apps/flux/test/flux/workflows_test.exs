@@ -289,6 +289,46 @@ defmodule Flux.WorkflowsTest do
     {:ok, _} = Accounts.set_token_budget(scope, nil)
   end
 
+  test "the concurrency cap refuses interactive runs while others execute", %{
+    scope: scope,
+    workflow: workflow,
+    workspace: workspace
+  } do
+    {:ok, workflow} = Workflows.update_draft(scope, workflow, echo_graph())
+    {:ok, _} = Accounts.set_max_concurrent_runs(scope, 1)
+
+    # Pin one run in :running state deterministically.
+    Repo.insert!(%Flux.Workflows.WorkflowRun{
+      workspace_id: workspace.id,
+      workflow_id: workflow.id,
+      status: :running
+    })
+
+    assert {:error, :concurrency_limit} =
+             Workflows.start_run(scope, workflow, %{"query" => "capped"})
+
+    # Batch-sourced runs stay exempt (their workers serialize already).
+    assert {:ok, _run} =
+             Workflows.start_run(scope, workflow, %{"query" => "batch row"}, source: :batch)
+
+    assert_receive {:run_finished, _finished}, 5_000
+
+    {:ok, _} = Accounts.set_max_concurrent_runs(scope, nil)
+  end
+
+  test "workspace templates save, list, and delete", %{scope: scope, workflow: workflow} do
+    {:ok, workflow} = Workflows.update_draft(scope, workflow, echo_graph())
+
+    {:ok, template} = Workflows.save_as_template(scope, workflow)
+    assert template.name == workflow.name
+    assert template.graph == workflow.graph
+
+    assert [%{name: _name}] = Workflows.list_workspace_templates(scope)
+
+    {:ok, _} = Workflows.delete_workspace_template(scope, template.id)
+    assert Workflows.list_workspace_templates(scope) == []
+  end
+
   test "A/B split routes live traffic between published versions", %{
     scope: scope,
     workflow: workflow
