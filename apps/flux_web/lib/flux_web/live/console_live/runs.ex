@@ -60,6 +60,7 @@ defmodule FluxWeb.ConsoleLive.Runs do
       |> put_filter(:status, parse_enum(params["status"], @statuses))
       |> put_filter(:from, parse_date(params["from"]))
       |> put_filter(:to, parse_date(params["to"]))
+      |> put_filter(:q, String.trim(to_string(params["q"] || "")))
 
     {:noreply,
      socket
@@ -111,6 +112,16 @@ defmodule FluxWeb.ConsoleLive.Runs do
 
   defp run_tokens(run) do
     (run.usage["input_tokens"] || 0) + (run.usage["output_tokens"] || 0)
+  end
+
+  defp node_tokens(run, node_id) do
+    case run.usage["by_node"] do
+      %{^node_id => usage} ->
+        (usage["input_tokens"] || 0) + (usage["output_tokens"] || 0)
+
+      _untracked ->
+        "—"
+    end
   end
 
   # The waterfall: each node's bar scales to the slowest node (min 2% so
@@ -203,6 +214,14 @@ defmodule FluxWeb.ConsoleLive.Runs do
               class="input input-bordered input-sm"
               title="To date"
             />
+            <input
+              type="search"
+              name="q"
+              value={@filters[:q]}
+              placeholder="search inputs/outputs…"
+              class="input input-bordered input-sm w-48"
+              phx-debounce="400"
+            />
           </form>
 
           <span class="text-xs opacity-60 ml-auto" id="runs-totals">
@@ -273,7 +292,7 @@ defmodule FluxWeb.ConsoleLive.Runs do
               </tr>
 
               <tr :if={@expanded_run == run.id} id={"run-detail-#{run.id}"}>
-                <td colspan="6" class="bg-base-200/30">
+                <td colspan="7" class="bg-base-200/30">
                   <div class="space-y-2 p-2 text-xs">
                     <button
                       class="btn btn-ghost btn-xs"
@@ -304,6 +323,8 @@ defmodule FluxWeb.ConsoleLive.Runs do
 
                           <th>ms</th>
 
+                          <th>Tokens</th>
+
                           <th class="w-48">Timeline</th>
 
                           <th>Outputs</th>
@@ -327,6 +348,10 @@ defmodule FluxWeb.ConsoleLive.Runs do
                           </td>
 
                           <td class="opacity-70">{node_execution["elapsed_ms"]}</td>
+
+                          <td class="font-mono">
+                            {node_tokens(run, node_execution["node_id"])}
+                          </td>
 
                           <td>
                             <div

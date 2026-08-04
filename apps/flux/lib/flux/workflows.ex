@@ -448,7 +448,13 @@ defmodule Flux.Workflows do
     graph_map = Keyword.get(opts, :graph, workflow.graph)
 
     with :ok <- check_token_budget(workflow.workspace_id),
-         :ok <- check_concurrency(workflow.workspace_id, Keyword.get(opts, :source, :draft)) do
+         :ok <- check_concurrency(workflow.workspace_id, Keyword.get(opts, :source, :draft)),
+         :ok <-
+           Flux.Guardrails.check_input(
+             workflow.workspace_id,
+             Jason.encode!(inputs),
+             "run input (#{workflow.name})"
+           ) do
       do_start_run(scope, workflow, graph_map, inputs, opts)
     end
   end
@@ -845,6 +851,22 @@ defmodule Flux.Workflows do
           q
       end
     end)
+    |> then(fn q ->
+      case String.trim(to_string(filters[:q] || "")) do
+        "" ->
+          q
+
+        text ->
+          pattern = "%" <> String.replace(text, ~r/[\\%_]/, fn c -> "\\" <> c end) <> "%"
+
+          where(
+            q,
+            [r],
+            fragment("?::text ILIKE ?", r.inputs, ^pattern) or
+              fragment("?::text ILIKE ?", r.outputs, ^pattern)
+          )
+      end
+    end)
   end
 
   @doc "The workspace's fluxes as {name, id} options (runs page filter)."
@@ -1195,7 +1217,7 @@ defmodule Flux.Workflows do
   end
 
   defp do_execute(run, graph, inputs, workspace_id, run_opts) do
-    {:ok, usage_acc} = Agent.start_link(fn -> %{} end)
+    {:ok, usage_acc} = Agent.start_link(fn -> %{models: %{}, nodes: %{}} end)
 
     host =
       workspace_id
@@ -1256,7 +1278,17 @@ defmodule Flux.Workflows do
 
           case result do
             {:ok, %{usage: %{} = usage}} ->
-              Agent.update(usage_acc, &add_model_usage(&1, request.model, usage))
+              # The engine stamps the executing node's id in the calling
+              # process — per-node attribution rides the same wrapper.
+              node_id = Process.get(:flux_engine_node_id) || "unknown"
+
+              Agent.update(usage_acc, fn acc ->
+                %{
+                  acc
+                  | models: add_model_usage(acc.models, request.model, usage),
+                    nodes: add_model_usage(acc.nodes, node_id, usage)
+                }
+              end)
 
             _error_or_no_usage ->
               :ok
@@ -1288,8 +1320,13 @@ defmodule Flux.Workflows do
     Agent.stop(usage_acc)
 
     by_model =
-      Enum.reduce(fresh, run.usage["by_model"] || %{}, fn {model, usage}, acc ->
+      Enum.reduce(fresh.models, run.usage["by_model"] || %{}, fn {model, usage}, acc ->
         add_model_usage(acc, model, usage)
+      end)
+
+    by_node =
+      Enum.reduce(fresh.nodes, run.usage["by_node"] || %{}, fn {node_id, usage}, acc ->
+        add_model_usage(acc, node_id, usage)
       end)
 
     if by_model == %{} do
@@ -1306,7 +1343,8 @@ defmodule Flux.Workflows do
       base = %{
         "input_tokens" => totals.input,
         "output_tokens" => totals.output,
-        "by_model" => by_model
+        "by_model" => by_model,
+        "by_node" => by_node
       }
 
       case Flux.Pricing.cost_for(by_model) do
@@ -1434,6 +1472,10 @@ defmodule Flux.Workflows do
         "Run failed: #{(workflow && workflow.name) || "flux"} — #{run.error}",
         "/console/runs"
       )
+    end
+
+    if run.status == :succeeded and run.outputs != %{} do
+      Flux.Guardrails.flag_output(run.workspace_id, Jason.encode!(run.outputs), "run output")
     end
 
     Flux.Webhooks.dispatch_run_event(run)

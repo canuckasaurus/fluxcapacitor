@@ -295,6 +295,11 @@ defmodule Flux.Engine.Runner do
   end
 
   defp safe_run(node, pool, host) do
+    # The executing node's id, readable by host capabilities (each
+    # parallel branch is its own process, so this is branch-safe) — how
+    # the embedding app attributes model usage per node.
+    Process.put(:flux_engine_node_id, node.id)
+
     case Node.implementation(node.type).run(node, pool, host) do
       {:ok, outputs} -> {:ok, outputs, "default"}
       {:ok, outputs, branch} -> {:ok, outputs, branch}
@@ -303,6 +308,8 @@ defmodule Flux.Engine.Runner do
     end
   rescue
     exception -> {:error, Exception.message(exception)}
+  after
+    Process.delete(:flux_engine_node_id)
   end
 
   defp execution(node, status, outputs, error, elapsed_ms) do

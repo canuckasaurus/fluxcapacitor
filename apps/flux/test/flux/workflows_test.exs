@@ -289,6 +289,61 @@ defmodule Flux.WorkflowsTest do
     {:ok, _} = Accounts.set_token_budget(scope, nil)
   end
 
+  test "usage attributes tokens per node", %{scope: scope, workflow: workflow} do
+    {:ok, workflow} = Workflows.update_draft(scope, workflow, echo_graph())
+    {:ok, _run} = Workflows.start_run(scope, workflow, %{"query" => "attribute me"})
+    assert_receive {:run_finished, finished}, 5_000
+
+    assert %{"llm_1" => node_usage} = finished.usage["by_node"]
+    assert node_usage["input_tokens"] == 3
+    assert node_usage["output_tokens"] == 12
+  end
+
+  test "guardrails block or flag inputs and flag outputs", %{
+    scope: scope,
+    workflow: workflow,
+    workspace: workspace
+  } do
+    {:ok, workflow} = Workflows.update_draft(scope, workflow, echo_graph())
+
+    {:ok, _} = Flux.Guardrails.configure(scope, "secret\\s+code", "block")
+
+    assert {:error, :guardrail} =
+             Workflows.start_run(scope, workflow, %{"query" => "the SECRET code please"})
+
+    assert Enum.any?(Flux.Notifications.list(scope), &(&1.kind == "guardrail"))
+
+    # Flag mode lets it through (echo repeats it, so the output flags too).
+    {:ok, _} = Flux.Guardrails.configure(scope, "secret\\s+code", "flag")
+    {:ok, _run} = Workflows.start_run(scope, workflow, %{"query" => "the secret code please"})
+    assert_receive {:run_finished, %{status: :succeeded}}, 5_000
+
+    guardrail_notifications =
+      Enum.count(Flux.Notifications.list(scope, 50), &(&1.kind == "guardrail"))
+
+    assert guardrail_notifications >= 3
+
+    # Invalid regexes are refused at configuration; blank disables.
+    assert {:error, {:invalid_pattern, _pattern}} =
+             Flux.Guardrails.configure(scope, "([unclosed", "block")
+
+    {:ok, _} = Flux.Guardrails.configure(scope, "", "block")
+    assert Flux.Guardrails.config(workspace.id) == nil
+  end
+
+  test "run text search narrows by input/output content", %{scope: scope, workflow: workflow} do
+    {:ok, workflow} = Workflows.update_draft(scope, workflow, echo_graph())
+    {:ok, _run} = Workflows.start_run(scope, workflow, %{"query" => "flux capacitor overdrive"})
+    assert_receive {:run_finished, _finished}, 5_000
+    {:ok, _run} = Workflows.start_run(scope, workflow, %{"query" => "unrelated"})
+    assert_receive {:run_finished, _finished}, 5_000
+
+    assert [row] = Workflows.list_workspace_runs(scope, %{q: "capacitor overdrive"})
+    assert row.run.inputs["query"] =~ "capacitor"
+
+    assert [] = Workflows.list_workspace_runs(scope, %{q: "no such phrase anywhere"})
+  end
+
   test "the concurrency cap refuses interactive runs while others execute", %{
     scope: scope,
     workflow: workflow,
