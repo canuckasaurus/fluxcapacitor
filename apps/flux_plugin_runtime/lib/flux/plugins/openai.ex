@@ -53,15 +53,21 @@ defmodule Flux.Plugins.OpenAI do
 
   @impl Flux.Plugin.ModelProvider
   def invoke_embeddings(credentials, model, texts) do
-    url = base_url(credentials) <> "/embeddings"
+    embeddings_request(base_url(credentials) <> "/embeddings", auth(credentials), model, texts)
+  end
 
+  @doc """
+  One OpenAI-shaped embeddings call against an arbitrary URL/auth —
+  shared with the Azure plugin, whose endpoints differ only in routing.
+  """
+  def embeddings_request(url, headers, model, texts) do
     with :ok <- Flux.SSRF.verify_url(url),
          {:ok, %{status: 200, body: body}} <-
            Req.post(
              SSE.req_options(
                url: url,
                json: %{model: model, input: texts},
-               headers: auth(credentials)
+               headers: headers
              )
            ) do
       vectors =
@@ -99,12 +105,32 @@ defmodule Flux.Plugins.OpenAI do
 
   @impl Flux.Plugin.ModelProvider
   def invoke_llm(credentials, request, emit) do
+    chat_completions(
+      base_url(credentials) <> "/chat/completions",
+      auth(credentials),
+      request,
+      emit
+    )
+  end
+
+  @doc """
+  One streaming chat-completions call against an arbitrary URL/auth —
+  shared with Azure, which routes per-deployment and rejects
+  `stream_options` on GA api-versions (`include_usage: false`).
+  """
+  def chat_completions(url, headers, request, emit, opts \\ []) do
     body = %{
       model: request.model,
       messages: Enum.map(request.messages, &encode_message/1),
-      stream: true,
-      stream_options: %{include_usage: true}
+      stream: true
     }
+
+    body =
+      if Keyword.get(opts, :include_usage, true) do
+        Map.put(body, :stream_options, %{include_usage: true})
+      else
+        body
+      end
 
     body =
       if request.tools == [] do
@@ -118,7 +144,7 @@ defmodule Flux.Plugins.OpenAI do
     acc = %{content: "", usage: %{input_tokens: 0, output_tokens: 0}, finish: :stop, calls: %{}}
 
     SSE.stream_request(
-      [url: base_url(credentials) <> "/chat/completions", json: body, headers: auth(credentials)],
+      [url: url, json: body, headers: headers],
       acc,
       fn data, acc -> handle_frame(data, acc, emit) end
     )

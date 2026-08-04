@@ -165,6 +165,12 @@ defmodule Flux.Plugins.Anthropic do
     end)
   end
 
+  @doc "Messages-API encoding, shared with the Bedrock plugin."
+  def encode_request(messages, tools) do
+    {system, messages} = split_system(messages)
+    {system, Enum.map(messages, &encode_message/1), Enum.map(tools, &encode_tool/1)}
+  end
+
   defp encode_tool(tool) do
     %{name: tool.name, description: tool.description, input_schema: tool.parameters}
   end

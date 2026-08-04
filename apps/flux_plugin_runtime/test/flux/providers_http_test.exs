@@ -344,6 +344,74 @@ defmodule Flux.ProvidersHTTPTest do
                })
     end
 
+    test "azure routes per-deployment with api-key auth and estimates missing usage" do
+      alias Flux.Plugins.AzureOpenAI
+
+      credentials = %{
+        "endpoint" => "https://my-res.openai.azure.com/",
+        "api_key" => "azkey",
+        "deployments" => "gpt-4o|Prod GPT-4o",
+        "embedding_deployments" => "embed-3"
+      }
+
+      assert [
+               %{name: "gpt-4o", label: "Prod GPT-4o", type: :llm},
+               %{name: "embed-3", type: :text_embedding}
+             ] = AzureOpenAI.models(credentials)
+
+      Req.Test.stub(Flux.ProviderStub, fn conn ->
+        assert conn.host == "my-res.openai.azure.com"
+        assert conn.request_path == "/openai/deployments/gpt-4o/chat/completions"
+        assert conn.query_string == "api-version=2024-06-01"
+        assert Plug.Conn.get_req_header(conn, "api-key") == ["azkey"]
+
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        # GA api-versions reject stream_options; the request must omit it.
+        refute Map.has_key?(Jason.decode!(body), "stream_options")
+
+        sse_response(conn, [
+          ~s({"choices":[{"delta":{"content":"Azure hi"}}]}),
+          "[DONE]"
+        ])
+      end)
+
+      {result, chunks} =
+        collect_chunks(fn emit ->
+          AzureOpenAI.invoke_llm(credentials, %{request() | model: "gpt-4o"}, emit)
+        end)
+
+      assert {:ok, final} = result
+      assert final.content == "Azure hi"
+      assert chunks == ["Azure hi"]
+      # No usage frame arrived, so tokens are the bytes/4 estimate — never zero.
+      assert final.usage.input_tokens > 0
+      assert final.usage.output_tokens > 0
+    end
+
+    test "azure validation demands endpoint, key, and deployments" do
+      alias Flux.Plugins.AzureOpenAI
+
+      assert {:error, "Endpoint is required."} = AzureOpenAI.validate_credentials(%{})
+
+      assert {:error, "API key is required."} =
+               AzureOpenAI.validate_credentials(%{"endpoint" => "https://r.openai.azure.com"})
+
+      assert {:error, "List at least one chat deployment."} =
+               AzureOpenAI.validate_credentials(%{
+                 "endpoint" => "https://r.openai.azure.com",
+                 "api_key" => "k"
+               })
+
+      Req.Test.stub(Flux.ProviderStub, fn conn -> Plug.Conn.send_resp(conn, 401, "no") end)
+
+      assert {:error, "Invalid API key."} =
+               AzureOpenAI.validate_credentials(%{
+                 "endpoint" => "https://r.openai.azure.com",
+                 "api_key" => "bad",
+                 "deployments" => "gpt-4o"
+               })
+    end
+
     test "invoke_llm speaks the OpenAI wire protocol against the configured base_url" do
       Req.Test.stub(Flux.ProviderStub, fn conn ->
         assert conn.host == "grok.example.com"
@@ -366,6 +434,111 @@ defmodule Flux.ProvidersHTTPTest do
       assert {:ok, final} = result
       assert final.content == "xAI says hi"
       assert chunks == ["xAI says hi"]
+    end
+  end
+
+  describe "bedrock" do
+    alias Flux.Plugins.Bedrock
+
+    @bedrock_credentials %{
+      "access_key_id" => "AKIAEXAMPLE",
+      "secret_access_key" => "wJalrXUtnFEMI",
+      "region" => "us-east-1"
+    }
+
+    test "blank model list falls back to common Claude ids" do
+      assert Enum.all?(Bedrock.models(%{}), &String.starts_with?(&1.name, "anthropic."))
+
+      assert [%{name: "us.anthropic.claude-x:0", label: "Claude X"}] =
+               Bedrock.models(%{"models" => "us.anthropic.claude-x:0|Claude X"})
+    end
+
+    test "invoke signs with SigV4 and parses the Messages reply" do
+      Req.Test.stub(Flux.ProviderStub, fn conn ->
+        assert conn.host == "bedrock-runtime.us-east-1.amazonaws.com"
+        assert conn.request_path == "/model/anthropic.claude-3-haiku-20240307-v1%3A0/invoke"
+
+        [authorization] = Plug.Conn.get_req_header(conn, "authorization")
+        assert authorization =~ "AWS4-HMAC-SHA256 Credential=AKIAEXAMPLE/"
+        assert authorization =~ "/us-east-1/bedrock/aws4_request"
+        assert authorization =~ "SignedHeaders=host;x-amz-date"
+        assert [_date] = Plug.Conn.get_req_header(conn, "x-amz-date")
+
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        decoded = Jason.decode!(body)
+        assert decoded["anthropic_version"] == "bedrock-2023-05-31"
+        assert [%{"role" => "user", "content" => "hi"}] = decoded["messages"]
+
+        Req.Test.json(conn, %{
+          "content" => [
+            %{"type" => "text", "text" => "Great Scott!"},
+            %{
+              "type" => "tool_use",
+              "id" => "toolu_1",
+              "name" => "lookup",
+              "input" => %{"q" => "z"}
+            }
+          ],
+          "stop_reason" => "tool_use",
+          "usage" => %{"input_tokens" => 11, "output_tokens" => 4}
+        })
+      end)
+
+      request = %{request() | model: "anthropic.claude-3-haiku-20240307-v1:0"}
+
+      {result, chunks} =
+        collect_chunks(fn emit -> Bedrock.invoke_llm(@bedrock_credentials, request, emit) end)
+
+      assert {:ok, final} = result
+      assert final.content == "Great Scott!"
+      assert final.finish_reason == :tool_calls
+      assert [%{id: "toolu_1", name: "lookup", arguments: %{"q" => "z"}}] = final.tool_calls
+      assert final.usage == %{input_tokens: 11, output_tokens: 4}
+      # Non-streaming reply arrives as one emitted chunk.
+      assert chunks == ["Great Scott!"]
+    end
+
+    test "session tokens join the signed headers" do
+      Req.Test.stub(Flux.ProviderStub, fn conn ->
+        [authorization] = Plug.Conn.get_req_header(conn, "authorization")
+        assert authorization =~ "SignedHeaders=host;x-amz-date;x-amz-security-token"
+        assert Plug.Conn.get_req_header(conn, "x-amz-security-token") == ["sts-token"]
+        Req.Test.json(conn, %{"content" => [], "stop_reason" => "end_turn"})
+      end)
+
+      credentials = Map.put(@bedrock_credentials, "session_token", "sts-token")
+      request = %{request() | model: "anthropic.claude-3-haiku-20240307-v1:0"}
+
+      assert {:ok, _final} = Bedrock.invoke_llm(credentials, request, fn _chunk -> :ok end)
+    end
+
+    test "non-anthropic ids and missing credentials fail honestly" do
+      request = %{request() | model: "meta.llama3-70b-instruct-v1:0"}
+
+      assert {:error, message} =
+               Bedrock.invoke_llm(@bedrock_credentials, request, fn _c -> :ok end)
+
+      assert message =~ "anthropic.* model ids only"
+
+      assert {:error, "Access key id is required."} = Bedrock.validate_credentials(%{})
+
+      assert {:error, "Region is required."} =
+               Bedrock.validate_credentials(%{
+                 "access_key_id" => "AKIA",
+                 "secret_access_key" => "s"
+               })
+
+      Req.Test.stub(Flux.ProviderStub, fn conn ->
+        assert conn.host == "bedrock.us-east-1.amazonaws.com"
+        assert conn.request_path == "/foundation-models"
+        Plug.Conn.send_resp(conn, 403, "denied")
+      end)
+
+      assert {:error, message} = Bedrock.validate_credentials(@bedrock_credentials)
+      assert message =~ "Access denied"
+
+      Req.Test.stub(Flux.ProviderStub, fn conn -> Req.Test.json(conn, %{"models" => []}) end)
+      assert :ok = Bedrock.validate_credentials(@bedrock_credentials)
     end
   end
 end
