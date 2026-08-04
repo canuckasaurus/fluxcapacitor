@@ -21,8 +21,8 @@ msgstr ""
 msgid "An email was sent to %{email}, please access it to confirm your account."
 msgstr ""
 
-#: lib/flux_web/components/layouts.ex:374
-#: lib/flux_web/components/layouts.ex:386
+#: lib/flux_web/components/layouts.ex:399
+#: lib/flux_web/components/layouts.ex:411
 #, elixir-autogen, elixir-format
 msgid "Attempting to reconnect"
 msgstr ""
@@ -53,7 +53,7 @@ msgid "Creating account..."
 msgstr ""
 
 #: lib/flux_web/components/layouts.ex:49
-#: lib/flux_web/components/layouts.ex:236
+#: lib/flux_web/components/layouts.ex:261
 #: lib/flux_web/controllers/page_html/home.html.heex:17
 #, elixir-autogen, elixir-format
 msgid "Docs"
@@ -108,12 +108,12 @@ msgstr ""
 msgid "Reauthenticate to perform sensitive account actions."
 msgstr ""
 
-#: lib/flux_web/components/layouts.ex:381
+#: lib/flux_web/components/layouts.ex:406
 #, elixir-autogen, elixir-format
 msgid "Something went wrong!"
 msgstr ""
 
-#: lib/flux_web/components/layouts.ex:369
+#: lib/flux_web/components/layouts.ex:394
 #, elixir-autogen, elixir-format
 msgid "We can't find the internet"
 msgstr ""
@@ -138,12 +138,12 @@ msgstr ""
 msgid "or use a password"
 msgstr ""
 
-#: lib/flux_web/live/console_live/dashboard.ex:207
+#: lib/flux_web/live/console_live/dashboard.ex:248
 #, elixir-autogen, elixir-format
 msgid "Add knowledge"
 msgstr ""
 
-#: lib/flux_web/live/console_live/dashboard.ex:104
+#: lib/flux_web/live/console_live/dashboard.ex:145
 #, elixir-autogen, elixir-format
 msgid "App"
 msgstr ""
@@ -154,7 +154,7 @@ msgstr ""
 msgid "Apps"
 msgstr ""
 
-#: lib/flux_web/components/layouts.ex:222
+#: lib/flux_web/components/layouts.ex:240
 #: lib/flux_web/live/console_live/audit.ex:36
 #, elixir-autogen, elixir-format
 msgid "Audit log"
@@ -165,17 +165,17 @@ msgstr ""
 msgid "Build"
 msgstr ""
 
-#: lib/flux_web/live/console_live/dashboard.ex:196
+#: lib/flux_web/live/console_live/dashboard.ex:237
 #, elixir-autogen, elixir-format
 msgid "Create a Flux"
 msgstr ""
 
-#: lib/flux_web/live/console_live/dashboard.ex:120
+#: lib/flux_web/live/console_live/dashboard.ex:161
 #, elixir-autogen, elixir-format
 msgid "Daily"
 msgstr ""
 
-#: lib/flux_web/live/console_live/dashboard.ex:124
+#: lib/flux_web/live/console_live/dashboard.ex:165
 #, elixir-autogen, elixir-format
 msgid "Day"
 msgstr ""
@@ -202,31 +202,31 @@ msgstr ""
 msgid "Interviews"
 msgstr ""
 
-#: lib/flux_web/live/console_live/dashboard.ex:229
+#: lib/flux_web/live/console_live/dashboard.ex:270
 #, elixir-autogen, elixir-format
 msgid "Invite your team"
 msgstr ""
 
 #: lib/flux_web/components/layouts.ex:177
-#: lib/flux_web/live/console_live/dashboard.ex:89
-#: lib/flux_web/live/console_live/knowledge.ex:360
+#: lib/flux_web/live/console_live/dashboard.ex:130
+#: lib/flux_web/live/console_live/knowledge.ex:453
 #, elixir-autogen, elixir-format
 msgid "Knowledge"
 msgstr ""
 
 #: lib/flux_web/components/layouts.ex:189
-#: lib/flux_web/live/console_live/labeling.ex:232
+#: lib/flux_web/live/console_live/labeling.ex:257
 #, elixir-autogen, elixir-format
 msgid "Labeling"
 msgstr ""
 
-#: lib/flux_web/components/layouts.ex:215
+#: lib/flux_web/components/layouts.ex:233
 #: lib/flux_web/live/console_live/members.ex:281
 #, elixir-autogen, elixir-format
 msgid "Members"
 msgstr ""
 
-#: lib/flux_web/live/console_live/dashboard.ex:145
+#: lib/flux_web/live/console_live/dashboard.ex:186
 #, elixir-autogen, elixir-format
 msgid "Nothing to report yet — usage appears here once apps and fluxes run."
 msgstr ""
@@ -242,48 +242,48 @@ msgstr ""
 msgid "Plugins"
 msgstr ""
 
-#: lib/flux_web/live/console_live/dashboard.ex:47
-#: lib/flux_web/live/console_live/dashboard.ex:105
-#: lib/flux_web/live/console_live/dashboard.ex:125
+#: lib/flux_web/live/console_live/dashboard.ex:88
+#: lib/flux_web/live/console_live/dashboard.ex:146
+#: lib/flux_web/live/console_live/dashboard.ex:166
 #, elixir-autogen, elixir-format
 msgid "Replies"
 msgstr ""
 
-#: lib/flux_web/live/console_live/dashboard.ex:74
+#: lib/flux_web/live/console_live/dashboard.ex:115
 #, elixir-autogen, elixir-format
 msgid "Run tokens"
 msgstr ""
 
 #: lib/flux_web/components/layouts.ex:203
-#: lib/flux_web/live/console_live/dashboard.ex:65
-#: lib/flux_web/live/console_live/runs.ex:96
+#: lib/flux_web/live/console_live/dashboard.ex:106
+#: lib/flux_web/live/console_live/runs.ex:161
 #, elixir-autogen, elixir-format
 msgid "Runs"
 msgstr ""
 
-#: lib/flux_web/live/console_live/dashboard.ex:218
+#: lib/flux_web/live/console_live/dashboard.ex:259
 #, elixir-autogen, elixir-format
 msgid "Set up plugins"
 msgstr ""
 
-#: lib/flux_web/components/layouts.ex:228
+#: lib/flux_web/components/layouts.ex:253
 #, elixir-autogen, elixir-format
 msgid "Settings"
 msgstr ""
 
-#: lib/flux_web/live/console_live/dashboard.ex:106
+#: lib/flux_web/live/console_live/dashboard.ex:147
 #, elixir-autogen, elixir-format
 msgid "Tokens"
 msgstr ""
 
-#: lib/flux_web/live/console_live/dashboard.ex:53
-#: lib/flux_web/live/console_live/dashboard.ex:126
+#: lib/flux_web/live/console_live/dashboard.ex:94
+#: lib/flux_web/live/console_live/dashboard.ex:167
 #, elixir-autogen, elixir-format
 msgid "Tokens in"
 msgstr ""
 
-#: lib/flux_web/live/console_live/dashboard.ex:59
-#: lib/flux_web/live/console_live/dashboard.ex:127
+#: lib/flux_web/live/console_live/dashboard.ex:100
+#: lib/flux_web/live/console_live/dashboard.ex:168
 #, elixir-autogen, elixir-format
 msgid "Tokens out"
 msgstr ""
@@ -294,27 +294,27 @@ msgstr ""
 msgid "Tools"
 msgstr ""
 
-#: lib/flux_web/live/console_live/dashboard.ex:100
+#: lib/flux_web/live/console_live/dashboard.ex:141
 #, elixir-autogen, elixir-format
 msgid "Top apps by tokens"
 msgstr ""
 
-#: lib/flux_web/live/console_live/dashboard.ex:83
+#: lib/flux_web/live/console_live/dashboard.ex:124
 #, elixir-autogen, elixir-format
 msgid "Uploads"
 msgstr ""
 
-#: lib/flux_web/live/console_live/dashboard.ex:43
+#: lib/flux_web/live/console_live/dashboard.ex:84
 #, elixir-autogen, elixir-format
 msgid "Usage (last %{days} days)"
 msgstr ""
 
-#: lib/flux_web/live/console_live/dashboard.ex:32
+#: lib/flux_web/live/console_live/dashboard.ex:40
 #, elixir-autogen, elixir-format
 msgid "Welcome to"
 msgstr ""
 
-#: lib/flux_web/live/console_live/dashboard.ex:35
+#: lib/flux_web/live/console_live/dashboard.ex:43
 #, elixir-autogen, elixir-format
 msgid "You're signed in as"
 msgstr ""
@@ -324,12 +324,12 @@ msgstr ""
 msgid "Chat applications backed by your configured models."
 msgstr ""
 
-#: lib/flux_web/live/console_live/fluxes.ex:244
+#: lib/flux_web/live/console_live/fluxes.ex:286
 #, elixir-autogen, elixir-format
 msgid "Design, debug, and publish AI workflows."
 msgstr ""
 
-#: lib/flux_web/live/console_live/knowledge.ex:362
+#: lib/flux_web/live/console_live/knowledge.ex:455
 #, elixir-autogen, elixir-format
 msgid "Document collections your fluxes can retrieve from."
 msgstr ""
@@ -339,12 +339,12 @@ msgstr ""
 msgid "Documentation"
 msgstr ""
 
-#: lib/flux_web/live/console_live/fluxes.ex:243
+#: lib/flux_web/live/console_live/fluxes.ex:285
 #, elixir-autogen, elixir-format
 msgid "Fluxes"
 msgstr ""
 
-#: lib/flux_web/live/console_live/knowledge.ex:366
+#: lib/flux_web/live/console_live/knowledge.ex:459
 #, elixir-autogen, elixir-format
 msgid "New dataset"
 msgstr ""
@@ -354,7 +354,7 @@ msgstr ""
 msgid "The guides, right here in the console."
 msgstr ""
 
-#: lib/flux_web/live/console_live/workspace_settings.ex:227
+#: lib/flux_web/live/console_live/workspace_settings.ex:348
 #, elixir-autogen, elixir-format
 msgid "Workspace settings"
 msgstr ""
@@ -364,68 +364,89 @@ msgstr ""
 msgid "Batch runs"
 msgstr ""
 
-#: lib/flux_web/live/console_live/dashboard.ex:169
+#: lib/flux_web/live/console_live/dashboard.ex:210
 #, elixir-autogen, elixir-format
 msgid "Eval set"
 msgstr ""
 
-#: lib/flux_web/live/console_live/flux_evals.ex:309
+#: lib/flux_web/live/console_live/flux_evals.ex:312
 #, elixir-autogen, elixir-format
 msgid "Evaluations"
 msgstr ""
 
-#: lib/flux_web/live/console_live/files.ex:41
+#: lib/flux_web/live/console_live/files.ex:80
 #, elixir-autogen, elixir-format
 msgid "Everything the workspace has stored — run outputs, artifacts, uploads."
 msgstr ""
 
 #: lib/flux_web/components/layouts.ex:209
-#: lib/flux_web/live/console_live/files.ex:39
+#: lib/flux_web/live/console_live/files.ex:78
 #, elixir-autogen, elixir-format, fuzzy
 msgid "Files"
 msgstr ""
 
-#: lib/flux_web/live/console_live/dashboard.ex:186
+#: lib/flux_web/live/console_live/dashboard.ex:227
 #, elixir-autogen, elixir-format
 msgid "No evals yet — score a flux from its Evals page and results land here."
 msgstr ""
 
-#: lib/flux_web/live/console_live/dashboard.ex:172
+#: lib/flux_web/live/console_live/dashboard.ex:213
 #, elixir-autogen, elixir-format
 msgid "Pass / fail"
 msgstr ""
 
-#: lib/flux_web/live/console_live/dashboard.ex:151
+#: lib/flux_web/live/console_live/dashboard.ex:192
 #, elixir-autogen, elixir-format
 msgid "Quality"
 msgstr ""
 
-#: lib/flux_web/live/console_live/dashboard.ex:171
+#: lib/flux_web/live/console_live/dashboard.ex:212
 #, elixir-autogen, elixir-format
 msgid "Score"
 msgstr ""
 
-#: lib/flux_web/live/console_live/dashboard.ex:170
+#: lib/flux_web/live/console_live/dashboard.ex:211
 #, elixir-autogen, elixir-format
 msgid "Target"
 msgstr ""
 
-#: lib/flux_web/live/console_live/dashboard.ex:162
+#: lib/flux_web/live/console_live/dashboard.ex:203
 #, elixir-autogen, elixir-format
 msgid "agreement"
 msgstr ""
 
-#: lib/flux_web/live/console_live/dashboard.ex:153
+#: lib/flux_web/live/console_live/dashboard.ex:194
 #, elixir-autogen, elixir-format
 msgid "gates"
 msgstr ""
 
-#: lib/flux_web/live/console_live/dashboard.ex:156
+#: lib/flux_web/live/console_live/dashboard.ex:197
 #, elixir-autogen, elixir-format
 msgid "scheduled"
 msgstr ""
 
-#: lib/flux_web/live/console_live/dashboard.ex:159
+#: lib/flux_web/live/console_live/dashboard.ex:200
 #, elixir-autogen, elixir-format
 msgid "to label"
+msgstr ""
+
+#: lib/flux_web/live/console_live/notifications.ex:51
+#, elixir-autogen, elixir-format
+msgid "Failures, regressions, and completions across the workspace."
+msgstr ""
+
+#: lib/flux_web/live/console_live/dashboard.ex:56
+#, elixir-autogen, elixir-format
+msgid "Getting started"
+msgstr ""
+
+#: lib/flux_web/live/console_live/dashboard.ex:61
+#, elixir-autogen, elixir-format
+msgid "Getting started progress"
+msgstr ""
+
+#: lib/flux_web/components/layouts.ex:221
+#: lib/flux_web/live/console_live/notifications.ex:49
+#, elixir-autogen, elixir-format
+msgid "Notifications"
 msgstr ""
