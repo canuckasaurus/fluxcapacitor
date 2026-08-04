@@ -1586,6 +1586,53 @@ defmodule Flux.EngineTest do
       assert result.outputs["output"] == [%{"echoed" => "0:a"}, %{"echoed" => "1:b"}]
     end
 
+    test "iteration and loop pass a subflux_version pin through to the host" do
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("iter", "iteration", %{
+            "variable" => "start.query",
+            "workflow_id" => "wf-sub",
+            "subflux_version" => "v3"
+          })
+        ],
+        "edges" => [edge!("start", "iter")]
+      }
+
+      pin_host = %Host{
+        emit: fn _e -> :ok end,
+        run_subflux: fn request -> {:ok, %{"got" => request[:version]}} end
+      }
+
+      {:ok, built} = Engine.build(graph)
+      assert {:ok, result} = Engine.run(built, %{"query" => ~s(["a"])}, pin_host)
+      assert result.outputs["output"] == [%{"got" => 3}]
+
+      loop_graph = %{
+        "nodes" => [
+          start_node(),
+          node!("loop", "loop", %{
+            "workflow_id" => "wf-sub",
+            "initial" => "x",
+            "max_loops" => 1,
+            "subflux_version" => 2,
+            "conditions" => []
+          })
+        ],
+        "edges" => [edge!("start", "loop")]
+      }
+
+      {:ok, built} = Engine.build(loop_graph)
+      assert {:ok, result} = Engine.run(built, %{"query" => "q"}, pin_host)
+      assert result.outputs["output"] == %{"got" => 2}
+
+      # Blank and junk pins mean "latest" — no :version key at all.
+      assert Flux.Engine.Nodes.SubfluxVersion.parse("") == nil
+      assert Flux.Engine.Nodes.SubfluxVersion.parse("latest") == nil
+      assert Flux.Engine.Nodes.SubfluxVersion.parse("v0") == nil
+      assert Flux.Engine.Nodes.SubfluxVersion.parse(" v12 ") == 12
+    end
+
     test "iteration node enforces max_items and reports item failures" do
       graph = %{
         "nodes" => [

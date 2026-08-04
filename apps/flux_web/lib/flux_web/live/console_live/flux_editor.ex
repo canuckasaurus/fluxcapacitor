@@ -1820,6 +1820,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     |> Map.put("variable", Map.get(params, "variable", config["variable"] || ""))
     |> Map.put("workflow_id", Map.get(params, "workflow_id", config["workflow_id"] || ""))
     |> Map.put("max_items", max_items)
+    |> put_subflux_version(params)
   end
 
   defp build_config("loop", config, params) do
@@ -1855,6 +1856,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     |> Map.put("max_loops", max_loops)
     |> Map.put("logical_operator", "and")
     |> Map.put("conditions", conditions)
+    |> put_subflux_version(params)
   end
 
   defp build_config("variable_aggregator", config, params) do
@@ -1960,6 +1962,13 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
   end
 
   defp stringify_map(_other), do: %{}
+
+  defp put_subflux_version(config, params) do
+    case Map.get(params, "subflux_version") do
+      nil -> config
+      raw -> Map.put(config, "subflux_version", String.trim(to_string(raw)))
+    end
+  end
 
   defp parse_iterations(value) when is_binary(value) do
     case Integer.parse(value) do
@@ -4177,6 +4186,17 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                       disabled={not @can_edit}
                     />
                   </label>
+                  <label class="floating-label">
+                    <span>Pin to version (blank = latest published)</span>
+                    <input
+                      type="text"
+                      name="subflux_version"
+                      value={node["config"]["subflux_version"]}
+                      placeholder="v3"
+                      class="input input-sm w-24"
+                      disabled={not @can_edit}
+                    />
+                  </label>
                 <% "loop" -> %>
                   <label class="floating-label">
                     <span>Sub-flux (published; sees {"{{sys.item}}"} / {"{{sys.index}}"})</span>
@@ -4217,6 +4237,17 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                       value={node["config"]["max_loops"] || 5}
                       min="1"
                       max="100"
+                      class="input input-sm w-24"
+                      disabled={not @can_edit}
+                    />
+                  </label>
+                  <label class="floating-label">
+                    <span>Pin to version (blank = latest published)</span>
+                    <input
+                      type="text"
+                      name="subflux_version"
+                      value={node["config"]["subflux_version"]}
+                      placeholder="v3"
                       class="input input-sm w-24"
                       disabled={not @can_edit}
                     />

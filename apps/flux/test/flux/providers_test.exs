@@ -203,6 +203,94 @@ defmodule Flux.ProvidersTest do
     assert second["answer"] =~ "You said: two"
   end
 
+  test "a subflux_version pin runs that version, not the latest", %{scope: scope} do
+    {:ok, subflux} = Flux.Workflows.create_workflow(scope, %{"name" => "Pinned"})
+
+    graph_saying = fn text ->
+      update_in(subflux.graph, ["nodes"], fn nodes ->
+        Enum.map(nodes, fn
+          %{"id" => "llm_1"} = node ->
+            node
+            |> put_in(["config", "provider_plugin_id"], "echo")
+            |> put_in(["config", "model"], "echo-1")
+            |> put_in(["config", "prompt"], text)
+
+          %{"id" => "start"} = node ->
+            put_in(node, ["config", "variables"], [])
+
+          node ->
+            node
+        end)
+      end)
+    end
+
+    {:ok, subflux} = Flux.Workflows.update_draft(scope, subflux, graph_saying.("version one"))
+    {:ok, _v1} = Flux.Workflows.publish(scope, subflux)
+    {:ok, subflux} = Flux.Workflows.update_draft(scope, subflux, graph_saying.("version two"))
+    {:ok, _v2} = Flux.Workflows.publish(scope, subflux)
+
+    {:ok, parent} = Flux.Workflows.create_workflow(scope, %{"name" => "Pin Parent"})
+
+    parent_graph = fn pin ->
+      %{
+        "nodes" => [
+          %{
+            "id" => "start",
+            "type" => "start",
+            "title" => "Start",
+            "position" => %{"x" => 0, "y" => 0},
+            "config" => %{
+              "variables" => [
+                %{
+                  "name" => "items",
+                  "label" => "Items",
+                  "type" => "paragraph",
+                  "required" => true
+                }
+              ]
+            }
+          },
+          %{
+            "id" => "iter_1",
+            "type" => "iteration",
+            "title" => "Iterate",
+            "position" => %{"x" => 300, "y" => 0},
+            "config" =>
+              %{"variable" => "start.items", "workflow_id" => subflux.id}
+              |> Map.merge(pin)
+          }
+        ],
+        "edges" => [
+          %{"id" => "e1", "source" => "start", "source_handle" => "default", "target" => "iter_1"}
+        ]
+      }
+    end
+
+    run_and_collect = fn pin ->
+      {:ok, parent} = Flux.Workflows.update_draft(scope, parent, parent_graph.(pin))
+      {:ok, _run} = Flux.Workflows.start_run(scope, parent, %{"items" => ~s(["x"])})
+
+      receive do
+        {:run_finished, finished} -> finished
+      after
+        5_000 -> flunk("run did not finish")
+      end
+    end
+
+    pinned = run_and_collect.(%{"subflux_version" => "v1"})
+    assert pinned.status == :succeeded
+    assert [%{"answer" => answer}] = pinned.outputs["output"]
+    assert answer =~ "version one"
+
+    unpinned = run_and_collect.(%{})
+    assert [%{"answer" => answer}] = unpinned.outputs["output"]
+    assert answer =~ "version two"
+
+    ghost = run_and_collect.(%{"subflux_version" => "v9"})
+    assert ghost.status == :failed
+    assert ghost.error =~ "version v9 does not exist"
+  end
+
   test "workflow LLM node without a model falls back to the workspace default", %{scope: scope} do
     {:ok, _} = Providers.set_default_model(scope, "echo", "echo-1")
 

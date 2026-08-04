@@ -1692,7 +1692,7 @@ defmodule Flux.Workflows do
   # Iteration items run the sub-flux's published version inline (no run
   # rows, silent host) — depth-capped so sub-fluxes cannot nest further.
   defp build_subflux_runner(workspace_id, depth) do
-    fn %{workflow_id: workflow_id, item: item, index: index} ->
+    fn %{workflow_id: workflow_id, item: item, index: index} = request ->
       scope = %Scope{workspace: %Flux.Accounts.Workspace{id: workspace_id}}
 
       with :ok <- (depth < 1 && :ok) || {:error, "sub-fluxes cannot start their own sub-fluxes"},
@@ -1700,7 +1700,8 @@ defmodule Flux.Workflows do
              Repo.get_by(Workflow, [id: workflow_id], skip_workspace_guard: true) ||
                {:error, "sub-flux not found"},
            %WorkflowVersion{} = version <-
-             latest_version(scope, workflow.id) || {:error, "sub-flux has no published version"},
+             resolve_subflux_version(scope, workflow.id, request[:version]) ||
+               {:error, subflux_version_error(request[:version])},
            {:ok, graph} <- Engine.build(version.graph) do
         sub_host = build_host(workspace_id, fn _event -> :ok end, depth + 1)
         item_text = if is_binary(item), do: item, else: Jason.encode!(item)
@@ -1719,6 +1720,21 @@ defmodule Flux.Workflows do
       end
     end
   end
+
+  # A pinned version makes composed fluxes reproducible; unpinned stays
+  # "latest published".
+  defp resolve_subflux_version(scope, workflow_id, nil), do: latest_version(scope, workflow_id)
+
+  defp resolve_subflux_version(scope, workflow_id, version) when is_integer(version) do
+    get_version(scope, workflow_id, version)
+    |> case do
+      %WorkflowVersion{} = found -> found
+      _missing -> nil
+    end
+  end
+
+  defp subflux_version_error(nil), do: "sub-flux has no published version"
+  defp subflux_version_error(version), do: "sub-flux version v#{version} does not exist"
 
   @debug_timeout 60_000
 

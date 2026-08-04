@@ -1405,7 +1405,14 @@ defmodule Flux.Engine.Nodes.Iteration do
           {:iteration_progress, %{node_id: node.id, index: index, total: total}}
         )
 
-        case run_subflux.(%{workflow_id: workflow_id, item: item, index: index}) do
+        request = %{workflow_id: workflow_id, item: item, index: index}
+
+        request =
+          if version = pinned_version(node),
+            do: Map.put(request, :version, version),
+            else: request
+
+        case run_subflux.(request) do
           {:ok, outputs} -> {:cont, {:ok, [outputs | acc]}}
           {:error, reason} -> {:halt, {:error, "item #{index}: #{format(reason)}"}}
         end
@@ -1462,8 +1469,28 @@ defmodule Flux.Engine.Nodes.Iteration do
   defp capability(%Host{run_subflux: fun}) when is_function(fun, 1), do: {:ok, fun}
   defp capability(_host), do: {:error, "this run's host cannot run sub-fluxes"}
 
+  defp pinned_version(node),
+    do: Flux.Engine.Nodes.SubfluxVersion.parse(node.config["subflux_version"])
+
   defp format(reason) when is_binary(reason), do: reason
   defp format(reason), do: inspect(reason)
+end
+
+defmodule Flux.Engine.Nodes.SubfluxVersion do
+  @moduledoc false
+  # Iteration and loop accept an optional `subflux_version` pin ("" or nil
+  # means latest published). Accepts integers or strings like "3"/"v3".
+  def parse(nil), do: nil
+  def parse(version) when is_integer(version) and version > 0, do: version
+
+  def parse(version) when is_binary(version) do
+    case version |> String.trim() |> String.trim_leading("v") |> Integer.parse() do
+      {n, ""} when n > 0 -> n
+      _other -> nil
+    end
+  end
+
+  def parse(_other), do: nil
 end
 
 defmodule Flux.Engine.Nodes.Loop do
@@ -1505,7 +1532,15 @@ defmodule Flux.Engine.Nodes.Loop do
   defp loop(node, pool, host, run_subflux, workflow_id, item, round, max, history) do
     Host.emit(host, {:loop_round, %{node_id: node.id, round: round, max: max}})
 
-    case run_subflux.(%{workflow_id: workflow_id, item: item, index: round - 1}) do
+    request = %{workflow_id: workflow_id, item: item, index: round - 1}
+
+    request =
+      case Flux.Engine.Nodes.SubfluxVersion.parse(node.config["subflux_version"]) do
+        nil -> request
+        version -> Map.put(request, :version, version)
+      end
+
+    case run_subflux.(request) do
       {:error, reason} ->
         {:error, "round #{round}: #{format(reason)}"}
 
