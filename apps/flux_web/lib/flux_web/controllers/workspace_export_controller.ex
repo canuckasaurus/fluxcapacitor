@@ -35,7 +35,9 @@ defmodule FluxWeb.WorkspaceExportController do
       {:ok, counts} ->
         summary =
           "Imported #{counts.fluxes} flux(es), #{counts.apps} app(s), " <>
-            "#{counts.datasets} dataset(s) with #{counts.documents} document(s)."
+            "#{counts.datasets} dataset(s) with #{counts.documents} document(s), " <>
+            "#{counts.eval_sets} eval set(s), #{counts.retrieval_cases} retrieval case(s), " <>
+            "#{counts.labeling_projects} labeling project(s)."
 
         summary =
           case counts.warnings do

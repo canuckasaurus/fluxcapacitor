@@ -59,7 +59,28 @@ defmodule FluxWeb.WorkspaceExportTest do
   end
 
   test "an export round-trips into a fresh workspace", %{conn: conn, scope: scope} do
-    {:ok, _workflow} = Flux.Workflows.create_workflow(scope, %{"name" => "Round Trip Flux"})
+    {:ok, workflow} = Flux.Workflows.create_workflow(scope, %{"name" => "Round Trip Flux"})
+
+    # Quality assets ride the archive too.
+    {:ok, set} =
+      Flux.Evals.create_set(scope, workflow, %{"name" => "RT Set", "gate" => true})
+
+    {:ok, _} =
+      Flux.Evals.add_case(scope, set, %{
+        "inputs" => %{"query" => "hi"},
+        "expected" => "hello",
+        "weight" => 2.0
+      })
+
+    {:ok, project} =
+      Flux.Labeling.create_project(scope, %{
+        "name" => "RT Labels",
+        "label_type" => "choice",
+        "options" => ["yes", "no"]
+      })
+
+    {:ok, task} = Flux.Labeling.add_task(scope, project, %{"text" => "label me"})
+    {:ok, _} = Flux.Labeling.label_task(scope, task.id, %{"choice" => "yes"})
 
     {:ok, _app} =
       Flux.Chat.create_app(scope, %{
@@ -77,6 +98,12 @@ defmodule FluxWeb.WorkspaceExportTest do
 
     {:ok, _doc} = Flux.RAG.add_document(scope, dataset, %{name: "a.md", content: "round trip"})
 
+    {:ok, _case} =
+      Flux.RAG.add_retrieval_case(scope, dataset, %{
+        "question" => "what trips?",
+        "expected" => "round trip"
+      })
+
     json = conn |> get(~p"/console/workspace-export") |> response(200)
 
     # A different account imports the archive into a brand-new workspace.
@@ -89,6 +116,9 @@ defmodule FluxWeb.WorkspaceExportTest do
     assert counts.apps == 1
     assert counts.datasets == 1
     assert counts.documents == 1
+    assert counts.eval_sets == 1
+    assert counts.retrieval_cases == 1
+    assert counts.labeling_projects == 1
 
     assert [imported_flux] = Flux.Workflows.list_workflows(target_scope)
     assert imported_flux.name == "Round Trip Flux"
@@ -97,6 +127,19 @@ defmodule FluxWeb.WorkspaceExportTest do
     assert [imported_dataset] = Flux.RAG.list_datasets(target_scope)
     assert [document] = Flux.RAG.list_documents(target_scope, imported_dataset.id)
     assert document.content == "round trip"
+
+    # The quality loop restored whole: gated set with its weighted case,
+    # the labeled task, the golden retrieval case.
+    assert [imported_set] = Flux.Evals.list_sets(target_scope, imported_flux.id)
+    assert imported_set.gate == true
+    assert [imported_case] = Flux.Evals.list_cases(target_scope, imported_set.id)
+    assert imported_case.weight == 2.0
+
+    assert [imported_project] = Flux.Labeling.list_projects(target_scope)
+    assert Flux.Labeling.counts(target_scope, imported_project.id).labeled == 1
+
+    assert [rt_case] = Flux.RAG.list_retrieval_cases(target_scope, imported_dataset.id)
+    assert rt_case.expected == "round trip"
 
     # The upload endpoint reports the same counts through the flash.
     path = Path.join(System.tmp_dir!(), "ws-export.json")

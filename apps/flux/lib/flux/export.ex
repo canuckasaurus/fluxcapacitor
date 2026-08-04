@@ -7,6 +7,8 @@ defmodule Flux.Export do
   SCIM token hash are excluded by construction.
   """
 
+  require Ecto.Query
+
   alias Flux.Accounts.Scope
   alias Flux.Repo
 
@@ -90,7 +92,8 @@ defmodule Flux.Export do
         },
         "fluxes" => fluxes(scope),
         "apps" => apps(scope),
-        "datasets" => datasets(scope)
+        "datasets" => datasets(scope),
+        "labeling_projects" => labeling_projects(scope)
       }
 
       Flux.Audit.record(scope, "workspace.export",
@@ -104,7 +107,58 @@ defmodule Flux.Export do
 
   defp fluxes(scope) do
     for workflow <- Flux.Workflows.list_workflows(scope) do
-      %{"name" => workflow.name, "dsl" => Flux.Workflows.DSL.export(workflow)}
+      %{
+        "name" => workflow.name,
+        "dsl" => Flux.Workflows.DSL.export(workflow),
+        "eval_sets" => eval_sets(scope, workflow.id)
+      }
+    end
+  end
+
+  defp eval_sets(scope, workflow_id) do
+    for set <- Flux.Evals.list_sets(scope, workflow_id) do
+      %{
+        "name" => set.name,
+        "gate" => set.gate,
+        "schedule" => set.schedule,
+        "cases" =>
+          for eval_case <- Flux.Evals.list_cases(scope, set.id) do
+            %{
+              "inputs" => eval_case.inputs,
+              "expected" => eval_case.expected,
+              "weight" => eval_case.weight
+            }
+          end
+      }
+    end
+  end
+
+  defp labeling_projects(scope) do
+    for project <- Flux.Labeling.list_projects(scope) do
+      tasks =
+        Flux.Labeling.Task
+        |> Repo.scoped(scope)
+        |> Ecto.Query.where([t], t.project_id == ^project.id)
+        |> Ecto.Query.order_by([t], asc: t.inserted_at)
+        |> Repo.all()
+
+      %{
+        "name" => project.name,
+        "label_type" => to_string(project.label_type),
+        "options" => project.options,
+        "instructions" => project.instructions,
+        "required_labels" => project.required_labels,
+        "tasks" =>
+          for task <- tasks do
+            %{
+              "data" => task.data,
+              "status" => to_string(task.status),
+              "label" => task.label,
+              "gold_label" => task.gold_label,
+              "source" => task.source
+            }
+          end
+      }
     end
   end
 
@@ -130,11 +184,20 @@ defmodule Flux.Export do
             "rerank_plugin_id" => dataset.rerank_plugin_id,
             "rerank_model" => dataset.rerank_model,
             "retrieval_top_k" => dataset.retrieval_top_k,
-            "score_threshold" => dataset.score_threshold
+            "score_threshold" => dataset.score_threshold,
+            "split_markdown" => dataset.split_markdown,
+            "query_expansion" => dataset.query_expansion
           },
           "documents" =>
             for document <- rag.list_documents(scope, dataset.id) do
               %{"name" => document.name, "content" => document.content}
+            end,
+          "retrieval_cases" =>
+            for retrieval_case <- rag.list_retrieval_cases(scope, dataset.id) do
+              %{
+                "question" => retrieval_case.question,
+                "expected" => retrieval_case.expected
+              }
             end
         }
       end
