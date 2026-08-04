@@ -54,6 +54,9 @@ defmodule FluxWeb.ConsoleLive.AppChat do
            streaming_text: ""
          )}
 
+      {:error, :guardrail} ->
+        {:noreply, put_flash(socket, :error, "That message isn't allowed here.")}
+
       {:error, :quota_exceeded} ->
         {:noreply,
          put_flash(socket, :error, "This app's daily token limit is spent — try again tomorrow.")}
@@ -92,6 +95,9 @@ defmodule FluxWeb.ConsoleLive.AppChat do
 
       {:error, :not_completion_app} ->
         {:noreply, put_flash(socket, :error, "This app is not in completion mode.")}
+
+      {:error, :guardrail} ->
+        {:noreply, put_flash(socket, :error, "That message isn't allowed here.")}
 
       {:error, :quota_exceeded} ->
         {:noreply,

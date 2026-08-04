@@ -355,10 +355,15 @@ defmodule Flux.Chat do
 
   def send_message(%Scope{} = scope, %App{} = app, %Conversation{} = conversation, content, opts)
       when is_binary(content) do
-    if quota_exceeded?(app) do
-      {:error, :quota_exceeded}
-    else
-      do_send_message(scope, app, conversation, content, opts)
+    cond do
+      quota_exceeded?(app) ->
+        {:error, :quota_exceeded}
+
+      Flux.Guardrails.check_input(app.workspace_id, content, "chat (#{app.name})") != :ok ->
+        {:error, :guardrail}
+
+      true ->
+        do_send_message(scope, app, conversation, content, opts)
     end
   end
 

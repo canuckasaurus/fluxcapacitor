@@ -42,6 +42,9 @@ defmodule FluxWeb.V1.ChatMessageController do
           {:error, :not_completion_app} ->
             error(conn, 400, "invalid_app_mode", "This app is not a completion app")
 
+          {:error, :guardrail} ->
+            error(conn, 403, "guardrail", "This message violates the workspace guardrails")
+
           {:error, :quota_exceeded} ->
             error(conn, 429, "quota_exceeded", "This app's daily token limit is spent")
         end
@@ -61,6 +64,9 @@ defmodule FluxWeb.V1.ChatMessageController do
               "blocking" -> respond_blocking(conn, conversation, assistant_message)
               _ -> respond_streaming(conn, conversation, assistant_message)
             end
+
+          {:error, :guardrail} ->
+            error(conn, 403, "guardrail", "This message violates the workspace guardrails")
 
           {:error, :quota_exceeded} ->
             error(conn, 429, "quota_exceeded", "This app's daily token limit is spent")

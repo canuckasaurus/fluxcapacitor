@@ -23,6 +23,7 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
        token_budget: Accounts.token_budget(scope),
        llm_cache_minutes: Accounts.llm_cache_minutes(scope),
        max_concurrent_runs: Accounts.max_concurrent_runs(scope),
+       guardrails: Flux.Guardrails.config(Flux.Accounts.Scope.workspace_id(scope)),
        alert_url: Accounts.alert_url(scope),
        alert_secret: Accounts.alert_secret(scope),
        can_webhooks: RBAC.can?(scope, :api_extension_manage),
@@ -89,6 +90,24 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
 
       _error ->
         {:noreply, put_flash(socket, :error, "Could not update the budget.")}
+    end
+  end
+
+  def handle_event("set_guardrails", %{"patterns" => patterns, "action" => action}, socket) do
+    case Flux.Guardrails.configure(socket.assigns.current_scope, patterns, action) do
+      {:ok, _workspace} ->
+        workspace_id = Flux.Accounts.Scope.workspace_id(socket.assigns.current_scope)
+
+        {:noreply,
+         socket
+         |> put_flash(:info, "Guardrails saved.")
+         |> assign(guardrails: Flux.Guardrails.config(workspace_id))}
+
+      {:error, {:invalid_pattern, pattern}} ->
+        {:noreply, put_flash(socket, :error, "Invalid regex: #{pattern}")}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not save the guardrails.")}
     end
   end
 
@@ -452,6 +471,39 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
             class="input input-bordered input-sm w-40"
           /> <span class="text-sm opacity-70">cache minutes</span>
           <button class="btn btn-primary btn-sm">Save</button>
+        </form>
+      </div>
+
+      <div :if={@can_rename} class="card border border-base-200 p-6 space-y-3" id="guardrails-card">
+        <h2 class="font-semibold">Guardrails</h2>
+
+        <p class="text-sm opacity-70">
+          Deny patterns (case-insensitive regex, one per line) checked
+          against chat and run inputs — <b>block</b>
+          refuses them, <b>flag</b>
+          lets them through. Either way a matching input or
+          output raises a <span class="font-mono">guardrail</span>
+          notification (routable to webhooks). Blank disables.
+        </p>
+
+        <form phx-submit="set_guardrails" id="guardrails-form" class="space-y-2">
+          <textarea
+            name="patterns"
+            rows="4"
+            placeholder="credit card\npassword\n\\b\\d{3}-\\d{2}-\\d{4}\\b"
+            class="textarea textarea-bordered textarea-sm w-full max-w-md font-mono"
+          >{Enum.join((@guardrails && @guardrails.patterns) || [], "\n")}</textarea>
+          <div class="flex gap-2 items-center">
+            <select name="action" class="select select-bordered select-sm w-32">
+              <option value="block" selected={(@guardrails && @guardrails.action) != "flag"}>
+                block
+              </option>
+              <option value="flag" selected={@guardrails && @guardrails.action == "flag"}>
+                flag
+              </option>
+            </select>
+            <button class="btn btn-primary btn-sm">Save guardrails</button>
+          </div>
         </form>
       </div>
 

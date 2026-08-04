@@ -85,6 +85,9 @@ defmodule FluxWeb.SiteLive.AppSite do
              streaming_text: ""
            )}
 
+        {:error, :guardrail} ->
+          {:noreply, put_flash(socket, :error, "That message isn't allowed here.")}
+
         {:error, :quota_exceeded} ->
           {:noreply, put_flash(socket, :error, "This app is over its daily usage limit.")}
       end
@@ -139,6 +142,9 @@ defmodule FluxWeb.SiteLive.AppSite do
     else
       false ->
         {:noreply, put_flash(socket, :error, "Too many requests — please slow down.")}
+
+      {:error, :guardrail} ->
+        {:noreply, put_flash(socket, :error, "That message isn't allowed here.")}
 
       {:error, :quota_exceeded} ->
         {:noreply, put_flash(socket, :error, "This app is over its daily usage limit.")}
