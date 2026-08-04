@@ -313,6 +313,43 @@ defmodule Flux.Usage do
     |> to_int()
   end
 
+  @doc """
+  Getting-started progress for the dashboard checklist. Each step is
+  `%{key, done}`; the card hides once everything is done.
+  """
+  def onboarding(%Scope{} = scope) do
+    workspace_id = Scope.workspace_id(scope)
+
+    count_of = fn table, extra ->
+      base = from(t in table, where: t.workspace_id == type(^workspace_id, :binary_id))
+      extra.(base) |> select([t], count(t.id)) |> Repo.one()
+    end
+
+    plain = fn table -> count_of.(table, & &1) end
+
+    provider_ids =
+      Flux.Providers.list_provider_plugins()
+      |> Enum.map(&to_string(&1.id))
+      |> MapSet.new()
+      |> MapSet.delete("echo")
+
+    provider_done =
+      Flux.Tools.list_installed_plugin_ids(scope)
+      |> Enum.any?(&MapSet.member?(provider_ids, to_string(&1)))
+
+    runs = plain.("workflow_runs")
+    replies = count_of.("conversations", & &1)
+
+    [
+      %{key: :provider, done: provider_done},
+      %{key: :flux, done: count_of.("workflows", &where(&1, [t], is_nil(t.deleted_at))) > 0},
+      %{key: :publish, done: plain.("workflow_versions") > 0},
+      %{key: :knowledge, done: count_of.("datasets", &where(&1, [t], is_nil(t.deleted_at))) > 0},
+      %{key: :run, done: runs + replies > 0},
+      %{key: :invite, done: plain.("memberships") > 1}
+    ]
+  end
+
   defp knowledge_counts(scope) do
     workspace_id = Scope.workspace_id(scope)
 

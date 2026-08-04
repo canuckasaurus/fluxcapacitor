@@ -187,6 +187,28 @@ defmodule Flux.NotificationsRegistryTest do
     assert Enum.count(Notifications.list(scope, 50), &(&1.kind == "digest")) == 1
   end
 
+  test "the onboarding checklist advances as the workspace fills in", %{scope: scope} do
+    empty = Flux.Usage.onboarding(scope)
+    assert Enum.all?(empty, &(&1.done == false))
+
+    :ok = Flux.Tools.install_plugin(scope, "openai")
+    {:ok, workflow} = Workflows.create_workflow(scope, %{"name" => "First Flux"})
+    {:ok, _version} = Workflows.publish(scope, workflow)
+
+    progressed = Map.new(Flux.Usage.onboarding(scope), &{&1.key, &1.done})
+    assert progressed[:provider]
+    assert progressed[:flux]
+    assert progressed[:publish]
+    refute progressed[:knowledge]
+    refute progressed[:invite]
+
+    # Echo alone doesn't count as "connected a provider".
+    assert Enum.all?(
+             Flux.Providers.list_provider_plugins(),
+             &(to_string(&1.id) != "" and &1.category == :model)
+           )
+  end
+
   test "scheduled exports write the archive and notify", %{scope: scope} do
     assert {:error, :invalid_cron} = Accounts.set_export_schedule(scope, "nope")
     {:ok, _workspace} = Accounts.set_export_schedule(scope, "* * * * *")

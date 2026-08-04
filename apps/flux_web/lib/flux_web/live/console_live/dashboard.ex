@@ -8,9 +8,17 @@ defmodule FluxWeb.ConsoleLive.Dashboard do
      assign(socket,
        page_title: "Dashboard",
        usage: Flux.Usage.workspace_summary(socket.assigns.current_scope),
-       quality: Flux.Usage.quality_summary(socket.assigns.current_scope)
+       quality: Flux.Usage.quality_summary(socket.assigns.current_scope),
+       onboarding: Flux.Usage.onboarding(socket.assigns.current_scope)
      )}
   end
+
+  defp onboarding_step(:provider), do: {"Connect a model provider", ~p"/console/plugins"}
+  defp onboarding_step(:flux), do: {"Build your first flux", ~p"/console/fluxes"}
+  defp onboarding_step(:publish), do: {"Publish a version", ~p"/console/fluxes"}
+  defp onboarding_step(:knowledge), do: {"Add a knowledge dataset", ~p"/console/knowledge"}
+  defp onboarding_step(:run), do: {"Run a flux or chat with an app", ~p"/console/fluxes"}
+  defp onboarding_step(:invite), do: {"Invite a teammate", ~p"/console/members"}
 
   defp humanize_bytes(bytes) when bytes >= 1_048_576,
     do: "#{Float.round(bytes / 1_048_576, 1)} MB"
@@ -37,6 +45,39 @@ defmodule FluxWeb.ConsoleLive.Dashboard do
         <p class="opacity-50 mt-1 text-sm italic">
           Where we're going, we don't need boilerplate.
         </p>
+      </div>
+
+      <div
+        :if={Enum.any?(@onboarding, &(not &1.done))}
+        class="card border border-base-200 p-6 space-y-3"
+        id="onboarding-checklist"
+      >
+        <div class="flex items-center gap-3">
+          <h2 class="font-semibold">{gettext("Getting started")}</h2>
+          <progress
+            class="progress progress-primary w-40"
+            value={Enum.count(@onboarding, & &1.done)}
+            max={length(@onboarding)}
+            aria-label={gettext("Getting started progress")}
+          >
+          </progress>
+          <span class="text-xs opacity-60">
+            {Enum.count(@onboarding, & &1.done)}/{length(@onboarding)}
+          </span>
+        </div>
+        <ul class="space-y-1">
+          <li :for={step <- @onboarding} class="flex items-center gap-2 text-sm">
+            <.icon
+              name={if step.done, do: "hero-check-circle-solid", else: "hero-minus-circle"}
+              class={["size-5", if(step.done, do: "text-success", else: "opacity-40")]}
+            />
+            <% {label, path} = onboarding_step(step.key) %>
+            <span :if={step.done} class="opacity-60 line-through">{label}</span>
+            <.link :if={not step.done} navigate={path} class="link link-hover">
+              {label}
+            </.link>
+          </li>
+        </ul>
       </div>
 
       <div class="card border border-base-200 p-6 space-y-4" id="workspace-usage">
