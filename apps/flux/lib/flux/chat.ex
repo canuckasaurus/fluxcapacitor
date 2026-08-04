@@ -420,6 +420,53 @@ defmodule Flux.Chat do
     {:ok, user_message, assistant_message}
   end
 
+  @doc """
+  Discards the conversation's last assistant reply and streams a fresh
+  one from the same user message. Returns `{:ok, assistant_message}`
+  (subscribe to its id for chunks) or `{:error, :nothing_to_regenerate}`.
+  """
+  def regenerate(%Scope{} = scope, %App{} = app, %Conversation{} = conversation) do
+    workspace_id = Scope.workspace_id(scope)
+
+    with :ok <- if(quota_exceeded?(app), do: {:error, :quota_exceeded}, else: :ok),
+         [%Message{role: :assistant, status: status} = last | earlier]
+         when status != :streaming <-
+           scope |> list_messages(conversation.id) |> Enum.reverse(),
+         %Message{role: :user} = user_message <-
+           Enum.find(earlier, &(&1.role == :user)) || {:error, :nothing_to_regenerate} do
+      Repo.delete!(last)
+
+      assistant_message =
+        Repo.insert!(%Message{
+          workspace_id: workspace_id,
+          conversation_id: conversation.id,
+          role: :assistant,
+          status: :streaming
+        })
+
+      :ok = subscribe(assistant_message.id)
+
+      history = list_messages(scope, conversation.id)
+      annotation = match_annotation(app, user_message.content)
+
+      {:ok, _pid} =
+        Task.Supervisor.start_child(Flux.GenerationSupervisor, fn ->
+          Registry.register(Flux.GenerationRegistry, assistant_message.id, nil)
+
+          if annotation do
+            answer_from_annotation(annotation, assistant_message)
+          else
+            generate(app, history, assistant_message)
+          end
+        end)
+
+      {:ok, assistant_message}
+    else
+      {:error, reason} -> {:error, reason}
+      _no_reply_yet -> {:error, :nothing_to_regenerate}
+    end
+  end
+
   defp derive_title(content) do
     clean = content |> String.replace(~r/\s+/, " ") |> String.trim()
 

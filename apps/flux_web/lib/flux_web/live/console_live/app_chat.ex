@@ -73,6 +73,28 @@ defmodule FluxWeb.ConsoleLive.AppChat do
     {:noreply, socket}
   end
 
+  def handle_event("regenerate", _params, socket) do
+    scope = socket.assigns.current_scope
+
+    with %Flux.Chat.Conversation{} = conversation <- socket.assigns.conversation,
+         {:ok, assistant_message} <-
+           Chat.regenerate(scope, socket.assigns.app, conversation) do
+      {:noreply,
+       assign(socket,
+         messages: drop_last_assistant(socket.assigns.messages),
+         streaming_id: assistant_message.id,
+         streaming_text: ""
+       )}
+    else
+      {:error, :quota_exceeded} ->
+        {:noreply,
+         put_flash(socket, :error, "This app's daily token limit is spent — try again tomorrow.")}
+
+      _nothing_to_do ->
+        {:noreply, socket}
+    end
+  end
+
   def handle_event("new-conversation", _params, socket) do
     {:noreply,
      assign(socket, conversation: nil, messages: [], streaming_id: nil, streaming_text: "")}
@@ -269,6 +291,20 @@ defmodule FluxWeb.ConsoleLive.AppChat do
   defp presence(nil), do: nil
   defp presence(text), do: if(String.trim(text) == "", do: nil, else: String.trim(text))
 
+  defp last_assistant_id(messages) do
+    case List.last(messages) do
+      %{role: :assistant, status: status, id: id} when status != :error -> id
+      _other -> nil
+    end
+  end
+
+  defp drop_last_assistant(messages) do
+    case List.last(messages) do
+      %{role: :assistant} -> Enum.drop(messages, -1)
+      _other -> messages
+    end
+  end
+
   defp parse_var_rows(%{"vars" => vars}) when is_map(vars) do
     vars
     |> Enum.sort_by(fn {index, _row} -> String.to_integer(index) end)
@@ -355,11 +391,36 @@ defmodule FluxWeb.ConsoleLive.AppChat do
             id={"message-#{message.id}"}
           >
             <div class={[
-              "chat-bubble whitespace-pre-wrap",
+              "chat-bubble",
+              (message.role == :assistant and message.status != :error) ||
+                "whitespace-pre-wrap",
               message.role == :user && "chat-bubble-primary",
               message.status == :error && "chat-bubble-error"
             ]}>
-              {if message.status == :error, do: message.error, else: message.content}
+              <%= cond do %>
+                <% message.status == :error -> %>
+                  {message.error}
+                <% message.role == :assistant -> %>
+                  <div class="markdown-chat">{FluxWeb.Markdown.render(message.content)}</div>
+                <% true -> %>
+                  {message.content}
+              <% end %>
+            </div>
+            <div
+              :if={
+                message.role == :assistant and @streaming_id == nil and
+                  message.id == last_assistant_id(@messages)
+              }
+              class="chat-footer mt-1"
+            >
+              <button
+                class="btn btn-ghost btn-xs"
+                phx-click="regenerate"
+                title="Regenerate this reply"
+                aria-label="Regenerate this reply"
+              >
+                <.icon name="hero-arrow-path" class="size-3" /> Regenerate
+              </button>
             </div>
             <div
               :if={message.role == :assistant and (message.usage["files"] || []) != []}

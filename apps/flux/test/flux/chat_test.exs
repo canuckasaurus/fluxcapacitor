@@ -46,6 +46,32 @@ defmodule Flux.ChatTest do
     assert length(messages) == 2
   end
 
+  test "regenerate discards the last reply and streams a fresh one", %{
+    scope: scope,
+    app: app
+  } do
+    conversation = Chat.create_conversation(scope, app)
+
+    # Nothing to regenerate before any reply exists.
+    assert {:error, :nothing_to_regenerate} = Chat.regenerate(scope, app, conversation)
+
+    {:ok, _user, _assistant} = Chat.send_message(scope, app, conversation, "take one")
+    assert_receive {:done, first_reply}, 5_000
+
+    {:ok, replacement} = Chat.regenerate(scope, app, conversation)
+    assert replacement.status == :streaming
+    assert replacement.id != first_reply.id
+
+    assert_receive {:done, final}, 5_000
+    assert final.id == replacement.id
+    assert final.content =~ "You said: take one"
+
+    # Still exactly one user + one assistant message — the old reply is gone.
+    messages = Chat.list_messages(scope, conversation.id)
+    assert Enum.map(messages, & &1.role) == [:user, :assistant]
+    refute Enum.any?(messages, &(&1.id == first_reply.id))
+  end
+
   test "export_finetune builds JSONL from liked replies and annotations", %{
     scope: scope,
     app: app

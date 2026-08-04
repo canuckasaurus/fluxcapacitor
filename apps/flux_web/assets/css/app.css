@@ -213,6 +213,49 @@
 }
 .markdown-prose hr { border-color: var(--color-base-300); margin: 1.5rem 0; }
 
+/* Markdown inside chat bubbles (assistant replies) — tighter than the
+   docs prose, and colors inherit from the bubble. */
+.markdown-chat { line-height: 1.55; }
+.markdown-chat > *:first-child { margin-top: 0; }
+.markdown-chat > *:last-child { margin-bottom: 0; }
+.markdown-chat h1, .markdown-chat h2, .markdown-chat h3,
+.markdown-chat h4, .markdown-chat h5, .markdown-chat h6 {
+  font-weight: 700;
+  margin: 0.6rem 0 0.3rem;
+}
+.markdown-chat h1 { font-size: 1.15rem; }
+.markdown-chat h2 { font-size: 1.05rem; }
+.markdown-chat p { margin: 0.4rem 0; }
+.markdown-chat ul, .markdown-chat ol { margin: 0.4rem 0 0.4rem 1.25rem; }
+.markdown-chat ul { list-style: disc; }
+.markdown-chat ol { list-style: decimal; }
+.markdown-chat li { margin: 0.15rem 0; }
+.markdown-chat a { text-decoration: underline; }
+.markdown-chat blockquote {
+  border-left: 3px solid currentColor;
+  padding-left: 0.7rem;
+  opacity: 0.8;
+  margin: 0.5rem 0;
+}
+.markdown-chat code.chat-inline-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85em;
+  background: color-mix(in oklab, currentColor 12%, transparent);
+  padding: 0.05em 0.3em;
+  border-radius: 0.25rem;
+}
+.markdown-chat pre.chat-code {
+  background: oklch(13% 0.015 262);
+  color: oklch(90% 0.02 90);
+  border-radius: 0.5rem;
+  padding: 0.6rem 0.8rem;
+  overflow-x: auto;
+  margin: 0.5rem 0;
+  font-size: 0.8rem;
+  white-space: pre;
+}
+.markdown-chat hr { border-color: currentColor; opacity: 0.3; margin: 0.75rem 0; }
+
 /* ── OUTATIME flourishes ───────────────────────────────────────────── */
 
 /* The empty-state license plate. */

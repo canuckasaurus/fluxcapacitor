@@ -295,11 +295,20 @@ defmodule FluxWeb.SiteLive.AppSite do
               id={"site-message-#{message.id}"}
             >
               <div class={[
-                "chat-bubble whitespace-pre-wrap",
+                "chat-bubble",
+                (message.role == :assistant and message.status != :error) ||
+                  "whitespace-pre-wrap",
                 message.role == :user && "chat-bubble-primary",
                 message.status == :error && "chat-bubble-error"
               ]}>
-                {if message.status == :error, do: message.error, else: message.content}
+                <%= cond do %>
+                  <% message.status == :error -> %>
+                    {message.error}
+                  <% message.role == :assistant -> %>
+                    <div class="markdown-chat">{FluxWeb.Markdown.render(message.content)}</div>
+                  <% true -> %>
+                    {message.content}
+                <% end %>
               </div>
               <div
                 :if={message.role == :assistant and (message.usage["files"] || []) != []}
