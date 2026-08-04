@@ -465,3 +465,24 @@ selector, members, 30-day volume; set_plan_for_workspace);
 **retrieval bench** (perf-suite: 10k embedded segments, same query
 against Naive/PgVector/Arango — backends auto-skip where absent; naive
 measured at 97ms locally).
+
+33. ~~Batch 9: the everyday-team batch (#150, 2026-08-03)~~ DONE:
+**export completeness** (workspace archives carry eval sets + weighted
+cases + gate/schedule flags, labeling projects with tasks/labels/gold
+standards restored via quiet direct inserts, retrieval cases, and the
+markdown/expansion dataset settings; import counts + settings flash
+report them; round-trip tested); **custom template gallery**
+(workflow_templates: Save-as-template on any flux, ★ cards next to the
+built-ins, delete, create-from); **document tags** (per-document tags on
+the Knowledge page; knowledge node `tags` config — templatable — filters
+retrieval via array-overlap on the document join; RAG.retrieve/
+retrieve_many take :tags); **concurrent-run cap** (max_concurrent_runs
+workspace setting; interactive runs refuse with :concurrency_limit,
+batch/eval sources exempt); **notification routing** (every notify also
+dispatches notification.<kind> — endpoints subscribe per kind, event
+vocabulary extends automatically); **topic clusters** (deterministic
+Jaccard clustering of recent user questions on the app monitor — no
+model calls, provider-agnostic); **canvas sticky notes** (graph-stored
+notes list, rendered as draggable warning-tinted cards reusing the
+node-drag hook via note: id prefixes; add/edit/delete all undoable
+through the normal graph history).

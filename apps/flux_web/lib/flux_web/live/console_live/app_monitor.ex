@@ -21,6 +21,7 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
          feedback_filter: :all,
          feedback: Chat.list_feedback(scope, app.id),
          quality: Chat.quality_stats(scope, app.id),
+         topics: Chat.topic_clusters(scope, app.id),
          annotations: Chat.list_annotations(scope, app.id),
          can_edit: RBAC.can?(scope, :app_edit),
          labeling_projects: Flux.Labeling.list_projects(scope),
@@ -247,6 +248,20 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
             </tr>
           </tbody>
         </table>
+      </div>
+
+      <div :if={@topics != []} class="card border border-base-200 p-6 space-y-3" id="topics-card">
+        <h2 class="font-semibold">Topics</h2>
+        <p class="text-xs opacity-60">
+          Recent questions clustered by word overlap — what people actually ask.
+        </p>
+        <div class="space-y-2">
+          <div :for={topic <- @topics} class="flex items-center gap-3">
+            <span class="badge badge-primary badge-sm w-10 justify-center">{topic.count}</span>
+            <span class="text-sm font-semibold">{topic.name}</span>
+            <span class="text-xs opacity-60 truncate max-w-md">e.g. “{topic.example}”</span>
+          </div>
+        </div>
       </div>
 
       <div class="card border border-base-200 p-6 space-y-3" id="feedback-review">

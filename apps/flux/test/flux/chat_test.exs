@@ -367,6 +367,39 @@ defmodule Flux.ChatTest do
                final.usage["files"]
     end
 
+    test "topic clusters group similar questions deterministically", %{scope: scope} do
+      {:ok, app} =
+        Chat.create_app(scope, %{
+          "name" => "Topics App",
+          "provider_plugin_id" => "echo",
+          "model" => "echo-1"
+        })
+
+      questions = [
+        "how do refunds work for orders",
+        "refunds question about my orders",
+        "can I get refunds on recent orders",
+        "shipping delivery estimate please",
+        "what is the shipping delivery time"
+      ]
+
+      for question <- questions do
+        conversation = Chat.create_conversation(scope, app)
+        {:ok, _u, _a} = Chat.send_message(scope, app, conversation, question)
+        assert_receive {:done, _reply}, 5_000
+      end
+
+      clusters = Chat.topic_clusters(scope, app.id)
+      assert length(clusters) == 2
+
+      [biggest, second] = clusters
+      assert biggest.count == 3
+      assert biggest.name =~ "refunds"
+      assert second.count == 2
+      assert second.name =~ "shipping"
+      assert is_binary(biggest.example)
+    end
+
     test "file_output files ride chatflow replies as download chips too", %{scope: scope} do
       {:ok, workflow} = Flux.Workflows.create_workflow(scope, %{"name" => "Report Chatflow"})
 

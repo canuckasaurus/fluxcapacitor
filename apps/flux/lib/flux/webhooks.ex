@@ -23,8 +23,8 @@ defmodule Flux.Webhooks do
 
   def run_events, do: @run_events
 
-  @doc "Every subscribable event."
-  def events, do: @run_events ++ @other_events
+  @doc "Every subscribable event (incl. routed notification kinds)."
+  def events, do: @run_events ++ @other_events ++ Flux.Notifications.webhook_events()
 
   def list_endpoints(%Scope{} = scope) do
     Endpoint

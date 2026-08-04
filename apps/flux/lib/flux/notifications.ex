@@ -48,9 +48,20 @@ defmodule Flux.Notifications do
       path: path
     })
 
+    # Routing: endpoints subscribe to `notification.<kind>` events, so
+    # each webhook picks exactly the kinds it wants forwarded.
+    Flux.Webhooks.dispatch(workspace_id, "notification." <> kind, %{
+      "kind" => kind,
+      "title" => to_string(title),
+      "path" => path
+    })
+
     Phoenix.PubSub.broadcast(Flux.PubSub, topic(workspace_id), :notifications_changed)
     :ok
   end
+
+  @doc "The webhook event names notifications can route to."
+  def webhook_events, do: for(kind <- @kinds, do: "notification." <> kind)
 
   def list(%Scope{} = scope, limit \\ 30) do
     Notification

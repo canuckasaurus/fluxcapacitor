@@ -83,20 +83,27 @@ orchestrator, no queue infrastructure beyond Postgres.
   badge. Batches, evals, and labeling are all drivable over the
   **`/v1` API** for CI and data pipelines — covered by the strict OpenAPI
   contract at `GET /v1/spec` — and a **template gallery** (triage, RAG,
-  human review, model trainer, report writer, intent router) seeds new
-  fluxes.
+  human review, model trainer, report writer, intent router, plus
+  workspace-saved **custom templates**) seeds new fluxes. Workspace
+  export archives carry the whole quality loop — eval sets, labeling
+  projects with labels and gold standards, retrieval cases — so backups
+  restore it intact.
 - **Apps on top of fluxes** — chat, completion (form), and chatflow modes;
   published to logged-out visitors at a public URL, embedded via iframe or a
   floating chat bubble, or consumed through the `/v1` service API with
   per-app tokens, streaming SSE, quotas, and rate limits. Monitoring pages
-  track usage, feedback and quality trends, and **annotation replies** promote
+  track usage, feedback and quality trends, **topic clusters** of what
+  people actually ask, and **annotation replies** promote
   liked answers into canonical responses (exact + embedding-fuzzy matched).
+  A **concurrent-run cap** protects provider limits, and notification
+  kinds **route to chosen webhook endpoints** (`notification.*` events).
 - **Knowledge (RAG)** — datasets → documents → embedded segments, hybrid
   retrieval (vector cosine + Postgres full-text + **entity mentions**, merged
   by reciprocal rank fusion), optional reranking, URL ingestion, datasource
   auto-sync, multi-dataset queries, per-dataset retrieval settings
-  (including **markdown-aware chunking** and model-backed **query
-  expansion**), and citations that flow onto chat answers. Similarity ranks in-BEAM by default, in SQL with the
+  (including **markdown-aware chunking**, model-backed **query
+  expansion**, and **document tags** the knowledge node filters by), and
+  citations that flow onto chat answers. Similarity ranks in-BEAM by default, in SQL with the
   **pgvector backend** (`FLUX_VECTOR_BACKEND=pgvector`, HNSW-indexed with
   `FLUX_VECTOR_DIMS`) or in AQL with the **Arango vector backend**, and
   the **ArangoDB entity graph** (`FLUX_ARANGO_URL`) upgrades
@@ -276,7 +283,7 @@ scratch drive, and a labeling project wired to the Model trainer flux
 ## Testing
 
 ```bash
-mix test                             # full umbrella suite (~675 tests), hermetic
+mix test                             # full umbrella suite (~680 tests), hermetic
 ```
 
 The suite runs with no network: providers stub through `Req.Test` or the

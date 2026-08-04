@@ -691,6 +691,19 @@ defmodule Flux.Accounts do
     end
   end
 
+  @doc "Sets the max simultaneous interactive runs (nil = unlimited)."
+  def set_max_concurrent_runs(%Scope{} = scope, cap)
+      when is_nil(cap) or (is_integer(cap) and cap in 1..1000) do
+    update_custom_config(scope, "max_concurrent_runs", cap)
+  end
+
+  def max_concurrent_runs(%Scope{} = scope) do
+    case Repo.get(Workspace, Scope.workspace_id(scope)) do
+      %{custom_config: %{"max_concurrent_runs" => cap}} -> cap
+      _unlimited -> nil
+    end
+  end
+
   @doc "Sets the monthly token budget (nil = unlimited)."
   def set_token_budget(%Scope{} = scope, budget)
       when is_nil(budget) or (is_integer(budget) and budget > 0) do

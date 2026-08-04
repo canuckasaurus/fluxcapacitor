@@ -47,8 +47,10 @@ lands in the dev mailbox at `/dev/mailbox`).
    what nodes resolve.
 3. **Fluxes** → *New Flux* opens the canvas, or pick a card from the
    **template gallery** (triage, RAG answer, human review, model
-   trainer, report writer, intent router) to start with a working
-   graph. Every blank flux starts with
+   trainer, report writer, intent router — plus anything your team has
+   promoted with **Save as template**) to start with a working graph.
+   The canvas supports **sticky notes** (saved with the graph, undoable)
+   for in-place documentation. Every blank flux starts with
    a `start → llm → answer` skeleton; bind the LLM node to a model and
    hit *Run*. Or skip the skeleton: describe what you want in **Draft
    with AI** and the helper generates the nodes and wiring through the
@@ -81,7 +83,9 @@ lands in the dev mailbox at `/dev/mailbox`).
    **query expansion** (the workspace model rephrases each query and all
    rankings fuse — better recall for one extra model call), and
    **retrieval evals** score golden question → expected-passage cases
-   (hit rate + MRR) so chunking/backend changes are measurable. At corpus
+   (hit rate + MRR) so chunking/backend changes are measurable. Tag
+   documents and the knowledge node can **filter retrieval by tag**
+   (templatable, e.g. `{{start.category}}`). At corpus
    scale, set `FLUX_VECTOR_BACKEND=pgvector` (SQL-side similarity; add
    `FLUX_VECTOR_DIMS` for an HNSW approximate index) or
    `FLUX_VECTOR_BACKEND=arango` (AQL cosine next to the entity graph),
@@ -132,10 +136,15 @@ settings can schedule **automatic export archives** (cron) that land on
 the Files page as backups, set a **monthly token budget** (warns at 80%,
 refuses runs past the cap), and enable the **LLM response cache**
 (identical prompts within the TTL answer from memory, billed at zero).
-Outgoing webhooks keep a **delivery log** (status, attempts, manual
-retry) in settings. `FLUX_ADMIN_EMAILS` unlocks the **instance admin
-panel** (`/console/admin`): every workspace on the deployment with plan
-control and 30-day volume.
+A **concurrent-run cap** refuses interactive runs past the limit
+(batches/evals exempt — they serialize anyway). Outgoing webhooks keep a
+**delivery log** (status, attempts, manual retry) in settings, and
+endpoints can subscribe to **`notification.*` events** to route exactly
+the console notifications they care about. `FLUX_ADMIN_EMAILS` unlocks
+the **instance admin panel** (`/console/admin`): every workspace on the
+deployment with plan control and 30-day volume. Workspace exports carry
+the **whole quality loop** — eval sets, labeling projects (labels and
+gold standards included), and retrieval cases restore with the archive.
 
 ## Localization
 

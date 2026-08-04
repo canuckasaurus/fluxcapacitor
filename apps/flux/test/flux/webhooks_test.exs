@@ -199,6 +199,25 @@ defmodule Flux.WebhooksTest do
 
     assert length(retry_jobs) >= 2
 
+    # notification routing: an endpoint subscribed to one notification
+    # kind gets exactly that kind forwarded
+    {:ok, _routed} =
+      Webhooks.create_endpoint(scope, %{
+        "url" => "https://hooks.example.com/budget-only",
+        "events" => ["notification.budget_warning"]
+      })
+
+    workspace_id = Flux.Accounts.Scope.workspace_id(scope)
+    :ok = Flux.Notifications.notify(workspace_id, "budget_warning", "80% spent")
+    :ok = Flux.Notifications.notify(workspace_id, "export_ready", "backup done")
+
+    budget_jobs =
+      all_enqueued(worker: Flux.Workflows.AlertWorker)
+      |> Enum.filter(&(&1.args["url"] == "https://hooks.example.com/budget-only"))
+
+    assert [job] = budget_jobs
+    assert job.args["payload"]["event"] == "notification.budget_warning"
+
     # unknown event names are rejected at registration
     assert {:error, changeset} =
              Webhooks.create_endpoint(scope, %{

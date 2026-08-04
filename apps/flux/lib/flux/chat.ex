@@ -242,6 +242,81 @@ defmodule Flux.Chat do
     end
   end
 
+  @topic_stopwords MapSet.new(~w(the a an is are was were be been am and or but if then else
+                     for nor not no yes on in at by to from of with as so do does did done can
+                     could will would should may might must i we you they he she it its this
+                     that these those my your our their his her me us them what when where why
+                     how which who whom about into over under again please help need want know
+                     get make))
+
+  @doc """
+  What people actually ask: recent user messages greedily clustered by
+  token overlap (Jaccard on stopword-filtered words), largest clusters
+  first with a top-terms name and an example. Deterministic — no model
+  calls, works on any provider.
+  """
+  def topic_clusters(%Scope{} = scope, app_id, opts \\ []) do
+    sample = Keyword.get(opts, :sample, 200)
+    max_clusters = Keyword.get(opts, :max_clusters, 8)
+
+    contents =
+      Message
+      |> Repo.scoped(scope)
+      |> join(:inner, [m], c in Conversation, on: m.conversation_id == c.id)
+      |> where([m, c], c.app_id == ^app_id and m.role == :user)
+      |> order_by([m], desc: m.seq)
+      |> limit(^sample)
+      |> select([m], m.content)
+      |> Repo.all()
+
+    contents
+    |> Enum.reduce([], fn content, clusters ->
+      tokens = topic_tokens(content)
+
+      if MapSet.size(tokens) == 0 do
+        clusters
+      else
+        case Enum.split_while(clusters, &(jaccard(&1.seed, tokens) < 0.3)) do
+          {_misses, []} ->
+            [%{seed: tokens, count: 1, examples: [content], terms: tokens} | clusters]
+
+          {before, [cluster | rest]} ->
+            updated = %{
+              cluster
+              | count: cluster.count + 1,
+                examples: Enum.take([content | cluster.examples], 3),
+                terms: MapSet.union(cluster.terms, tokens)
+            }
+
+            before ++ [updated | rest]
+        end
+      end
+    end)
+    |> Enum.sort_by(&(-&1.count))
+    |> Enum.take(max_clusters)
+    |> Enum.map(fn cluster ->
+      %{
+        name: cluster.seed |> MapSet.to_list() |> Enum.sort() |> Enum.take(3) |> Enum.join(" · "),
+        count: cluster.count,
+        example: List.first(cluster.examples)
+      }
+    end)
+  end
+
+  defp topic_tokens(content) do
+    content
+    |> to_string()
+    |> String.downcase()
+    |> String.split(~r/[^\p{L}\p{N}]+/u, trim: true)
+    |> Enum.reject(&(String.length(&1) < 3 or MapSet.member?(@topic_stopwords, &1)))
+    |> MapSet.new()
+  end
+
+  defp jaccard(a, b) do
+    union = MapSet.union(a, b) |> MapSet.size()
+    if union == 0, do: 0.0, else: MapSet.intersection(a, b) |> MapSet.size() |> Kernel./(union)
+  end
+
   @doc "Messages matching `query` across an app's conversations, newest first."
   def search_messages(%Scope{} = scope, app_id, query, limit \\ 20) do
     case String.trim(to_string(query)) do

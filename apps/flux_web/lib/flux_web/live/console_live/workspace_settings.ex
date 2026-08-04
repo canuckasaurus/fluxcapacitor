@@ -22,6 +22,7 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
        export_schedule: Accounts.export_schedule(scope),
        token_budget: Accounts.token_budget(scope),
        llm_cache_minutes: Accounts.llm_cache_minutes(scope),
+       max_concurrent_runs: Accounts.max_concurrent_runs(scope),
        alert_url: Accounts.alert_url(scope),
        alert_secret: Accounts.alert_secret(scope),
        can_webhooks: RBAC.can?(scope, :api_extension_manage),
@@ -88,6 +89,25 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
 
       _error ->
         {:noreply, put_flash(socket, :error, "Could not update the budget.")}
+    end
+  end
+
+  def handle_event("set_concurrency", %{"cap" => cap}, socket) do
+    parsed =
+      case Integer.parse(cap) do
+        {n, ""} when n in 1..1000 -> n
+        _blank_or_invalid -> nil
+      end
+
+    case Accounts.set_max_concurrent_runs(socket.assigns.current_scope, parsed) do
+      {:ok, _workspace} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, (parsed && "Concurrency cap set.") || "Concurrency cap removed.")
+         |> assign(max_concurrent_runs: parsed)}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not update the cap.")}
     end
   end
 
@@ -405,6 +425,20 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
             placeholder="∞"
             class="input input-bordered input-sm w-40"
           /> <span class="text-sm opacity-70">tokens / month</span>
+          <button class="btn btn-primary btn-sm">Save</button>
+        </form>
+
+        <form phx-submit="set_concurrency" id="concurrency-form" class="flex gap-2 items-center">
+          <input
+            type="number"
+            name="cap"
+            value={@max_concurrent_runs}
+            min="1"
+            max="1000"
+            placeholder="∞"
+            class="input input-bordered input-sm w-40"
+            title="Interactive runs beyond this refuse until others finish; batches and evals are exempt (they run sequentially)."
+          /> <span class="text-sm opacity-70">concurrent runs</span>
           <button class="btn btn-primary btn-sm">Save</button>
         </form>
 
