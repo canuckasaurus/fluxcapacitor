@@ -32,6 +32,7 @@ defmodule Flux.Demo do
       agent_flux = seed_agent_flux(scope)
       trainer = seed_labeling_loop(scope)
       apps = seed_apps(scope, qa_flux)
+      triage = seed_quality_loop(scope, workspace, triage, dataset)
 
       {:ok,
        %{
@@ -42,6 +43,94 @@ defmodule Flux.Demo do
          apps: apps
        }}
     end
+  end
+
+  # The batch-7-through-10 features, pre-wired so the showcase isn't just
+  # the basics: a gated eval set, retrieval goldens, guardrails, a second
+  # published version behind an A/B split, a canvas note, a workspace
+  # template, and a registered model artifact.
+  defp seed_quality_loop(scope, workspace, triage, dataset) do
+    {:ok, set} =
+      Flux.Evals.create_set(scope, triage, %{"name" => "Routing checks", "gate" => true})
+
+    routing_cases = [
+      {%{"query" => "I want a refund"}, "Refund question"},
+      {%{"query" => "Where is my money back?"}, "Refund question"},
+      {%{"query" => "What are your Saturday hours?"}, "General question"}
+    ]
+
+    for {inputs, expected} <- routing_cases do
+      {:ok, _case} =
+        Flux.Evals.add_case(scope, set, %{"inputs" => inputs, "expected" => expected})
+    end
+
+    rag = Application.get_env(:flux, :rag_module, Flux.RAG)
+
+    retrieval_cases = [
+      {"How long do refunds take?", "5 business days"},
+      {"Is water damage covered?", "Water damage is not covered"}
+    ]
+
+    for {question, expected} <- retrieval_cases do
+      {:ok, _case} =
+        rag.add_retrieval_case(scope, dataset, %{"question" => question, "expected" => expected})
+    end
+
+    # Flag (never block) so the demo stays friendly while showing the wiring.
+    {:ok, _workspace} =
+      Flux.Guardrails.configure(
+        scope,
+        "(?i)social security number\n(?i)credit card number",
+        "flag"
+      )
+
+    # A sticky note plus a friendlier refund desk → version 2, half the traffic.
+    graph =
+      triage.graph
+      |> Map.put("notes", [
+        %{
+          "id" => "note_1",
+          "text" => "Refund wording is A/B tested — see the versions panel.",
+          "position" => %{"x" => 280, "y" => -80}
+        }
+      ])
+      |> update_in(["nodes"], fn nodes ->
+        Enum.map(nodes, fn
+          %{"id" => "refunds"} = node ->
+            put_in(
+              node,
+              ["config", "system_prompt"],
+              "You are the extra-friendly refunds specialist."
+            )
+
+          node ->
+            node
+        end)
+      end)
+
+    {:ok, triage} = Flux.Workflows.update_draft(scope, triage, graph)
+    {:ok, _v2} = Flux.Workflows.publish(scope, triage)
+    {:ok, triage} = Flux.Workflows.set_ab_split(scope, triage, 2, 50)
+
+    {:ok, _template} = Flux.Workflows.save_as_template(scope, triage)
+
+    # A model artifact under a registry name, resolvable as registry:ticket-intent.
+    {:ok, stored} =
+      Flux.Workflows.store_workspace_file(
+        workspace.id,
+        "ticket-intent.json",
+        Jason.encode!(%{
+          "kind" => "demo-artifact",
+          "labels" => ["complaint", "question", "praise"]
+        })
+      )
+
+    {:ok, _artifact} =
+      Flux.Registry.register(scope, "ticket-intent", stored["file_id"],
+        metrics: %{"accuracy" => 0.92}
+      )
+
+    triage
   end
 
   defp seed_knowledge(scope) do

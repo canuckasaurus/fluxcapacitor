@@ -34,5 +34,28 @@ defmodule Flux.DemoTest do
     # The support app's public site is live.
     support = Enum.find(seeded.apps, &(&1.name == "Support Echo"))
     assert {:ok, _app} = Flux.Chat.get_app_by_site_token(support.site_token)
+
+    # The quality loop is pre-wired: gated evals, retrieval goldens,
+    # guardrails (flag), an A/B split on v2, a template, and a registered
+    # model artifact.
+    assert [set] = Flux.Evals.list_sets(scope, triage.id)
+    assert set.gate
+    assert length(Flux.Evals.list_cases(scope, set.id)) == 3
+
+    assert length(Flux.RAG.list_retrieval_cases(scope, seeded.dataset.id)) == 2
+
+    assert %{action: "flag"} = Flux.Guardrails.config(seeded.workspace.id)
+
+    assert triage.ab_split == 50
+    assert triage.ab_version_b == 2
+    assert [%{"text" => note_text}] = triage.graph["notes"]
+    assert note_text =~ "A/B tested"
+
+    assert [template] = Flux.Workflows.list_workspace_templates(scope)
+    assert template.name == "Support Triage"
+
+    assert [artifact] = Flux.Registry.latest(scope)
+    assert artifact.name == "ticket-intent"
+    assert artifact.metrics["accuracy"] == 0.92
   end
 end
