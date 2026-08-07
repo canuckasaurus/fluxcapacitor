@@ -34,13 +34,18 @@ defmodule FluxWeb.Plugs.RateLimit do
     key = "#{opts.name}:#{principal(conn, opts.by)}"
 
     case FluxWeb.RateLimit.hit(key, opts.scale_ms, opts.limit) do
-      {:allow, _count} ->
+      {:allow, count} ->
+        # Standard quota headers so API clients can pace themselves.
         conn
+        |> put_resp_header("x-ratelimit-limit", Integer.to_string(opts.limit))
+        |> put_resp_header("x-ratelimit-remaining", Integer.to_string(max(opts.limit - count, 0)))
 
       {:deny, retry_after_ms} ->
         retry_after = max(div(retry_after_ms, 1000), 1)
 
         conn
+        |> put_resp_header("x-ratelimit-limit", Integer.to_string(opts.limit))
+        |> put_resp_header("x-ratelimit-remaining", "0")
         |> put_resp_header("retry-after", Integer.to_string(retry_after))
         |> put_resp_content_type("application/json")
         |> send_resp(

@@ -17,6 +17,12 @@ defmodule FluxWeb.SiteLive.FluxSite do
       {:ok,
        assign(socket,
          page_title: workflow.name,
+         page_meta: %{
+           title: workflow.site_theme["title"] || workflow.name,
+           description: workflow.description || "Run #{workflow.name}",
+           image: workflow.site_theme["logo_url"],
+           favicon: workflow.site_theme["logo_url"]
+         },
          workflow: workflow,
          visitor_ip: FluxWeb.SiteRateLimit.visitor_ip(socket),
          site_scope: scope,

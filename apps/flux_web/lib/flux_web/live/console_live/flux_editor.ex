@@ -5485,6 +5485,12 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
               </span>
               <span :if={trigger.type == :schedule} class="text-xs opacity-70 font-mono">
                 {(trigger.cron && trigger.cron) || "every #{trigger.interval_minutes} min"}
+                <span
+                  :if={preview = trigger.cron && FluxWeb.CronPreview.describe(trigger.cron)}
+                  class="badge badge-ghost badge-xs font-sans ml-1"
+                >
+                  {preview}
+                </span>
               </span>
               <span :if={trigger.type == :plugin} class="text-xs opacity-70 font-mono">
                 {trigger.plugin_id} · polled every {trigger.interval_minutes} min

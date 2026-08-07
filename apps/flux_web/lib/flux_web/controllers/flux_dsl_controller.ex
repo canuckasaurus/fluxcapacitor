@@ -117,6 +117,40 @@ defmodule FluxWeb.FluxDslController do
     end
   end
 
+  @doc "Downloads an eval run's per-case results as CSV."
+  def eval_results(conn, %{"id" => workflow_id, "eval_run_id" => eval_run_id}) do
+    scope = conn.assigns.current_scope
+
+    with %Flux.Evals.EvalRun{} = eval_run <- Flux.Evals.get_eval_run(scope, eval_run_id),
+         true <- eval_run.workflow_id == workflow_id || {:error, :not_found} do
+      keys =
+        eval_run.results
+        |> Enum.flat_map(&Map.keys/1)
+        |> Enum.uniq()
+        |> Enum.sort()
+
+      rows = for result <- eval_run.results, do: Enum.map(keys, &csv_cell(result[&1]))
+
+      send_download(
+        conn,
+        {:binary, Flux.CSV.encode([keys | rows])},
+        filename: "eval-results.csv",
+        content_type: "text/csv"
+      )
+    else
+      _not_found ->
+        conn
+        |> put_flash(:error, "Eval run not found.")
+        |> redirect(to: ~p"/console/fluxes")
+    end
+  end
+
+  defp csv_cell(value) when is_binary(value) or is_number(value) or is_boolean(value),
+    do: to_string(value)
+
+  defp csv_cell(nil), do: ""
+  defp csv_cell(value), do: Jason.encode!(value)
+
   @doc "Downloads a labeling project's labeled tasks as JSONL."
   def labeling_export(conn, %{"id" => project_id}) do
     case Flux.Labeling.export_jsonl(conn.assigns.current_scope, project_id) do

@@ -530,6 +530,14 @@ defmodule FluxWeb.ConsoleLive.FluxEvals do
                 >
                   {(@expanded_eval == eval_run.id && "Hide") || "Details"}
                 </button>
+                <a
+                  :if={eval_run.status == :completed}
+                  href={~p"/console/fluxes/#{@workflow.id}/evals/#{eval_run.id}/results"}
+                  class="btn btn-ghost btn-xs"
+                  title="Download the per-case results as CSV"
+                >
+                  CSV
+                </a>
               </td>
             </tr>
           </tbody>

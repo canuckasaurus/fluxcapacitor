@@ -348,7 +348,15 @@ defmodule FluxWeb.ConsoleLive.FluxBatches do
           <tbody>
             <tr :for={schedule <- @schedules} id={"schedule-#{schedule.id}"}>
               <td>{schedule.name}</td>
-              <td class="font-mono text-xs">{schedule.cron}</td>
+              <td class="font-mono text-xs">
+                {schedule.cron}
+                <span
+                  :if={preview = FluxWeb.CronPreview.describe(schedule.cron)}
+                  class="badge badge-ghost badge-xs font-sans ml-1"
+                >
+                  {preview}
+                </span>
+              </td>
               <td><span class="badge badge-ghost badge-xs">{schedule.target}</span></td>
               <td class="text-xs">{length(schedule.rows)}</td>
               <td class="text-xs opacity-70">
