@@ -12,6 +12,8 @@ defmodule Flux.Accounts.Membership do
   @primary_key {:id, UUIDv7, autogenerate: true}
   @foreign_key_type :binary_id
 
+  @type t :: %__MODULE__{}
+
   @roles ~w(owner admin editor normal dataset_operator)a
 
   schema "memberships" do

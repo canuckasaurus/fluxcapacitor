@@ -4,6 +4,9 @@ defmodule Flux.Accounts.Account do
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
+
+  @type t :: %__MODULE__{}
+
   schema "accounts" do
     field :email, :string
     field :password, :string, virtual: true, redact: true

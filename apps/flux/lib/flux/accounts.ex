@@ -8,6 +8,42 @@ defmodule Flux.Accounts do
 
   alias Flux.Accounts.{Account, AccountNotifier, AccountToken}
 
+  @doc "The account's active sessions, newest first (for the security page)."
+  def list_session_tokens(%Account{id: account_id}) do
+    import Ecto.Query, only: [from: 2]
+
+    Repo.all(
+      from(t in AccountToken,
+        where: t.account_id == ^account_id and t.context == "session",
+        order_by: [desc: t.inserted_at]
+      )
+    )
+  end
+
+  @doc "Revokes one session by token row id — that device is logged out."
+  def revoke_session_token(%Account{id: account_id}, token_id) do
+    import Ecto.Query, only: [from: 2]
+
+    Repo.delete_all(
+      from(t in AccountToken,
+        where: t.id == ^token_id and t.account_id == ^account_id and t.context == "session"
+      )
+    )
+
+    :ok
+  end
+
+  @doc "Logs the account out everywhere by deleting every session token."
+  def revoke_all_session_tokens(%Account{id: account_id}) do
+    import Ecto.Query, only: [from: 2]
+
+    Repo.delete_all(
+      from(t in AccountToken, where: t.account_id == ^account_id and t.context == "session")
+    )
+
+    :ok
+  end
+
   ## Database getters
 
   @doc """

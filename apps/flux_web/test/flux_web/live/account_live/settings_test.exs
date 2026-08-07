@@ -16,6 +16,45 @@ defmodule FluxWeb.AccountLive.SettingsTest do
       assert html =~ "Save Password"
     end
 
+    test "lists sessions, marks this device, and revokes others", %{conn: conn} do
+      account = account_fixture()
+      other_token = Accounts.generate_account_session_token(account)
+
+      {:ok, lv, html} =
+        conn
+        |> log_in_account(account)
+        |> live(~p"/accounts/settings")
+
+      assert html =~ "Active sessions"
+      assert html =~ "this device"
+
+      other = Enum.find(Accounts.list_session_tokens(account), &(&1.token == other_token))
+
+      lv
+      |> element(~s{#session-#{other.id} button[phx-click="revoke_session"]})
+      |> render_click()
+
+      assert Accounts.get_account_by_session_token(other_token) == nil
+      refute render(lv) =~ "session-#{other.id}"
+    end
+
+    test "log out everywhere kills every session and redirects", %{conn: conn} do
+      account = account_fixture()
+      _other_token = Accounts.generate_account_session_token(account)
+
+      {:ok, lv, _html} =
+        conn
+        |> log_in_account(account)
+        |> live(~p"/accounts/settings")
+
+      lv
+      |> element(~s{button[phx-click="revoke_all_sessions"]})
+      |> render_click()
+
+      assert_redirect(lv, ~p"/accounts/log-in")
+      assert Accounts.list_session_tokens(account) == []
+    end
+
     test "redirects if account is not logged in", %{conn: conn} do
       assert {:error, redirect} = live(conn, ~p"/accounts/settings")
 

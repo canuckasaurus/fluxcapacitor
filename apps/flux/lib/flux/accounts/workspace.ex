@@ -10,6 +10,8 @@ defmodule Flux.Accounts.Workspace do
   @primary_key {:id, UUIDv7, autogenerate: true}
   @foreign_key_type :binary_id
 
+  @type t :: %__MODULE__{}
+
   @statuses ~w(normal archived)
 
   schema "workspaces" do

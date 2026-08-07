@@ -290,6 +290,36 @@ defmodule Flux.AccountsTest do
     end
   end
 
+  describe "session management" do
+    setup do
+      %{account: account_fixture()}
+    end
+
+    test "lists, revokes one, and revokes all sessions", %{account: account} do
+      first = Accounts.generate_account_session_token(account)
+      second = Accounts.generate_account_session_token(account)
+
+      sessions = Accounts.list_session_tokens(account)
+      assert length(sessions) == 2
+
+      # Someone else's sessions never show up.
+      other = account_fixture()
+      _other_token = Accounts.generate_account_session_token(other)
+      assert length(Accounts.list_session_tokens(account)) == 2
+
+      # Revoke one: that token dies, the other survives.
+      victim = Enum.find(sessions, &(&1.token == second))
+      :ok = Accounts.revoke_session_token(account, victim.id)
+      assert Accounts.get_account_by_session_token(second) == nil
+      assert {_account, _at} = Accounts.get_account_by_session_token(first)
+
+      # Log out everywhere: nothing survives.
+      :ok = Accounts.revoke_all_session_tokens(account)
+      assert Accounts.list_session_tokens(account) == []
+      assert Accounts.get_account_by_session_token(first) == nil
+    end
+  end
+
   describe "get_account_by_session_token/1" do
     setup do
       account = account_fixture()

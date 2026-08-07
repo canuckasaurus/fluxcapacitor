@@ -72,6 +72,46 @@ defmodule FluxWeb.AccountLive.Settings do
           Save Password
         </.button>
       </.form>
+
+      <div class="divider" />
+
+      <div class="space-y-2 text-left" id="sessions-card">
+        <div class="flex items-center justify-between">
+          <h2 class="font-semibold">Active sessions</h2>
+          <button
+            class="btn btn-ghost btn-sm text-error"
+            phx-click="revoke_all_sessions"
+            data-confirm="Log out everywhere? Every device (including this one) signs out."
+          >
+            Log out everywhere
+          </button>
+        </div>
+        <div
+          :for={token <- @sessions}
+          class="flex items-center gap-3 py-2 border-b border-base-200 last:border-0 text-sm"
+          id={"session-#{token.id}"}
+        >
+          <.icon name="hero-computer-desktop" class="size-4 opacity-60" />
+          <span>
+            Signed in {Calendar.strftime(token.inserted_at, "%b %d, %Y %H:%M")} UTC
+          </span>
+          <span
+            :if={token.token == @current_session_token}
+            class="badge badge-primary badge-sm"
+          >
+            this device
+          </span>
+          <button
+            :if={token.token != @current_session_token}
+            class="btn btn-ghost btn-xs text-error ml-auto"
+            phx-click="revoke_session"
+            phx-value-id={token.id}
+            aria-label="Sign out this session"
+          >
+            Sign out
+          </button>
+        </div>
+      </div>
     </Layouts.app>
     """
   end
@@ -90,7 +130,7 @@ defmodule FluxWeb.AccountLive.Settings do
     {:ok, push_navigate(socket, to: ~p"/accounts/settings")}
   end
 
-  def mount(_params, _session, socket) do
+  def mount(_params, session, socket) do
     account = socket.assigns.current_scope.account
     email_changeset = Accounts.change_account_email(account, %{}, validate_unique: false)
     password_changeset = Accounts.change_account_password(account, %{}, hash_password: false)
@@ -100,12 +140,29 @@ defmodule FluxWeb.AccountLive.Settings do
       |> assign(:current_email, account.email)
       |> assign(:email_form, to_form(email_changeset))
       |> assign(:password_form, to_form(password_changeset))
+      |> assign(:current_session_token, session["account_token"])
+      |> assign(:sessions, Accounts.list_session_tokens(account))
       |> assign(:trigger_submit, false)
 
     {:ok, socket}
   end
 
   @impl true
+  def handle_event("revoke_session", %{"id" => id}, socket) do
+    account = socket.assigns.current_scope.account
+    :ok = Accounts.revoke_session_token(account, id)
+
+    {:noreply,
+     socket
+     |> put_flash(:info, "That session is signed out.")
+     |> assign(:sessions, Accounts.list_session_tokens(account))}
+  end
+
+  def handle_event("revoke_all_sessions", _params, socket) do
+    :ok = Accounts.revoke_all_session_tokens(socket.assigns.current_scope.account)
+    {:noreply, push_navigate(socket, to: ~p"/accounts/log-in")}
+  end
+
   def handle_event("validate_email", params, socket) do
     %{"account" => account_params} = params
 
