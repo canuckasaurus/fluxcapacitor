@@ -17,7 +17,9 @@ config :flux_web, FluxWeb.Endpoint,
     rewrite_on: [:x_forwarded_proto],
     exclude: [
       # paths: ["/health"],
-      hosts: ["localhost", "127.0.0.1"]
+      # "app" is the compose-internal hostname — Prometheus scrapes
+      # http://app:4000/metrics and must not be bounced to https.
+      hosts: ["localhost", "127.0.0.1", "app"]
     ]
   ]
 

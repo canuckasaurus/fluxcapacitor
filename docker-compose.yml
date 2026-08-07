@@ -84,6 +84,35 @@ services:
     volumes:
       - coderunner_cache:/cache
 
+  # Metrics profile: Prometheus scrapes the app's PromEx endpoint and a
+  # provisioned Grafana ships with a ready-made FluxCapacitor dashboard.
+  #   docker compose --profile full --profile metrics up -d
+  #   Grafana: http://localhost:3001 (admin / fluxgrafana)
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    profiles: ["metrics"]
+    volumes:
+      - ./ops/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    profiles: ["metrics"]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: fluxgrafana
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./ops/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./ops/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+
   app:
     build: .
     profiles: ["full"]
@@ -118,3 +147,5 @@ volumes:
   minio_data:
   arango_data:
   coderunner_cache:
+  prometheus_data:
+  grafana_data:
