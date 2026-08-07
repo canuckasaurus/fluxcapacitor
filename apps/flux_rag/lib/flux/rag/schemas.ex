@@ -16,6 +16,7 @@ defmodule Flux.RAG.Dataset do
     field(:chunk_size, :integer, default: 1000)
     field(:chunk_overlap, :integer, default: 120)
     field(:split_markdown, :boolean, default: false)
+    field(:parent_child, :boolean, default: false)
     field(:query_expansion, :boolean, default: false)
     field(:rerank_plugin_id, :string)
     field(:rerank_model, :string)
@@ -41,6 +42,7 @@ defmodule Flux.RAG.Dataset do
       :chunk_size,
       :chunk_overlap,
       :split_markdown,
+      :parent_child,
       :query_expansion,
       :rerank_plugin_id,
       :rerank_model,
@@ -110,6 +112,9 @@ defmodule Flux.RAG.Segment do
 
     field(:position, :integer)
     field(:content, :string)
+    # Parent-child datasets index small child chunks for precision but
+    # hand retrieval the enclosing parent section for context.
+    field(:parent_content, :string)
     field(:embedding, {:array, :float})
     field(:enabled, :boolean, default: true)
 

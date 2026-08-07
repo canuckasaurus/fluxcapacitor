@@ -437,6 +437,7 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
              "chunk_size" => params["chunk_size"],
              "chunk_overlap" => params["chunk_overlap"],
              "split_markdown" => params["split_markdown"] == "on",
+             "parent_child" => params["parent_child"] == "on",
              "query_expansion" => params["query_expansion"] == "on",
              "retrieval_top_k" => params["retrieval_top_k"],
              "score_threshold" => params["score_threshold"],
@@ -622,6 +623,18 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                     class="checkbox checkbox-xs"
                     title="Split at headings and prefix each chunk with its heading"
                   /> <span class="text-xs opacity-70">split at headings</span>
+                </label>
+              </label>
+              <label class="form-control">
+                <span class="label-text text-xs opacity-70 mb-1">Parent-child</span>
+                <label class="label cursor-pointer justify-start gap-2 py-1">
+                  <input
+                    type="checkbox"
+                    name="parent_child"
+                    checked={@selected.parent_child}
+                    class="checkbox checkbox-xs"
+                    title="Embed small child chunks for precise matching; retrieval returns the enclosing parent section for context"
+                  /> <span class="text-xs opacity-70">child match, parent context</span>
                 </label>
               </label>
               <label class="form-control">

@@ -186,6 +186,7 @@ defmodule Flux.Export do
             "retrieval_top_k" => dataset.retrieval_top_k,
             "score_threshold" => dataset.score_threshold,
             "split_markdown" => dataset.split_markdown,
+            "parent_child" => dataset.parent_child,
             "query_expansion" => dataset.query_expansion
           },
           "documents" =>

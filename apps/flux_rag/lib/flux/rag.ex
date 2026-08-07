@@ -539,23 +539,32 @@ defmodule Flux.RAG do
       from(s in Segment, where: s.document_id == ^document.id)
       |> Repo.delete_all(skip_workspace_guard: true)
 
-    chunks =
-      Chunker.split(document.content || "",
-        max_chars: dataset.chunk_size || 1000,
-        overlap: dataset.chunk_overlap || 120,
-        markdown: dataset.split_markdown || false
-      )
+    chunk_opts = [
+      max_chars: dataset.chunk_size || 1000,
+      overlap: dataset.chunk_overlap || 120,
+      markdown: dataset.split_markdown || false
+    ]
 
-    case embed(dataset, chunks) do
+    # Parent-child datasets embed small children; each remembers the
+    # enclosing parent section retrieval will hand to the model.
+    pairs =
+      if dataset.parent_child do
+        Chunker.split_parent_child(document.content || "", chunk_opts)
+      else
+        for chunk <- Chunker.split(document.content || "", chunk_opts), do: {chunk, nil}
+      end
+
+    case embed(dataset, Enum.map(pairs, fn {chunk, _parent} -> chunk end)) do
       {:ok, vectors} ->
         segments =
-          for {{chunk, vector}, position} <- Enum.with_index(Enum.zip(chunks, vectors)) do
+          for {{{chunk, parent}, vector}, position} <- Enum.with_index(Enum.zip(pairs, vectors)) do
             Repo.insert!(%Segment{
               workspace_id: document.workspace_id,
               dataset_id: dataset.id,
               document_id: document.id,
               position: position,
               content: chunk,
+              parent_content: parent,
               embedding: vector
             })
           end
@@ -953,9 +962,33 @@ defmodule Flux.RAG do
         dataset
         |> maybe_rerank(query, segments, top_k, rerank?)
         |> apply_threshold(dataset.score_threshold)
+        |> promote_parents()
 
       {:ok, hits}
     end
+  end
+
+  # Parent-child hits surface the parent section instead of the matched
+  # child, deduplicated (best score wins the slot, order preserved).
+  defp promote_parents(hits) do
+    {promoted, _seen} =
+      Enum.reduce(hits, {[], MapSet.new()}, fn segment, {acc, seen} ->
+        case segment.parent_content do
+          nil ->
+            {[segment | acc], seen}
+
+          parent ->
+            key = {segment.document_id, :erlang.phash2(parent)}
+
+            if MapSet.member?(seen, key) do
+              {acc, seen}
+            else
+              {[%{segment | content: parent} | acc], MapSet.put(seen, key)}
+            end
+        end
+      end)
+
+    Enum.reverse(promoted)
   end
 
   # Up to two alternate phrasings from the workspace default model —

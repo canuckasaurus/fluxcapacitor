@@ -57,6 +57,25 @@ defmodule Flux.RAG.Chunker do
     |> Enum.reject(&(String.trim(&1) == ""))
   end
 
+  @doc """
+  Parent-child splitting: parents are normal chunks at `max_chars`;
+  each parent then splits into children at a quarter of that size (at
+  least 200 chars). Returns `{child, parent}` pairs — the child is what
+  gets embedded, the parent is what retrieval should hand to the model.
+  """
+  def split_parent_child(text, opts \\ []) do
+    max_chars = Keyword.get(opts, :max_chars, @default_max)
+    child_chars = max(div(max_chars, 4), 200)
+
+    text
+    |> split(Keyword.put(opts, :overlap, 0))
+    |> Enum.flat_map(fn parent ->
+      parent
+      |> split_plain(max_chars: child_chars, overlap: 0, markdown: false)
+      |> Enum.map(&{&1, parent})
+    end)
+  end
+
   # A paragraph larger than max_chars splits on sentences, then hard-wraps.
   defp explode(paragraph, max_chars) do
     if String.length(paragraph) <= max_chars do

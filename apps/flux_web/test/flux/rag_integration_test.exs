@@ -53,6 +53,47 @@ defmodule FluxWeb.RAGIntegrationTest do
     assert Enum.all?(segments, &is_list(&1.embedding))
   end
 
+  test "parent-child datasets match on children but return parent sections", %{
+    scope: scope,
+    dataset: dataset
+  } do
+    {:ok, dataset} = RAG.update_dataset(scope, dataset, %{"parent_child" => true})
+
+    body =
+      Enum.map_join(1..30, " ", fn n ->
+        "Policy clause #{n} explains ordinary procedure in detail."
+      end)
+
+    document =
+      ingest!(
+        scope,
+        dataset,
+        "policy.md",
+        body <> " The vacation allowance is exactly 25 paid days per year. " <> body
+      )
+
+    assert document.status == :ready
+
+    segments = RAG.list_segments(scope, document.id)
+    assert Enum.all?(segments, &(&1.parent_content != nil))
+    # Children are smaller than their parents.
+    assert Enum.all?(segments, fn segment ->
+             String.length(segment.content) <= String.length(segment.parent_content)
+           end)
+
+    {:ok, hits} = RAG.retrieve(scope, dataset.id, "vacation allowance paid days")
+    assert hits != []
+
+    # The hit hands back the parent section, not the small child chunk.
+    best = hd(hits)
+    assert best.content =~ "25 paid days"
+    assert String.length(best.content) > 300
+
+    # No two hits share the same parent section.
+    parent_keys = Enum.map(hits, &{&1.document_id, :erlang.phash2(&1.content)})
+    assert parent_keys == Enum.uniq(parent_keys)
+  end
+
   test "deleted datasets land in the trash and restore", %{scope: scope, dataset: dataset} do
     {:ok, trashed} = RAG.delete_dataset(scope, dataset)
     assert trashed.deleted_at != nil

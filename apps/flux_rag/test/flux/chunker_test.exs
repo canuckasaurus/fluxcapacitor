@@ -51,4 +51,27 @@ defmodule Flux.RAG.ChunkerTest do
   test "markdown mode without headings behaves like plain splitting" do
     assert Chunker.split("no headings here", markdown: true) == ["no headings here"]
   end
+
+  test "parent-child returns child chunks paired with their parent section" do
+    sentences = for index <- 1..40, do: "Sentence number #{index} carries some payload."
+    text = Enum.join(sentences, " ")
+
+    pairs = Chunker.split_parent_child(text, max_chars: 800)
+
+    assert length(pairs) > 1
+
+    for {child, parent} <- pairs do
+      assert String.length(child) <= 800
+      assert String.contains?(parent, String.trim_leading(child, "…"))
+      assert String.length(parent) >= String.length(child)
+    end
+
+    # Several children share one parent — that's the point.
+    parents = pairs |> Enum.map(fn {_child, parent} -> parent end) |> Enum.uniq()
+    assert length(parents) < length(pairs)
+  end
+
+  test "parent-child on tiny text yields the text as both child and parent" do
+    assert [{"just a note", "just a note"}] = Chunker.split_parent_child("just a note")
+  end
 end

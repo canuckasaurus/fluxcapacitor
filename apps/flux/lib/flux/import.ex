@@ -124,7 +124,7 @@ defmodule Flux.Import do
 
       attrs =
         settings
-        |> Map.take(~w(embedding_plugin_id embedding_model chunk_size chunk_overlap
+        |> Map.take(~w(embedding_plugin_id embedding_model chunk_size chunk_overlap parent_child
              rerank_plugin_id rerank_model retrieval_top_k score_threshold
              split_markdown query_expansion))
         |> Map.merge(%{"name" => entry["name"], "description" => entry["description"]})
