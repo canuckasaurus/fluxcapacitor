@@ -67,10 +67,10 @@ defmodule Flux.RAG.VectorStore.PgVector do
     %{rows: rows} =
       Repo.query!(
         """
-        SELECT id, 1 - (embedding_vec <=> $1::vector) AS score
+        SELECT id, 1 - (embedding_vec <=> $1::text::vector) AS score
         FROM rag_segments
         WHERE dataset_id = $2 AND enabled AND embedding_vec IS NOT NULL
-        ORDER BY embedding_vec <=> $1::vector
+        ORDER BY embedding_vec <=> $1::text::vector
         LIMIT $3
         """,
         [literal, dataset_uuid, top_k]
