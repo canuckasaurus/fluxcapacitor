@@ -709,3 +709,11 @@ and denied /v1 response, Retry-After on 429s); **operations guide**
 doctor, metrics, backups, and a table of everything scheduled —
 registered in the console docs); and **v0.2.0** (umbrella + apps
 bumped, CHANGELOG section distilled from entries 35–38, tag pushed).
+Postscript: the readiness probe paid for itself within minutes of
+boot — /health/ready reported storage unreachable in the compose
+stack, and mc confirmed the flux bucket had NEVER existed: S3-backed
+uploads in the container had been silently broken since the stack was
+born, undetected because every prior live verification exercised pages
+and runs, not file writes. The S3 adapter now self-provisions the
+bucket on first write (create + retry on 404). v0.2.0 was re-tagged to
+include the fix — it was minutes old and part of this same batch.

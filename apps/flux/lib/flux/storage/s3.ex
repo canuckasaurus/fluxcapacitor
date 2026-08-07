@@ -23,10 +23,26 @@ defmodule Flux.Storage.S3 do
   @impl true
   def put(key, data) do
     case bucket() |> S3.put_object(key, IO.iodata_to_binary(data)) |> ExAws.request() do
-      {:ok, _} -> :ok
-      {:error, reason} -> {:error, reason}
+      {:ok, _} ->
+        :ok
+
+      # First write against a fresh MinIO: the bucket doesn't exist yet.
+      # Create it once and retry — self-provisioning beats a boot script.
+      {:error, {:http_error, 404, _body}} ->
+        with {:ok, _} <- bucket() |> S3.put_bucket(region()) |> ExAws.request(),
+             {:ok, _} <-
+               bucket() |> S3.put_object(key, IO.iodata_to_binary(data)) |> ExAws.request() do
+          :ok
+        else
+          {:error, reason} -> {:error, reason}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
+
+  defp region, do: Application.get_env(:ex_aws, :region, "us-east-1")
 
   @impl true
   def get(key) do
