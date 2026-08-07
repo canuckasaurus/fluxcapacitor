@@ -38,6 +38,9 @@ defmodule FluxWeb.Router do
   scope "/v1", FluxWeb.V1 do
     pipe_through :service_api
 
+    # OpenAI-compatible: any OpenAI SDK with base_url swapped in.
+    post "/chat/completions", OpenAIController, :create
+
     post "/chat-messages", ChatMessageController, :create
     post "/workflows/run", WorkflowRunController, :create
     post "/workflows/runs/:id/resume", WorkflowRunController, :resume

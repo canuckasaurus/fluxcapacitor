@@ -161,6 +161,55 @@ defmodule Flux.ChatTest do
     assert failed.status == :error
   end
 
+  test "long conversations fold older turns into a rolling summary", %{scope: scope, app: app} do
+    conversation = Chat.create_conversation(scope, app)
+
+    # Seed a history far past the 6k-token budget without streaming it.
+    filler = String.duplicate("The flux capacitor hums along nicely. ", 40)
+
+    for index <- 1..30 do
+      Repo.insert!(%Flux.Chat.Message{
+        workspace_id: app.workspace_id,
+        conversation_id: conversation.id,
+        role: (rem(index, 2) == 1 && :user) || :assistant,
+        content: "Turn #{index}: #{filler}",
+        status: :completed
+      })
+    end
+
+    {:ok, _user, _assistant} = Chat.send_message(scope, app, conversation, "still with me?")
+    assert_receive {:done, final}, 5_000
+    assert final.status == :completed
+
+    folded = Repo.get!(Flux.Chat.Conversation, conversation.id, skip_workspace_guard: true)
+    assert is_binary(folded.summary) and folded.summary != ""
+    assert folded.summarized_seq > 0
+
+    # The next turn reuses the summary instead of re-summarizing:
+    # summarized_seq only moves when more turns cross the fold line.
+    {:ok, _user, _assistant} = Chat.send_message(scope, app, conversation, "and now?")
+    assert_receive {:done, _final}, 5_000
+
+    again = Repo.get!(Flux.Chat.Conversation, conversation.id, skip_workspace_guard: true)
+    assert again.summarized_seq >= folded.summarized_seq
+    assert is_binary(again.summary)
+  end
+
+  test "voice notes transcribe through the app's provider", %{scope: scope, app: app} do
+    assert {:ok, text} = Chat.transcribe_audio(scope, app, <<0, 1, 2, 3, 4>>)
+    assert text == "(transcribed 5 bytes of audio)"
+
+    # A provider without transcription refuses honestly.
+    {:ok, no_asr} =
+      Chat.create_app(scope, %{
+        "name" => "No ASR",
+        "provider_plugin_id" => "drip",
+        "model" => "drip-1"
+      })
+
+    assert {:error, :not_supported} = Chat.transcribe_audio(scope, no_asr, <<0>>)
+  end
+
   test "duplicate_app copies configuration into an unpublished twin", %{scope: scope, app: app} do
     {:ok, copy} = Chat.duplicate_app(scope, app)
 

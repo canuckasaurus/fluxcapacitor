@@ -1241,9 +1241,11 @@ defmodule Flux.Chat do
   end
 
   defp generate(app, history, assistant_message) do
+    {history, summary} = fold_history(app, assistant_message.conversation_id, history)
+
     request = %Flux.Plugin.ModelProvider.Request{
       model: app.model,
-      messages: build_prompt(app, history),
+      messages: inject_summary(build_prompt(app, history), summary),
       params: atomize_params(app.params)
     }
 
@@ -1321,6 +1323,243 @@ defmodule Flux.Chat do
 
     Phoenix.PubSub.broadcast(Flux.PubSub, topic(assistant_message.id), {:error, message})
     {:error, reason}
+  end
+
+  ## Rolling conversation memory
+
+  # Long chats stay coherent instead of blowing the context window:
+  # once the completed history outgrows the budget, older turns fold
+  # into a maintained summary stored on the conversation. The summary
+  # is incremental — already-folded turns are never re-summarized —
+  # and a failed summarization falls back to the full history.
+  @memory_budget_tokens 6_000
+  @memory_keep_tokens 3_000
+
+  defp fold_history(app, conversation_id, history) do
+    completed = Enum.filter(history, &(&1.status == :completed or &1.role == :user))
+
+    if estimate_tokens(completed) <= @memory_budget_tokens do
+      {history, current_summary(conversation_id)}
+    else
+      {folded, kept} = split_for_memory(completed)
+      conversation = Repo.get(Conversation, conversation_id, skip_workspace_guard: true)
+
+      case update_summary(app, conversation, folded) do
+        {:ok, summary} -> {kept, summary}
+        :error -> {history, conversation && conversation.summary}
+      end
+    end
+  end
+
+  defp current_summary(conversation_id) do
+    case Repo.get(Conversation, conversation_id, skip_workspace_guard: true) do
+      %Conversation{summary: summary} -> summary
+      _gone -> nil
+    end
+  end
+
+  defp inject_summary(messages, summary) when is_binary(summary) and summary != "" do
+    note = %{
+      role: :system,
+      content: "Summary of the conversation so far (older turns):\n" <> summary
+    }
+
+    case messages do
+      [%{role: :system} = system | rest] -> [system, note | rest]
+      rest -> [note | rest]
+    end
+  end
+
+  defp inject_summary(messages, _none), do: messages
+
+  defp estimate_tokens(messages) do
+    messages
+    |> Enum.map(&String.length(&1.content || ""))
+    |> Enum.sum()
+    |> div(4)
+  end
+
+  # Newest-first walk keeps recent turns up to the keep budget (always
+  # at least the current user message); everything older folds.
+  defp split_for_memory(completed) do
+    {kept_reversed, _spent} =
+      completed
+      |> Enum.reverse()
+      |> Enum.reduce({[], 0}, fn message, {kept, spent} ->
+        cost = div(String.length(message.content || ""), 4)
+
+        if kept == [] or spent + cost <= @memory_keep_tokens do
+          {[message | kept], spent + cost}
+        else
+          {kept, @memory_keep_tokens + 1}
+        end
+      end)
+
+    kept = kept_reversed
+    folded = completed -- kept
+    {folded, kept}
+  end
+
+  defp update_summary(app, %Conversation{} = conversation, folded) do
+    boundary = folded |> Enum.map(&(&1.seq || 0)) |> Enum.max(fn -> 0 end)
+
+    if conversation.summarized_seq && conversation.summarized_seq >= boundary do
+      {:ok, conversation.summary}
+    else
+      fresh = Enum.filter(folded, &((&1.seq || 0) > (conversation.summarized_seq || 0)))
+
+      case summarize(app, conversation.summary, fresh) do
+        {:ok, summary} ->
+          conversation
+          |> Ecto.Changeset.change(summary: summary, summarized_seq: boundary)
+          |> Repo.update()
+
+          {:ok, summary}
+
+        :error ->
+          :error
+      end
+    end
+  end
+
+  defp update_summary(_app, _missing_conversation, _folded), do: :error
+
+  defp summarize(app, previous_summary, fresh_turns) do
+    transcript =
+      Enum.map_join(fresh_turns, "\n", fn message ->
+        "#{message.role}: #{String.slice(message.content || "", 0, 2_000)}"
+      end)
+
+    prompt =
+      """
+      Maintain a running summary of a conversation. Keep every fact,
+      name, decision, and open question; drop pleasantries. Reply with
+      the updated summary only, under 300 words.
+      """ <>
+        ((previous_summary && "\n\nCurrent summary:\n#{previous_summary}") || "") <>
+        "\n\nNew turns to fold in:\n#{transcript}"
+
+    credentials =
+      case Providers.fetch_config(app.workspace_id, app.provider_plugin_id) do
+        {:ok, config} -> config
+        {:error, :not_configured} -> %{}
+      end
+
+    request = %Flux.Plugin.ModelProvider.Request{
+      model: app.model,
+      messages: [%{role: :user, content: prompt}],
+      params: %{}
+    }
+
+    case runtime().invoke_llm(app.provider_plugin_id, credentials, request, fn _chunk -> :ok end) do
+      {:ok, %{content: content}} when is_binary(content) and content != "" -> {:ok, content}
+      _error -> :error
+    end
+  end
+
+  @doc """
+  Speech-to-text through the app's provider (voice input in chat).
+  `opts` may carry `:filename`/`:content_type`. `{:error, :not_supported}`
+  when the provider has no transcription endpoint.
+  """
+  def transcribe_audio(%Scope{} = _scope, %App{} = app, audio, opts \\ %{})
+      when is_binary(audio) do
+    provider =
+      case app.mode do
+        # Chatflow apps have no direct provider; use the workspace default.
+        :advanced_chat ->
+          case Providers.default_model_for_workspace(app.workspace_id) do
+            %{"provider_plugin_id" => plugin_id} -> plugin_id
+            _none -> nil
+          end
+
+        _direct ->
+          app.provider_plugin_id
+      end
+
+    if provider in [nil, ""] do
+      {:error, :not_supported}
+    else
+      credentials =
+        case Providers.fetch_config(app.workspace_id, provider) do
+          {:ok, config} -> config
+          {:error, :not_configured} -> %{}
+        end
+
+      case runtime().invoke_transcription(provider, credentials, audio, opts) do
+        {:ok, %{text: text}} -> {:ok, text}
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  @doc """
+  Stateless completion over an app's model for the OpenAI-compatible
+  endpoint: the caller supplies the whole message history, nothing is
+  persisted. The app's system prompt, params, and fallback model all
+  apply; provider health records both sides. Returns
+  `{:ok, result, model_used}` or `{:error, reason}`.
+  """
+  def stateless_completion(%App{} = app, messages, emit) when is_list(messages) do
+    messages =
+      case {app.system_prompt, messages} do
+        {prompt, [%{role: :system} | _rest]} when is_binary(prompt) ->
+          messages
+
+        {prompt, _no_system} when is_binary(prompt) and prompt != "" ->
+          [%{role: :system, content: prompt} | messages]
+
+        _no_prompt ->
+          messages
+      end
+
+    request = %Flux.Plugin.ModelProvider.Request{
+      model: app.model,
+      messages: messages,
+      params: atomize_params(app.params)
+    }
+
+    case invoke_with_credentials(app.workspace_id, app.provider_plugin_id, request, emit) do
+      {:ok, result} ->
+        {:ok, result, "#{app.provider_plugin_id}/#{app.model}"}
+
+      {:error, reason} ->
+        fallback_plugin = app.fallback_provider_plugin_id
+        fallback_model = app.fallback_model
+
+        if is_binary(fallback_plugin) and fallback_plugin != "" and
+             is_binary(fallback_model) and fallback_model != "" do
+          case invoke_with_credentials(
+                 app.workspace_id,
+                 fallback_plugin,
+                 %{request | model: fallback_model},
+                 emit
+               ) do
+            {:ok, result} -> {:ok, result, "#{fallback_plugin}/#{fallback_model}"}
+            {:error, _fallback_reason} -> {:error, reason}
+          end
+        else
+          {:error, reason}
+        end
+    end
+  end
+
+  defp invoke_with_credentials(workspace_id, plugin_id, request, emit) do
+    credentials =
+      case Providers.fetch_config(workspace_id, plugin_id) do
+        {:ok, config} -> config
+        {:error, :not_configured} -> %{}
+      end
+
+    case runtime().invoke_llm(plugin_id, credentials, request, emit) do
+      {:ok, result} ->
+        Flux.ProviderHealth.record(plugin_id, :ok)
+        {:ok, result}
+
+      {:error, reason} ->
+        Flux.ProviderHealth.record(plugin_id, :error)
+        {:error, reason}
+    end
   end
 
   # Prior turns, oldest first, minus the current user message and the

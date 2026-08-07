@@ -89,6 +89,10 @@ defmodule Flux.Chat.Conversation do
     field :title, :string
     field :end_user_ref, :string
     field :variables, :map, default: %{}
+    # Rolling memory: older turns fold into `summary` once the history
+    # outgrows the token window; `summarized_seq` is the last folded turn.
+    field :summary, :string
+    field :summarized_seq, :integer
 
     timestamps(type: :utc_datetime)
   end
