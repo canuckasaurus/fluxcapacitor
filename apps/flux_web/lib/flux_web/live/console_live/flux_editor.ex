@@ -1576,7 +1576,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
       "instructions" => "",
       "query" => "{{start.query}}",
       "max_iterations" => 5,
-      "agent_toolset_id" => "",
+      "agent_toolset_ids" => [],
       "tools" => []
     }
   end
@@ -1809,7 +1809,18 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
         _other -> {config["provider_plugin_id"], config["model"]}
       end
 
-    toolset_id = Map.get(params, "agent_toolset_id", config["agent_toolset_id"] || "")
+    # Multi-toolset: older graphs carry a single agent_toolset_id.
+    previous_ids =
+      List.wrap(
+        config["agent_toolset_ids"] ||
+          Enum.reject([config["agent_toolset_id"]], &(&1 in [nil, ""]))
+      )
+
+    selected_ids =
+      case Map.get(params, "agent_toolset_ids") do
+        ids when is_list(ids) -> Enum.reject(ids, &(&1 == ""))
+        nil -> previous_ids
+      end
 
     %{
       "provider_plugin_id" => plugin_id,
@@ -1826,12 +1837,12 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
         |> String.split(",")
         |> Enum.map(&String.trim/1)
         |> Enum.reject(&(&1 == "")),
-      "agent_toolset_id" => toolset_id,
+      "agent_toolset_ids" => selected_ids,
       "tools" =>
-        if toolset_id == config["agent_toolset_id"] do
+        if selected_ids == previous_ids do
           config["tools"] || []
         else
-          snapshot_tools(toolset_id, Map.get(params, "__toolsets__", []))
+          snapshot_tools_multi(selected_ids, Map.get(params, "__toolsets__", []))
         end
     }
   end
@@ -2122,6 +2133,22 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
   # Snapshots every operation of the chosen toolset as an agent tool
   # (name/description/JSON-schema parameters + invocation binding). The
   # toolset comes from the workspace-scoped assigns, never a raw id lookup.
+  # Union across several toolsets; colliding names get a numeric suffix
+  # so the model can always address every tool unambiguously.
+  defp snapshot_tools_multi(ids, toolsets) do
+    {tools, _seen} =
+      ids
+      |> Enum.flat_map(&snapshot_tools(&1, toolsets))
+      |> Enum.map_reduce(%{}, fn tool, seen ->
+        base = tool["name"]
+        count = Map.get(seen, base, 0)
+        name = if count == 0, do: base, else: "#{base}_#{count + 1}"
+        {Map.put(tool, "name", name), Map.put(seen, base, count + 1)}
+      end)
+
+    tools
+  end
+
   defp snapshot_tools("", _toolsets), do: []
 
   defp snapshot_tools(toolset_id, toolsets) do
@@ -3798,19 +3825,24 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                     </select>
                   </label>
                   <label class="floating-label">
-                    <span>Toolset (every operation becomes a callable tool)</span>
+                    <span>Toolsets (Ctrl-click for several; every operation becomes a tool)</span>
+                    <input type="hidden" name="agent_toolset_ids[]" value="" />
                     <select
-                      name="agent_toolset_id"
-                      class="select select-sm w-full"
+                      name="agent_toolset_ids[]"
+                      multiple
+                      size={min(max(length(@toolsets), 2), 5)}
+                      class="select select-sm w-full h-auto"
                       disabled={not @can_edit}
                     >
-                      <option value="" selected={node["config"]["agent_toolset_id"] in [nil, ""]}>
-                        No tools
-                      </option>
                       <option
                         :for={toolset <- @toolsets}
                         value={toolset.id}
-                        selected={node["config"]["agent_toolset_id"] == toolset.id}
+                        selected={
+                          toolset.id in List.wrap(
+                            node["config"]["agent_toolset_ids"] ||
+                              [node["config"]["agent_toolset_id"]]
+                          )
+                        }
                       >
                         {toolset.name} ({length(toolset.operations)} ops)
                       </option>
