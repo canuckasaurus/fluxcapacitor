@@ -104,6 +104,11 @@ defmodule Flux.Plugins.OpenAICompatible do
     Flux.Plugins.OpenAI.invoke_embeddings(credentials, model, texts)
   end
 
+  @impl Flux.Plugin.ModelProvider
+  def invoke_transcription(credentials, audio, opts) do
+    Flux.Plugins.OpenAI.invoke_transcription(credentials, audio, opts)
+  end
+
   defp auth(%{"api_key" => key}) when is_binary(key) and key != "",
     do: [{"authorization", "Bearer #{key}"}]
 

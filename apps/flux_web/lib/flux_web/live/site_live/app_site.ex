@@ -387,6 +387,14 @@ defmodule FluxWeb.SiteLive.AppSite do
                 >
                   <.icon name="hero-clipboard" class="size-3" /> Copy
                 </button>
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs speak-reply"
+                  title="Read this reply aloud (click again to stop)"
+                  aria-label="Read this reply aloud"
+                >
+                  <.icon name="hero-speaker-wave" class="size-3" /> Listen
+                </button>
               </div>
             </div>
             <div :if={@streaming_id} class="chat chat-start" id="site-streaming">

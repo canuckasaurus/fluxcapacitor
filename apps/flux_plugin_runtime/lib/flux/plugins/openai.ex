@@ -104,6 +104,55 @@ defmodule Flux.Plugins.OpenAI do
   end
 
   @impl Flux.Plugin.ModelProvider
+  def invoke_transcription(credentials, audio, opts) do
+    transcription_request(
+      base_url(credentials) <> "/audio/transcriptions",
+      auth(credentials),
+      audio,
+      opts
+    )
+  end
+
+  @doc """
+  One Whisper-shaped multipart transcription call against an arbitrary
+  URL/auth — shared with the OpenAI-compatible plugin.
+  """
+  def transcription_request(url, headers, audio, opts) do
+    boundary = "flux" <> Base.url_encode64(:crypto.strong_rand_bytes(12), padding: false)
+    filename = opts[:filename] || "audio.webm"
+    content_type = opts[:content_type] || "audio/webm"
+
+    body =
+      [
+        "--#{boundary}\r\n",
+        "content-disposition: form-data; name=\"model\"\r\n\r\n",
+        "#{opts[:model] || "whisper-1"}\r\n",
+        "--#{boundary}\r\n",
+        "content-disposition: form-data; name=\"file\"; filename=\"#{filename}\"\r\n",
+        "content-type: #{content_type}\r\n\r\n",
+        audio,
+        "\r\n--#{boundary}--\r\n"
+      ]
+      |> IO.iodata_to_binary()
+
+    with :ok <- Flux.SSRF.verify_url(url),
+         {:ok, %{status: 200, body: response}} <-
+           Req.post(
+             SSE.req_options(
+               url: url,
+               headers:
+                 headers ++ [{"content-type", "multipart/form-data; boundary=#{boundary}"}],
+               body: body
+             )
+           ) do
+      {:ok, %{text: response["text"] || ""}}
+    else
+      {:ok, %{status: status, body: response}} -> {:error, {:http_error, status, response}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @impl Flux.Plugin.ModelProvider
   def invoke_llm(credentials, request, emit) do
     chat_completions(
       base_url(credentials) <> "/chat/completions",

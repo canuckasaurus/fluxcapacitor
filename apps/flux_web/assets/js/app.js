@@ -25,11 +25,73 @@ import {LiveSocket} from "phoenix_live_view"
 import {hooks as colocatedHooks} from "phoenix-colocated/flux_web"
 import topbar from "../vendor/topbar"
 
+// ── Voice input ────────────────────────────────────────────────────────
+// Push-to-talk: hold the mic button, release to stop; the recording
+// uploads through LiveView's file upload and comes back transcribed via
+// a "voice-transcript" push event that fills the chat input.
+const MicRecorder = {
+  mounted() {
+    this.recorder = null
+    this.chunks = []
+
+    const start = async e => {
+      e.preventDefault()
+      if (this.recorder) return
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({audio: true})
+        this.chunks = []
+        this.recorder = new MediaRecorder(stream)
+        this.recorder.addEventListener("dataavailable", ev => this.chunks.push(ev.data))
+        this.recorder.addEventListener("stop", () => {
+          stream.getTracks().forEach(track => track.stop())
+          const blob = new Blob(this.chunks, {type: this.recorder.mimeType || "audio/webm"})
+          this.recorder = null
+          if (blob.size < 1000) return // accidental tap
+          const file = new File([blob], "voice-note.webm", {type: blob.type})
+          this.upload(this.el.dataset.uploadName || "audio", [file])
+        })
+        this.recorder.start()
+        this.el.classList.add("btn-error")
+      } catch (_err) {
+        this.recorder = null
+      }
+    }
+    const stop = () => {
+      if (!this.recorder) return
+      this.el.classList.remove("btn-error")
+      this.recorder.stop()
+    }
+
+    this.el.addEventListener("pointerdown", start)
+    this.el.addEventListener("pointerup", stop)
+    this.el.addEventListener("pointerleave", stop)
+
+    this.handleEvent("voice-transcript", ({text}) => {
+      const input = document.getElementById("chat-content-input")
+      if (input && text) {
+        input.value = (input.value ? input.value + " " : "") + text.trim()
+        input.focus()
+      }
+    })
+  },
+}
+
+// Read a reply aloud with the browser's own voices — no provider needed.
+window.addEventListener("click", e => {
+  const button = e.target.closest && e.target.closest(".speak-reply")
+  if (!button) return
+  const bubble = button.closest(".chat")
+  const content = bubble && bubble.querySelector(".markdown-chat, .chat-bubble")
+  if (!content || !window.speechSynthesis) return
+  if (speechSynthesis.speaking) { speechSynthesis.cancel(); return }
+  speechSynthesis.speak(new SpeechSynthesisUtterance(content.innerText.trim()))
+})
+
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: {...colocatedHooks},
+  hooks: {...colocatedHooks, MicRecorder},
 })
 
 // ── Themed confirm ─────────────────────────────────────────────────────

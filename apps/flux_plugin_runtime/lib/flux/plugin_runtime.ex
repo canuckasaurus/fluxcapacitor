@@ -151,6 +151,19 @@ defmodule Flux.PluginRuntime do
   end
 
   @doc "Reranks documents against a query; {:error, :not_supported} without the callback."
+  def invoke_transcription(plugin_id, credentials, audio, opts \\ %{}) when is_binary(audio) do
+    with {:ok, module} <- fetch_plugin(plugin_id) do
+      if function_exported?(module, :invoke_transcription, 3) do
+        run_supervised(
+          fn -> module.invoke_transcription(credentials, audio, opts) end,
+          @invoke_timeout
+        )
+      else
+        {:error, :not_supported}
+      end
+    end
+  end
+
   def invoke_rerank(plugin_id, credentials, model, query, documents) do
     with {:ok, module} <- fetch_plugin(plugin_id) do
       if function_exported?(module, :invoke_rerank, 4) do

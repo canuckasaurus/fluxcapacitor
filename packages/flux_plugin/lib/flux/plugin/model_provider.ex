@@ -102,5 +102,12 @@ defmodule Flux.Plugin.ModelProvider do
               documents :: [String.t()]
             ) :: {:ok, [%{index: non_neg_integer(), score: float()}]} | {:error, term()}
 
-  @optional_callbacks invoke_embeddings: 3, invoke_rerank: 4
+  @doc """
+  Speech-to-text. `opts` may carry `:model` (defaults to the provider's
+  standard transcription model), `:filename`, and `:content_type`.
+  """
+  @callback invoke_transcription(credentials, audio :: binary(), opts :: map()) ::
+              {:ok, %{text: String.t()}} | {:error, term()}
+
+  @optional_callbacks invoke_embeddings: 3, invoke_rerank: 4, invoke_transcription: 3
 end

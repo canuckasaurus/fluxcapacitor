@@ -34,6 +34,13 @@ defmodule FluxWeb.ConsoleLive.AppChat do
            max_entries: 3,
            max_file_size: 15_000_000
          )
+         |> allow_upload(:audio,
+           accept: ~w(audio/webm audio/ogg audio/mpeg audio/wav video/webm),
+           max_entries: 1,
+           max_file_size: 20_000_000,
+           auto_upload: true,
+           progress: &handle_audio_progress/3
+         )
          |> assign(
            page_title: app.name,
            app: app,
@@ -50,7 +57,8 @@ defmodule FluxWeb.ConsoleLive.AppChat do
            can_manage: RBAC.can?(scope, :app_create_and_management),
            can_edit: RBAC.can?(scope, :app_edit),
            var_rows: app.input_form,
-           template_draft: app.prompt_template
+           template_draft: app.prompt_template,
+           transcribing: false
          )}
 
       {:error, :not_found} ->
@@ -58,6 +66,46 @@ defmodule FluxWeb.ConsoleLive.AppChat do
          socket
          |> put_flash(:error, "App not found.")
          |> push_navigate(to: ~p"/console/apps")}
+    end
+  end
+
+  # Voice input: the MicRecorder hook uploads the recording; once the
+  # entry completes it transcribes through the app's provider and the
+  # transcript lands in the input box client-side.
+  defp handle_audio_progress(:audio, entry, socket) do
+    if entry.done? do
+      transcript =
+        consume_uploaded_entry(socket, entry, fn %{path: path} ->
+          {:ok,
+           Chat.transcribe_audio(
+             socket.assigns.current_scope,
+             socket.assigns.app,
+             File.read!(path),
+             %{filename: entry.client_name, content_type: entry.client_type}
+           )}
+        end)
+
+      case transcript do
+        {:ok, text} ->
+          {:noreply,
+           socket
+           |> assign(transcribing: false)
+           |> push_event("voice-transcript", %{text: text})}
+
+        {:error, :not_supported} ->
+          {:noreply,
+           socket
+           |> assign(transcribing: false)
+           |> put_flash(:error, "This app's provider has no transcription endpoint.")}
+
+        {:error, _reason} ->
+          {:noreply,
+           socket
+           |> assign(transcribing: false)
+           |> put_flash(:error, "Transcription failed — try again.")}
+      end
+    else
+      {:noreply, assign(socket, transcribing: true)}
     end
   end
 
@@ -712,6 +760,14 @@ defmodule FluxWeb.ConsoleLive.AppChat do
                 <.icon name="hero-clipboard" class="size-3" /> Copy
               </button>
               <button
+                type="button"
+                class="btn btn-ghost btn-xs speak-reply"
+                title="Read this reply aloud (click again to stop)"
+                aria-label="Read this reply aloud"
+              >
+                <.icon name="hero-speaker-wave" class="size-3" /> Listen
+              </button>
+              <button
                 :if={@streaming_id == nil and message.id == last_assistant_id(@messages)}
                 class="btn btn-ghost btn-xs"
                 phx-click="regenerate"
@@ -804,11 +860,24 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               <.live_file_input upload={@uploads.image} class="hidden" />
               <.icon name="hero-paper-clip" class="size-4" />
             </label>
+            <.live_file_input upload={@uploads.audio} class="hidden" />
+            <button
+              type="button"
+              id="mic-button"
+              phx-hook="MicRecorder"
+              data-upload-name="audio"
+              class="btn btn-ghost btn-sm btn-square"
+              title="Hold to talk — release to transcribe"
+              aria-label="Voice input"
+            >
+              <.icon name="hero-microphone" class="size-4" />
+            </button>
             <input
               type="text"
               name="content"
+              id="chat-content-input"
               autocomplete="off"
-              placeholder="Type a message…"
+              placeholder={(@transcribing && "Transcribing…") || "Type a message…"}
               class="input input-bordered flex-1"
               disabled={@streaming_id != nil}
             />

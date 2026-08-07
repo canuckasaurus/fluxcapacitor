@@ -98,6 +98,12 @@ defmodule Flux.FakeRuntime do
 
   def invoke_llm(_other, _credentials, _request, _emit), do: {:error, :unknown_plugin}
 
+  def invoke_transcription("echo", _credentials, audio, _opts) do
+    {:ok, %{text: "(transcribed #{byte_size(audio)} bytes of audio)"}}
+  end
+
+  def invoke_transcription(_other, _credentials, _audio, _opts), do: {:error, :not_supported}
+
   # Deterministic bag-of-words vectors, mirroring the real Echo plugin so
   # retrieval tests get meaningful cosine similarity without any API.
   @embed_dims 16

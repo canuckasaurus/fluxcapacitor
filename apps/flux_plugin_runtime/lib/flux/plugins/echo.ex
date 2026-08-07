@@ -112,4 +112,9 @@ defmodule Flux.Plugins.Echo do
        usage: %{input_tokens: div(byte_size(last_user), 4), output_tokens: 12}
      }}
   end
+
+  @impl Flux.Plugin.ModelProvider
+  def invoke_transcription(_credentials, audio, _opts) do
+    {:ok, %{text: "(transcribed #{byte_size(audio)} bytes of audio)"}}
+  end
 end
