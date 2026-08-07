@@ -28,6 +28,21 @@ defmodule FluxWeb.AppChatLiveTest do
     assert html =~ "Open chat"
   end
 
+  test "duplicate button clones the app configuration", %{conn: conn, app: app, scope: scope} do
+    {:ok, lv, _html} = live(conn, ~p"/console/apps")
+
+    html =
+      lv
+      |> element(~s{#app-#{app.id} button[phx-click="duplicate"]})
+      |> render_click()
+
+    assert html =~ "UI Echo (copy)"
+
+    copy = Enum.find(Chat.list_apps(scope), &(&1.name == "UI Echo (copy)"))
+    assert copy.provider_plugin_id == app.provider_plugin_id
+    refute copy.site_enabled
+  end
+
   test "sending a message streams and completes", %{conn: conn, app: app} do
     {:ok, lv, _html} = live(conn, ~p"/console/apps/#{app.id}")
 

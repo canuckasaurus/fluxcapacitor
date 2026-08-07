@@ -88,6 +88,20 @@ defmodule FluxWeb.ConsoleLive.Fluxes do
     end
   end
 
+  def handle_event("duplicate", %{"id" => id}, socket) do
+    scope = socket.assigns.current_scope
+
+    with workflow when not is_tuple(workflow) <- Workflows.get_workflow(scope, id),
+         {:ok, copy} <- Workflows.duplicate_workflow(scope, workflow) do
+      {:noreply,
+       socket
+       |> put_flash(:info, ~s("#{copy.name}" is ready.))
+       |> push_navigate(to: ~p"/console/fluxes/#{copy.id}")}
+    else
+      _error -> {:noreply, put_flash(socket, :error, "Could not duplicate the flux.")}
+    end
+  end
+
   def handle_event("delete_workspace_template", %{"template-id" => template_id}, socket) do
     scope = socket.assigns.current_scope
     Workflows.delete_workspace_template(scope, template_id)
@@ -508,6 +522,15 @@ defmodule FluxWeb.ConsoleLive.Fluxes do
               title="Save the current draft to the workspace template gallery"
             >
               ★ Save as template
+            </button>
+            <button
+              :if={@can_create}
+              class="btn btn-sm btn-ghost"
+              phx-click="duplicate"
+              phx-value-id={workflow.id}
+              title="Copy this flux (draft graph included)"
+            >
+              ⧉ Duplicate
             </button>
           </div>
         </div>

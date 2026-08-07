@@ -115,6 +115,20 @@ defmodule FluxWeb.ConsoleLive.Apps do
     end
   end
 
+  def handle_event("duplicate", %{"app-id" => id}, socket) do
+    scope = socket.assigns.current_scope
+
+    with %App{} = app <- Chat.get_app(scope, id),
+         {:ok, copy} <- Chat.duplicate_app(scope, app) do
+      {:noreply,
+       socket
+       |> put_flash(:info, ~s("#{copy.name}" is ready.))
+       |> assign(apps: Chat.list_apps(scope))}
+    else
+      _ -> {:noreply, put_flash(socket, :error, "Could not duplicate that app.")}
+    end
+  end
+
   def handle_event("delete", %{"app-id" => id}, socket) do
     scope = socket.assigns.current_scope
 
@@ -283,9 +297,20 @@ defmodule FluxWeb.ConsoleLive.Apps do
               "#{app.provider_plugin_id} · #{app.model}"}
           </p>
           <p :if={app.description} class="text-sm opacity-70">{app.description}</p>
-          <.link navigate={~p"/console/apps/#{app.id}"} class="btn btn-sm btn-outline w-fit">
-            {(app.mode == :completion && "Open app") || "Open chat"}
-          </.link>
+          <div class="flex gap-2">
+            <.link navigate={~p"/console/apps/#{app.id}"} class="btn btn-sm btn-outline w-fit">
+              {(app.mode == :completion && "Open app") || "Open chat"}
+            </.link>
+            <button
+              :if={@can_create}
+              class="btn btn-sm btn-ghost"
+              phx-click="duplicate"
+              phx-value-app-id={app.id}
+              title="Copy this app's configuration into a new unpublished app"
+            >
+              ⧉ Duplicate
+            </button>
+          </div>
         </div>
       </div>
 

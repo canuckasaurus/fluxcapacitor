@@ -21,6 +21,23 @@ defmodule FluxWeb.FluxesBulkTest do
     %{conn: log_in_account(conn, account), scope: scope, workflows: workflows}
   end
 
+  test "duplicate button copies a flux and opens the editor", %{
+    conn: conn,
+    scope: scope,
+    workflows: [alpha, _beta, _gamma]
+  } do
+    {:ok, lv, _html} = live(conn, ~p"/console/fluxes")
+
+    lv
+    |> element(~s{button[phx-click="duplicate"][phx-value-id="#{alpha.id}"]})
+    |> render_click()
+
+    copy = Enum.find(Workflows.list_workflows(scope), &(&1.name == "Alpha Flux (copy)"))
+    assert copy
+    assert copy.graph == alpha.graph
+    assert_redirect(lv, "/console/fluxes/#{copy.id}")
+  end
+
   test "select some, bulk delete, and the rest survive", %{
     conn: conn,
     scope: scope,

@@ -52,6 +52,18 @@ defmodule Flux.WorkflowsTest do
     }
   end
 
+  test "duplicate_workflow copies the draft graph into a '(copy)' flux", %{
+    scope: scope,
+    workflow: workflow
+  } do
+    {:ok, workflow} = Workflows.update_draft(scope, workflow, echo_graph())
+    {:ok, copy} = Workflows.duplicate_workflow(scope, workflow)
+
+    assert copy.name == "Test Flux (copy)"
+    assert copy.id != workflow.id
+    assert copy.graph == workflow.graph
+  end
+
   test "new workflows carry the starter graph", %{workflow: workflow} do
     node_types = Enum.map(workflow.graph["nodes"], & &1["type"])
     assert node_types == ["start", "llm", "answer"]

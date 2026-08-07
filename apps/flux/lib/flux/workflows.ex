@@ -207,6 +207,17 @@ defmodule Flux.Workflows do
     end
   end
 
+  @doc "Copies a flux's draft graph and description into a new '(copy)' flux."
+  def duplicate_workflow(%Scope{} = scope, %Workflow{} = workflow) do
+    with {:ok, copy} <-
+           create_workflow(scope, %{
+             "name" => workflow.name <> " (copy)",
+             "description" => workflow.description
+           }) do
+      update_draft(scope, copy, workflow.graph || %{})
+    end
+  end
+
   ## Workspace templates ("save as template" → the gallery)
 
   @doc "Saves a flux's current draft graph as a workspace template."
@@ -408,11 +419,13 @@ defmodule Flux.Workflows do
               do: (run.usage["input_tokens"] || 0) + (run.usage["output_tokens"] || 0)
         )
 
+      count = length(runs)
+
       %{
         version: version,
-        runs: length(runs),
-        success_rate: Float.round(succeeded / length(runs), 4),
-        avg_tokens: (length(runs) > 0 && div(tokens, length(runs))) || 0
+        runs: count,
+        success_rate: Float.round(succeeded / count, 4),
+        avg_tokens: (count > 0 && div(tokens, count)) || 0
       }
     end)
     |> Enum.sort_by(& &1.version, :desc)
