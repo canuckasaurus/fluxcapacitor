@@ -12,12 +12,28 @@ defmodule FluxWeb.ConsoleLive.AppChat do
 
     case Chat.get_app(scope, app_id) do
       %App{} = app ->
+        # Pick up where you left off: the console resumes your latest
+        # conversation, same as the public sites do for visitors.
+        conversations =
+          if app.mode in [:chat, :advanced_chat] do
+            Chat.console_conversations(scope, app.id)
+          else
+            []
+          end
+
+        {conversation, messages} =
+          case conversations do
+            [latest | _rest] -> {latest, resumable_messages(scope, latest.id)}
+            [] -> {nil, []}
+          end
+
         {:ok,
          assign(socket,
            page_title: app.name,
            app: app,
-           conversation: nil,
-           messages: [],
+           conversations: conversations,
+           conversation: conversation,
+           messages: messages,
            streaming_id: nil,
            streaming_text: "",
            api_tokens: Chat.list_api_tokens(scope, app.id),
@@ -46,9 +62,17 @@ defmodule FluxWeb.ConsoleLive.AppChat do
 
     case Chat.send_message(scope, app, conversation, content) do
       {:ok, user_message, assistant_message} ->
+        conversations =
+          if socket.assigns.conversation == nil do
+            Chat.console_conversations(scope, app.id)
+          else
+            socket.assigns.conversations
+          end
+
         {:noreply,
          assign(socket,
            conversation: conversation,
+           conversations: conversations,
            messages: socket.assigns.messages ++ [user_message],
            streaming_id: assistant_message.id,
            streaming_text: ""
@@ -98,6 +122,24 @@ defmodule FluxWeb.ConsoleLive.AppChat do
   def handle_event("new-conversation", _params, socket) do
     {:noreply,
      assign(socket, conversation: nil, messages: [], streaming_id: nil, streaming_text: "")}
+  end
+
+  def handle_event("switch_conversation", %{"conversation-id" => id}, socket) do
+    scope = socket.assigns.current_scope
+
+    case Enum.find(socket.assigns.conversations, &(&1.id == id)) do
+      nil ->
+        {:noreply, socket}
+
+      conversation ->
+        {:noreply,
+         assign(socket,
+           conversation: conversation,
+           messages: resumable_messages(scope, conversation.id),
+           streaming_id: nil,
+           streaming_text: ""
+         )}
+    end
   end
 
   ## Completion apps: run panel + configuration
@@ -291,6 +333,13 @@ defmodule FluxWeb.ConsoleLive.AppChat do
   defp presence(nil), do: nil
   defp presence(text), do: if(String.trim(text) == "", do: nil, else: String.trim(text))
 
+  # Streaming placeholders don't resume; finished turns do.
+  defp resumable_messages(scope, conversation_id) do
+    scope
+    |> Chat.list_messages(conversation_id)
+    |> Enum.filter(&(&1.status in [:completed, :error] or &1.role == :user))
+  end
+
   defp last_assistant_id(messages) do
     case List.last(messages) do
       %{role: :assistant, status: status, id: id} when status != :error -> id
@@ -350,7 +399,30 @@ defmodule FluxWeb.ConsoleLive.AppChat do
           <h1 class="text-2xl font-bold">{@app.name}</h1>
           <p class="opacity-60 text-sm">{@app.provider_plugin_id} · {@app.model}</p>
         </div>
-        <div class="flex gap-2">
+        <div class="flex gap-2 items-center">
+          <form
+            :if={@app.mode in [:chat, :advanced_chat] and @conversations != []}
+            phx-change="switch_conversation"
+            id="conversation-switcher"
+          >
+            <select
+              name="conversation-id"
+              class="select select-bordered select-sm max-w-44"
+              aria-label="Switch conversation"
+            >
+              <option value="" selected={@conversation == nil} disabled hidden>
+                Conversations…
+              </option>
+              <option
+                :for={conversation <- @conversations}
+                value={conversation.id}
+                selected={@conversation != nil and @conversation.id == conversation.id}
+              >
+                {conversation.title ||
+                  Calendar.strftime(conversation.inserted_at, "%b %d %H:%M")}
+              </option>
+            </select>
+          </form>
           <button
             :if={@app.mode in [:chat, :advanced_chat]}
             class="btn btn-sm btn-ghost"
@@ -447,7 +519,8 @@ defmodule FluxWeb.ConsoleLive.AppChat do
           </div>
           <div :if={@streaming_id} class="chat chat-start" id="streaming-bubble">
             <div class="chat-bubble">
-              <span class="whitespace-pre-wrap">{@streaming_text}</span><span class="animate-pulse">▌</span>
+              <div class="markdown-chat">{FluxWeb.Markdown.render(@streaming_text)}</div>
+              <span class="animate-pulse">▌</span>
             </div>
           </div>
         </div>

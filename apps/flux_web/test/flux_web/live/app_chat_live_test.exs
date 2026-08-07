@@ -40,6 +40,64 @@ defmodule FluxWeb.AppChatLiveTest do
     assert html =~ "You said: hello ui"
   end
 
+  test "assistant replies render markdown in tight bubbles", %{conn: conn, app: app} do
+    {:ok, lv, _html} = live(conn, ~p"/console/apps/#{app.id}")
+
+    lv
+    |> form("#chat-form", %{"content" => "give me **bold** and `code`"})
+    |> render_submit()
+
+    html = poll_until(lv, "chat-inline-code", 50)
+    assert html =~ "markdown-chat"
+    assert html =~ "<strong>bold</strong>"
+    assert html =~ ~s(<code class="chat-inline-code">code</code>)
+
+    # Batch-11 regression: bubble content hugs the tag — whitespace text
+    # nodes inside a pre-wrap container render as blank lines.
+    assert html =~ ~r/chat-bubble[^"]*"><span class="whitespace-pre-wrap">/
+
+    # And the raw markdown is never double-rendered in the user bubble.
+    assert html =~ "give me **bold** and `code`"
+
+    # Let generation finalize so the stream task doesn't outlive the
+    # test's DB sandbox ownership.
+    refute poll_until_gone(lv, "animate-pulse", 50) =~ "animate-pulse"
+  end
+
+  test "the console resumes the latest conversation and switches back", %{
+    conn: conn,
+    app: app,
+    scope: scope
+  } do
+    first = Chat.create_conversation(scope, app)
+    {:ok, _u, _a} = Chat.send_message(scope, app, first, "first thread")
+    assert_receive {:done, _}, 5_000
+
+    second = Chat.create_conversation(scope, app)
+    {:ok, _u, _a} = Chat.send_message(scope, app, second, "second thread")
+    assert_receive {:done, _}, 5_000
+
+    # Mount resumes the newest conversation, not a blank slate.
+    {:ok, lv, html} = live(conn, ~p"/console/apps/#{app.id}")
+    assert html =~ "You said: second thread"
+    refute html =~ "You said: first thread"
+    assert html =~ "conversation-switcher"
+
+    # The switcher jumps to an older thread.
+    html =
+      lv
+      |> form("#conversation-switcher", %{"conversation-id" => first.id})
+      |> render_change()
+
+    assert html =~ "You said: first thread"
+    refute html =~ "You said: second thread"
+
+    # New conversation clears the pane but keeps the list.
+    html = lv |> element("button", "New conversation") |> render_click()
+    refute html =~ "You said:"
+    assert html =~ "conversation-switcher"
+  end
+
   test "creating an API key shows the raw token once", %{conn: conn, app: app} do
     {:ok, lv, _html} = live(conn, ~p"/console/apps/#{app.id}")
 

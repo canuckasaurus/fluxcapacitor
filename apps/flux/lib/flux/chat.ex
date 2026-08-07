@@ -198,6 +198,16 @@ defmodule Flux.Chat do
 
   def visitor_conversations(%Scope{}, _app_id, _end_user_ref, _limit), do: []
 
+  @doc "Console-originated conversations (no end-user ref), newest first."
+  def console_conversations(%Scope{} = scope, app_id, limit \\ 15) do
+    Conversation
+    |> Repo.scoped(scope)
+    |> where([c], c.app_id == ^app_id and is_nil(c.end_user_ref))
+    |> order_by([c], desc: c.inserted_at, desc: c.id)
+    |> limit(^limit)
+    |> Repo.all()
+  end
+
   def list_conversations(%Scope{} = scope, app_id, limit \\ 20) do
     Conversation
     |> Repo.scoped(scope)

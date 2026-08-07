@@ -333,7 +333,8 @@ defmodule FluxWeb.SiteLive.AppSite do
             </div>
             <div :if={@streaming_id} class="chat chat-start" id="site-streaming">
               <div class="chat-bubble">
-                <span class="whitespace-pre-wrap">{@streaming_text}</span><span class="animate-pulse">▌</span>
+                <div class="markdown-chat">{FluxWeb.Markdown.render(@streaming_text)}</div>
+                <span class="animate-pulse">▌</span>
               </div>
             </div>
           </div>
