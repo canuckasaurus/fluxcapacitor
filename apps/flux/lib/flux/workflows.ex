@@ -1206,6 +1206,36 @@ defmodule Flux.Workflows do
     end
   end
 
+  @doc """
+  Runs the latest published version synchronously and returns the
+  finished run — inbound integrations (MCP `tools/call`) await outputs.
+  Same lifecycle as any run: usage, webhooks, budget and guardrails.
+  """
+  def run_published_sync(%Scope{} = scope, %Workflow{} = workflow, inputs) when is_map(inputs) do
+    with %WorkflowVersion{} = version <-
+           serving_version(scope, workflow) || {:error, :not_published},
+         :ok <- check_token_budget(workflow.workspace_id),
+         :ok <-
+           Flux.Guardrails.check_input(
+             workflow.workspace_id,
+             Jason.encode!(inputs),
+             "run input (#{workflow.name})"
+           ),
+         {:ok, graph} <- Engine.build(version.graph) do
+      run =
+        Repo.insert!(%WorkflowRun{
+          workspace_id: workflow.workspace_id,
+          workflow_id: workflow.id,
+          status: :running,
+          source: :api,
+          version: version.version,
+          inputs: inputs
+        })
+
+      do_execute(run, graph, inputs, workflow.workspace_id, [])
+    end
+  end
+
   ## API tokens
 
   def create_api_token(%Scope{} = scope, %Workflow{} = workflow, opts \\ []) do

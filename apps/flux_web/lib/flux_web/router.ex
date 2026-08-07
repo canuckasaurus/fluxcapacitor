@@ -119,6 +119,14 @@ defmodule FluxWeb.Router do
     end
   end
 
+  # FluxCapacitor as an MCP server: published fluxes are callable tools.
+  # A workspace `ws-` key in the Authorization header names the workspace.
+  scope "/mcp", FluxWeb do
+    pipe_through :api
+
+    post "/", McpController, :handle
+  end
+
   ## Public workflow triggers (token in path is the authorization)
 
   scope "/triggers", FluxWeb do
