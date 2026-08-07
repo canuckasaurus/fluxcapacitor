@@ -195,6 +195,65 @@ defmodule FluxWeb.FluxDslController do
     end
   end
 
+  def conversation_export(conn, %{"id" => app_id, "conversation_id" => conversation_id} = params) do
+    scope = conn.assigns.current_scope
+    format = (params["format"] == "json" && "json") || "md"
+
+    with %Flux.Chat.Conversation{app_id: ^app_id} = conversation <-
+           Flux.Chat.get_conversation(scope, conversation_id),
+         messages <- Flux.Chat.list_messages(scope, conversation.id) do
+      {body, content_type} = render_conversation(conversation, messages, format)
+
+      send_download(
+        conn,
+        {:binary, body},
+        filename: "conversation-#{String.slice(conversation.id, 0, 8)}.#{format}",
+        content_type: content_type
+      )
+    else
+      _missing ->
+        conn
+        |> put_flash(:error, "Conversation not found.")
+        |> redirect(to: ~p"/console/apps/#{app_id}")
+    end
+  end
+
+  defp render_conversation(conversation, messages, "json") do
+    body =
+      Jason.encode!(
+        %{
+          "id" => conversation.id,
+          "title" => conversation.title,
+          "started_at" => conversation.inserted_at,
+          "messages" =>
+            Enum.map(messages, fn message ->
+              %{
+                "role" => message.role,
+                "content" => message.content,
+                "at" => message.inserted_at,
+                "usage" => message.usage
+              }
+            end)
+        },
+        pretty: true
+      )
+
+    {body, "application/json"}
+  end
+
+  defp render_conversation(conversation, messages, "md") do
+    header =
+      "# #{conversation.title || "Conversation"}\n\n_Started #{conversation.inserted_at}_\n"
+
+    turns =
+      Enum.map_join(messages, "\n", fn message ->
+        speaker = (message.role == :user && "**You**") || "**Assistant**"
+        "\n#{speaker} — #{message.inserted_at}\n\n#{message.content}\n"
+      end)
+
+    {header <> turns, "text/markdown"}
+  end
+
   def export_app(conn, %{"id" => id}) do
     scope = conn.assigns.current_scope
 

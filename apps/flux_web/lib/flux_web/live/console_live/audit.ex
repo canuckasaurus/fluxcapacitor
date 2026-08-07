@@ -13,6 +13,8 @@ defmodule FluxWeb.ConsoleLive.Audit do
       {:ok,
        assign(socket,
          page_title: "Audit log",
+         from: nil,
+         to: nil,
          entries: Audit.list(scope, 100)
        )}
     else
@@ -21,6 +23,35 @@ defmodule FluxWeb.ConsoleLive.Audit do
        |> put_flash(:error, "You don't have permission to view the audit log.")
        |> push_navigate(to: ~p"/console")}
     end
+  end
+
+  @impl true
+  def handle_event("filter", %{"from" => from, "to" => to}, socket) do
+    from = parse_date(from)
+    to = parse_date(to)
+
+    {:noreply,
+     assign(socket,
+       from: from,
+       to: to,
+       entries: Audit.list(socket.assigns.current_scope, 100, from: from, to: to)
+     )}
+  end
+
+  defp parse_date(value) do
+    case Date.from_iso8601(value || "") do
+      {:ok, date} -> date
+      _blank -> nil
+    end
+  end
+
+  defp export_path(from, to) do
+    query =
+      [{"from", from && Date.to_iso8601(from)}, {"to", to && Date.to_iso8601(to)}]
+      |> Enum.reject(fn {_key, value} -> value == nil end)
+
+    (query == [] && ~p"/console/audit-export") ||
+      ~p"/console/audit-export?#{query}"
   end
 
   @impl true
@@ -38,7 +69,33 @@ defmodule FluxWeb.ConsoleLive.Audit do
         <p class="opacity-70 mt-1">Consequential actions in this workspace — most recent first.</p>
       </div>
 
-      <p :if={@entries == []} class="text-sm opacity-60">Nothing recorded yet.</p>
+      <div class="flex flex-wrap items-end gap-2">
+        <form phx-change="filter" id="audit-filter" class="flex items-end gap-2">
+          <label class="form-control">
+            <span class="label-text text-xs opacity-70">From</span>
+            <input
+              type="date"
+              name="from"
+              value={@from && Date.to_iso8601(@from)}
+              class="input input-bordered input-sm"
+            />
+          </label>
+          <label class="form-control">
+            <span class="label-text text-xs opacity-70">To</span>
+            <input
+              type="date"
+              name="to"
+              value={@to && Date.to_iso8601(@to)}
+              class="input input-bordered input-sm"
+            />
+          </label>
+        </form>
+        <a href={export_path(@from, @to)} class="btn btn-outline btn-sm" id="audit-export-link">
+          <.icon name="hero-arrow-down-tray" class="size-4" /> Download CSV
+        </a>
+      </div>
+
+      <p :if={@entries == []} class="text-sm opacity-60">Nothing recorded in this window.</p>
 
       <table :if={@entries != []} class="table table-sm">
         <thead>

@@ -224,12 +224,14 @@ defmodule FluxWeb.Router do
     get "/workspace-export", WorkspaceExportController, :export
     get "/usage-export", WorkspaceExportController, :usage
     get "/runs-export", WorkspaceExportController, :runs
+    get "/audit-export", WorkspaceExportController, :audit
     post "/workspace-import", WorkspaceExportController, :import
     get "/fluxes/:id/export", FluxDslController, :export
     get "/fluxes/:id/runs/:run_id/fixture", FluxDslController, :run_fixture
     get "/fluxes/:id/batches/:batch_id/results", FluxDslController, :batch_results
     get "/fluxes/:id/evals/:eval_run_id/results", FluxDslController, :eval_results
     get "/apps/:id/export", FluxDslController, :export_app
+    get "/apps/:id/conversations/:conversation_id/export", FluxDslController, :conversation_export
     get "/apps/:id/finetune-export", FluxDslController, :finetune_export
     get "/labeling/:id/export", FluxDslController, :labeling_export
     get "/templates/:id/file", DocTemplateController, :file

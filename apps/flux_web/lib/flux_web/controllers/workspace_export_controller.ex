@@ -35,6 +35,33 @@ defmodule FluxWeb.WorkspaceExportController do
     )
   end
 
+  @doc "Audit trail CSV; ?from=YYYY-MM-DD&to=YYYY-MM-DD bound the window."
+  def audit(conn, params) do
+    scope = conn.assigns.current_scope
+
+    if Flux.RBAC.can?(scope, :workspace_member_manage) do
+      opts = [from: parse_date(params["from"]), to: parse_date(params["to"])]
+
+      send_download(
+        conn,
+        {:binary, Flux.Audit.export_csv(scope, opts)},
+        filename: "audit-log.csv",
+        content_type: "text/csv"
+      )
+    else
+      conn
+      |> put_flash(:error, "You don't have permission to export the audit log.")
+      |> redirect(to: ~p"/console")
+    end
+  end
+
+  defp parse_date(value) do
+    case Date.from_iso8601(value || "") do
+      {:ok, date} -> date
+      _blank -> nil
+    end
+  end
+
   def usage(conn, _params) do
     send_download(
       conn,
@@ -61,6 +88,8 @@ defmodule FluxWeb.WorkspaceExportController do
     end
   end
 
+  # sobelow_skip ["Traversal.FileModule"]
+  # The path is Plug's own multipart temp file, not client-controlled.
   def import(conn, %{"archive" => %Plug.Upload{path: path}}) do
     case Flux.Import.workspace(conn.assigns.current_scope, File.read!(path)) do
       {:ok, counts} ->

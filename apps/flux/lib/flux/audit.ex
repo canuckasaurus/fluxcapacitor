@@ -57,14 +57,56 @@ defmodule Flux.Audit do
     _error -> :ok
   end
 
-  @doc "Recent entries for the scope's workspace, newest first (actor preloaded)."
-  def list(%Scope{} = scope, limit \\ 50) do
+  @doc """
+  Recent entries for the scope's workspace, newest first (actor preloaded).
+  `opts`: `:from`/`:to` (`Date`) bound the window inclusively.
+  """
+  def list(%Scope{} = scope, limit \\ 50, opts \\ []) do
     Entry
     |> Repo.scoped(scope)
+    |> bounded(opts[:from], opts[:to])
     |> order_by([e], desc: e.inserted_at, desc: e.id)
     |> limit(^limit)
     |> Repo.all()
     |> Repo.preload(:actor)
+  end
+
+  @doc "The audit trail as CSV (same window semantics as `list/3`)."
+  def export_csv(%Scope{} = scope, opts \\ []) do
+    rows =
+      Enum.map(list(scope, 10_000, opts), fn entry ->
+        [
+          Calendar.strftime(entry.inserted_at, "%Y-%m-%d %H:%M:%S"),
+          (entry.actor && entry.actor.email) || "system",
+          entry.action,
+          entry.resource_type || "",
+          entry.resource_id || "",
+          (entry.metadata != %{} && Jason.encode!(entry.metadata)) || ""
+        ]
+      end)
+
+    [["when", "actor", "action", "resource_type", "resource_id", "metadata"] | rows]
+    |> Enum.map_join("\r\n", fn row -> Enum.map_join(row, ",", &csv_cell/1) end)
+  end
+
+  defp bounded(query, from, to) do
+    query
+    |> then(fn q ->
+      (from && where(q, [e], e.inserted_at >= ^DateTime.new!(from, ~T[00:00:00]))) || q
+    end)
+    |> then(fn q ->
+      (to && where(q, [e], e.inserted_at <= ^DateTime.new!(to, ~T[23:59:59]))) || q
+    end)
+  end
+
+  defp csv_cell(value) do
+    text = to_string(value)
+
+    if String.contains?(text, [",", "\"", "\n"]) do
+      "\"" <> String.replace(text, "\"", "\"\"") <> "\""
+    else
+      text
+    end
   end
 
   defp resource_ref(opts) do

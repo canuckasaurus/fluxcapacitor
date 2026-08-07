@@ -29,6 +29,32 @@ defmodule FluxWeb.AuditLiveTest do
     assert html =~ account.email
   end
 
+  test "date filter narrows the window and feeds the CSV link", %{
+    conn: conn,
+    account: account,
+    scope: scope
+  } do
+    Flux.Audit.record(scope, "filter.probe")
+
+    conn = log_in_account(conn, account)
+    {:ok, lv, html} = live(conn, ~p"/console/audit")
+    assert html =~ "filter.probe"
+
+    # A window in the past hides today's entries.
+    html =
+      lv
+      |> form("#audit-filter", %{"from" => "2000-01-01", "to" => "2000-12-31"})
+      |> render_change()
+
+    refute html =~ "filter.probe"
+    assert html =~ "Nothing recorded in this window."
+    assert html =~ "audit-export?from=2000-01-01&amp;to=2000-12-31"
+
+    # Clearing the dates brings everything back.
+    html = lv |> form("#audit-filter", %{"from" => "", "to" => ""}) |> render_change()
+    assert html =~ "filter.probe"
+  end
+
   test "normal members are turned away", %{conn: conn, workspace: workspace} do
     member = account_fixture()
 

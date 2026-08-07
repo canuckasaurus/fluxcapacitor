@@ -574,6 +574,15 @@ defmodule FluxWeb.ConsoleLive.AppChat do
           >
             <.icon name="hero-trash" class="size-4" />
           </button>
+          <.link
+            :if={@app.mode in [:chat, :advanced_chat] and @conversation != nil}
+            href={~p"/console/apps/#{@app.id}/conversations/#{@conversation.id}/export"}
+            class="btn btn-sm btn-ghost btn-square"
+            title="Download this conversation as Markdown (add ?format=json for JSON)"
+            aria-label="Download this conversation"
+          >
+            <.icon name="hero-arrow-down-tray" class="size-4" />
+          </.link>
           <button
             :if={@app.mode in [:chat, :advanced_chat]}
             class="btn btn-sm btn-ghost"
