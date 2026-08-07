@@ -1586,6 +1586,50 @@ defmodule Flux.EngineTest do
       assert result.outputs["output"] == [%{"echoed" => "0:a"}, %{"echoed" => "1:b"}]
     end
 
+    test "cache_minutes memoizes node outputs through the host cache" do
+      {:ok, store} = Agent.start_link(fn -> %{store: %{}, calls: 0} end)
+
+      cache = %{
+        get: fn key -> Agent.get(store, &(Map.fetch(&1.store, key) || :miss)) end,
+        put: fn key, value, _ttl ->
+          Agent.update(store, &put_in(&1.store[key], value))
+        end
+      }
+
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("http_1", "http_request", %{
+            "method" => "get",
+            "url" => "https://api.example.com/x",
+            "cache_minutes" => 10
+          })
+        ],
+        "edges" => [edge!("start", "http_1")]
+      }
+
+      host = %Host{
+        emit: fn _e -> :ok end,
+        node_cache: cache,
+        http_request: fn _request ->
+          Agent.update(store, &%{&1 | calls: &1.calls + 1})
+          {:ok, %{status: 200, body: "pong", text: "pong"}}
+        end
+      }
+
+      {:ok, built} = Engine.build(graph)
+      assert {:ok, first} = Engine.run(built, %{"query" => "q"}, host)
+      assert {:ok, second} = Engine.run(built, %{"query" => "q"}, host)
+
+      # Same pool + config → the second run never hit the HTTP capability.
+      assert Agent.get(store, & &1.calls) == 1
+      assert first.outputs == second.outputs
+
+      # A different upstream pool busts the key conservatively.
+      assert {:ok, _third} = Engine.run(built, %{"query" => "different"}, host)
+      assert Agent.get(store, & &1.calls) == 2
+    end
+
     test "iteration and loop pass a subflux_version pin through to the host" do
       graph = %{
         "nodes" => [

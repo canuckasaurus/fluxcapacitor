@@ -9,6 +9,7 @@ defmodule Flux.Engine.Host do
   """
 
   defstruct emit: nil,
+            node_cache: nil,
             invoke_llm: nil,
             invoke_tool: nil,
             http_request: nil,

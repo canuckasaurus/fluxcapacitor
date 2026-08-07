@@ -137,7 +137,7 @@ defmodule Flux.Engine.Runner do
     Host.emit(host, {:node_started, %{node_id: node.id, node_type: node.type, title: node.title}})
     node_started_at = System.monotonic_time(:millisecond)
 
-    case run_with_retries(node, pool, host, retries_for(node)) do
+    case run_cached(node, pool, host) do
       {:pause, prompt} ->
         Host.emit(host, {:run_paused, %{node_id: node.id, prompt: prompt}})
         executions = [execution(node, "paused", %{}, nil, elapsed(node_started_at)) | executions]
@@ -257,6 +257,41 @@ defmodule Flux.Engine.Runner do
   defp result_executions({:error, _id, _reason, executions}), do: executions
   defp result_executions({:paused, _id, _prompt, _pool, executions}), do: executions
   defp result_executions({:joined, _id, _pool, executions}), do: executions
+
+  # Nodes opting in via `cache_minutes` memoize their outputs through the
+  # host's node cache, keyed on config + the full pool (conservative: any
+  # upstream change busts the entry). Pause-capable results never cache.
+  defp run_cached(node, pool, host) do
+    ttl = node_cache_ttl(node)
+
+    if ttl > 0 and match?(%{get: _get, put: _put}, host.node_cache) do
+      key =
+        {:node_cache, node.type, Map.delete(node.config, "__inputs__"), Map.delete(pool, "sys")}
+        |> :erlang.term_to_binary()
+        |> then(&:crypto.hash(:sha256, &1))
+
+      case host.node_cache.get.(key) do
+        {:ok, {outputs, branch}} ->
+          Host.emit(host, {:node_cache_hit, %{node_id: node.id}})
+          {:ok, outputs, branch}
+
+        _miss ->
+          with {:ok, outputs, branch} <- run_with_retries(node, pool, host, retries_for(node)) do
+            host.node_cache.put.(key, {outputs, branch}, ttl)
+            {:ok, outputs, branch}
+          end
+      end
+    else
+      run_with_retries(node, pool, host, retries_for(node))
+    end
+  end
+
+  defp node_cache_ttl(node) do
+    case node.config["cache_minutes"] do
+      minutes when is_integer(minutes) and minutes > 0 -> min(minutes, 24 * 60)
+      _off -> 0
+    end
+  end
 
   # Bounded, host-visible retries; the interval is capped so a
   # misconfigured node cannot stall the run for minutes.

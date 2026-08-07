@@ -16,6 +16,7 @@ defmodule FluxWeb.Application do
     children = [
       FluxWeb.Telemetry,
       FluxWeb.PromEx,
+      FluxWeb.Presence,
       {FluxWeb.RateLimit, clean_period: :timer.minutes(1)},
       # Start to serve requests, typically the last entry
       FluxWeb.Endpoint
