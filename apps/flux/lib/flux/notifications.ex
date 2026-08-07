@@ -56,6 +56,17 @@ defmodule Flux.Notifications do
       "path" => path
     })
 
+    # Members who opted into this kind get it by email too (best-effort,
+    # in-band: callers are already async workers or spawned tasks).
+    for email <- Flux.Accounts.emails_subscribed_to(workspace_id, kind) do
+      Flux.Accounts.AccountNotifier.deliver_notification_email(
+        email,
+        kind,
+        to_string(title),
+        path
+      )
+    end
+
     Phoenix.PubSub.broadcast(Flux.PubSub, topic(workspace_id), :notifications_changed)
     :ok
   end

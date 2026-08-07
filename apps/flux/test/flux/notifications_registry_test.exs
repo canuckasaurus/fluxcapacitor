@@ -1,3 +1,46 @@
+defmodule Flux.NotificationEmailTest do
+  use Flux.DataCase, async: false
+
+  import Flux.AccountsFixtures
+  import Swoosh.TestAssertions
+
+  alias Flux.Accounts
+
+  test "opted-in members get notification kinds by email, others don't" do
+    account = account_fixture()
+    {:ok, {workspace, _}} = Accounts.create_workspace(account, %{name: "Email WS"})
+
+    # Unknown kinds are dropped at save time.
+    {:ok, account} =
+      Accounts.set_notification_email_kinds(account, ["run_failed", "digest", "bogus"])
+
+    assert account.notification_email_kinds == ["run_failed", "digest"]
+
+    # Drain the fixture's confirmation email before asserting ours.
+    drain_emails()
+
+    :ok = Flux.Notifications.notify(workspace.id, "run_failed", "The flux blew a fuse")
+
+    assert_email_sent(
+      subject: "[FluxCapacitor] Run failed",
+      to: account.email,
+      text_body: ~r/The flux blew a fuse/
+    )
+
+    # A kind the account didn't opt into stays console-only.
+    :ok = Flux.Notifications.notify(workspace.id, "guardrail", "Pattern matched")
+    refute_email_sent(subject: "[FluxCapacitor] Guardrail")
+  end
+
+  defp drain_emails do
+    receive do
+      {:email, _email} -> drain_emails()
+    after
+      0 -> :ok
+    end
+  end
+end
+
 defmodule Flux.NotificationsRegistryTest do
   use Flux.DataCase, async: false
 

@@ -75,6 +75,31 @@ defmodule FluxWeb.AccountLive.Settings do
 
       <div class="divider" />
 
+      <div class="space-y-2 text-left" id="email-notifications-card">
+        <h2 class="font-semibold">Email notifications</h2>
+        <p class="text-sm opacity-70">
+          Checked kinds arrive by email as well as in the console feed
+          (needs the deployment's SMTP to be configured).
+        </p>
+        <form phx-change="save_email_kinds" id="email-kinds-form" class="space-y-1">
+          <input type="hidden" name="kinds[]" value="" />
+          <label
+            :for={kind <- Flux.Notifications.kinds()}
+            class="flex items-center gap-2 text-sm"
+          >
+            <input
+              type="checkbox"
+              name="kinds[]"
+              value={kind}
+              checked={kind in @email_kinds}
+              class="checkbox checkbox-sm"
+            /> {String.replace(kind, "_", " ")}
+          </label>
+        </form>
+      </div>
+
+      <div class="divider" />
+
       <div class="space-y-2 text-left" id="sessions-card">
         <div class="flex items-center justify-between">
           <h2 class="font-semibold">Active sessions</h2>
@@ -142,12 +167,25 @@ defmodule FluxWeb.AccountLive.Settings do
       |> assign(:password_form, to_form(password_changeset))
       |> assign(:current_session_token, session["account_token"])
       |> assign(:sessions, Accounts.list_session_tokens(account))
+      |> assign(:email_kinds, account.notification_email_kinds || [])
       |> assign(:trigger_submit, false)
 
     {:ok, socket}
   end
 
   @impl true
+  def handle_event("save_email_kinds", %{"kinds" => kinds}, socket) do
+    kinds = Enum.reject(List.wrap(kinds), &(&1 == ""))
+
+    case Accounts.set_notification_email_kinds(socket.assigns.current_scope.account, kinds) do
+      {:ok, account} ->
+        {:noreply, assign(socket, :email_kinds, account.notification_email_kinds)}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not save the email preferences.")}
+    end
+  end
+
   def handle_event("revoke_session", %{"id" => id}, socket) do
     account = socket.assigns.current_scope.account
     :ok = Accounts.revoke_session_token(account, id)

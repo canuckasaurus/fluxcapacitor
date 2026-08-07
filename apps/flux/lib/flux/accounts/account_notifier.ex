@@ -22,6 +22,26 @@ defmodule Flux.Accounts.AccountNotifier do
     end
   end
 
+  @doc "Delivers one notification (kind + title) to an opted-in member."
+  def deliver_notification_email(recipient, kind, title, path) do
+    base = Application.get_env(:flux, :app_base_url, "")
+    link = (path && base != "" && "\n\nSee it in the console: #{base}#{path}") || ""
+
+    deliver(recipient, "[FluxCapacitor] #{humanize_kind(kind)}", """
+
+    ==============================
+
+    #{title}#{link}
+
+    You get this email because you opted into "#{kind}" notifications
+    in your account settings. Uncheck it there to stop.
+
+    ==============================
+    """)
+  end
+
+  defp humanize_kind(kind), do: kind |> String.replace("_", " ") |> String.capitalize()
+
   @doc """
   Deliver a workspace invitation with its accept link.
   """

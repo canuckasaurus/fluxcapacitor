@@ -217,6 +217,11 @@ if config_env() == :prod do
       You can generate one by calling: mix phx.gen.secret
       """
 
+  # Console links inside notification emails.
+  config :flux,
+         :app_base_url,
+         "https://" <> System.get_env("PHX_HOST", "localhost")
+
   config :flux_web, FluxWeb.Endpoint,
     url: [
       host: System.get_env("PHX_HOST", "localhost"),

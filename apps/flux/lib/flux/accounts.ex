@@ -33,6 +33,29 @@ defmodule Flux.Accounts do
     :ok
   end
 
+  @doc "Saves which notification kinds this account wants emailed."
+  def set_notification_email_kinds(%Account{} = account, kinds) when is_list(kinds) do
+    kinds = Enum.filter(kinds, &(&1 in Flux.Notifications.kinds()))
+
+    account
+    |> Ecto.Changeset.change(notification_email_kinds: kinds)
+    |> Repo.update()
+  end
+
+  @doc "Members of a workspace who opted into email for this kind."
+  def emails_subscribed_to(workspace_id, kind) do
+    import Ecto.Query, only: [from: 2]
+
+    Repo.all(
+      from(m in Flux.Accounts.Membership,
+        join: a in Account,
+        on: a.id == m.account_id,
+        where: m.workspace_id == ^workspace_id and ^kind in a.notification_email_kinds,
+        select: a.email
+      )
+    )
+  end
+
   @doc "Logs the account out everywhere by deleting every session token."
   def revoke_all_session_tokens(%Account{id: account_id}) do
     import Ecto.Query, only: [from: 2]

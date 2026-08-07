@@ -9,6 +9,7 @@ defmodule Flux.Accounts.Account do
 
   schema "accounts" do
     field :email, :string
+    field :notification_email_kinds, {:array, :string}, default: []
     field :password, :string, virtual: true, redact: true
     field :hashed_password, :string, redact: true
     field :confirmed_at, :naive_datetime
