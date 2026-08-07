@@ -1494,6 +1494,114 @@ defmodule Flux.Chat do
   end
 
   @doc """
+  Text-to-speech through the app's provider (read-aloud with real model
+  voices). `{:error, :not_supported}` when the provider has no speech
+  endpoint — callers fall back to browser voices.
+  """
+  def synthesize_speech(%Scope{} = _scope, %App{} = app, text) when is_binary(text) do
+    provider =
+      case app.mode do
+        :advanced_chat ->
+          case Providers.default_model_for_workspace(app.workspace_id) do
+            %{"provider_plugin_id" => plugin_id} -> plugin_id
+            _none -> nil
+          end
+
+        _direct ->
+          app.provider_plugin_id
+      end
+
+    if provider in [nil, ""] do
+      {:error, :not_supported}
+    else
+      credentials =
+        case Providers.fetch_config(app.workspace_id, provider) do
+          {:ok, config} -> config
+          {:error, :not_configured} -> %{}
+        end
+
+      runtime().invoke_speech(provider, credentials, text, %{})
+    end
+  end
+
+  @chatflow_bridge_timeout :timer.minutes(5)
+
+  @doc """
+  Stateless OpenAI-style completion for a **chatflow** app: runs the
+  bound flux's serving version with the last user message as the query
+  and the earlier turns as `{{sys.history}}`. Streams answer deltas via
+  `emit`; nothing is persisted. Same return contract as
+  `stateless_completion/3`.
+  """
+  def stateless_chatflow_completion(%App{mode: :advanced_chat} = app, messages, emit) do
+    scope = site_scope(app)
+
+    workflow =
+      app.workflow_id &&
+        Repo.get_by(Flux.Workflows.Workflow, [id: app.workflow_id], skip_workspace_guard: true)
+
+    with %Flux.Workflows.Workflow{deleted_at: nil} = workflow <-
+           workflow || {:error, :not_published},
+         %{graph: graph, version: version} <-
+           Flux.Workflows.serving_version(scope, workflow) || {:error, :not_published} do
+      {query, prior} =
+        case Enum.split_with(Enum.reverse(messages), &(&1.role == :user)) do
+          {[last_user | _], _} -> {last_user.content, Enum.reject(messages, &(&1 == last_user))}
+          {[], _} -> {"", messages}
+        end
+
+      history_text =
+        Enum.map_join(prior, "\n", fn message -> "#{message.role}: #{message.content}" end)
+
+      with {:ok, _run} <-
+             Flux.Workflows.start_run(scope, workflow, %{"query" => query},
+               graph: graph,
+               version: version,
+               source: :api,
+               sys: %{
+                 "query" => query,
+                 "history" => history_text,
+                 "turns" => div(length(prior), 2)
+               }
+             ) do
+        await_chatflow_bridge(emit, "", "flux/#{workflow.name}")
+      end
+    end
+  end
+
+  defp await_chatflow_bridge(emit, answer, model_label) do
+    receive do
+      {:engine_event, {:node_chunk, %{delta: delta}}} ->
+        emit.(%{delta: delta})
+        await_chatflow_bridge(emit, answer <> delta, model_label)
+
+      {:engine_event, _other} ->
+        await_chatflow_bridge(emit, answer, model_label)
+
+      {:run_finished, run} ->
+        case run.status do
+          :succeeded ->
+            final = (answer != "" && answer) || to_string(run.outputs["answer"] || "")
+            if answer == "" and final != "", do: emit.(%{delta: final})
+
+            {:ok,
+             %{
+               content: final,
+               usage: %{
+                 input_tokens: run.usage["input_tokens"] || 0,
+                 output_tokens: run.usage["output_tokens"] || 0
+               }
+             }, model_label}
+
+          _failed_or_stopped ->
+            {:error, run.error || "the flux run failed"}
+        end
+    after
+      @chatflow_bridge_timeout -> {:error, :timeout}
+    end
+  end
+
+  @doc """
   Stateless completion over an app's model for the OpenAI-compatible
   endpoint: the caller supplies the whole message history, nothing is
   persisted. The app's system prompt, params, and fallback model all

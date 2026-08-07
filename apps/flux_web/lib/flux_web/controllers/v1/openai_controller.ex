@@ -20,14 +20,6 @@ defmodule FluxWeb.V1.OpenAIController do
       app == nil ->
         openai_error(conn, 401, "This endpoint needs an app- API token.", "invalid_request_error")
 
-      app.mode == :advanced_chat ->
-        openai_error(
-          conn,
-          400,
-          "Chatflow apps aren't OpenAI-mappable — use POST /v1/chat-messages.",
-          "invalid_request_error"
-        )
-
       Chat.quota_exceeded?(app) ->
         openai_error(conn, 429, "The app's daily token limit is spent.", "rate_limit_error")
 
@@ -50,10 +42,17 @@ defmodule FluxWeb.V1.OpenAIController do
     end
   end
 
+  # Chatflow apps bridge through their flux; direct-model apps call the
+  # provider — same OpenAI contract either way.
+  defp completion_fun(%{mode: :advanced_chat}),
+    do: &Chat.stateless_chatflow_completion/3
+
+  defp completion_fun(_direct_model), do: &Chat.stateless_completion/3
+
   ## Blocking
 
   defp respond(conn, app, messages, false) do
-    case Chat.stateless_completion(app, messages, fn _chunk -> :ok end) do
+    case completion_fun(app).(app, messages, fn _chunk -> :ok end) do
       {:ok, result, model_used} ->
         json(conn, %{
           "id" => completion_id(),
@@ -85,7 +84,7 @@ defmodule FluxWeb.V1.OpenAIController do
     Task.Supervisor.start_child(Flux.GenerationSupervisor, fn ->
       emit = fn %{delta: delta} -> send(parent, {:delta, delta}) end
 
-      case Chat.stateless_completion(app, messages, emit) do
+      case completion_fun(app).(app, messages, emit) do
         {:ok, result, model_used} -> send(parent, {:finished, result, model_used})
         {:error, reason} -> send(parent, {:failed, reason})
       end
