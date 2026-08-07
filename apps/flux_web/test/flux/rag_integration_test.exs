@@ -311,6 +311,45 @@ defmodule FluxWeb.RAGIntegrationTest do
     assert names == ["example.com/docs", "example.com/docs/faq", "example.com/docs/setup"]
   end
 
+  test "remembered URL sources re-fetch nightly and replace documents", %{
+    scope: scope,
+    dataset: dataset
+  } do
+    Application.put_env(:flux_rag, :req_options, plug: {Req.Test, Flux.RAGSourceStub})
+    on_exit(fn -> Application.delete_env(:flux_rag, :req_options) end)
+
+    {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+    Req.Test.stub(Flux.RAGSourceStub, fn conn ->
+      fetch = Agent.get_and_update(counter, &{&1 + 1, &1 + 1})
+
+      conn
+      |> Plug.Conn.put_resp_content_type("text/html")
+      |> Plug.Conn.send_resp(
+        200,
+        "<html><body><p>Edition #{fetch} of the page.</p></body></html>"
+      )
+    end)
+
+    {:ok, _doc} = RAG.add_document_from_url(scope, dataset, "https://example.com/live")
+    {:ok, source} = RAG.remember_url_source(scope, dataset, "https://example.com/live", false)
+    assert source.crawl == false
+
+    # Not 03:00 → nothing happens.
+    :ok = RAG.refresh_url_sources(DateTime.new!(~D[2026-08-07], ~T[12:00:00]))
+    assert Agent.get(counter, & &1) == 1
+
+    # The nightly tick re-fetches and REPLACES (no duplicate document).
+    :ok = RAG.refresh_url_sources(DateTime.new!(~D[2026-08-07], ~T[03:00:00]))
+    assert Agent.get(counter, & &1) == 2
+
+    # Still exactly one document — the refresh replaced, not duplicated.
+    assert [%{name: "example.com/live"}] = RAG.list_documents(scope, dataset.id)
+
+    [refreshed] = RAG.list_url_sources(scope, dataset.id)
+    assert refreshed.last_fetched_at != nil
+  end
+
   test "a configured rerank model reorders retrieval results", %{scope: scope, dataset: dataset} do
     ingest!(scope, dataset, "a.md", "Bananas are yellow fruit.")
     ingest!(scope, dataset, "b.md", "Vacation days: employees receive 25 vacation days.")

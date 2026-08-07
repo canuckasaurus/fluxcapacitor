@@ -47,6 +47,14 @@ defmodule Flux.Workflows.ScheduleWorker do
     Flux.Export.run_scheduled(now)
     Flux.Usage.send_weekly_digests(now)
 
+    # Remembered URL sources re-fetch nightly (runtime-resolved — flux
+    # never compile-depends on flux_rag).
+    rag = Application.get_env(:flux, :rag_module, Flux.RAG)
+
+    if Code.ensure_loaded?(rag) and function_exported?(rag, :refresh_url_sources, 1) do
+      rag.refresh_url_sources(now)
+    end
+
     plugin_due =
       from(t in Trigger,
         where: t.enabled and t.type == :plugin and not is_nil(t.plugin_id),

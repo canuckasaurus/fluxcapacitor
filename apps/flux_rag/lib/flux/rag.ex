@@ -195,6 +195,16 @@ defmodule Flux.RAG do
       if String.valid?(content) and String.trim(content) != "" do
         uri = URI.parse(url)
         name = String.trim_leading("#{uri.host}#{uri.path}", "/")
+
+        # Refresh runs replace the previous fetch instead of duplicating.
+        existing =
+          Document
+          |> Repo.scoped(scope)
+          |> where([d], d.dataset_id == ^dataset.id and d.name == ^name)
+          |> Repo.all()
+
+        Enum.each(existing, &Repo.delete/1)
+
         add_document(scope, dataset, %{name: name, content: content})
       else
         {:error, "the URL did not return readable text"}
@@ -248,6 +258,75 @@ defmodule Flux.RAG do
       {:error, message} when is_binary(message) -> {:error, message}
       {:error, reason} -> {:error, inspect(reason)}
     end
+  end
+
+  ## Remembered URL sources (nightly re-fetch)
+
+  @doc "Remembers a URL source so the nightly sweep re-fetches it."
+  def remember_url_source(%Scope{} = scope, %Dataset{} = dataset, url, crawl?) do
+    with :ok <- RBAC.authorize(scope, :dataset_edit) do
+      %Flux.RAG.UrlSource{workspace_id: dataset.workspace_id, dataset_id: dataset.id}
+      |> Flux.RAG.UrlSource.changeset(%{"url" => url, "crawl" => crawl?})
+      |> Repo.insert(
+        on_conflict: {:replace, [:crawl, :updated_at]},
+        conflict_target: [:dataset_id, :url]
+      )
+    end
+  end
+
+  def list_url_sources(%Scope{} = scope, dataset_id) do
+    Flux.RAG.UrlSource
+    |> Repo.scoped(scope)
+    |> where([s], s.dataset_id == ^dataset_id)
+    |> order_by([s], asc: s.inserted_at)
+    |> Repo.all()
+  end
+
+  def delete_url_source(%Scope{} = scope, source_id) do
+    with :ok <- RBAC.authorize(scope, :dataset_edit),
+         %Flux.RAG.UrlSource{} = source <-
+           Repo.one(Repo.scoped(where(Flux.RAG.UrlSource, id: ^source_id), scope)) ||
+             {:error, :not_found} do
+      Repo.delete(source)
+    end
+  end
+
+  @doc """
+  Nightly sweep (03:00 UTC minute tick): re-fetches every remembered
+  URL source, replacing same-named documents. Failures skip — a dead
+  page never blocks the rest.
+  """
+  def refresh_url_sources(now \\ DateTime.utc_now(:second)) do
+    if now.hour == 3 and now.minute == 0 do
+      sources = Repo.all(Flux.RAG.UrlSource, skip_workspace_guard: true)
+
+      for source <- sources do
+        scope = url_source_scope(source.workspace_id)
+
+        with %Dataset{} = dataset <- get_dataset(scope, source.dataset_id) do
+          if source.crawl do
+            crawl_from_url(scope, dataset, source.url)
+          else
+            add_document_from_url(scope, dataset, source.url)
+          end
+
+          source
+          |> Ecto.Changeset.change(last_fetched_at: DateTime.utc_now(:second))
+          |> Repo.update()
+        end
+      end
+
+      :ok
+    else
+      :ok
+    end
+  end
+
+  defp url_source_scope(workspace_id) do
+    %Scope{
+      workspace: %Flux.Accounts.Workspace{id: workspace_id},
+      membership: %Flux.Accounts.Membership{workspace_id: workspace_id, role: :editor}
+    }
   end
 
   # Absolute same-scheme+host links from the page, fragments stripped,

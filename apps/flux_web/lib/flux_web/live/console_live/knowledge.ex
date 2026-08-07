@@ -37,13 +37,14 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
        retrieval_cases: [],
        retrieval_summary: nil,
        documents: [],
+       url_sources: [],
        expanded_document_id: nil,
        editing_segment_id: nil,
        segments: [],
        hits: nil
      )
      |> allow_upload(:document,
-       accept: ~w(.txt .md .markdown .csv .json .html .htm),
+       accept: ~w(.txt .md .markdown .csv .json .html .htm .pdf .docx .doc .xlsx .pptx),
        max_entries: 5,
        max_file_size: 15_000_000
      )
@@ -70,16 +71,22 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
   defp refresh_documents(socket) do
     case socket.assigns.selected do
       nil ->
-        assign(socket, documents: [])
+        assign(socket, documents: [], url_sources: [])
 
       dataset ->
         assign(socket,
-          documents: RAG.list_documents(socket.assigns.current_scope, dataset.id)
+          documents: RAG.list_documents(socket.assigns.current_scope, dataset.id),
+          url_sources: RAG.list_url_sources(socket.assigns.current_scope, dataset.id)
         )
     end
   end
 
   @impl true
+  def handle_event("delete_url_source", %{"source-id" => source_id}, socket) do
+    RAG.delete_url_source(socket.assigns.current_scope, source_id)
+    {:noreply, refresh_documents(socket)}
+  end
+
   def handle_event("new", _params, socket), do: {:noreply, assign(socket, creating: true)}
   def handle_event("cancel", _params, socket), do: {:noreply, assign(socket, creating: false)}
 
@@ -256,18 +263,22 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
         end
       end
 
+    if params["remember"] == "on" and match?({:ok, _fetched}, result) do
+      RAG.remember_url_source(scope, socket.assigns.selected, url, params["crawl"] == "on")
+    end
+
     case result do
       {:ok, %{added: added, skipped: skipped}} ->
         note = if skipped > 0, do: " (#{skipped} linked pages skipped)", else: ""
 
         {:noreply,
          socket
-         |> put_flash(:info, "Fetched #{added} pages#{note} — indexing started.")
+         |> put_flash(:info, "Fetched #{added} pages#{note} â€” indexing started.")
          |> refresh_documents()}
 
       {:ok, _document} ->
         {:noreply,
-         socket |> put_flash(:info, "Fetched — indexing started.") |> refresh_documents()}
+         socket |> put_flash(:info, "Fetched â€” indexing started.") |> refresh_documents()}
 
       {:error, message} when is_binary(message) ->
         {:noreply, put_flash(socket, :error, message)}
@@ -282,7 +293,7 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
          {:ok, _job} <- RAG.sync_datasource(socket.assigns.current_scope, dataset, plugin_id) do
       {:noreply,
        socket
-       |> put_flash(:info, "Sync started — refresh to see new documents.")
+       |> put_flash(:info, "Sync started â€” refresh to see new documents.")
        |> refresh_documents()}
     else
       {:error, :plugin_not_installed} ->
@@ -324,27 +335,33 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
 
     results =
       consume_uploaded_entries(socket, :document, fn %{path: path}, entry ->
-        content = File.read!(path)
+        binary = File.read!(path)
 
-        content =
-          if entry.client_name =~ ~r/\.html?$/i do
-            case Floki.parse_document(content) do
-              {:ok, document} -> document |> Floki.text(sep: " ") |> String.trim()
-              _error -> content
-            end
-          else
-            content
-          end
+        # One pipeline for everything: text/HTML/docx natively, PDF and
+        # the other office formats through Tika when configured.
+        case Flux.Documents.extract_binary(entry.client_name, entry.client_type, binary) do
+          {:ok, content} when content != "" ->
+            {:ok, RAG.add_document(scope, dataset, %{name: entry.client_name, content: content})}
 
-        {:ok, RAG.add_document(scope, dataset, %{name: entry.client_name, content: content})}
+          {:ok, _empty} ->
+            {:ok, {:error, "#{entry.client_name}: no readable text"}}
+
+          {:error, message} ->
+            {:ok, {:error, "#{entry.client_name}: #{message}"}}
+        end
       end)
 
     ok = Enum.count(results, &match?({:ok, _}, &1))
+    failures = for {:error, message} <- results, do: message
 
-    {:noreply,
-     socket
-     |> put_flash(:info, "#{ok} document(s) queued for indexing.")
-     |> refresh_documents()}
+    socket =
+      if failures == [] do
+        put_flash(socket, :info, "#{ok} document(s) queued for indexing.")
+      else
+        put_flash(socket, :error, Enum.join(failures, " · "))
+      end
+
+    {:noreply, refresh_documents(socket)}
   end
 
   def handle_event("refresh", _params, socket) do
@@ -428,7 +445,7 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
            }) do
       {:noreply,
        socket
-       |> put_flash(:info, "Settings saved — re-index to apply chunking to existing documents.")
+       |> put_flash(:info, "Settings saved â€” re-index to apply chunking to existing documents.")
        |> assign(selected: updated, datasets: RAG.list_datasets(socket.assigns.current_scope))}
     else
       _error -> {:noreply, put_flash(socket, :error, "Could not save the settings.")}
@@ -471,10 +488,12 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
       <div class="flex items-center justify-between">
         <div>
           <h1 class="text-2xl font-bold">{gettext("Knowledge")}</h1>
+
           <p class="opacity-70 mt-1">
             {gettext("Document collections your fluxes can retrieve from.")}
           </p>
         </div>
+
         <button :if={@can_create and not @creating} class="btn btn-primary" phx-click="new">
           <.icon name="hero-plus" class="size-4" /> {gettext("New dataset")}
         </button>
@@ -482,9 +501,11 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
 
       <div :if={@creating} class="card border border-base-200 p-6 space-y-3">
         <h2 class="font-semibold">Create a dataset</h2>
+
         <p :if={@embedding_models == []} class="text-sm text-warning">
-          No embedding models available — configure a provider under Plugins first.
+          No embedding models available â€” configure a provider under Plugins first.
         </p>
+
         <form phx-submit="create" id="dataset-form" class="space-y-3">
           <input
             type="text"
@@ -504,7 +525,7 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
               :for={%{plugin_id: pid, plugin_name: pname, model: m} <- @embedding_models}
               value={"#{pid}|#{m.name}"}
             >
-              {pname} — {m.label}
+              {pname} â€” {m.label}
             </option>
           </select>
           <div class="flex gap-2">
@@ -527,23 +548,24 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
             id={"dataset-#{dataset.id}"}
           >
             <p class="font-semibold text-sm">{dataset.name}</p>
+
             <p class="text-xs opacity-60">{dataset.embedding_model}</p>
           </div>
+
           <p :if={@datasets == []} class="text-sm opacity-60">No datasets yet.</p>
         </div>
 
         <div :if={@datasets == []} class="flex-1">
           <Layouts.empty_state icon="hero-book-open" title="No knowledge yet">
-            <p>
-              Create a dataset and upload documents — fluxes retrieve from them
-              to answer with your content.
-            </p>
+            <p>Create a dataset and upload documents â€” fluxes retrieve from them
+              to answer with your content.</p>
           </Layouts.empty_state>
         </div>
 
         <div :if={@selected} class="flex-1 min-w-0 space-y-4">
           <div class="flex items-center justify-between">
             <h2 class="font-semibold text-lg">{@selected.name}</h2>
+
             <div class="flex gap-2">
               <button class="btn btn-ghost btn-sm" phx-click="refresh" title="Refresh statuses">
                 <.icon name="hero-arrow-path" class="size-4" />
@@ -562,13 +584,14 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
 
           <div :if={@can_edit} class="card border border-base-200 p-4 space-y-2">
             <p class="text-sm font-semibold">Chunking &amp; retrieval</p>
+
             <form
               phx-submit="save_dataset_settings"
               id="dataset-settings-form"
               class="flex items-end gap-2 flex-wrap"
             >
               <label class="form-control">
-                <span class="label-text text-xs opacity-70 mb-1">Chunk size (200–4000)</span>
+                <span class="label-text text-xs opacity-70 mb-1">Chunk size (200â€“4000)</span>
                 <input
                   type="number"
                   name="chunk_size"
@@ -579,7 +602,7 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                 />
               </label>
               <label class="form-control">
-                <span class="label-text text-xs opacity-70 mb-1">Overlap (0–500)</span>
+                <span class="label-text text-xs opacity-70 mb-1">Overlap (0â€“500)</span>
                 <input
                   type="number"
                   name="chunk_overlap"
@@ -598,8 +621,7 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                     checked={@selected.split_markdown}
                     class="checkbox checkbox-xs"
                     title="Split at headings and prefix each chunk with its heading"
-                  />
-                  <span class="text-xs opacity-70">split at headings</span>
+                  /> <span class="text-xs opacity-70">split at headings</span>
                 </label>
               </label>
               <label class="form-control">
@@ -610,9 +632,8 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                     name="query_expansion"
                     checked={@selected.query_expansion}
                     class="checkbox checkbox-xs"
-                    title="Rephrase each query with the workspace model and fuse all rankings — better recall, one extra model call per retrieval"
-                  />
-                  <span class="text-xs opacity-70">rephrase queries</span>
+                    title="Rephrase each query with the workspace model and fuse all rankings â€” better recall, one extra model call per retrieval"
+                  /> <span class="text-xs opacity-70">rephrase queries</span>
                 </label>
               </label>
               <label class="form-control">
@@ -628,7 +649,7 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                 />
               </label>
               <label class="form-control">
-                <span class="label-text text-xs opacity-70 mb-1">Score threshold (0–1)</span>
+                <span class="label-text text-xs opacity-70 mb-1">Score threshold (0â€“1)</span>
                 <input
                   type="number"
                   name="score_threshold"
@@ -648,16 +669,17 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                   <option value="" selected={@selected.entity_plugin_id in [nil, ""]}>
                     Heuristic (default)
                   </option>
+
                   <option
                     :for={%{plugin_id: pid, plugin_name: pname, model: m} <- @chat_models}
                     value={"#{pid}|#{m.name}"}
                     selected={@selected.entity_plugin_id == pid and @selected.entity_model == m.name}
                   >
-                    {pname} — {m.label}
+                    {pname} â€” {m.label}
                   </option>
                 </select>
               </label>
-              <button class="btn btn-primary btn-sm">Save</button>
+               <button class="btn btn-primary btn-sm">Save</button>
               <button
                 type="button"
                 class="btn btn-outline btn-sm"
@@ -671,11 +693,13 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
 
           <div :if={@can_edit} class="card border border-base-200 p-4 space-y-3">
             <p class="text-sm font-semibold">Add documents</p>
+
             <form phx-submit="upload" phx-change="validate_upload" class="space-y-2">
               <.live_file_input upload={@uploads.document} class="file-input file-input-sm" />
               <p :for={entry <- @uploads.document.entries} class="text-xs opacity-70">
-                {entry.client_name} — {entry.progress}%
+                {entry.client_name} â€” {entry.progress}%
               </p>
+
               <button
                 :if={@uploads.document.entries != []}
                 class="btn btn-primary btn-sm"
@@ -683,11 +707,12 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                 Index uploads
               </button>
             </form>
+
             <form phx-submit="add_url" class="flex gap-2 items-center flex-wrap" id="url-form">
               <input
                 type="url"
                 name="url"
-                placeholder="…or fetch a page: https://example.com/docs"
+                placeholder="â€¦or fetch a page: https://example.com/docs"
                 class="input input-bordered input-sm flex-1"
               />
               <label
@@ -696,8 +721,42 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
               >
                 <input type="checkbox" name="crawl" class="checkbox checkbox-xs" /> crawl links
               </label>
-              <button class="btn btn-outline btn-sm">Fetch &amp; index</button>
+              <label
+                class="flex items-center gap-1 text-xs opacity-80"
+                title="Re-fetch this source nightly, replacing its documents"
+              >
+                <input type="checkbox" name="remember" class="checkbox checkbox-xs" /> re-fetch
+                nightly
+              </label>
+               <button class="btn btn-outline btn-sm">Fetch &amp; index</button>
             </form>
+
+            <div :if={@url_sources != []} class="text-xs space-y-1" id="url-sources">
+              <p class="font-semibold opacity-70">Remembered sources (re-fetched nightly)</p>
+
+              <div
+                :for={source <- @url_sources}
+                class="flex items-center gap-2"
+                id={"url-source-#{source.id}"}
+              >
+                <span class="font-mono truncate max-w-md">{source.url}</span>
+                <span :if={source.crawl} class="badge badge-ghost badge-xs">crawl</span>
+                <span class="opacity-60">
+                  {(source.last_fetched_at &&
+                      "fetched " <> Calendar.strftime(source.last_fetched_at, "%b %d %H:%M")) ||
+                    "not fetched yet"}
+                </span>
+                <button
+                  class="btn btn-ghost btn-xs text-error"
+                  phx-click="delete_url_source"
+                  phx-value-source-id={source.id}
+                  aria-label="Forget this source"
+                >
+                  âœ•
+                </button>
+              </div>
+            </div>
+
             <form
               :if={@datasource_plugins != []}
               phx-submit="sync_datasource"
@@ -705,12 +764,11 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
               id="datasource-sync-form"
             >
               <select name="plugin_id" class="select select-bordered select-sm flex-1">
-                <option :for={plugin <- @datasource_plugins} value={plugin.id}>
-                  {plugin.name}
-                </option>
+                <option :for={plugin <- @datasource_plugins} value={plugin.id}>{plugin.name}</option>
               </select>
-              <button class="btn btn-outline btn-sm">Sync datasource</button>
+               <button class="btn btn-outline btn-sm">Sync datasource</button>
             </form>
+
             <form
               :if={@datasource_plugins != []}
               phx-submit="save_auto_sync"
@@ -721,6 +779,7 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                 <span class="label-text text-xs opacity-70 mb-1">Auto-sync source</span>
                 <select name="sync_plugin_id" class="select select-bordered select-sm">
                   <option value="">Off</option>
+
                   <option
                     :for={plugin <- @datasource_plugins}
                     value={plugin.id}
@@ -731,7 +790,7 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                 </select>
               </label>
               <label class="form-control">
-                <span class="label-text text-xs opacity-70 mb-1">Every (minutes, ≥ 5)</span>
+                <span class="label-text text-xs opacity-70 mb-1">Every (minutes, â‰¥ 5)</span>
                 <input
                   type="number"
                   name="sync_interval_minutes"
@@ -740,28 +799,29 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                   class="input input-bordered input-sm w-28"
                 />
               </label>
-              <button class="btn btn-outline btn-sm">Save auto-sync</button>
+               <button class="btn btn-outline btn-sm">Save auto-sync</button>
             </form>
+
             <form phx-submit="add_text" class="space-y-2" id="paste-form">
               <input
                 type="text"
                 name="name"
                 placeholder="Document name (optional)"
                 class="input input-bordered input-sm w-full max-w-md"
-              />
-              <textarea
+              /> <textarea
                 name="content"
                 rows="3"
-                placeholder="…or paste text here"
+                placeholder="â€¦or paste text here"
                 class="textarea textarea-bordered textarea-sm w-full"
-              ></textarea>
-              <button class="btn btn-outline btn-sm">Index pasted text</button>
+              ></textarea> <button class="btn btn-outline btn-sm">Index pasted text</button>
             </form>
           </div>
 
           <div class="card border border-base-200 p-4 space-y-2">
             <p class="text-sm font-semibold">Documents</p>
+
             <p :if={@documents == []} class="text-sm opacity-60">Nothing indexed yet.</p>
+
             <div :for={document <- @documents} class="rounded-box border border-base-200">
               <button
                 type="button"
@@ -778,14 +838,14 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                 ]}>
                   {document.status}
                 </span>
-                <span class="text-xs opacity-60">{document.segment_count} segments</span>
+                 <span class="text-xs opacity-60">{document.segment_count} segments</span>
                 <span
                   :if={@can_edit}
                   class="ml-auto btn btn-ghost btn-xs text-error"
                   phx-click="delete_document"
                   phx-value-document-id={document.id}
                 >
-                  ✕
+                  âœ•
                 </span>
               </button>
               <div
@@ -793,6 +853,7 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                 class="border-t border-base-200 p-3 space-y-2"
               >
                 <p :if={document.error} class="text-sm text-error">{document.error}</p>
+
                 <form
                   :if={@can_edit}
                   phx-submit="set_document_tags"
@@ -806,9 +867,9 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                     value={Enum.join(document.tags, ", ")}
                     placeholder="tags, comma-separated (retrieval filters)"
                     class="input input-bordered input-xs w-64"
-                  />
-                  <button class="btn btn-ghost btn-xs">Save tags</button>
+                  /> <button class="btn btn-ghost btn-xs">Save tags</button>
                 </form>
+
                 <div
                   :for={segment <- @segments}
                   class={["rounded bg-base-200 p-2 text-xs", not segment.enabled && "opacity-50"]}
@@ -819,19 +880,16 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                     class="whitespace-pre-wrap max-h-32 overflow-y-auto"
                   >
                     <span class="opacity-50">#{segment.position}</span>
-                    <span :if={not segment.enabled} class="badge badge-ghost badge-xs">
-                      disabled
-                    </span>
-                    {segment.content}
+                    <span :if={not segment.enabled} class="badge badge-ghost badge-xs">disabled</span> {segment.content}
                   </div>
+
                   <form
                     :if={@editing_segment_id == segment.id}
                     phx-submit="save_segment"
                     id={"segment-form-#{segment.id}"}
                     class="space-y-1"
                   >
-                    <input type="hidden" name="segment-id" value={segment.id} />
-                    <textarea
+                    <input type="hidden" name="segment-id" value={segment.id} /> <textarea
                       name="content"
                       rows="4"
                       class="textarea textarea-bordered textarea-xs w-full"
@@ -847,6 +905,7 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                       </button>
                     </div>
                   </form>
+
                   <div
                     :if={@can_edit and @editing_segment_id != segment.id}
                     class="mt-1 flex gap-1"
@@ -882,23 +941,26 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
 
           <div class="card border border-base-200 p-4 space-y-2">
             <p class="text-sm font-semibold">Hit testing</p>
+
             <form phx-submit="hit_test" class="flex gap-2" id="hit-test-form">
               <input
                 type="text"
                 name="query"
-                placeholder="Ask something to preview retrieval…"
+                placeholder="Ask something to preview retrievalâ€¦"
                 class="input input-bordered input-sm flex-1"
-              />
-              <button class="btn btn-primary btn-sm">Retrieve</button>
+              /> <button class="btn btn-primary btn-sm">Retrieve</button>
             </form>
+
             <p :if={@hits == []} class="text-sm opacity-60">No matches.</p>
+
             <div
               :for={hit <- @hits || []}
               class="rounded-box border border-base-200 p-3 space-y-1"
             >
               <p class="text-xs opacity-60">
-                {hit.document.name} · score {Float.round(hit.score, 4)}
+                {hit.document.name} Â· score {Float.round(hit.score, 4)}
               </p>
+
               <p class="text-sm whitespace-pre-wrap">{hit.content}</p>
             </div>
           </div>
@@ -906,6 +968,7 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
           <div class="card border border-base-200 p-4 space-y-2" id="retrieval-evals-card">
             <div class="flex items-center gap-2">
               <p class="text-sm font-semibold">Retrieval evals</p>
+
               <button
                 :if={@retrieval_cases != []}
                 class="btn btn-primary btn-xs ml-auto"
@@ -914,11 +977,10 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                 Score retrieval
               </button>
             </div>
-            <p class="text-xs opacity-60">
-              Golden cases: for each question, a passage containing the
+
+            <p class="text-xs opacity-60">Golden cases: for each question, a passage containing the
               expected text should come back. Re-score after chunking or
-              backend changes to see if retrieval got better or worse.
-            </p>
+              backend changes to see if retrieval got better or worse.</p>
 
             <form phx-submit="add_retrieval_case" class="flex gap-2" id="retrieval-case-form">
               <input
@@ -932,8 +994,7 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                 name="expected"
                 placeholder="expected passage text"
                 class="input input-bordered input-sm flex-1"
-              />
-              <button class="btn btn-sm">Add case</button>
+              /> <button class="btn btn-sm">Add case</button>
             </form>
 
             <div
@@ -941,22 +1002,28 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
               class="rounded-box bg-base-200/50 p-2 text-sm"
               id="retrieval-summary"
             >
-              Hit rate {@retrieval_summary.hit_rate} · MRR {@retrieval_summary.mrr} · {@retrieval_summary.hits}/{@retrieval_summary.total} found
+              Hit rate {@retrieval_summary.hit_rate} Â· MRR {@retrieval_summary.mrr} Â· {@retrieval_summary.hits}/{@retrieval_summary.total} found
             </div>
 
             <table :if={@retrieval_cases != []} class="table table-xs">
               <thead>
                 <tr>
                   <th>Question</th>
+
                   <th>Expected</th>
+
                   <th>Rank</th>
+
                   <th></th>
                 </tr>
               </thead>
+
               <tbody>
                 <tr :for={retrieval_case <- @retrieval_cases} id={"rcase-#{retrieval_case.id}"}>
                   <td class="max-w-xs truncate">{retrieval_case.question}</td>
+
                   <td class="max-w-xs truncate opacity-70">{retrieval_case.expected}</td>
+
                   <td>
                     <span :if={@retrieval_summary} class="font-mono text-xs">
                       {case Enum.find(
@@ -965,17 +1032,18 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                             ) do
                         %{rank: nil} -> "miss"
                         %{rank: rank} -> "#" <> to_string(rank)
-                        _not_scored -> "—"
+                        _not_scored -> "â€”"
                       end}
                     </span>
                   </td>
+
                   <td>
                     <button
                       class="btn btn-ghost btn-xs text-error"
                       phx-click="delete_retrieval_case"
                       phx-value-case-id={retrieval_case.id}
                     >
-                      ✕
+                      âœ•
                     </button>
                   </td>
                 </tr>
@@ -998,8 +1066,9 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
         id="dataset-trash"
       >
         <summary class="cursor-pointer text-sm font-semibold">
-          Trash ({length(@trashed_datasets)}) — purged after 30 days
+          Trash ({length(@trashed_datasets)}) â€” purged after 30 days
         </summary>
+
         <div class="mt-2 space-y-2">
           <div
             :for={dataset <- @trashed_datasets}

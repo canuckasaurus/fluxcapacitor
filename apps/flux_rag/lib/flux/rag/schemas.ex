@@ -148,6 +148,36 @@ defmodule Flux.RAG.EntityMention do
   end
 end
 
+defmodule Flux.RAG.UrlSource do
+  @moduledoc """
+  A remembered URL source: re-fetched nightly so the dataset tracks the
+  page (or, with `crawl`, the page and its same-site links).
+  """
+  use Ecto.Schema
+  import Ecto.Changeset
+
+  @primary_key {:id, UUIDv7, autogenerate: true}
+  @foreign_key_type :binary_id
+
+  schema "dataset_url_sources" do
+    belongs_to(:workspace, Flux.Accounts.Workspace)
+    belongs_to(:dataset, Flux.RAG.Dataset)
+
+    field(:url, :string)
+    field(:crawl, :boolean, default: false)
+    field(:last_fetched_at, :utc_datetime)
+
+    timestamps(type: :utc_datetime)
+  end
+
+  def changeset(source, attrs) do
+    source
+    |> cast(attrs, [:url, :crawl])
+    |> validate_required([:url])
+    |> unique_constraint([:dataset_id, :url])
+  end
+end
+
 defmodule Flux.RAG.RetrievalCase do
   @moduledoc """
   A golden retrieval case: for `question`, a passage containing

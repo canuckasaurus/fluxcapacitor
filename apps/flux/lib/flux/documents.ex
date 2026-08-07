@@ -22,6 +22,17 @@ defmodule Flux.Documents do
     end
   end
 
+  @doc """
+  Extracts text from a raw binary through the same pipeline as
+  `extract/2` — native formats directly, office formats via Tika when
+  configured. Used by knowledge uploads (PDF/Office ingestion).
+  """
+  def extract_binary(name, content_type, binary) when is_binary(binary) do
+    with {:ok, text} <- to_text(%{name: name, content_type: content_type}, binary) do
+      {:ok, String.slice(text, 0, @max_text_bytes)}
+    end
+  end
+
   defp fetch(workspace_id, file_id) do
     case Ecto.UUID.cast(to_string(file_id)) do
       {:ok, id} ->
