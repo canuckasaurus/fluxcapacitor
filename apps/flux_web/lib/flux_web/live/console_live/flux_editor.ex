@@ -216,7 +216,9 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
            resume_errors: %{},
            models: Providers.available_models(scope),
            toolsets:
-             Flux.Tools.list_toolsets(scope) ++ Flux.Tools.installed_plugin_toolsets(scope),
+             Flux.Tools.list_toolsets(scope) ++
+               Flux.Tools.installed_plugin_toolsets(scope) ++
+               Flux.Tools.mcp_toolsets(scope),
            fluxes: Workflows.list_workflows(scope),
            prompt_snippets: Flux.Prompts.list(scope),
            datasets: Flux.RAG.list_datasets(scope),

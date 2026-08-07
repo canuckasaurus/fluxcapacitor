@@ -125,6 +125,11 @@ defmodule Flux.Tools do
   in argument values are substituted server-side.
   """
   # `plugin:<id>` toolset ids route to installed tool plugins.
+  def invoke_for_workspace(workspace_id, "mcp:" <> server_id, operation_id, args)
+      when is_map(args) do
+    Flux.MCP.invoke_for_workspace(workspace_id, server_id, operation_id, args)
+  end
+
   def invoke_for_workspace(workspace_id, "plugin:" <> plugin_id, operation_id, args)
       when is_map(args) do
     if plugin_installed?(workspace_id, plugin_id) do
@@ -258,6 +263,28 @@ defmodule Flux.Tools do
               "name" => operation.name,
               "description" => operation.description,
               "parameters" => operation.parameters
+            }
+          end
+      }
+    end
+  end
+
+  @doc """
+  Registered MCP servers shaped like toolsets for the picker: id
+  `"mcp:<server_id>"`, one operation per advertised tool.
+  """
+  def mcp_toolsets(%Scope{} = scope) do
+    for server <- Flux.MCP.list_servers(scope) do
+      %{
+        id: "mcp:" <> server.id,
+        name: server.name <> " (MCP)",
+        operations:
+          for tool <- server.tools do
+            %{
+              "operation_id" => tool["name"],
+              "name" => tool["name"],
+              "description" => tool["description"],
+              "parameters" => tool["input_schema"]
             }
           end
       }

@@ -21,7 +21,9 @@ defmodule FluxWeb.ConsoleLive.Tools do
        importing: false,
        expanded_id: nil,
        snippets: Flux.Prompts.list(scope),
-       can_manage: RBAC.can?(scope, :tool_manage)
+       can_manage: RBAC.can?(scope, :tool_manage),
+       can_mcp: RBAC.can?(scope, :mcp_manage),
+       mcp_servers: Flux.MCP.list_servers(scope)
      )
      |> load_toolsets()}
   end
@@ -52,6 +54,65 @@ defmodule FluxWeb.ConsoleLive.Tools do
   def handle_event("delete_snippet", %{"snippet-id" => snippet_id}, socket) do
     Flux.Prompts.delete(socket.assigns.current_scope, snippet_id)
     {:noreply, assign(socket, snippets: Flux.Prompts.list(socket.assigns.current_scope))}
+  end
+
+  def handle_event("add_mcp_server", params, socket) do
+    headers =
+      case String.trim(params["auth_header"] || "") do
+        "" -> %{}
+        value -> %{"authorization" => value}
+      end
+
+    case Flux.MCP.create_server(socket.assigns.current_scope, %{
+           "name" => params["name"],
+           "url" => params["url"],
+           "headers" => headers
+         }) do
+      {:ok, server} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "#{server.name} connected — #{length(server.tools)} tool(s).")
+         |> assign(mcp_servers: Flux.MCP.list_servers(socket.assigns.current_scope))}
+
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "You don't have permission to manage MCP servers.")}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {field, {message, _meta}} = List.first(changeset.errors)
+        {:noreply, put_flash(socket, :error, "#{field} #{message}")}
+
+      {:error, reason} when is_binary(reason) ->
+        {:noreply, put_flash(socket, :error, "Could not connect: #{reason}")}
+    end
+  end
+
+  def handle_event("refresh_mcp_server", %{"server-id" => id}, socket) do
+    case Flux.MCP.refresh_server(socket.assigns.current_scope, id) do
+      {:ok, server} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "#{server.name} now advertises #{length(server.tools)} tool(s).")
+         |> assign(mcp_servers: Flux.MCP.list_servers(socket.assigns.current_scope))}
+
+      {:error, reason} when is_binary(reason) ->
+        {:noreply, put_flash(socket, :error, "Refresh failed: #{reason}")}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not refresh that server.")}
+    end
+  end
+
+  def handle_event("delete_mcp_server", %{"server-id" => id}, socket) do
+    case Flux.MCP.delete_server(socket.assigns.current_scope, id) do
+      {:ok, _deleted} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "MCP server removed.")
+         |> assign(mcp_servers: Flux.MCP.list_servers(socket.assigns.current_scope))}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not remove that server.")}
+    end
   end
 
   def handle_event("import", %{"name" => name, "spec" => spec}, socket) do
@@ -347,6 +408,75 @@ defmodule FluxWeb.ConsoleLive.Tools do
             </button>
           </div>
         </div>
+      </div>
+
+      <div :if={@can_mcp} class="card border border-base-200 p-6 space-y-3" id="mcp-servers">
+        <h2 class="font-semibold">MCP servers</h2>
+        <p class="text-sm opacity-70">
+          Point the workspace at a Model Context Protocol server (Streamable
+          HTTP) and its tools join the picker — tool and agent nodes call
+          them like any other toolset. Auth headers are stored encrypted.
+        </p>
+
+        <div
+          :for={server <- @mcp_servers}
+          class="flex items-center gap-2 text-sm border-b border-base-200 last:border-0 py-2"
+          id={"mcp-#{server.id}"}
+        >
+          <.icon name="hero-server-stack" class="size-4 opacity-60" />
+          <span class="font-semibold">{server.name}</span>
+          <span class="font-mono text-xs opacity-60 truncate max-w-60">{server.url}</span>
+          <span class="badge badge-ghost badge-sm">{length(server.tools)} tool(s)</span>
+          <details :if={server.tools != []} class="text-xs">
+            <summary class="cursor-pointer opacity-70">show</summary>
+            <span :for={tool <- server.tools} class="badge badge-outline badge-xs mr-1">
+              {tool["name"]}
+            </span>
+          </details>
+          <span class="ml-auto flex gap-1">
+            <button
+              class="btn btn-ghost btn-xs"
+              phx-click="refresh_mcp_server"
+              phx-value-server-id={server.id}
+              title="Re-fetch the tool list"
+            >
+              Refresh
+            </button>
+            <button
+              class="btn btn-ghost btn-xs text-error"
+              phx-click="delete_mcp_server"
+              phx-value-server-id={server.id}
+              data-confirm={"Remove #{server.name}? Fluxes using its tools will fail."}
+            >
+              Remove
+            </button>
+          </span>
+        </div>
+
+        <form phx-submit="add_mcp_server" id="add-mcp-form" class="flex flex-wrap gap-2">
+          <input
+            type="text"
+            name="name"
+            required
+            placeholder="Name"
+            class="input input-bordered input-sm w-40"
+          />
+          <input
+            type="url"
+            name="url"
+            required
+            placeholder="https://mcp.example.com/mcp"
+            class="input input-bordered input-sm w-72"
+          />
+          <input
+            type="password"
+            name="auth_header"
+            placeholder="Authorization header (optional)"
+            class="input input-bordered input-sm w-64"
+            autocomplete="off"
+          />
+          <button class="btn btn-primary btn-sm">Connect</button>
+        </form>
       </div>
 
       <div class="card border border-base-200 p-6 space-y-3" id="prompt-library">
