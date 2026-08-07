@@ -52,6 +52,49 @@ defmodule Flux.WorkflowsTest do
     }
   end
 
+  test "a per-flux monthly budget warns at 80% and refuses when spent", %{
+    scope: scope,
+    workflow: workflow,
+    workspace: workspace
+  } do
+    {:ok, workflow} = Workflows.update_draft(scope, workflow, echo_graph())
+    {:ok, workflow} = Workflows.update_workflow(scope, workflow, %{"monthly_token_budget" => 100})
+
+    # 85 of 100 tokens already spent this month → warn once, still run.
+    Flux.Repo.insert!(%Flux.Workflows.WorkflowRun{
+      workspace_id: workspace.id,
+      workflow_id: workflow.id,
+      status: :succeeded,
+      usage: %{"input_tokens" => 60, "output_tokens" => 25}
+    })
+
+    {:ok, run} = Workflows.start_run(scope, workflow, %{"query" => "still under"})
+    assert_receive {:run_finished, _run}, 5_000
+    assert run.id != nil
+
+    notifications = Flux.Notifications.list(scope)
+    assert Enum.any?(notifications, &(&1.kind == "budget_warning" and &1.title =~ workflow.name))
+
+    # Past the cap → honest refusal, distinct from the workspace budget.
+    Flux.Repo.insert!(%Flux.Workflows.WorkflowRun{
+      workspace_id: workspace.id,
+      workflow_id: workflow.id,
+      status: :succeeded,
+      usage: %{"input_tokens" => 50, "output_tokens" => 0}
+    })
+
+    workflow = Workflows.get_workflow(scope, workflow.id)
+
+    assert {:error, :flux_budget_exhausted} =
+             Workflows.start_run(scope, workflow, %{"query" => "over"})
+
+    # The 80% warning fired exactly once this month.
+    warnings =
+      Enum.count(Flux.Notifications.list(scope), &(&1.kind == "budget_warning"))
+
+    assert warnings == 1
+  end
+
   test "duplicate_workflow copies the draft graph into a '(copy)' flux", %{
     scope: scope,
     workflow: workflow

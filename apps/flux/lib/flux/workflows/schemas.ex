@@ -23,15 +23,19 @@ defmodule Flux.Workflows.Workflow do
     field :deleted_at, :utc_datetime
     field :ab_version_b, :integer
     field :ab_split, :integer, default: 0
+    # Optional per-flux monthly token cap (workspace budget still applies).
+    field :monthly_token_budget, :integer
+    field :budget_warned_month, :string
 
     timestamps(type: :utc_datetime)
   end
 
   def changeset(workflow, attrs) do
     workflow
-    |> cast(attrs, [:name, :description])
+    |> cast(attrs, [:name, :description, :monthly_token_budget])
     |> validate_required([:name])
     |> validate_length(:name, min: 1, max: 255)
+    |> validate_number(:monthly_token_budget, greater_than: 0)
   end
 end
 

@@ -134,6 +134,22 @@ defmodule Flux.Usage do
     :ok
   end
 
+  @doc "This calendar month's run tokens for one flux (per-flux budgets)."
+  def month_tokens_for_workflow(workflow_id) do
+    month_start =
+      Date.utc_today()
+      |> Date.beginning_of_month()
+      |> DateTime.new!(~T[00:00:00])
+
+    Flux.Workflows.WorkflowRun
+    |> where([r], r.workflow_id == ^workflow_id and r.inserted_at >= ^month_start)
+    |> select([r], r.usage)
+    |> Repo.all(skip_workspace_guard: true)
+    |> Enum.reduce(0, fn usage, acc ->
+      acc + (usage["input_tokens"] || 0) + (usage["output_tokens"] || 0)
+    end)
+  end
+
   @doc """
   Tokens spent this calendar month across workflow runs and chat replies
   — the number the monthly budget gate compares against. Worker-safe (no

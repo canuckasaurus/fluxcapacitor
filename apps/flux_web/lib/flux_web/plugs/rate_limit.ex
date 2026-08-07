@@ -32,6 +32,7 @@ defmodule FluxWeb.Plugs.RateLimit do
 
   defp enforce(conn, opts) do
     key = "#{opts.name}:#{principal(conn, opts.by)}"
+    opts = %{opts | limit: app_override(conn, opts.by) || opts.limit}
 
     case FluxWeb.RateLimit.hit(key, opts.scale_ms, opts.limit) do
       {:allow, count} ->
@@ -69,6 +70,17 @@ defmodule FluxWeb.Plugs.RateLimit do
   end
 
   defp principal(conn, :ip), do: "ip:" <> to_string(:inet.ntoa(conn.remote_ip))
+
+  # Apps may set their own per-minute limit (Chat settings), overriding
+  # the pipeline default for their tokens only.
+  defp app_override(conn, :service) do
+    case conn.assigns[:service_app] do
+      %{rate_limit_per_minute: limit} when is_integer(limit) and limit > 0 -> limit
+      _default -> nil
+    end
+  end
+
+  defp app_override(_conn, _by), do: nil
 
   defp enabled?, do: Application.get_env(:flux_web, :rate_limit_enabled, true)
 end

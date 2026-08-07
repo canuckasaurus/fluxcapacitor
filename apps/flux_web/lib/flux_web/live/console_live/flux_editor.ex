@@ -1063,6 +1063,27 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
      )}
   end
 
+  def handle_event("set_flux_budget", %{"tokens" => tokens}, socket) do
+    parsed =
+      case Integer.parse(tokens) do
+        {n, ""} when n > 0 -> n
+        _blank_or_invalid -> nil
+      end
+
+    case Workflows.update_workflow(socket.assigns.current_scope, socket.assigns.workflow, %{
+           "monthly_token_budget" => parsed
+         }) do
+      {:ok, workflow} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, (parsed && "Flux budget set.") || "Flux budget removed.")
+         |> assign(workflow: workflow)}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not update the budget.")}
+    end
+  end
+
   def handle_event("set_ab", %{"version_b" => version_b, "split" => split}, socket) do
     version_b =
       case Integer.parse(version_b) do
@@ -5076,6 +5097,23 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
             Publish this flux, then call it with a workflow API key:
           </p>
           <pre class="rounded-box bg-base-200 p-3 text-xs overflow-x-auto">{api_snippet()}</pre>
+          <form
+            :if={@can_manage_tokens}
+            phx-submit="set_flux_budget"
+            id="flux-budget-form"
+            class="flex gap-2 items-center"
+          >
+            <input
+              type="number"
+              name="tokens"
+              value={@workflow.monthly_token_budget}
+              min="1"
+              placeholder="∞"
+              class="input input-bordered input-sm w-40"
+              title="Monthly token cap for this flux alone — warns at 80%, refuses new runs past it. The workspace budget still applies."
+            /> <span class="text-sm opacity-70">tokens / month (this flux)</span>
+            <button class="btn btn-outline btn-sm">Save budget</button>
+          </form>
           <div :if={@new_token_raw} class="alert alert-success text-sm">
             <div>
               <p class="font-semibold">Copy this key now — it won't be shown again:</p>
