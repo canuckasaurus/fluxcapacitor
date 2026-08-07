@@ -74,6 +74,49 @@ defmodule FluxWeb.McpServerTest do
     assert response["error"]["code"] == -32602
   end
 
+  test "prompts/list and prompts/get serve the prompt library", %{conn: conn, scope: scope} do
+    {:ok, _snippet} = Flux.Prompts.upsert(scope, "triage-intro", "You are a triage assistant.")
+
+    listed = json_response(rpc(conn, "prompts/list", %{}), 200)
+    assert [%{"name" => "triage-intro"}] = listed["result"]["prompts"]
+
+    fetched = json_response(rpc(conn, "prompts/get", %{"name" => "triage-intro"}), 200)
+
+    assert [%{"role" => "user", "content" => %{"type" => "text", "text" => text}}] =
+             fetched["result"]["messages"]
+
+    assert text == "You are a triage assistant."
+
+    missing = json_response(rpc(conn, "prompts/get", %{"name" => "nope"}), 200)
+    assert missing["error"]["code"] == -32602
+  end
+
+  test "resources/list and resources/read serve dataset documents", %{conn: conn, scope: scope} do
+    {:ok, dataset} =
+      Flux.RAG.create_dataset(scope, %{
+        "name" => "Handbook",
+        "embedding_plugin_id" => "echo",
+        "embedding_model" => "echo-embed"
+      })
+
+    {:ok, document} =
+      Flux.RAG.add_document(scope, dataset, %{
+        name: "policy.md",
+        content: "The warranty is two years."
+      })
+
+    listed = json_response(rpc(conn, "resources/list", %{}), 200)
+    assert [resource] = listed["result"]["resources"]
+    assert resource["name"] == "Handbook / policy.md"
+    assert resource["uri"] == "flux://datasets/#{dataset.id}/documents/#{document.id}"
+
+    read = json_response(rpc(conn, "resources/read", %{"uri" => resource["uri"]}), 200)
+    assert [%{"text" => "The warranty is two years."}] = read["result"]["contents"]
+
+    bogus = json_response(rpc(conn, "resources/read", %{"uri" => "flux://nope"}), 200)
+    assert bogus["error"]["code"] == -32602
+  end
+
   test "a missing or invalid token is refused", %{conn: conn} do
     bare =
       conn

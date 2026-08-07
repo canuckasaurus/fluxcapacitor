@@ -42,8 +42,12 @@ defmodule FluxWeb.McpController do
   defp dispatch(conn, _workspace_id, %{"method" => "initialize", "id" => id}) do
     result(conn, id, %{
       "protocolVersion" => @protocol_version,
-      "capabilities" => %{"tools" => %{"listChanged" => false}},
-      "serverInfo" => %{"name" => "fluxcapacitor", "version" => "0.2.0"}
+      "capabilities" => %{
+        "tools" => %{"listChanged" => false},
+        "prompts" => %{"listChanged" => false},
+        "resources" => %{"listChanged" => false}
+      },
+      "serverInfo" => %{"name" => "fluxcapacitor", "version" => "0.3.0"}
     })
   end
 
@@ -96,12 +100,92 @@ defmodule FluxWeb.McpController do
     end
   end
 
+  # Prompt library entries as MCP prompts.
+  defp dispatch(conn, workspace_id, %{"method" => "prompts/list", "id" => id}) do
+    prompts =
+      for snippet <- Flux.Prompts.list(scope_for(workspace_id)) do
+        %{"name" => snippet.name, "description" => String.slice(snippet.content, 0, 120)}
+      end
+
+    result(conn, id, %{"prompts" => prompts})
+  end
+
+  defp dispatch(conn, workspace_id, %{"method" => "prompts/get", "id" => id} = params) do
+    name = get_in(params, ["params", "name"]) || ""
+
+    case Enum.find(Flux.Prompts.list(scope_for(workspace_id)), &(&1.name == name)) do
+      nil ->
+        error(conn, id, -32602, "unknown prompt: #{name}")
+
+      snippet ->
+        result(conn, id, %{
+          "description" => snippet.name,
+          "messages" => [
+            %{"role" => "user", "content" => %{"type" => "text", "text" => snippet.content}}
+          ]
+        })
+    end
+  end
+
+  # Dataset documents as MCP resources.
+  defp dispatch(conn, workspace_id, %{"method" => "resources/list", "id" => id}) do
+    scope = scope_for(workspace_id)
+
+    resources =
+      for dataset <- rag().list_datasets(scope),
+          document <- rag().list_documents(scope, dataset.id),
+          document.content not in [nil, ""] do
+        %{
+          "uri" => "flux://datasets/#{dataset.id}/documents/#{document.id}",
+          "name" => "#{dataset.name} / #{document.name}",
+          "mimeType" => "text/markdown"
+        }
+      end
+
+    result(conn, id, %{"resources" => resources})
+  end
+
+  defp dispatch(conn, workspace_id, %{"method" => "resources/read", "id" => id} = params) do
+    uri = get_in(params, ["params", "uri"]) || ""
+    scope = scope_for(workspace_id)
+
+    with %{"dataset" => dataset_id, "document" => document_id} <-
+           Regex.named_captures(
+             ~r{^flux://datasets/(?<dataset>[^/]+)/documents/(?<document>[^/]+)$},
+             uri
+           ),
+         documents when is_list(documents) <- safe_documents(scope, dataset_id),
+         %{content: content} = document when content not in [nil, ""] <-
+           Enum.find(documents, &(&1.id == document_id)) do
+      result(conn, id, %{
+        "contents" => [
+          %{"uri" => uri, "mimeType" => "text/markdown", "text" => document.content}
+        ]
+      })
+    else
+      _missing -> error(conn, id, -32602, "unknown resource: #{uri}")
+    end
+  end
+
   defp dispatch(conn, _workspace_id, %{"method" => method} = params) do
     error(conn, params["id"], -32601, "method not supported: #{method}")
   end
 
   defp dispatch(conn, _workspace_id, params) do
     error(conn, params["id"], -32600, "invalid JSON-RPC request")
+  end
+
+  defp scope_for(workspace_id) do
+    %Scope{workspace: %Flux.Accounts.Workspace{id: workspace_id}}
+  end
+
+  defp rag, do: Application.get_env(:flux, :rag_module, Flux.RAG)
+
+  defp safe_documents(scope, dataset_id) do
+    case rag().get_dataset(scope, dataset_id) do
+      {:error, :not_found} -> {:error, :not_found}
+      _dataset -> rag().list_documents(scope, dataset_id)
+    end
   end
 
   # Published fluxes as tools; names are slugs, deduped by first-8 id
