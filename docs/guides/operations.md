@@ -82,6 +82,51 @@ before anything real depends on it.
 - **Remembered URL sources** re-fetch nightly at 03:00 UTC, replacing
   their documents in place.
 
+### Restore runbook
+
+Rehearsed against a live deployment (see the parity ledger, entry 40).
+To restore a workspace from an export archive:
+
+1. **Have the archive** — a scheduled backup from the Files page, or a
+   manual download from Settings → Export.
+2. **Create (or pick) the target workspace** and make it current, then
+   import via Settings → Import archive. Headless, the same drill is:
+
+   ```
+   docker exec <app-container> bin/flux rpc '
+   account = Flux.Repo.get_by!(Flux.Accounts.Account, email: "you@example.com")
+   {:ok, {workspace, _}} = Flux.Accounts.create_workspace(account, %{name: "Restored"})
+   {:ok, _} = Flux.Accounts.switch_workspace(account, workspace.id)
+   scope = Flux.Accounts.scope_for(Flux.Repo.get!(Flux.Accounts.Account, account.id))
+   {:ok, counts} = Flux.Import.workspace(scope, File.read!("/path/to/export.json"))
+   IO.inspect(counts)
+   '
+   ```
+
+3. **Verify counts** — the import reports fluxes/apps/datasets/documents
+   restored, with warnings for anything skipped.
+4. **Rebind cross-references** — a chatflow's flux binding and provider
+   credentials (never exported) need reconnecting by hand.
+5. Imported documents re-index automatically; retrieval works as soon
+   as indexing completes.
+
+Postgres itself should also be backed up (`pg_dump` or volume
+snapshots) — the JSON archive is the portable, workspace-granular
+layer, not a full database replacement.
+
+## Performance baselines
+
+Round-2 load guards (run with `mix test --include perf apps/flux_web/test/perf`),
+measured on the dev workstation, echo provider:
+
+- **50 concurrent chat sessions**: all stream to completion in ~350 ms
+  wall clock (~6 ms amortized per session).
+- **100-row batch**: completes in ~7.4 s (~13.5 rows/s) through the
+  full engine + persistence path.
+- **Corpus scale** (round 1, 10k segments / 1k conversations): hybrid
+  retrieval ~ms-hundreds, monitor reads and usage rollups well under
+  their 3 s ceilings.
+
 ## Scheduled things, at a glance
 
 | What | When | Where configured |

@@ -127,7 +127,11 @@ orchestrator, no queue infrastructure beyond Postgres.
   app's theme, so shared links unfurl with the app's identity. API
   tokens are **perpetual or expiring by choice** (30/90/365 days),
   show **expiry and last-used**, revoke in one click, and expired ones
-  answer `401 token_expired`. A **concurrent-run cap** protects
+  answer `401 token_expired` — with **workspace-level `ws-` keys**
+  (minted on the settings page) alongside per-app and per-flux ones.
+  Apps and fluxes **duplicate in one click** (config and draft graph
+  copied, publish state reset), and any conversation **downloads as
+  Markdown or JSON** from the chat header. A **concurrent-run cap** protects
   provider limits, and notification kinds **route to chosen webhook
   endpoints** (`notification.*` events). A dashboard **getting-started
   checklist** walks new workspaces through provider → flux → publish →
@@ -167,7 +171,10 @@ orchestrator, no queue infrastructure beyond Postgres.
   (built-in + custom roles), **OIDC single sign-on**, **SCIM 2.0
   provisioning**, plan-based feature gating, a repo-level tenancy guard on
   every query against tenant tables, per-workspace encryption keys, an
-  append-only audit trail, and workspace export/import archives.
+  append-only audit trail (**date-filterable, exports as CSV**),
+  workspace export/import archives with a **rehearsed restore
+  runbook**, and per-account **session management** (see every signed-in
+  device, revoke one, or log out everywhere).
 - **Operations built in** — Oban (on Postgres) is the platform's only
   scheduler: cron/interval triggers, document indexing, retention sweeps,
   batch and eval execution, and **signed outgoing webhooks** (per-workspace
@@ -175,6 +182,10 @@ orchestrator, no queue infrastructure beyond Postgres.
   all queues in the same database.
   Prometheus metrics, OpenTelemetry traces, and structured JSON logs are one
   env var away; golden run fixtures replay recorded workflows in CI.
+  Production email (confirmation, magic links) speaks **SMTP to any
+  relay** with four env vars (`FLUX_SMTP_HOST` + friends), and the
+  codebase holds the line with **sobelow, credo, deps.audit, and
+  dialyzer** wired into the workflow.
 
 ## Architecture
 

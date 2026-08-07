@@ -717,3 +717,53 @@ born, undetected because every prior live verification exercised pages
 and runs, not file writes. The S3 adapter now self-provisions the
 bucket on first write (create + retry on 404). v0.2.0 was re-tagged to
 include the fix — it was minutes old and part of this same batch.
+
+**40. Batch 16 — the hardening ten (all ten picked).** Static
+analysis (sobelow can't fingerprint on Windows — Path.absname crash —
+so it ran in a Linux hexpm/elixir container against the mounted repo;
+one real finding fixed: the plugin endpoint controller now allowlists
+response content-types instead of echoing whatever the plugin claims;
+the Plug.Upload traversal flag is annotated as a false positive;
+credo --only warning,consistency and deps.audit joined the precommit
+alias); **SMTP delivery** (gen_smtp adapter behind FLUX_SMTP_HOST/
+PORT/USERNAME/PASSWORD/SSL with FLUX_MAIL_FROM feeding the notifier —
+production email is off the blocked list; a runtime.exs lesson: the
+HEEx binding rule applies to plain Elixir too, `cond and (x = ...)`
+doesn't leak into the block); **backup restore drill** (live
+export→import round trip through bin/flux rpc in the running
+container: seeded content, exported the archive, imported into a
+fresh workspace, counts and contents matched, drill artifacts cleaned
+up; restore runbook now in the operations guide. The drill earned its
+keep twice: the demo seeder's inline indexing had crashed on a
+cold-start race — fine on retry — and the retrieval verification hit
+a REAL production bug: pgvector search crashed in the release because
+Postgrex can't bind a `vector`-typed parameter; `$1::vector` became
+`$1::text::vector` and the fixed SQL verified against the live
+container. Prod-only code paths stay broken until something walks
+them — the MinIO bucket lesson, retaught by retrieval); **workspace
+API keys** (ws- prefixed tokens bound to the workspace alone — the
+binding check constraint now allows app-less flux-less rows, dropped
+by migration with a data-safe down; same perpetual/expiring lifetimes
+as every other kind, minted and revoked on a new settings card,
+resolved by ServiceAuth with the same 401 token_expired honesty);
+**session management** (account settings lists every session token
+with its signed-in date, marks the current device, revokes single
+sessions, and logs out everywhere — which also ends the current
+session and redirects to login); **duplicate** (one-click copies of
+fluxes — draft graph included, editor opens on the copy — and apps —
+full configuration, publish state reset, new site token); 
+**conversation export** (any conversation downloads as Markdown or
+JSON from the chat header); **audit export + filter** (from/to date
+window on the audit page, CSV download honoring the same window,
+metadata quoted RFC-4180 style); **perf round 2** (50 concurrent
+chat sessions stream to completion in ~350ms wall — ~6ms amortized —
+and a 100-row batch sustains ~13.5 rows/s through the full engine
+path; numbers recorded in the operations guide beside the round-1
+corpus baselines); and **dialyzer** (mix + ex_unit in the PLT, the
+one over-narrowed engine pattern documented in .dialyzer_ignore.exs,
+and the fresh warnings it surfaced all fixed for real: a dead
+String.slice fallback in the chunker, a dead Cachex 3-tuple clause in
+crypto, a covered format_number clause in the utility plugin, and
+missing t() types on the three schemas Scope references). 93 flux +
+50 targeted web tests green along the way; full suite, format, and
+image rebuild close the batch.

@@ -5,6 +5,38 @@ follows [Keep a Changelog](https://keepachangelog.com/); the project follows
 semantic versioning once past 1.0. Detailed build history lives in the ledger
 at `docs/PARITY-PLAN.md`.
 
+## Unreleased
+
+Hardening batch: security static analysis, real email, and the
+account/workspace hygiene features.
+
+### Security & hygiene
+- Sobelow, credo (warnings + consistency), `deps.audit`, and dialyzer
+  wired into the workflow; one real finding fixed (plugin endpoint
+  content-type allowlist) and every dialyzer warning resolved or
+  explicitly justified.
+- Session management on account settings: every signed-in device
+  listed, revoke one, or log out everywhere.
+- Workspace-level `ws-` API keys (same perpetual/expiring lifetimes as
+  app and flux keys) minted from the settings page.
+- Audit log gains a from/to date filter and CSV export.
+
+### Product
+- Duplicate any app or flux in one click — configuration and draft
+  graph copied, publish state reset.
+- Conversations download as Markdown or JSON from the chat header.
+
+### Operations
+- SMTP delivery for account email against any relay
+  (`FLUX_SMTP_HOST/PORT/USERNAME/PASSWORD/SSL`, `FLUX_MAIL_FROM`).
+- Backup restore drill rehearsed against the live container; restore
+  runbook added to the operations guide.
+- **Fixed:** pgvector similarity search crashed in production releases
+  (`vector` type unknown to Postgrex) — parameters now cast through
+  text. Found by the restore drill's retrieval check.
+- Round-2 performance baselines: 50 concurrent chat streams ~350 ms
+  wall; 100-row batch ~13.5 rows/s.
+
 ## v0.2.0 — 2026-08-07
 
 Four batches on from v0.1.0: the chat experience finished, the shop
