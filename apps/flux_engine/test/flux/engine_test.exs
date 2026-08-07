@@ -1951,6 +1951,95 @@ defmodule Flux.EngineTest do
       assert result.outputs["output"] == "got positive"
     end
 
+    test "invalid structured output gets one corrective retry, then fails" do
+      schema = %{
+        "type" => "object",
+        "properties" => %{
+          "sentiment" => %{"type" => "string", "enum" => ["positive", "negative"]},
+          "score" => %{"type" => "number"}
+        },
+        "required" => ["sentiment", "score"]
+      }
+
+      graph = %{
+        "nodes" => [
+          start_node(),
+          node!("llm_1", "llm", %{
+            "provider_plugin_id" => "p",
+            "model" => "m",
+            "prompt" => "{{start.query}}",
+            "output_schema" => schema
+          }),
+          node!("t", "template", %{"template" => "{{llm_1.output.sentiment}}"})
+        ],
+        "edges" => [edge!("start", "llm_1"), edge!("llm_1", "t")]
+      }
+
+      {:ok, calls} = Agent.start_link(fn -> [] end)
+
+      host = %Host{
+        emit: fn _e -> :ok end,
+        invoke_llm: fn request, _chunk ->
+          Agent.update(calls, &[request | &1])
+
+          case Agent.get(calls, &length/1) do
+            1 ->
+              # Wrong: score missing, sentiment outside the enum.
+              {:ok,
+               %{
+                 content: "",
+                 usage: %{"output_tokens" => 5},
+                 tool_calls: [%{id: "r1", name: "respond", arguments: %{"sentiment" => "meh"}}]
+               }}
+
+            _retry ->
+              {:ok,
+               %{
+                 content: "",
+                 usage: %{"output_tokens" => 7},
+                 tool_calls: [
+                   %{
+                     id: "r2",
+                     name: "respond",
+                     arguments: %{"sentiment" => "positive", "score" => 0.9}
+                   }
+                 ]
+               }}
+          end
+        end
+      }
+
+      {:ok, built} = Engine.build(graph)
+      assert {:ok, result} = Engine.run(built, %{"query" => "review"}, host)
+      assert result.outputs["output"] == "positive"
+
+      # The retry prompt quoted the validation errors back to the model.
+      [retry_request, _first] = Agent.get(calls, & &1)
+      retry_text = retry_request.messages |> List.last() |> Map.get(:content)
+      assert retry_text =~ "did not match the required schema"
+      assert retry_text =~ "score"
+
+      llm = Enum.find(result.node_executions, &(&1["node_id"] == "llm_1"))
+      assert llm["outputs"]["schema_retried"] == true
+      assert llm["outputs"]["usage"]["output_tokens"] == 12
+
+      # A model that never conforms fails the node with the errors.
+      stubborn = %Host{
+        emit: fn _e -> :ok end,
+        invoke_llm: fn _request, _chunk ->
+          {:ok,
+           %{
+             content: "",
+             usage: %{},
+             tool_calls: [%{id: "r", name: "respond", arguments: %{"sentiment" => "meh"}}]
+           }}
+        end
+      }
+
+      assert {:error, failed} = Engine.run(built, %{"query" => "review"}, stubborn)
+      assert failed.error =~ "schema validation"
+    end
+
     test "knowledge retrieval node joins hits and exposes citations" do
       graph = %{
         "nodes" => [

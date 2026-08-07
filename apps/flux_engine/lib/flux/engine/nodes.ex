@@ -58,7 +58,9 @@ defmodule Flux.Engine.Nodes.LLM do
   Renders the prompt templates and invokes the model through the host.
   Config: `provider_plugin_id`, `model`, `system_prompt`, `prompt`,
   `params`, and optional `output_schema` (a JSON schema) — when set, a
-  forced `respond` tool call yields a structured `"output"` map.
+  forced `respond` tool call yields a structured `"output"` map,
+  validated against the schema with one corrective retry (errors quoted
+  back to the model) before the node fails.
   Outputs `%{"text", "usage"}` (+ `"output"` with a schema); streams
   deltas as `{:node_chunk, %{node_id, delta}}` events.
   """
@@ -124,7 +126,7 @@ defmodule Flux.Engine.Nodes.LLM do
           }
 
           if is_map(schema) do
-            {:ok, Map.put(outputs, "output", structured_output(result))}
+            with_valid_output(outputs, result, schema, host, node, invoke, request, chunk_emit)
           else
             {:ok, outputs}
           end
@@ -134,6 +136,70 @@ defmodule Flux.Engine.Nodes.LLM do
       end
     end
   end
+
+  # Structured replies validate against the schema; an invalid one gets a
+  # single retry with the errors quoted back, then fails honestly.
+  defp with_valid_output(outputs, result, schema, host, node, invoke, request, chunk_emit) do
+    output = structured_output(result)
+
+    case Flux.Engine.SchemaCheck.validate(output, schema) do
+      :ok ->
+        {:ok, Map.put(outputs, "output", output)}
+
+      {:error, errors} ->
+        Host.emit(host, {:schema_retry, %{node_id: node.id, errors: errors}})
+
+        retry_request =
+          Map.update!(request, :messages, fn messages ->
+            messages ++
+              [
+                %{role: :assistant, content: result.content || Jason.encode!(output)},
+                %{
+                  role: :user,
+                  content:
+                    "That response did not match the required schema:\n- " <>
+                      Enum.join(errors, "\n- ") <>
+                      "\nCall the respond tool again with a corrected result."
+                }
+              ]
+          end)
+
+        with {:ok, retried} <- invoke.(retry_request, chunk_emit),
+             retried_output = structured_output(retried),
+             :ok <- validate_or_error(retried_output, schema) do
+          usage = merge_usage(outputs["usage"], Map.get(retried, :usage, %{}))
+
+          {:ok,
+           outputs
+           |> Map.put("text", retried.content || outputs["text"])
+           |> Map.put("usage", usage)
+           |> Map.put("output", retried_output)
+           |> Map.put("schema_retried", true)}
+        else
+          {:error, reason} when is_binary(reason) -> {:error, reason}
+          {:error, _reason} -> {:error, schema_failure(errors)}
+        end
+    end
+  end
+
+  defp validate_or_error(output, schema) do
+    case Flux.Engine.SchemaCheck.validate(output, schema) do
+      :ok -> :ok
+      {:error, errors} -> {:error, schema_failure(errors)}
+    end
+  end
+
+  defp schema_failure(errors) do
+    "structured output failed schema validation: " <> Enum.join(errors, "; ")
+  end
+
+  defp merge_usage(first, second) when is_map(first) and is_map(second) do
+    Map.merge(first, second, fn _key, a, b ->
+      if is_number(a) and is_number(b), do: a + b, else: b
+    end)
+  end
+
+  defp merge_usage(first, _second), do: first
 
   # A configured fallback model gets one try when the primary errors; the
   # original error is what surfaces if both fail. The trace records which
