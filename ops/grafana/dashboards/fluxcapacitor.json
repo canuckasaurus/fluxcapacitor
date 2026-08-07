@@ -97,6 +97,39 @@
       ]
     },
     {
+      "id": 9,
+      "type": "timeseries",
+      "title": "LLM tokens / h (by source)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 32},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (source) (increase(flux_workflow_run_input_tokens_total[1h]))",
+          "legendFormat": "in · {{source}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (source) (increase(flux_workflow_run_output_tokens_total[1h]))",
+          "legendFormat": "out · {{source}}"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Estimated LLM cost USD / h",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 32},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(flux_workflow_run_cost_microusd_total[1h])) / 1000000",
+          "legendFormat": "USD/h"
+        }
+      ]
+    },
+    {
       "id": 7,
       "type": "timeseries",
       "title": "BEAM memory (bytes)",

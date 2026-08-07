@@ -28,6 +28,27 @@ defmodule FluxWeb.PromEx.FluxRuns do
           reporter_options: [
             buckets: [50, 250, 1_000, 5_000, 15_000, 60_000, 300_000]
           ]
+        ),
+        sum([:flux, :workflow, :run, :input_tokens, :total],
+          event_name: [:flux, :workflow, :run, :finished],
+          description: "LLM input tokens consumed by finished runs.",
+          measurement: :input_tokens,
+          tags: [:source],
+          tag_values: fn metadata -> %{source: to_string(metadata.source)} end
+        ),
+        sum([:flux, :workflow, :run, :output_tokens, :total],
+          event_name: [:flux, :workflow, :run, :finished],
+          description: "LLM output tokens produced by finished runs.",
+          measurement: :output_tokens,
+          tags: [:source],
+          tag_values: fn metadata -> %{source: to_string(metadata.source)} end
+        ),
+        sum([:flux, :workflow, :run, :cost_microusd, :total],
+          event_name: [:flux, :workflow, :run, :finished],
+          description: "Estimated run cost in micro-USD (divide by 1e6 for dollars).",
+          measurement: :cost_microusd,
+          tags: [:source],
+          tag_values: fn metadata -> %{source: to_string(metadata.source)} end
         )
       ]
     )

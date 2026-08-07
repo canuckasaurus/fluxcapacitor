@@ -1456,9 +1456,17 @@ defmodule Flux.Workflows do
   defp finalize(run, changes) do
     run = run |> Ecto.Changeset.change(changes) |> Repo.update!()
 
+    usage = run.usage || %{}
+
     :telemetry.execute(
       [:flux, :workflow, :run, :finished],
-      %{duration_ms: run.elapsed_ms || 0},
+      %{
+        duration_ms: run.elapsed_ms || 0,
+        input_tokens: usage["input_tokens"] || 0,
+        output_tokens: usage["output_tokens"] || 0,
+        # Prometheus counters are integers; track cost in micro-dollars.
+        cost_microusd: round((usage["estimated_cost_usd"] || 0) * 1_000_000)
+      },
       %{status: run.status, source: run.source, workspace_id: run.workspace_id}
     )
 
