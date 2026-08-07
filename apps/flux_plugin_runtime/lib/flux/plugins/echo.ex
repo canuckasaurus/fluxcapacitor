@@ -117,4 +117,9 @@ defmodule Flux.Plugins.Echo do
   def invoke_transcription(_credentials, audio, _opts) do
     {:ok, %{text: "(transcribed #{byte_size(audio)} bytes of audio)"}}
   end
+
+  @impl Flux.Plugin.ModelProvider
+  def invoke_speech(_credentials, text, _opts) do
+    {:ok, %{audio: "FAKE-MP3:" <> String.slice(text, 0, 50), content_type: "audio/mpeg"}}
+  end
 end

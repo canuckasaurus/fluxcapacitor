@@ -166,6 +166,25 @@ defmodule FluxWeb.ConsoleLive.AppChat do
     handle_event("send", %{"content" => question}, socket)
   end
 
+  def handle_event("speak_reply", %{"id" => message_id}, socket) do
+    message = Enum.find(socket.assigns.messages, &(&1.id == message_id))
+    text = (message && message.content) || ""
+
+    case text != "" &&
+           Chat.synthesize_speech(socket.assigns.current_scope, socket.assigns.app, text) do
+      {:ok, %{audio: audio, content_type: content_type}} ->
+        {:noreply,
+         push_event(socket, "play-audio", %{
+           data: Base.encode64(audio),
+           content_type: content_type
+         })}
+
+      _fallback ->
+        # No provider voice — the browser's speechSynthesis reads it.
+        {:noreply, push_event(socket, "speak-fallback", %{text: text})}
+    end
+  end
+
   def handle_event("stop", _params, socket) do
     if id = socket.assigns.streaming_id do
       Chat.stop_generation(socket.assigns.current_scope, id)
@@ -405,6 +424,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
            "opening_statement" => params["opening_statement"],
            "suggested_questions" => questions,
            "daily_token_limit" => presence(params["daily_token_limit"]),
+           "rate_limit_per_minute" => presence(params["rate_limit_per_minute"]),
            "annotation_threshold" => presence(params["annotation_threshold"]),
            "suggest_followups" => params["suggest_followups"] == "on",
            "fallback_provider_plugin_id" => fallback_plugin,
@@ -761,8 +781,10 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               </button>
               <button
                 type="button"
-                class="btn btn-ghost btn-xs speak-reply"
-                title="Read this reply aloud (click again to stop)"
+                class="btn btn-ghost btn-xs"
+                phx-click="speak_reply"
+                phx-value-id={message.id}
+                title="Read this reply aloud (provider voice, browser fallback)"
                 aria-label="Read this reply aloud"
               >
                 <.icon name="hero-speaker-wave" class="size-3" /> Listen
@@ -922,6 +944,19 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               name="daily_token_limit"
               value={@app.daily_token_limit}
               min="1"
+              class="input input-bordered input-sm w-48"
+            />
+          </label>
+          <label class="form-control block">
+            <span class="label-text text-sm mb-1">
+              API rate limit (requests/minute for this app's tokens; blank = pipeline default 120)
+            </span>
+            <input
+              type="number"
+              name="rate_limit_per_minute"
+              value={@app.rate_limit_per_minute}
+              min="1"
+              max="10000"
               class="input input-bordered input-sm w-48"
             />
           </label>

@@ -110,9 +110,11 @@ orchestrator, no queue infrastructure beyond Postgres.
 - **Apps on top of fluxes** — chat, completion (form), and chatflow modes;
   published to logged-out visitors at a public URL, embedded via iframe or a
   floating chat bubble, or consumed through the `/v1` service API with
-  per-app tokens, streaming SSE, quotas, and rate limits — including an
+  per-app tokens, streaming SSE, quotas, and rate limits (**overridable
+  per app**) — including an
   **OpenAI-compatible `POST /v1/chat/completions`** (blocking and
-  streaming), so any OpenAI SDK talks to an app with a base-URL swap. Monitoring pages
+  streaming) that reaches **chatflow apps too** (bridged through their
+  flux), so any OpenAI SDK talks to an app with a base-URL swap. Monitoring pages
   track usage, feedback and quality trends, **topic clusters** of what
   people actually ask, and **annotation replies** promote
   liked answers into canonical responses (exact + embedding-fuzzy matched).
@@ -141,7 +143,8 @@ orchestrator, no queue infrastructure beyond Postgres.
   **rolling conversation memory** (older turns fold into a maintained
   summary instead of overflowing the window), **push-to-talk voice
   input** transcribes through the provider's Whisper-style endpoint,
-  and every reply has a **read-aloud button** (browser voices).
+  and every reply has a **read-aloud button** — **real provider voices**
+  when the provider has a speech endpoint, browser voices otherwise.
   Guardrails gain **model-backed moderation** — the workspace default
   model judges content against your policy alongside the regex
   patterns. A **concurrent-run cap** protects
@@ -201,6 +204,10 @@ orchestrator, no queue infrastructure beyond Postgres.
   workspace export/import archives with a **rehearsed restore
   runbook**, and per-account **session management** (see every signed-in
   device, revoke one, or log out everywhere).
+  Costs stay honest with **workspace price overrides** (self-hosted and
+  fine-tuned models priced per million tokens), **per-flux monthly
+  budgets** beside the workspace one, and same-named document re-uploads
+  **replace in place** instead of duplicating.
 - **Operations built in** — Oban (on Postgres) is the platform's only
   scheduler: cron/interval triggers, document indexing, retention sweeps,
   batch and eval execution, and **signed outgoing webhooks** (per-workspace

@@ -848,3 +848,38 @@ rebuilt). One migration pair (conversation summary columns, account
 email-kinds column). The runtime.exs binding lesson from batch 16 was
 nearly repeated and caught in review — `and (x = ...)` still doesn't
 leak.
+
+**43. Batch 19 — the leverage eight (custom domains and Japanese
+deferred again).** One item dissolved on contact: version restore
+already shipped inside the editor (restore_version routes through
+update_graph, so undo brings the old draft back) — the pre-proposal
+grep checked the context module, not the LiveView; the codebase-first
+rule now means grepping BOTH layers. What got built: **chatflow
+OpenAI bridging** (advanced_chat apps stopped 400ing on
+/v1/chat/completions — the bound flux's serving version runs with the
+last user message as query and prior turns as {{sys.history}},
+streaming node chunks as OpenAI frames; model reads "flux/<name>");
+**provider TTS** (an invoke_speech capability — OpenAI /audio/speech
+shape in the OpenAI and compatible plugins — with the console Listen
+button preferring real model voices and push-eventing base64 audio;
+browser speechSynthesis stays as the fallback and the public-site
+default); **workspace price overrides** (Settings → Cost controls
+takes "model-prefix $in $out" lines; longest-prefix match beats the
+built-in table, flows through run rollups via cost_for/2 with the
+run's workspace, and finally prices self-hosted models above $0);
+**replace-by-re-upload** (add_document grew a replace: option — the
+console upload path swaps same-named documents in place, URL-source
+refresh now shares the same code path, pasted text keeps append
+semantics); **per-app rate limits** (a rate_limit_per_minute column
+consulted by the RateLimit plug when the service principal is an app —
+the x-ratelimit-limit header honestly reports the override);
+**per-flux budgets** (monthly_token_budget on workflows, gated in
+start_run and run_published_sync beside the workspace budget,
+80%-once-per-month warning tracked via budget_warned_month, distinct
+:flux_budget_exhausted refusal, set from the editor's API panel); and
+**Prometheus alert rules** (ops/alerts.yml — app down, 5xx ratio, run
+failures, Oban backlog, BEAM memory — mounted into the compose
+Prometheus via rule_files, with every metric name verified against
+the live /metrics scrape rather than guessed; the first draft's
+guessed names lasted four minutes). One migration (two workflow
+columns, one app column).

@@ -104,6 +104,12 @@ defmodule Flux.FakeRuntime do
 
   def invoke_transcription(_other, _credentials, _audio, _opts), do: {:error, :not_supported}
 
+  def invoke_speech("echo", _credentials, text, _opts) do
+    {:ok, %{audio: "FAKE-MP3:" <> String.slice(text, 0, 50), content_type: "audio/mpeg"}}
+  end
+
+  def invoke_speech(_other, _credentials, _text, _opts), do: {:error, :not_supported}
+
   # Deterministic bag-of-words vectors, mirroring the real Echo plugin so
   # retrieval tests get meaningful cosine similarity without any API.
   @embed_dims 16

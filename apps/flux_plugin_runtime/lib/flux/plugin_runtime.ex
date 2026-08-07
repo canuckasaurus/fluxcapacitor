@@ -164,6 +164,19 @@ defmodule Flux.PluginRuntime do
     end
   end
 
+  def invoke_speech(plugin_id, credentials, text, opts \\ %{}) when is_binary(text) do
+    with {:ok, module} <- fetch_plugin(plugin_id) do
+      if function_exported?(module, :invoke_speech, 3) do
+        run_supervised(
+          fn -> module.invoke_speech(credentials, text, opts) end,
+          @invoke_timeout
+        )
+      else
+        {:error, :not_supported}
+      end
+    end
+  end
+
   def invoke_rerank(plugin_id, credentials, model, query, documents) do
     with {:ok, module} <- fetch_plugin(plugin_id) do
       if function_exported?(module, :invoke_rerank, 4) do

@@ -153,6 +153,33 @@ defmodule Flux.Plugins.OpenAI do
   end
 
   @impl Flux.Plugin.ModelProvider
+  def invoke_speech(credentials, text, opts) do
+    speech_request(base_url(credentials) <> "/audio/speech", auth(credentials), text, opts)
+  end
+
+  @doc "One OpenAI-shaped text-to-speech call — shared with the compatible plugin."
+  def speech_request(url, headers, text, opts) do
+    with :ok <- Flux.SSRF.verify_url(url),
+         {:ok, %{status: 200, body: audio}} when is_binary(audio) <-
+           Req.post(
+             SSE.req_options(
+               url: url,
+               headers: headers,
+               json: %{
+                 model: opts[:model] || "gpt-4o-mini-tts",
+                 voice: opts[:voice] || "alloy",
+                 input: String.slice(text, 0, 4_000)
+               }
+             )
+           ) do
+      {:ok, %{audio: audio, content_type: "audio/mpeg"}}
+    else
+      {:ok, %{status: status, body: body}} -> {:error, {:http_error, status, body}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @impl Flux.Plugin.ModelProvider
   def invoke_llm(credentials, request, emit) do
     chat_completions(
       base_url(credentials) <> "/chat/completions",

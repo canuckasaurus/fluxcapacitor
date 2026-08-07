@@ -21,7 +21,10 @@ the **admin panel** (`FLUX_ADMIN_EMAILS`), or an environment variable.
 All per-workspace, in Settings → Cost controls:
 
 - **Monthly token budget** — warns at 80% (a `budget_warning`
-  notification), refuses new runs past the cap.
+  notification), refuses new runs past the cap. Individual fluxes can
+  carry their own monthly cap on top (editor → API panel).
+- **Model price overrides** — price self-hosted and fine-tuned models
+  per million tokens so cost rollups stop reading $0.
 - **Concurrent-run cap** — bounds simultaneous interactive runs;
   batches and evals are exempt (they already run sequentially).
 - **LLM cache** — identical prompts answer from memory within the
@@ -29,6 +32,8 @@ All per-workspace, in Settings → Cost controls:
 - **Per-node caching** — deterministic nodes (HTTP, code) opt in with
   `cache_minutes` on the canvas; identical inputs skip the call.
 - **Per-app daily token limits** — refusals return 429 on the API.
+- **Per-app rate limits** — each app can override the 120 req/min
+  pipeline default for its own tokens (Chat settings).
 
 Track spend on the Runs page (cost by flux, CSV export), the
 dashboard rollups, and the Grafana panels (tokens/h, est. USD/h).
@@ -87,8 +92,18 @@ before anything real depends on it.
 OpenAI SDK onto a chat app — blocking or streaming (`stream: true`,
 `chat.completion.chunk` frames, `data: [DONE]`). Stateless: the caller
 sends the whole history; the request's `model` field is ignored (the
-app decides, including its fallback). Quotas, guardrails, and
-moderation all apply.
+app decides, including its fallback). Chatflow apps work too — the
+bound flux runs with the last user message as the query and earlier
+turns as `{{sys.history}}`. Quotas, guardrails, moderation, and the
+app's own rate limit all apply.
+
+## Alerting
+
+`ops/alerts.yml` ships five Prometheus rules (app down, 5xx rate, run
+failures, Oban backlog, BEAM memory), loaded automatically by the
+compose Prometheus. Add an `alerting:` block in `ops/prometheus.yml`
+to point them at your Alertmanager, or surface them in Grafana.
+Metric names are verified against the live `/metrics` endpoint.
 
 ## Email
 

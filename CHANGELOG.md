@@ -5,6 +5,29 @@ follows [Keep a Changelog](https://keepachangelog.com/); the project follows
 semantic versioning once past 1.0. Detailed build history lives in the ledger
 at `docs/PARITY-PLAN.md`.
 
+## Unreleased
+
+### API & apps
+- The OpenAI-compatible endpoint reaches chatflow apps — bridged
+  through their published flux with the earlier turns as history.
+- Per-app rate limits override the 120 req/min pipeline default.
+- Read-aloud uses real provider voices when the provider has a speech
+  endpoint (`invoke_speech` capability, OpenAI `/audio/speech` shape);
+  browser voices remain the fallback.
+
+### Costs & knowledge
+- Workspace model price overrides (self-hosted/fine-tuned models
+  priced per million tokens) feed every cost rollup.
+- Per-flux monthly token budgets beside the workspace budget — 80%
+  warning, honest refusal past the cap.
+- Same-named document re-uploads replace in place instead of
+  duplicating.
+
+### Operations
+- `ops/alerts.yml`: five Prometheus alert rules (app down, 5xx rate,
+  run failures, Oban backlog, BEAM memory) loaded by the compose
+  Prometheus, metric names verified against the live endpoint.
+
 ## v0.3.0 — 2026-08-07
 
 Three batches on from v0.2.0: hardening, then interoperability, then
