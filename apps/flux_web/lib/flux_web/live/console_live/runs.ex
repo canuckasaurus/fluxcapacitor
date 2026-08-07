@@ -25,6 +25,7 @@ defmodule FluxWeb.ConsoleLive.Runs do
        sources: @sources,
        statuses: @statuses,
        expanded_run: nil,
+       compare_ids: [],
        limit: @page_size,
        flux_costs: Flux.Usage.flux_costs(scope)
      )
@@ -74,6 +75,22 @@ defmodule FluxWeb.ConsoleLive.Runs do
 
   def handle_event("toggle_run", %{"id" => id}, socket) do
     {:noreply, assign(socket, expanded_run: (socket.assigns.expanded_run == id && nil) || id)}
+  end
+
+  # Pick up to two runs; the newest pick displaces the oldest.
+  def handle_event("toggle_compare", %{"id" => id}, socket) do
+    ids =
+      if id in socket.assigns.compare_ids do
+        List.delete(socket.assigns.compare_ids, id)
+      else
+        Enum.take(socket.assigns.compare_ids ++ [id], -2)
+      end
+
+    {:noreply, assign(socket, compare_ids: ids)}
+  end
+
+  def handle_event("clear_compare", _params, socket) do
+    {:noreply, assign(socket, compare_ids: [])}
   end
 
   def handle_event("rerun", %{"id" => id}, socket) do
@@ -134,6 +151,27 @@ defmodule FluxWeb.ConsoleLive.Runs do
       |> max(1)
 
     max(round((node_execution["elapsed_ms"] || 0) / slowest * 100), 2)
+  end
+
+  # The two picked rows, oldest pick first; nil until both still visible.
+  defp compare_rows(rows, [_id1, _id2] = ids) do
+    picked = for id <- ids, row = Enum.find(rows, &(&1.run.id == id)), do: row
+    if length(picked) == 2, do: picked
+  end
+
+  defp compare_rows(_rows, _ids), do: nil
+
+  # Union of node ids across both runs, in first-appearance order, so the
+  # side-by-side table lines up even when branches diverge.
+  defp compare_node_ids(runs) do
+    runs
+    |> Enum.flat_map(& &1.node_executions)
+    |> Enum.map(& &1["node_id"])
+    |> Enum.uniq()
+  end
+
+  defp node_execution(run, node_id) do
+    Enum.find(run.node_executions, &(&1["node_id"] == node_id))
   end
 
   @summary_cap 300
@@ -236,9 +274,86 @@ defmodule FluxWeb.ConsoleLive.Runs do
           Nothing matches — loosen the filters or run a flux.
         </p>
 
+        <p :if={length(@compare_ids) == 1} class="text-xs opacity-60" id="compare-hint">
+          Pick one more run to compare side by side.
+        </p>
+
+        <%= if compared = compare_rows(@rows, @compare_ids) do %>
+          <div class="border border-primary/40 rounded-lg p-4 space-y-3" id="run-compare">
+            <div class="flex items-center gap-2">
+              <h3 class="font-semibold text-sm">Run comparison</h3>
+              <button class="btn btn-ghost btn-xs ml-auto" phx-click="clear_compare">
+                Clear
+              </button>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4 text-xs">
+              <div :for={row <- compared} class="space-y-1 min-w-0">
+                <p class="font-semibold">
+                  {row.workflow_name}
+                  <span class="opacity-60">
+                    · {Calendar.strftime(row.run.inserted_at, "%m-%d %H:%M:%S")}
+                  </span>
+                </p>
+                <p>
+                  <span class={[
+                    "badge badge-sm",
+                    row.run.status == :succeeded && "badge-success",
+                    row.run.status == :failed && "badge-error"
+                  ]}>
+                    {row.run.status}
+                  </span>
+                  <span class="badge badge-ghost badge-sm">{row.run.source}</span>
+                  <span :if={row.run.version} class="badge badge-ghost badge-sm">
+                    v{row.run.version}
+                  </span>
+                  · {row.run.elapsed_ms} ms · {run_tokens(row.run)} tokens
+                </p>
+                <p class="font-mono break-all">
+                  <span class="font-semibold font-sans">In:</span> {summarize(row.run.inputs)}
+                </p>
+                <p class="font-mono break-all">
+                  <span class="font-semibold font-sans">Out:</span> {summarize(row.run.outputs)}
+                </p>
+                <p :if={row.run.error} class="text-error font-mono">{row.run.error}</p>
+              </div>
+            </div>
+
+            <table class="table table-xs">
+              <thead>
+                <tr>
+                  <th>Node</th>
+                  <th>ms (A)</th>
+                  <th>ms (B)</th>
+                  <th>Tokens (A)</th>
+                  <th>Tokens (B)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr :for={node_id <- compare_node_ids(Enum.map(compared, & &1.run))}>
+                  <% [a, b] = Enum.map(compared, &node_execution(&1.run, node_id)) %>
+                  <td class="font-mono">
+                    {(a || b)["title"] || node_id}
+                  </td>
+                  <td class="opacity-70">{(a && a["elapsed_ms"]) || "—"}</td>
+                  <td class="opacity-70">{(b && b["elapsed_ms"]) || "—"}</td>
+                  <td class="font-mono">
+                    {(a && node_tokens(Enum.at(compared, 0).run, node_id)) || "—"}
+                  </td>
+                  <td class="font-mono">
+                    {(b && node_tokens(Enum.at(compared, 1).run, node_id)) || "—"}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        <% end %>
+
         <table :if={@rows != []} class="table table-sm">
           <thead>
             <tr>
+              <th title="Pick two runs to compare">⇄</th>
+
               <th>When</th>
 
               <th>Flux</th>
@@ -261,6 +376,17 @@ defmodule FluxWeb.ConsoleLive.Runs do
                 phx-click="toggle_run"
                 phx-value-id={run.id}
               >
+                <td onclick="event.stopPropagation()">
+                  <input
+                    type="checkbox"
+                    class="checkbox checkbox-xs"
+                    checked={run.id in @compare_ids}
+                    phx-click="toggle_compare"
+                    phx-value-id={run.id}
+                    aria-label="Pick this run for comparison"
+                  />
+                </td>
+
                 <td class="text-xs opacity-70">
                   {Calendar.strftime(run.inserted_at, "%m-%d %H:%M:%S")}
                 </td>
@@ -292,7 +418,7 @@ defmodule FluxWeb.ConsoleLive.Runs do
               </tr>
 
               <tr :if={@expanded_run == run.id} id={"run-detail-#{run.id}"}>
-                <td colspan="7" class="bg-base-200/30">
+                <td colspan="8" class="bg-base-200/30">
                   <div class="space-y-2 p-2 text-xs">
                     <button
                       class="btn btn-ghost btn-xs"

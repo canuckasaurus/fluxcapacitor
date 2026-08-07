@@ -51,6 +51,34 @@ defmodule FluxWeb.RunsLiveTest do
     %{conn: log_in_account(conn, account), scope: scope, workflow: workflow}
   end
 
+  test "two picked runs compare side by side", %{
+    conn: conn,
+    scope: scope,
+    workflow: workflow
+  } do
+    {:ok, first} = Workflows.start_run(scope, workflow, %{"query" => "alpha question"})
+    assert_receive {:run_finished, %{status: :succeeded}}, 5_000
+    {:ok, second} = Workflows.start_run(scope, workflow, %{"query" => "beta question"})
+    assert_receive {:run_finished, %{status: :succeeded}}, 5_000
+
+    {:ok, lv, html} = live(conn, ~p"/console/runs")
+    refute html =~ "Run comparison"
+
+    html = lv |> element("#run-#{first.id} input[type=checkbox]") |> render_click()
+    assert html =~ "Pick one more run"
+
+    html = lv |> element("#run-#{second.id} input[type=checkbox]") |> render_click()
+    assert html =~ "Run comparison"
+    assert html =~ "alpha question"
+    assert html =~ "beta question"
+    # Per-node rows line up by node id across both runs.
+    assert html =~ "ms (A)"
+    assert html =~ "LLM"
+
+    html = lv |> element("#run-compare button", "Clear") |> render_click()
+    refute html =~ "Run comparison"
+  end
+
   test "lists workspace runs with totals and filters", %{
     conn: conn,
     scope: scope,
