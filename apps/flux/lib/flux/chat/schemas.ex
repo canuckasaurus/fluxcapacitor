@@ -16,6 +16,8 @@ defmodule Flux.Chat.App do
     belongs_to :workflow, Flux.Workflows.Workflow
     field :provider_plugin_id, :string
     field :model, :string
+    field :fallback_provider_plugin_id, :string
+    field :fallback_model, :string
     field :system_prompt, :string
     field :prompt_template, :string
     field :input_form, {:array, :map}, default: []
@@ -42,6 +44,8 @@ defmodule Flux.Chat.App do
       :workflow_id,
       :provider_plugin_id,
       :model,
+      :fallback_provider_plugin_id,
+      :fallback_model,
       :system_prompt,
       :prompt_template,
       :input_form,

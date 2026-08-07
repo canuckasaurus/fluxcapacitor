@@ -207,6 +207,8 @@ defmodule Flux.Chat do
       "workflow_id" => app.workflow_id,
       "provider_plugin_id" => app.provider_plugin_id,
       "model" => app.model,
+      "fallback_provider_plugin_id" => app.fallback_provider_plugin_id,
+      "fallback_model" => app.fallback_model,
       "system_prompt" => app.system_prompt,
       "prompt_template" => app.prompt_template,
       "input_form" => app.input_form,
@@ -1267,16 +1269,58 @@ defmodule Flux.Chat do
 
       {:error, reason} ->
         Flux.ProviderHealth.record(app.provider_plugin_id, :error)
-        Flux.StreamBuffers.delete(assistant_message.id)
-
-        message =
-          assistant_message
-          |> Ecto.Changeset.change(status: :error, error: format_error(reason))
-          |> Repo.update!()
-
-        Phoenix.PubSub.broadcast(Flux.PubSub, topic(assistant_message.id), {:error, message})
-        {:error, reason}
+        generate_fallback(app, request, emit, assistant_message, reason)
     end
+  end
+
+  # A configured backup model gets one try when the primary errors; the
+  # reply's usage records which model actually answered.
+  defp generate_fallback(
+         %App{fallback_provider_plugin_id: plugin, fallback_model: model} = app,
+         request,
+         emit,
+         assistant_message,
+         primary_reason
+       )
+       when is_binary(plugin) and plugin != "" and is_binary(model) and model != "" do
+    credentials =
+      case Providers.fetch_config(app.workspace_id, plugin) do
+        {:ok, config} -> config
+        {:error, :not_configured} -> %{}
+      end
+
+    case runtime().invoke_llm(plugin, credentials, %{request | model: model}, emit) do
+      {:ok, result} ->
+        Flux.ProviderHealth.record(plugin, :ok)
+
+        finalize(assistant_message, :completed, result.content, %{
+          "input_tokens" => result.usage.input_tokens,
+          "output_tokens" => result.usage.output_tokens,
+          "model_used" => "#{plugin}/#{model}",
+          "fallback_used" => true
+        })
+
+      {:error, _fallback_reason} ->
+        # The primary's error is the honest one to surface.
+        Flux.ProviderHealth.record(plugin, :error)
+        generate_error(assistant_message, primary_reason)
+    end
+  end
+
+  defp generate_fallback(_app, _request, _emit, assistant_message, reason) do
+    generate_error(assistant_message, reason)
+  end
+
+  defp generate_error(assistant_message, reason) do
+    Flux.StreamBuffers.delete(assistant_message.id)
+
+    message =
+      assistant_message
+      |> Ecto.Changeset.change(status: :error, error: format_error(reason))
+      |> Repo.update!()
+
+    Phoenix.PubSub.broadcast(Flux.PubSub, topic(assistant_message.id), {:error, message})
+    {:error, reason}
   end
 
   # Prior turns, oldest first, minus the current user message and the

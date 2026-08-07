@@ -45,6 +45,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
            streaming_id: nil,
            streaming_text: "",
            api_tokens: Chat.list_api_tokens(scope, app.id),
+           models: Flux.Providers.available_models(scope),
            new_token: nil,
            can_manage: RBAC.can?(scope, :app_create_and_management),
            can_edit: RBAC.can?(scope, :app_edit),
@@ -340,12 +341,26 @@ defmodule FluxWeb.ConsoleLive.AppChat do
       |> Enum.map(&String.trim/1)
       |> Enum.reject(&(&1 == ""))
 
+    {fallback_plugin, fallback_model} =
+      case String.split(params["fallback_choice"] || "keep", "|", parts: 2) do
+        [plugin, model] ->
+          {plugin, model}
+
+        ["keep"] ->
+          {socket.assigns.app.fallback_provider_plugin_id, socket.assigns.app.fallback_model}
+
+        _cleared ->
+          {nil, nil}
+      end
+
     case Chat.update_app(scope, socket.assigns.app, %{
            "opening_statement" => params["opening_statement"],
            "suggested_questions" => questions,
            "daily_token_limit" => presence(params["daily_token_limit"]),
            "annotation_threshold" => presence(params["annotation_threshold"]),
-           "suggest_followups" => params["suggest_followups"] == "on"
+           "suggest_followups" => params["suggest_followups"] == "on",
+           "fallback_provider_plugin_id" => fallback_plugin,
+           "fallback_model" => fallback_model
          }) do
       {:ok, app} ->
         {:noreply, socket |> put_flash(:info, "Chat settings saved.") |> assign(app: app)}
@@ -428,10 +443,24 @@ defmodule FluxWeb.ConsoleLive.AppChat do
         _off -> []
       end
 
+    # Chatflows may have written conversation variables during the turn.
+    conversation =
+      case socket.assigns.conversation do
+        %Flux.Chat.Conversation{} = conversation ->
+          case Chat.get_conversation(socket.assigns.current_scope, conversation.id) do
+            %Flux.Chat.Conversation{} = fresh -> fresh
+            _gone -> conversation
+          end
+
+        nil ->
+          nil
+      end
+
     {:noreply,
      assign(socket,
        messages: socket.assigns.messages ++ [message],
        followups: followups,
+       conversation: conversation,
        streaming_id: nil,
        streaming_text: ""
      )}
@@ -626,6 +655,22 @@ defmodule FluxWeb.ConsoleLive.AppChat do
         <button class="btn btn-sm btn-primary">Rename</button>
         <button type="button" class="btn btn-sm btn-ghost" phx-click="start_rename">Cancel</button>
       </form>
+
+      <details
+        :if={@conversation != nil and (@conversation.variables || %{}) != %{}}
+        class="text-xs"
+        id="conversation-variables"
+      >
+        <summary class="cursor-pointer opacity-70">
+          Conversation variables ({map_size(@conversation.variables)})
+        </summary>
+        <div class="mt-1 rounded-box bg-base-200 p-2 space-y-1">
+          <p :for={{name, value} <- Enum.sort(@conversation.variables)} class="font-mono">
+            <span class="font-semibold">{name}</span>
+            = {(is_binary(value) && value) || Jason.encode!(value)}
+          </p>
+        </div>
+      </details>
 
       <div
         :if={@app.mode in [:chat, :advanced_chat]}
@@ -833,6 +878,21 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               class="checkbox checkbox-sm"
               checked={@app.suggest_followups}
             /> Suggest follow-up questions after each reply (one extra model call per turn)
+          </label>
+          <label :if={@app.mode == :chat} class="form-control block">
+            <span class="label-text text-sm mb-1">
+              Fallback model (one retry when the primary provider errors)
+            </span>
+            <select name="fallback_choice" class="select select-bordered select-sm w-full max-w-md">
+              <option value="" selected={@app.fallback_model in [nil, ""]}>No fallback</option>
+              <option
+                :for={%{plugin_id: pid, plugin_name: pname, model: m} <- @models}
+                value={"#{pid}|#{m.name}"}
+                selected={@app.fallback_provider_plugin_id == pid and @app.fallback_model == m.name}
+              >
+                {pname} — {m.label}
+              </option>
+            </select>
           </label>
           <button class="btn btn-primary btn-sm">Save chat settings</button>
         </form>

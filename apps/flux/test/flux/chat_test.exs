@@ -127,6 +127,40 @@ defmodule Flux.ChatTest do
     assert {:error, :invalid_token} = Chat.fetch_workspace_by_token(raw)
   end
 
+  test "a failing primary falls back to the configured backup model", %{scope: scope} do
+    {:ok, app} =
+      Chat.create_app(scope, %{
+        "name" => "Flaky App",
+        "provider_plugin_id" => "broken_provider",
+        "model" => "vaporware-1",
+        "fallback_provider_plugin_id" => "echo",
+        "fallback_model" => "echo-1"
+      })
+
+    conversation = Chat.create_conversation(scope, app)
+    {:ok, _user, _assistant} = Chat.send_message(scope, app, conversation, "still there?")
+
+    assert_receive {:done, final}, 5_000
+    assert final.status == :completed
+    assert final.content =~ "You said: still there?"
+    assert final.usage["fallback_used"] == true
+    assert final.usage["model_used"] == "echo/echo-1"
+
+    # Without a fallback the same primary fails honestly.
+    {:ok, doomed} =
+      Chat.create_app(scope, %{
+        "name" => "Doomed App",
+        "provider_plugin_id" => "broken_provider",
+        "model" => "vaporware-1"
+      })
+
+    doomed_conversation = Chat.create_conversation(scope, doomed)
+    {:ok, _user, _assistant} = Chat.send_message(scope, doomed, doomed_conversation, "hello?")
+
+    assert_receive {:error, failed}, 5_000
+    assert failed.status == :error
+  end
+
   test "duplicate_app copies configuration into an unpublished twin", %{scope: scope, app: app} do
     {:ok, copy} = Chat.duplicate_app(scope, app)
 
