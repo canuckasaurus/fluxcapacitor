@@ -98,6 +98,16 @@ defmodule FluxWeb.Router do
     get "/:token", FileController, :download
   end
 
+  ## Load-balancer probes (no auth, no CSRF; probe with Host: localhost
+  ## or x-forwarded-proto to clear force_ssl in prod)
+
+  scope "/health", FluxWeb do
+    pipe_through :api
+
+    get "/", HealthController, :index
+    get "/ready", HealthController, :ready
+  end
+
   ## Public published app sites (token in path is the authorization)
 
   scope "/site", FluxWeb do
@@ -218,6 +228,7 @@ defmodule FluxWeb.Router do
     get "/fluxes/:id/export", FluxDslController, :export
     get "/fluxes/:id/runs/:run_id/fixture", FluxDslController, :run_fixture
     get "/fluxes/:id/batches/:batch_id/results", FluxDslController, :batch_results
+    get "/fluxes/:id/evals/:eval_run_id/results", FluxDslController, :eval_results
     get "/apps/:id/export", FluxDslController, :export_app
     get "/apps/:id/finetune-export", FluxDslController, :finetune_export
     get "/labeling/:id/export", FluxDslController, :labeling_export
