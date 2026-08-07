@@ -34,6 +34,40 @@ defmodule FluxWeb.FluxEditorLiveTest do
     workflow
   end
 
+  test "multi-select aligns and distributes node positions", %{
+    conn: conn,
+    workflow: workflow,
+    scope: scope
+  } do
+    {:ok, lv, html} = live(conn, ~p"/console/fluxes/#{workflow.id}")
+    refute html =~ "align-toolbar"
+
+    render_hook(lv, "select_node", %{"id" => "start", "shift" => false})
+    html = render_hook(lv, "select_node", %{"id" => "llm_1", "shift" => true})
+    assert html =~ "align-toolbar"
+
+    lv
+    |> element(~s(#align-toolbar button[phx-value-mode="top"]))
+    |> render_click()
+
+    draft = Workflows.get_workflow(scope, workflow.id)
+    positions = Map.new(draft.graph["nodes"], &{&1["id"], &1["position"]})
+    assert positions["start"]["y"] == positions["llm_1"]["y"]
+
+    # Third node in: distribute spaces the middles evenly on x.
+    html = render_hook(lv, "select_node", %{"id" => "answer_1", "shift" => true})
+    assert html =~ "align-toolbar"
+
+    lv
+    |> element(~s(#align-toolbar button[phx-value-mode="distribute_h"]))
+    |> render_click()
+
+    draft = Workflows.get_workflow(scope, workflow.id)
+    positions = Map.new(draft.graph["nodes"], &{&1["id"], &1["position"]})
+    [x1, x2, x3] = [positions["start"]["x"], positions["llm_1"]["x"], positions["answer_1"]["x"]]
+    assert x2 - x1 == x3 - x2
+  end
+
   test "importing a portable DSL creates a flux and opens the editor", %{conn: conn, scope: scope} do
     dsl =
       Path.expand("../../../../flux/test/support/fixtures/dsl", __DIR__)

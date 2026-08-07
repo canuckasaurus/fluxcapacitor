@@ -417,6 +417,18 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
 
   # Delete/Backspace pressed on the canvas (never from inside a form field):
   # removes the selected edge, or every selected node except start.
+  def handle_event("align_selection", %{"mode" => mode}, socket) do
+    ids = socket.assigns.selected_ids
+
+    if length(ids) > 1 do
+      update_graph(socket, fn graph ->
+        Map.update(graph, "nodes", [], &align_nodes(&1, ids, mode))
+      end)
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_event("delete_selection", _params, socket) do
     cond do
       socket.assigns.selected_edge != nil ->
@@ -1333,6 +1345,58 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
       Enum.reject(edges, &(&1["source"] in ids or &1["target"] in ids))
     end)
   end
+
+  # Align/distribute the selected nodes' positions; unselected nodes are
+  # untouched. Distribution keeps the outermost pair and spaces the rest.
+  defp align_nodes(nodes, ids, mode) do
+    positions =
+      for node <- nodes, node["id"] in ids, into: %{} do
+        position = node["position"] || %{}
+        {node["id"], %{"x" => position["x"] || 0, "y" => position["y"] || 0}}
+      end
+
+    updates =
+      case mode do
+        "left" ->
+          min_x = positions |> Map.values() |> Enum.map(& &1["x"]) |> Enum.min()
+          Map.new(positions, fn {id, pos} -> {id, Map.put(pos, "x", min_x)} end)
+
+        "top" ->
+          min_y = positions |> Map.values() |> Enum.map(& &1["y"]) |> Enum.min()
+          Map.new(positions, fn {id, pos} -> {id, Map.put(pos, "y", min_y)} end)
+
+        "distribute_h" ->
+          distribute(positions, "x")
+
+        "distribute_v" ->
+          distribute(positions, "y")
+
+        _unknown ->
+          %{}
+      end
+
+    Enum.map(nodes, fn node ->
+      case updates[node["id"]] do
+        nil -> node
+        position -> Map.put(node, "position", position)
+      end
+    end)
+  end
+
+  defp distribute(positions, axis) when map_size(positions) > 2 do
+    sorted = Enum.sort_by(positions, fn {_id, pos} -> pos[axis] end)
+    {_first, min_pos} = List.first(sorted)
+    {_last, max_pos} = List.last(sorted)
+    step = (max_pos[axis] - min_pos[axis]) / (map_size(positions) - 1)
+
+    sorted
+    |> Enum.with_index()
+    |> Map.new(fn {{id, pos}, index} ->
+      {id, Map.put(pos, axis, round(min_pos[axis] + index * step))}
+    end)
+  end
+
+  defp distribute(_positions, _axis), do: %{}
 
   # `selected_id` stays derived (the single selection, or nil) so the config
   # panel and its guards keep working untouched.
@@ -2520,6 +2584,49 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
             >
               <.icon name="hero-rectangle-group" class="size-4" /> Tidy
             </button>
+            <div
+              :if={@can_edit and length(@selected_ids) > 1}
+              class="join"
+              id="align-toolbar"
+              title="Align / distribute the selected nodes"
+            >
+              <button
+                class="btn btn-sm btn-ghost join-item"
+                phx-click="align_selection"
+                phx-value-mode="left"
+                aria-label="Align left edges"
+                title="Align left edges"
+              >
+                <.icon name="hero-bars-3-bottom-left" class="size-4 rotate-90" />
+              </button>
+              <button
+                class="btn btn-sm btn-ghost join-item"
+                phx-click="align_selection"
+                phx-value-mode="top"
+                aria-label="Align top edges"
+                title="Align top edges"
+              >
+                <.icon name="hero-bars-3-bottom-left" class="size-4" />
+              </button>
+              <button
+                class="btn btn-sm btn-ghost join-item"
+                phx-click="align_selection"
+                phx-value-mode="distribute_h"
+                aria-label="Distribute horizontally"
+                title="Distribute horizontally"
+              >
+                <.icon name="hero-arrows-right-left" class="size-4" />
+              </button>
+              <button
+                class="btn btn-sm btn-ghost join-item"
+                phx-click="align_selection"
+                phx-value-mode="distribute_v"
+                aria-label="Distribute vertically"
+                title="Distribute vertically"
+              >
+                <.icon name="hero-arrows-up-down" class="size-4" />
+              </button>
+            </div>
             <button
               :if={@can_edit}
               class="btn btn-sm btn-ghost"
