@@ -105,7 +105,6 @@ defmodule Flux.Crypto do
          end) do
       {:ok, dek} when is_binary(dek) -> {:ok, dek}
       {:commit, dek} when is_binary(dek) -> {:ok, dek}
-      {:commit, dek, _opts} -> {:ok, dek}
       {:ignore, error} -> error
       {:error, reason} -> {:error, reason}
     end

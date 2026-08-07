@@ -5,6 +5,10 @@ defmodule Flux.Umbrella.MixProject do
     [
       apps_path: "apps",
       version: "0.2.0",
+      dialyzer: [
+        plt_add_apps: [:mix, :ex_unit],
+        ignore_warnings: ".dialyzer_ignore.exs"
+      ],
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       aliases: aliases(),
@@ -69,7 +73,14 @@ defmodule Flux.Umbrella.MixProject do
     [
       # run `mix setup` in all child apps
       setup: ["cmd mix setup"],
-      precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"]
+      precommit: [
+        "compile --warnings-as-errors",
+        "deps.unlock --unused",
+        "format",
+        "credo --only warning,consistency",
+        "deps.audit",
+        "test"
+      ]
     ]
   end
 end

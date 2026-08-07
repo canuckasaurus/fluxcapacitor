@@ -86,6 +86,7 @@ defmodule Flux.Plugins.Utility do
     %{status: status, content_type: "application/json", body: Jason.encode!(payload)}
   end
 
+  # Calculator.eval always yields a float (`value * 1.0`).
   defp format_number(value) when is_float(value) do
     if Float.round(value) == value and abs(value) < 1.0e15 do
       value |> trunc() |> Integer.to_string()
@@ -93,8 +94,6 @@ defmodule Flux.Plugins.Utility do
       Float.to_string(value)
     end
   end
-
-  defp format_number(value), do: to_string(value)
 end
 
 defmodule Flux.Plugins.Utility.Calculator do

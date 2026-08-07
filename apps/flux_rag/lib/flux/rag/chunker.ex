@@ -93,7 +93,7 @@ defmodule Flux.RAG.Chunker do
   defp apply_overlap([first | rest], overlap) do
     {reversed, _previous} =
       Enum.reduce(rest, {[first], first}, fn chunk, {acc, previous} ->
-        tail = String.slice(previous, -overlap, overlap) || ""
+        tail = String.slice(previous, -overlap, overlap)
         {["…" <> tail <> "\n" <> chunk | acc], chunk}
       end)
 

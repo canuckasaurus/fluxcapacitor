@@ -23,7 +23,7 @@ defmodule FluxWeb.PluginEndpointController do
            }),
          :ok <- check_response_size(response) do
       conn
-      |> put_resp_content_type(response[:content_type] || "application/json")
+      |> put_resp_content_type(safe_content_type(response[:content_type]))
       |> send_resp(response[:status] || 200, response[:body] || "")
     else
       {:deny, _limit} ->
@@ -45,6 +45,22 @@ defmodule FluxWeb.PluginEndpointController do
 
       {:error, reason} ->
         send_error(conn, 502, format_reason(reason))
+    end
+  end
+
+  # Sobelow flagged the plugin-chosen content type (XSS.ContentType):
+  # text/html here would let a compromised plugin script under the app
+  # origin. Allowlist non-active types; anything else serves as data.
+  @allowed_content_types ~w(application/json text/plain text/csv text/calendar
+                            application/xml text/xml application/rss+xml)
+
+  defp safe_content_type(content_type) do
+    base = content_type |> to_string() |> String.split(";") |> hd() |> String.trim()
+
+    if base in @allowed_content_types do
+      base
+    else
+      "application/json"
     end
   end
 
