@@ -1,0 +1,54 @@
+# FluxCapacitor alert rules — loaded by the compose Prometheus
+# (rule_files in prometheus.yml). Metric names verified against the
+# live /metrics endpoint. Wire an Alertmanager via an `alerting:` block
+# or read these from Grafana; thresholds are deliberately conservative.
+groups:
+  - name: fluxcapacitor
+    rules:
+      - alert: FluxAppDown
+        expr: up{job="fluxcapacitor"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "FluxCapacitor is not answering its metrics scrape"
+          description: "The app target has been down for 2 minutes."
+
+      - alert: FluxHighErrorRate
+        expr: |
+          sum(rate(flux_web_prom_ex_phoenix_http_requests_total{status=~"5.."}[5m]))
+            / clamp_min(sum(rate(flux_web_prom_ex_phoenix_http_requests_total[5m])), 0.001)
+            > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "More than 5% of HTTP requests are failing"
+          description: "5xx rate above 5% for 5 minutes."
+
+      - alert: FluxRunFailures
+        expr: increase(flux_web_prom_ex_flux_workflow_runs_total{status="failed"}[15m]) > 5
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Workflow runs are failing"
+          description: "More than 5 failed runs in 15 minutes — check /console/runs."
+
+      - alert: FluxObanQueueBacklog
+        expr: flux_web_prom_ex_oban_queue_length_count > 100
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "An Oban queue is backing up"
+          description: "Queue length above 100 for 10 minutes — check the admin panel's Background jobs."
+
+      - alert: FluxBeamMemoryHigh
+        expr: flux_web_prom_ex_beam_memory_allocated_bytes > 2e9
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "BEAM memory above 2 GB"
+          description: "Sustained high memory — check run volume and caches."
