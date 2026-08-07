@@ -7,8 +7,32 @@ at `docs/PARITY-PLAN.md`.
 
 ## Unreleased
 
-Hardening batch: security static analysis, real email, and the
-account/workspace hygiene features.
+Two batches: expansion (MCP both ways, retrieval and model resilience)
+on top of hardening (security static analysis, real email, and the
+account/workspace hygiene features).
+
+### Interoperability
+- MCP client: register Model Context Protocol servers (Streamable
+  HTTP, encrypted auth headers) as workspace tool sources — their
+  tools join the picker for tool and agent nodes.
+- MCP server: `POST /mcp` advertises every published flux as a
+  callable tool (input schema from start variables), authenticated
+  with a workspace `ws-` key; `tools/call` runs synchronously.
+
+### Retrieval & models
+- Parent-child chunking per dataset: small child chunks embedded for
+  precision, the enclosing parent section returned for context,
+  deduplicated across hits.
+- Structured LLM output now validates against its JSON schema with one
+  corrective retry (errors quoted back to the model) before failing.
+- Chat apps take a fallback model — one retry on another provider when
+  the primary errors, recorded on the reply's usage.
+- Conversation variables written by chatflows are inspectable above
+  the console chat.
+
+### Operations
+- Background jobs in the admin panel: queue depths by state, failing
+  jobs with their last error, retry/cancel in place.
 
 ### Security & hygiene
 - Sobelow, credo (warnings + consistency), `deps.audit`, and dialyzer

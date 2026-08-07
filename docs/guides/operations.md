@@ -65,6 +65,20 @@ before anything real depends on it.
   (`OTEL_EXPORTER_OTLP_ENDPOINT`, `FLUX_LOG_JSON=1`).
 - API responses carry `x-ratelimit-limit` / `x-ratelimit-remaining`;
   429s add `Retry-After`.
+- The instance admin panel (`FLUX_ADMIN_EMAILS`) shows **background
+  jobs**: queue depths by state, retryable/discarded jobs with their
+  last error, and retry/cancel buttons.
+
+## MCP
+
+- **Consume**: Tools → MCP servers registers any Model Context Protocol
+  server (Streamable HTTP). Its tools join the picker for tool and
+  agent nodes; auth headers are stored encrypted per workspace.
+- **Serve**: `POST /mcp` speaks JSON-RPC 2.0 with a workspace `ws-` key
+  as the bearer token. Every published flux is advertised as a tool
+  (input schema from its start variables); `tools/call` runs the flux
+  synchronously and returns its outputs. Point Claude Desktop or any
+  MCP client at `https://your-host/mcp`.
 
 ## Backups & retention
 

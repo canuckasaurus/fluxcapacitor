@@ -131,7 +131,11 @@ orchestrator, no queue infrastructure beyond Postgres.
   (minted on the settings page) alongside per-app and per-flux ones.
   Apps and fluxes **duplicate in one click** (config and draft graph
   copied, publish state reset), and any conversation **downloads as
-  Markdown or JSON** from the chat header. A **concurrent-run cap** protects
+  Markdown or JSON** from the chat header. Chat apps can name a
+  **fallback model** — one retry on another provider when the primary
+  errors, recorded on the reply — and chatflows keep **conversation
+  variables** (slots written by variable-assigner nodes) inspectable
+  right above the console chat. A **concurrent-run cap** protects
   provider limits, and notification kinds **route to chosen webhook
   endpoints** (`notification.*` events). A dashboard **getting-started
   checklist** walks new workspaces through provider → flux → publish →
@@ -148,7 +152,9 @@ orchestrator, no queue infrastructure beyond Postgres.
   re-fetched nightly**, replacing their documents in place), **PDF and
   Office uploads** extracted through Tika right in the console,
   datasource auto-sync, multi-dataset queries, per-dataset retrieval settings
-  (including **markdown-aware chunking**, model-backed **query
+  (including **markdown-aware chunking**, **parent-child chunking** —
+  small child chunks embedded for precise matching, the enclosing
+  parent section returned for context — model-backed **query
   expansion**, and **document tags** the knowledge node filters by), and
   citations that flow onto chat answers. Similarity ranks in-BEAM by default, in SQL with the
   **pgvector backend** (`FLUX_VECTOR_BACKEND=pgvector`, HNSW-indexed with
@@ -167,6 +173,13 @@ orchestrator, no queue infrastructure beyond Postgres.
   tool plugin** (retrieve from LlamaCloud managed indexes or call
   llama_deploy workflow services as functions inside a flux), plus **Notion**,
   **S3-compatible**, and **Google Drive** (service-account) datasources.
+  **MCP goes both ways**: register any Model Context Protocol server
+  (Streamable HTTP, encrypted auth headers) and its tools join the picker
+  for tool and agent nodes — and FluxCapacitor is itself an MCP server at
+  `POST /mcp`, advertising every published flux as a callable tool
+  (input schema derived from its start variables, authenticated with a
+  workspace `ws-` key), so Claude and any other MCP client can run your
+  fluxes directly.
 - **Enterprise-grade tenancy** — workspaces with role-based access control
   (built-in + custom roles), **OIDC single sign-on**, **SCIM 2.0
   provisioning**, plan-based feature gating, a repo-level tenancy guard on
@@ -183,9 +196,12 @@ orchestrator, no queue infrastructure beyond Postgres.
   Prometheus metrics, OpenTelemetry traces, and structured JSON logs are one
   env var away; golden run fixtures replay recorded workflows in CI.
   Production email (confirmation, magic links) speaks **SMTP to any
-  relay** with four env vars (`FLUX_SMTP_HOST` + friends), and the
-  codebase holds the line with **sobelow, credo, deps.audit, and
-  dialyzer** wired into the workflow.
+  relay** with four env vars (`FLUX_SMTP_HOST` + friends), the admin
+  panel shows **background job queues** (depths by state, failing jobs
+  with their last error, retry/cancel in place), structured LLM output
+  is **validated against its JSON schema with one corrective retry**,
+  and the codebase holds the line with **sobelow, credo, deps.audit,
+  and dialyzer** wired into the workflow.
 
 ## Architecture
 

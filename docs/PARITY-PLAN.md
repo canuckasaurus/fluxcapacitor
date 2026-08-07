@@ -767,3 +767,43 @@ crypto, a covered format_number clause in the utility plugin, and
 missing t() types on the three schemas Scope references). 93 flux +
 50 targeted web tests green along the way; full suite, format, and
 image rebuild close the batch.
+
+**41. Batch 17 — expansion ten, honestly reconciled.** The proposal
+listed ten items; recon showed three already shipped in earlier batches
+(email invitations with magic-link acceptance, the embeddable
+iframe/floating-bubble widget with /embed.js, and signed inbound
+webhook triggers) and three more existed at the engine layer needing
+round-outs. What actually got built: **MCP consumption** (Flux.MCP —
+mcp_servers table, per-workspace encrypted auth headers, a minimal
+Streamable-HTTP JSON-RPC client speaking initialize/initialized/
+tools-list/tools-call with session echo and SSE-framed response
+parsing; registered servers surface in the tool picker as
+"Name (MCP)" toolsets and tool/agent nodes call them through the same
+invoke path as OpenAPI toolsets — gated by the mcp_manage permission
+that had been waiting in RBAC); **MCP serving** (POST /mcp: a
+workspace ws- key names the workspace, every published flux is
+advertised as a tool with an input schema derived from its start
+variables — slug names, id-suffixed on collision — and tools/call
+executes synchronously through a new Workflows.run_published_sync that
+shares the normal run lifecycle: budget, guardrails, usage, webhooks);
+**parent-child chunking** (dataset toggle; children at a quarter of
+chunk_size embed for precision, each remembering its parent section;
+retrieval promotes hits to the parent and dedupes by section, so the
+model sees context, not fragments; round-trips through workspace
+export); **structured-output validation** (Flux.Engine.SchemaCheck —
+type/required/properties/items/enum with path-qualified errors; an
+invalid respond call gets exactly one corrective retry with the errors
+quoted back, usage summed across both calls, then fails honestly);
+**app-level model fallback** (chat apps name a backup provider/model —
+one retry on primary error, provider health recording both sides,
+fallback_used/model_used stamped on the reply's usage, copied by
+duplicate_app); **conversation-variable inspector** (the console chat
+reloads the conversation after each turn and shows chatflow-written
+variables in a details block); and the **background jobs panel**
+(Flux.Jobs over Oban's own tables: queue depths by state, retryable/
+discarded jobs with their last error, retry and cancel wired to
+Oban.retry_job/cancel_job, admin-gated). Three migrations (apps
+fallback columns, dataset/segment parent-child, mcp_servers). The
+lesson written down: propose from the codebase, not from memory — the
+batch's first hour was spent discovering a third of it already
+existed.
