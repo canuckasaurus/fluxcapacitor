@@ -118,7 +118,9 @@ defmodule FluxWeb.ConsoleLive.Docs do
 
         "<tr><td><code>#{String.upcase(method)}</code></td>" <>
           "<td><code>/v1#{esc(path)}</code></td>" <>
-          "<td>#{esc(op["summary"])}</td><td>#{status} → #{schema}</td></tr>"
+          "<td>#{esc(op["summary"])}</td><td>#{status} → #{schema}</td>" <>
+          "<td><details><summary>curl</summary><pre><code>" <>
+          esc(curl_example(method, path)) <> "</code></pre></details></td></tr>"
       end
 
     schema_sections =
@@ -162,11 +164,48 @@ defmodule FluxWeb.ConsoleLive.Docs do
     "streaming"</code> and answer <code>text/event-stream</code>.</p>
     <h2 id="endpoints">Endpoints</h2>
     <table><thead><tr><th>Method</th><th>Path</th><th>What it does</th>
-    <th>Response</th></tr></thead>
+    <th>Response</th><th></th></tr></thead>
     <tbody>#{Enum.join(endpoint_rows)}</tbody></table>
     <h2 id="schemas">Schemas</h2>
     #{Enum.join(schema_sections)}
     """
+  end
+
+  # Copy-pasteable request per endpoint. Bodies for the well-known POSTs;
+  # generic JSON otherwise. $FLUX_TOKEN stands in for app-…/flux-… keys.
+  @curl_bodies %{
+    "/chat-messages" =>
+      ~s({"query": "Hello!", "inputs": {}, "response_mode": "streaming", "user": "abc-123"}),
+    "/completion-messages" =>
+      ~s({"inputs": {"text": "…"}, "response_mode": "blocking", "user": "abc-123"}),
+    "/workflows/run" =>
+      ~s({"inputs": {"query": "…"}, "response_mode": "blocking", "user": "abc-123"}),
+    "/workflows/batch" => ~s({"rows": [{"query": "first"}, {"query": "second"}]}),
+    "/datasets" => ~s({"name": "Handbook"}),
+    "/datasets/{id}/document/create-by-text" =>
+      ~s({"name": "policy.md", "text": "Refunds within 30 days."}),
+    "/datasets/{id}/document/create-by-url" => ~s({"url": "https://example.com/page"}),
+    "/datasets/{id}/retrieve" => ~s({"query": "how long do refunds take?", "top_k": 3})
+  }
+
+  defp curl_example(method, path) do
+    url = "$FLUX_HOST/v1#{String.replace(path, ~r/\{(\w+)\}/, ":\\1")}"
+    auth = ~s(-H "Authorization: Bearer $FLUX_TOKEN")
+
+    case String.upcase(method) do
+      "GET" ->
+        "curl #{auth} \\\n  #{url}"
+
+      "DELETE" ->
+        "curl -X DELETE #{auth} \\\n  #{url}"
+
+      _post ->
+        body = Map.get(@curl_bodies, path, "{}")
+
+        "curl -X #{String.upcase(method)} #{auth} \\\n" <>
+          "  -H \"content-type: application/json\" \\\n" <>
+          "  -d '#{body}' \\\n  #{url}"
+    end
   end
 
   defp schema_type(%{"$ref" => "#/components/schemas/" <> name}),
