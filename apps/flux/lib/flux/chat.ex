@@ -198,6 +198,28 @@ defmodule Flux.Chat do
 
   def visitor_conversations(%Scope{}, _app_id, _end_user_ref, _limit), do: []
 
+  @doc "Copies an app's configuration into a new '(copy)' app — unpublished."
+  def duplicate_app(%Scope{} = scope, %App{} = app) do
+    create_app(scope, %{
+      "name" => app.name <> " (copy)",
+      "description" => app.description,
+      "mode" => to_string(app.mode),
+      "workflow_id" => app.workflow_id,
+      "provider_plugin_id" => app.provider_plugin_id,
+      "model" => app.model,
+      "system_prompt" => app.system_prompt,
+      "prompt_template" => app.prompt_template,
+      "input_form" => app.input_form,
+      "params" => app.params,
+      "opening_statement" => app.opening_statement,
+      "suggested_questions" => app.suggested_questions,
+      "daily_token_limit" => app.daily_token_limit,
+      "suggest_followups" => app.suggest_followups,
+      "annotation_threshold" => app.annotation_threshold,
+      "site_theme" => app.site_theme
+    })
+  end
+
   @doc "Console-originated conversations (no end-user ref), newest first."
   def console_conversations(%Scope{} = scope, app_id, limit \\ 15) do
     Conversation
@@ -1078,6 +1100,62 @@ defmodule Flux.Chat do
         end
     end
   end
+
+  @doc """
+  Mints a workspace-scoped `ws-…` token: no app or flux binding, made
+  for the datasets/quality/models endpoints that only need a workspace.
+  Same lifetime choices as the other kinds.
+  """
+  def create_workspace_token(%Scope{} = scope, opts \\ []) do
+    with :ok <- RBAC.authorize(scope, :app_create_and_management) do
+      raw = "ws-" <> Base.url_encode64(:crypto.strong_rand_bytes(24), padding: false)
+
+      token =
+        Repo.insert!(%ApiToken{
+          workspace_id: Scope.workspace_id(scope),
+          token_hash: :crypto.hash(:sha256, raw),
+          prefix: String.slice(raw, 0, 11) <> "…",
+          expires_at: token_expiry(opts[:expires_in_days])
+        })
+
+      Flux.Audit.record(scope, "api_token.create",
+        resource: token,
+        metadata: %{"kind" => "workspace", "prefix" => token.prefix}
+      )
+
+      {:ok, token, raw}
+    end
+  end
+
+  def list_workspace_tokens(%Scope{} = scope) do
+    ApiToken
+    |> Repo.scoped(scope)
+    |> where([t], is_nil(t.app_id) and is_nil(t.workflow_id))
+    |> Repo.all()
+  end
+
+  @doc "Resolves a raw `ws-…` token to its workspace id."
+  def fetch_workspace_by_token("ws-" <> _rest = raw) do
+    hash = :crypto.hash(:sha256, raw)
+
+    case Repo.get_by(ApiToken, [token_hash: hash], skip_workspace_guard: true) do
+      %ApiToken{app_id: nil, workflow_id: nil} = token ->
+        if token_expired?(token) do
+          {:error, :token_expired}
+        else
+          token
+          |> Ecto.Changeset.change(last_used_at: DateTime.utc_now(:second))
+          |> Repo.update()
+
+          {:ok, token.workspace_id, token}
+        end
+
+      _other ->
+        {:error, :invalid_token}
+    end
+  end
+
+  def fetch_workspace_by_token(_other), do: {:error, :invalid_token}
 
   @doc "Resolves a raw bearer token to `{app, token}`; touches last_used_at."
   def fetch_app_by_token("app-" <> _ = raw) do

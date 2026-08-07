@@ -61,5 +61,13 @@ defmodule FluxWeb.Plugs.ServiceAuth do
     end
   end
 
+  # Workspace tokens drive datasets/quality/models endpoints; app- and
+  # flux-specific routes still answer 403 invalid_token_kind for them.
+  defp resolve("ws-" <> _rest = raw) do
+    with {:ok, workspace_id, _token} <- Chat.fetch_workspace_by_token(raw) do
+      {:ok, %{app: nil, workflow: nil, workspace_id: workspace_id}}
+    end
+  end
+
   defp resolve(_other), do: {:error, :invalid_token}
 end

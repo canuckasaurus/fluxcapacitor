@@ -3,6 +3,7 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
   use FluxWeb, :live_view
 
   alias Flux.Accounts
+  alias Flux.Chat
   alias Flux.Providers
   alias Flux.RBAC
 
@@ -29,6 +30,9 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
        can_webhooks: RBAC.can?(scope, :api_extension_manage),
        webhooks: Flux.Webhooks.list_endpoints(scope),
        webhook_deliveries: Flux.Webhooks.list_deliveries(scope, 25),
+       can_api_keys: RBAC.can?(scope, :app_create_and_management),
+       ws_tokens: Chat.list_workspace_tokens(scope),
+       new_ws_token: nil,
        can_scim: RBAC.can?(scope, :workspace_member_manage),
        scim_enabled: Accounts.scim_enabled?(scope),
        scim_token: nil,
@@ -206,6 +210,37 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
     end
   end
 
+  def handle_event("create_ws_token", %{"expires_in_days" => days}, socket) do
+    expires_in_days =
+      case Integer.parse(days) do
+        {n, ""} when n > 0 -> n
+        _never -> nil
+      end
+
+    case Chat.create_workspace_token(socket.assigns.current_scope,
+           expires_in_days: expires_in_days
+         ) do
+      {:ok, _token, raw} ->
+        {:noreply,
+         assign(socket,
+           new_ws_token: raw,
+           ws_tokens: Chat.list_workspace_tokens(socket.assigns.current_scope)
+         )}
+
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "You don't have permission to mint API keys.")}
+    end
+  end
+
+  def handle_event("revoke_ws_token", %{"id" => id}, socket) do
+    Chat.revoke_api_token(socket.assigns.current_scope, id)
+
+    {:noreply,
+     socket
+     |> put_flash(:info, "API key revoked.")
+     |> assign(ws_tokens: Chat.list_workspace_tokens(socket.assigns.current_scope))}
+  end
+
   def handle_event("enable_scim", _params, socket) do
     case Accounts.enable_scim(socket.assigns.current_scope) do
       {:ok, raw} ->
@@ -368,6 +403,9 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
           <a :if={@can_model} href="#model-card" class="badge badge-ghost badge-sm">Default model</a>
           <a :if={@can_rename} href="#retention-card" class="badge badge-ghost badge-sm">Retention</a>
           <a :if={@can_rename} href="#alerts-card" class="badge badge-ghost badge-sm">Alerts</a>
+          <a :if={@can_api_keys} href="#api-keys-card" class="badge badge-ghost badge-sm">
+            API keys
+          </a>
           <a :if={@can_rename} href="#export-card" class="badge badge-ghost badge-sm">
             Export / Import
           </a>
@@ -672,6 +710,64 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
             </tbody>
           </table>
         </details>
+      </div>
+
+      <div :if={@can_api_keys} class="card border border-base-200 p-6 space-y-3" id="api-keys-card">
+        <h2 class="font-semibold">Workspace API keys</h2>
+
+        <p class="text-sm opacity-70">
+          <span class="font-mono text-xs">ws-…</span>
+          keys authenticate the workspace-level API (datasets, quality, models) —
+          no app or flux binding. App and flux keys live on their own pages.
+        </p>
+
+        <div :if={@new_ws_token} class="space-y-1">
+          <p class="text-sm text-warning">Copy this key now — it is shown once:</p>
+          <pre class="rounded bg-base-200 p-2 text-xs overflow-x-auto" id="new-ws-token">{@new_ws_token}</pre>
+        </div>
+
+        <table :if={@ws_tokens != []} class="table table-xs">
+          <thead>
+            <tr>
+              <th>Key</th>
+              <th>Expires</th>
+              <th>Last used</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={token <- @ws_tokens} id={"ws-token-#{token.id}"}>
+              <td class="font-mono text-xs">{token.prefix}</td>
+              <td class="text-xs">
+                {(token.expires_at && Calendar.strftime(token.expires_at, "%Y-%m-%d")) || "never"}
+              </td>
+              <td class="text-xs opacity-70">
+                {(token.last_used_at && Calendar.strftime(token.last_used_at, "%Y-%m-%d %H:%M")) ||
+                  "—"}
+              </td>
+              <td>
+                <button
+                  class="btn btn-ghost btn-xs text-error"
+                  phx-click="revoke_ws_token"
+                  phx-value-id={token.id}
+                  data-confirm="Revoke this key? Anything using it stops working."
+                >
+                  Revoke
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <form phx-submit="create_ws_token" id="create-ws-token-form" class="flex gap-2 items-center">
+          <select name="expires_in_days" class="select select-bordered select-sm w-44">
+            <option value="">Never expires</option>
+            <option value="30">Expires in 30 days</option>
+            <option value="90">Expires in 90 days</option>
+            <option value="365">Expires in 365 days</option>
+          </select>
+          <button class="btn btn-primary btn-sm">Mint API key</button>
+        </form>
       </div>
 
       <div :if={@can_rename} class="card border border-base-200 p-6 space-y-3" id="export-card">

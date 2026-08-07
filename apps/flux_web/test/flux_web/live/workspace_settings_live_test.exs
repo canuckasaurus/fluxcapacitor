@@ -30,6 +30,30 @@ defmodule FluxWeb.WorkspaceSettingsLiveTest do
     assert Flux.Repo.get(Flux.Accounts.Workspace, workspace.id) == nil
   end
 
+  test "API keys card mints a ws- key once and revokes it", %{conn: conn, account: account} do
+    {:ok, lv, html} = live(conn, ~p"/console/settings")
+    assert html =~ "Workspace API keys"
+
+    html =
+      lv
+      |> form("#create-ws-token-form", %{"expires_in_days" => ""})
+      |> render_submit()
+
+    assert html =~ "shown once"
+    assert html =~ "ws-"
+    assert html =~ "never"
+
+    scope = Accounts.scope_for(account)
+    [token] = Flux.Chat.list_workspace_tokens(scope)
+    assert token.expires_at == nil
+
+    lv
+    |> element(~s{#ws-token-#{token.id} button[phx-click="revoke_ws_token"]})
+    |> render_click()
+
+    assert Flux.Chat.list_workspace_tokens(scope) == []
+  end
+
   test "SCIM card enables, shows the token once, and disables", %{conn: conn} do
     {:ok, lv, html} = live(conn, ~p"/console/settings")
     assert html =~ "SCIM provisioning"

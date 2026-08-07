@@ -96,6 +96,48 @@ defmodule Flux.ChatTest do
     assert {:ok, _app, _token} = Chat.fetch_app_by_token(raw_perpetual)
   end
 
+  test "workspace tokens resolve to the workspace and honor expiry", %{
+    scope: scope,
+    workspace: workspace
+  } do
+    {:ok, token, raw} = Chat.create_workspace_token(scope)
+    assert String.starts_with?(raw, "ws-")
+    assert token.expires_at == nil
+    assert token.app_id == nil and token.workflow_id == nil
+
+    assert {:ok, workspace_id, _token} = Chat.fetch_workspace_by_token(raw)
+    assert workspace_id == workspace.id
+
+    # Listed among the workspace-level keys (no app/flux keys mixed in).
+    assert Enum.any?(Chat.list_workspace_tokens(scope), &(&1.id == token.id))
+
+    # An expiring one refuses once its deadline passes.
+    {:ok, expiring, raw_expiring} = Chat.create_workspace_token(scope, expires_in_days: 30)
+    assert DateTime.diff(expiring.expires_at, DateTime.utc_now(), :day) in 29..30
+
+    expiring
+    |> Ecto.Changeset.change(expires_at: DateTime.add(DateTime.utc_now(:second), -1, :day))
+    |> Repo.update!()
+
+    assert {:error, :token_expired} = Chat.fetch_workspace_by_token(raw_expiring)
+    assert {:error, :invalid_token} = Chat.fetch_workspace_by_token("ws-nonsense")
+
+    # Revocation kills it like any other key.
+    {:ok, _deleted} = Chat.revoke_api_token(scope, token.id)
+    assert {:error, :invalid_token} = Chat.fetch_workspace_by_token(raw)
+  end
+
+  test "duplicate_app copies configuration into an unpublished twin", %{scope: scope, app: app} do
+    {:ok, copy} = Chat.duplicate_app(scope, app)
+
+    assert copy.name == "Echo App (copy)"
+    assert copy.provider_plugin_id == app.provider_plugin_id
+    assert copy.model == app.model
+    assert copy.system_prompt == app.system_prompt
+    refute copy.site_enabled
+    assert copy.id != app.id
+  end
+
   test "conversation search matches titles and message bodies", %{scope: scope, app: app} do
     first = Chat.create_conversation(scope, app)
     {:ok, _u, _a} = Chat.send_message(scope, app, first, "the flux capacitor hums")
