@@ -195,6 +195,20 @@ defmodule Flux.ChatTest do
     assert is_binary(again.summary)
   end
 
+  test "replies synthesize speech through the app's provider", %{scope: scope, app: app} do
+    assert {:ok, %{audio: "FAKE-MP3:" <> _rest, content_type: "audio/mpeg"}} =
+             Chat.synthesize_speech(scope, app, "read this aloud")
+
+    {:ok, no_tts} =
+      Chat.create_app(scope, %{
+        "name" => "No TTS",
+        "provider_plugin_id" => "drip",
+        "model" => "drip-1"
+      })
+
+    assert {:error, :not_supported} = Chat.synthesize_speech(scope, no_tts, "silence")
+  end
+
   test "voice notes transcribe through the app's provider", %{scope: scope, app: app} do
     assert {:ok, text} = Chat.transcribe_audio(scope, app, <<0, 1, 2, 3, 4>>)
     assert text == "(transcribed 5 bytes of audio)"

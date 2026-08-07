@@ -87,6 +87,21 @@ window.addEventListener("click", e => {
   speechSynthesis.speak(new SpeechSynthesisUtterance(content.innerText.trim()))
 })
 
+// Provider text-to-speech: the console server pushes real model audio;
+// clicking again while playing stops it.
+let providerAudio = null
+window.addEventListener("phx:play-audio", e => {
+  if (providerAudio && !providerAudio.paused) { providerAudio.pause(); providerAudio = null; return }
+  const {data, content_type} = e.detail
+  providerAudio = new Audio(`data:${content_type};base64,${data}`)
+  providerAudio.play()
+})
+window.addEventListener("phx:speak-fallback", e => {
+  if (!window.speechSynthesis) return
+  if (speechSynthesis.speaking) { speechSynthesis.cancel(); return }
+  speechSynthesis.speak(new SpeechSynthesisUtterance(e.detail.text))
+})
+
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
