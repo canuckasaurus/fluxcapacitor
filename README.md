@@ -13,7 +13,8 @@ orchestrator, no queue infrastructure beyond Postgres.
 
 - **Visual workflow engine** — 25 node types (LLM, agent loops — with
   **human tool approval**: flagged tools pause the run for an
-  approve/deny before executing — branching,
+  approve/deny before executing — with multi-select
+  **align/distribute** tools on the canvas — branching,
   iteration and bounded loops over sub-fluxes — **pinnable to a specific
   published version** for reproducible composition — code execution, HTTP,
   knowledge retrieval, human-input and labeling pause/resume, classifiers,
@@ -56,9 +57,13 @@ orchestrator, no queue infrastructure beyond Postgres.
   an **A/B split** sends a share of live traffic (chatflows, sites, API,
   triggers) to a second published version with per-arm run stats. Run
   drill-ins render a **timeline waterfall** per node with **per-node
-  token attribution**, runs are **text-searchable** by content, webhooks
-  keep a **delivery log** with manual retry, and `FLUX_ADMIN_EMAILS`
-  unlocks an **instance admin panel** for self-host operators.
+  token attribution**, any **two runs compare side by side** (status,
+  I/O, per-node timings and tokens aligned by node), runs are
+  **text-searchable** by content, webhooks keep a **delivery log** with
+  manual retry, and `FLUX_ADMIN_EMAILS` unlocks an **instance admin
+  panel** for self-host operators. Run counts, durations, **tokens, and
+  estimated cost** all export as Prometheus metrics onto the provisioned
+  Grafana dashboard.
   **Guardrails** (regex deny patterns) block or flag inputs and flag
   outputs, a **weekly digest** rolls up each workspace's activity, and
   datasets and labeling projects get the same **30-day trash** as fluxes
@@ -103,22 +108,27 @@ orchestrator, no queue infrastructure beyond Postgres.
   liked answers into canonical responses (exact + embedding-fuzzy matched).
   Assistant replies **render markdown** (safely — escape-first, no raw
   HTML) in both the console and public sites — **streamed chunks render
-  live**, not just the finished reply — and a **Regenerate button**
-  redoes the last answer in place. The console chat **resumes your
-  latest conversation** and switches between recent ones, same as
-  public sites do for visitors. A **concurrent-run cap** protects
+  live**, not just the finished reply — with a **Regenerate button**, a
+  **copy button** on every reply, opt-in **follow-up question chips**
+  after each answer, and **image uploads** straight from the chat box
+  for vision models. The console chat **resumes your latest
+  conversation**, switches between recent ones, and **renames or
+  deletes** them from the switcher, same as public sites do for
+  visitors. A **concurrent-run cap** protects
   provider limits, and notification kinds **route to chosen webhook
   endpoints** (`notification.*` events). A dashboard **getting-started
   checklist** walks new workspaces through provider → flux → publish →
   knowledge → first run → invite, a **Ctrl+K command palette** jumps to
   any page, flux, app, or dataset by name, destructive actions confirm
   through **themed modal dialogs** (no native browser popups), and an
-  **API reference** generated from the live OpenAPI spec sits alongside
-  the guides at /console/docs.
+  **API reference** generated from the live OpenAPI spec — **with a
+  copy-pasteable curl example per endpoint** — sits alongside the
+  guides at /console/docs.
 - **Knowledge (RAG)** — datasets → documents → embedded segments, hybrid
   retrieval (vector cosine + Postgres full-text + **entity mentions**, merged
-  by reciprocal rank fusion), optional reranking, URL ingestion, datasource
-  auto-sync, multi-dataset queries, per-dataset retrieval settings
+  by reciprocal rank fusion), optional reranking, URL ingestion (with a
+  **depth-1 crawl** of same-site links to pull a docs site in one
+  action), datasource auto-sync, multi-dataset queries, per-dataset retrieval settings
   (including **markdown-aware chunking**, model-backed **query
   expansion**, and **document tags** the knowledge node filters by), and
   citations that flow onto chat answers. Similarity ranks in-BEAM by default, in SQL with the

@@ -131,32 +131,77 @@
             <.icon name="hero-squares-2x2" class="size-6 text-primary" />
             <h3 class="font-semibold">Flux Creator</h3>
             <p class="text-sm opacity-75">
-              The visual workflow studio. Drag nodes onto the canvas, wire them together, debug
-              runs step by step, and publish when ready.
+              A visual canvas with 25 node types — LLMs, agents with human tool approval,
+              branching, iteration over sub-fluxes (pinnable to a version), code in a sandbox,
+              document assembly. Versions diff structurally, A/B splits route live traffic,
+              an AI helper drafts and revises graphs, and Ctrl+K jumps anywhere.
+            </p>
+          </div>
+          <div class="card border border-base-200 p-6 space-y-2">
+            <.icon name="hero-chat-bubble-left-right" class="size-6 text-primary" />
+            <h3 class="font-semibold">Apps &amp; published sites</h3>
+            <p class="text-sm opacity-75">
+              Chat, completion, and chatflow apps with markdown-rendered streaming replies,
+              image uploads for vision models, regenerate, follow-up suggestions, and
+              conversation history — published to a public URL, embedded as an iframe or
+              chat bubble, or driven through the token-scoped service API.
             </p>
           </div>
           <div class="card border border-base-200 p-6 space-y-2">
             <.icon name="hero-book-open" class="size-6 text-primary" />
             <h3 class="font-semibold">Knowledge</h3>
             <p class="text-sm opacity-75">
-              Upload documents, index them automatically, and let Fluxes retrieve the most
-              relevant passages with citations.
+              Hybrid retrieval — vectors, full-text, and entity mentions fused by rank — with
+              citations on every answer. Ingest uploads, synced datasources, or a URL (crawl
+              its links in one action); back it with pgvector or ArangoDB; measure changes
+              with retrieval evals before they hit production.
+            </p>
+          </div>
+          <div class="card border border-base-200 p-6 space-y-2">
+            <.icon name="hero-check-badge" class="size-6 text-primary" />
+            <h3 class="font-semibold">Quality loop</h3>
+            <p class="text-sm opacity-75">
+              Eval sets with exact, regex, and LLM-judge graders gate publishes and re-score on
+              a schedule. Native labeling runs consensus voting with gold standards, and a
+              model registry versions trained artifacts — label, train, and serve without
+              leaving the platform.
+            </p>
+          </div>
+          <div class="card border border-base-200 p-6 space-y-2">
+            <.icon name="hero-play-circle" class="size-6 text-primary" />
+            <h3 class="font-semibold">Operations</h3>
+            <p class="text-sm opacity-75">
+              Every run drills into a per-node waterfall with token attribution — compare any
+              two side by side. Batches over CSV, monthly budgets, concurrency caps, an LLM
+              cache, regex guardrails, and signed webhooks with a delivery log keep production
+              honest.
+            </p>
+          </div>
+          <div class="card border border-base-200 p-6 space-y-2">
+            <.icon name="hero-chart-bar" class="size-6 text-primary" />
+            <h3 class="font-semibold">Observability</h3>
+            <p class="text-sm opacity-75">
+              Prometheus metrics — HTTP, runs, tokens, estimated cost — with a provisioned
+              Grafana dashboard one compose profile away. OpenTelemetry traces and structured
+              logs are an env var each.
             </p>
           </div>
           <div class="card border border-base-200 p-6 space-y-2">
             <.icon name="hero-puzzle-piece" class="size-6 text-primary" />
             <h3 class="font-semibold">Plugins</h3>
             <p class="text-sm opacity-75">
-              Model providers and tools are plugins your admins install per workspace — with
-              capability grants controlling exactly what each plugin may do.
+              OpenAI, Anthropic, Gemini, Azure OpenAI, Amazon Bedrock, or any OpenAI-compatible
+              endpoint — plus tool, datasource, trigger, and endpoint plugins from one SDK.
+              Installed per workspace, credentials encrypted, validated on save.
             </p>
           </div>
           <div class="card border border-base-200 p-6 space-y-2">
             <.icon name="hero-user-group" class="size-6 text-primary" />
-            <h3 class="font-semibold">Teams &amp; workspaces</h3>
+            <h3 class="font-semibold">Teams &amp; enterprise</h3>
             <p class="text-sm opacity-75">
-              Every resource lives in a workspace. Role-based access control decides who can
-              build, who can publish, and who can administer.
+              Workspaces with role-based access control (built-in and custom roles), OIDC single
+              sign-on, SCIM provisioning, an append-only audit trail, full export/import
+              archives, and a console that speaks English, French, and Spanish.
             </p>
           </div>
         </div>

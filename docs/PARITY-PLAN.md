@@ -589,3 +589,41 @@ DOM-behavioral this round (the browser window sat minimized at 0x0 —
 screenshots impossible): palette open/fetch, confirm-intercept
 before/after semantics, drawer state, API reference content all
 asserted via injected JS against the dev server.
+
+37. ~~Batch 13: the chat experience finished + shop-window refresh (#154, 2026-08-07)~~
+DONE: **image uploads in chat** (LiveView allow_upload on console chat
+and public sites — paperclip, entry chips with cancel, 3×15MB images;
+consume → Chat.create_upload → send_message files:, riding the
+load_images vision path that only the API could reach before; user
+bubbles show attachment chips); **conversation management** (rename
+pencil → inline form, themed-confirm delete that falls back to the
+next thread — both console-side over the pre-existing context
+functions); **chat polish** (a Copy button on every completed reply —
+delegated JS writing the bubble's rendered text to the clipboard —
+and opt-in **follow-up suggestion chips**: apps.suggest_followups
+migration + checkbox, Chat.follow_up_suggestions makes one extra
+model call over the last six turns — the app's model or the workspace
+default — parses up to three lines, chips send on click; wired into
+console and site after every finished reply); **token/cost metrics**
+(the run-finished telemetry now carries input/output tokens and cost
+in micro-USD; PromEx sums by source and two new Grafana panels chart
+tokens/h and estimated USD/h); **curl examples** (every endpoint row
+in the API reference grew a details-toggled, copy-pasteable curl —
+canned bodies for the well-known POSTs, generic elsewhere);
+**run comparison** (pick any two runs on the Runs page via a
+stop-propagation checkbox column → side-by-side status/version/IO
+panels plus a per-node table aligned on the union of node ids in
+first-appearance order); **canvas align/distribute** (a join-toolbar
+appears at 2+ selected nodes: align left/top, distribute h/v keeping
+the outermost pair — position math server-side through update_graph,
+so it's undoable like any other edit); **URL crawl** (RAG.crawl_from_url:
+depth-1 same-host links from the fetched page — fragments stripped,
+offsite and self dropped, 25-page hard cap — each page SSRF-checked
+and ingested individually, failures skip not abort; "crawl links"
+checkbox on the knowledge URL form); and the **shop windows**: the
+landing page's four stale feature cards became eight that actually
+describe the platform (creator, apps/sites, knowledge, quality loop,
+operations, observability, plugins, enterprise), and the README picked
+up uploads/follow-ups/copy, comparison, crawl, align, curl, and the
+token/cost panels. Note for the ledger's conscience: API token hygiene
+has now been passed over eight times.
