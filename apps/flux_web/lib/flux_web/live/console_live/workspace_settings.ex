@@ -23,6 +23,8 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
        export_schedule: Accounts.export_schedule(scope),
        token_budget: Accounts.token_budget(scope),
        llm_cache_minutes: Accounts.llm_cache_minutes(scope),
+       pricing_overrides:
+         Flux.Pricing.overrides(Flux.Accounts.Scope.workspace_id(scope)) |> Enum.sort(),
        max_concurrent_runs: Accounts.max_concurrent_runs(scope),
        guardrails: Flux.Guardrails.config(Flux.Accounts.Scope.workspace_id(scope)),
        moderation: Flux.Guardrails.moderation_config(Flux.Accounts.Scope.workspace_id(scope)),
@@ -113,6 +115,24 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
 
       _error ->
         {:noreply, put_flash(socket, :error, "Could not save the guardrails.")}
+    end
+  end
+
+  def handle_event("set_pricing", %{"pricing" => pricing}, socket) do
+    case Flux.Pricing.configure_overrides(socket.assigns.current_scope, pricing) do
+      {:ok, _workspace} ->
+        workspace_id = Flux.Accounts.Scope.workspace_id(socket.assigns.current_scope)
+
+        {:noreply,
+         socket
+         |> put_flash(:info, "Model prices saved.")
+         |> assign(pricing_overrides: Flux.Pricing.overrides(workspace_id) |> Enum.sort())}
+
+      {:error, {:invalid_line, line}} ->
+        {:noreply, put_flash(socket, :error, "Couldn't parse: #{line}")}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not save the prices.")}
     end
   end
 
@@ -539,6 +559,25 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
             class="input input-bordered input-sm w-40"
           /> <span class="text-sm opacity-70">cache minutes</span>
           <button class="btn btn-primary btn-sm">Save</button>
+        </form>
+
+        <div class="divider my-1" />
+
+        <h3 class="text-sm font-semibold">Model price overrides</h3>
+        <p class="text-sm opacity-70">
+          One per line: <span class="font-mono text-xs">model-prefix $in/M $out/M</span>
+          — prices your self-hosted or fine-tuned models so cost rollups
+          stop reading $0. Overrides beat the built-in table on prefix
+          match; blank clears.
+        </p>
+        <form phx-submit="set_pricing" id="pricing-form" class="space-y-2">
+          <textarea
+            name="pricing"
+            rows="3"
+            placeholder="my-finetune 2.0 8.0"
+            class="textarea textarea-bordered textarea-sm w-full max-w-md font-mono"
+          >{Enum.map_join(@pricing_overrides, "\n", fn {model, [input, output]} -> "#{model} #{input} #{output}" end)}</textarea>
+          <button class="btn btn-primary btn-sm">Save prices</button>
         </form>
       </div>
 

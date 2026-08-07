@@ -132,7 +132,7 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
 
     with model when is_binary(model) <- app.model,
          true <- input + output > 0,
-         {:ok, cost} <- Flux.Pricing.estimate(model, input, output) do
+         {:ok, cost} <- Flux.Pricing.estimate(app.workspace_id, model, input, output) do
       cost
     else
       _unknown_or_zero -> nil

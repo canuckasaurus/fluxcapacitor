@@ -486,6 +486,7 @@ defmodule Flux.Workflows do
     graph_map = Keyword.get(opts, :graph, workflow.graph)
 
     with :ok <- check_token_budget(workflow.workspace_id),
+         :ok <- check_flux_budget(workflow),
          :ok <- check_concurrency(workflow.workspace_id, Keyword.get(opts, :source, :draft)),
          :ok <-
            Flux.Guardrails.check_input(
@@ -494,6 +495,38 @@ defmodule Flux.Workflows do
              "run input (#{workflow.name})"
            ) do
       do_start_run(scope, workflow, graph_map, inputs, opts)
+    end
+  end
+
+  # An optional per-flux monthly cap alongside the workspace budget:
+  # past it new runs refuse with :flux_budget_exhausted; at 80% one
+  # notification per month fires.
+  defp check_flux_budget(%Workflow{monthly_token_budget: nil}), do: :ok
+
+  defp check_flux_budget(%Workflow{monthly_token_budget: budget} = workflow)
+       when is_integer(budget) do
+    spent = Flux.Usage.month_tokens_for_workflow(workflow.id)
+    month = Calendar.strftime(Date.utc_today(), "%Y-%m")
+
+    cond do
+      spent >= budget ->
+        {:error, :flux_budget_exhausted}
+
+      spent >= budget * 0.8 and workflow.budget_warned_month != month ->
+        Flux.Notifications.notify(
+          workflow.workspace_id,
+          "budget_warning",
+          "#{workflow.name}: flux budget 80% spent (#{spent} of #{budget} tokens this month).",
+          "/console/fluxes/#{workflow.id}"
+        )
+
+        from(w in Workflow, where: w.id == ^workflow.id)
+        |> Repo.update_all([set: [budget_warned_month: month]], skip_workspace_guard: true)
+
+        :ok
+
+      true ->
+        :ok
     end
   end
 
@@ -1215,6 +1248,7 @@ defmodule Flux.Workflows do
     with %WorkflowVersion{} = version <-
            serving_version(scope, workflow) || {:error, :not_published},
          :ok <- check_token_budget(workflow.workspace_id),
+         :ok <- check_flux_budget(workflow),
          :ok <-
            Flux.Guardrails.check_input(
              workflow.workspace_id,
@@ -1545,7 +1579,7 @@ defmodule Flux.Workflows do
         "by_node" => by_node
       }
 
-      case Flux.Pricing.cost_for(by_model) do
+      case Flux.Pricing.cost_for(run.workspace_id, by_model) do
         nil -> base
         cost -> Map.put(base, "estimated_cost_usd", cost)
       end

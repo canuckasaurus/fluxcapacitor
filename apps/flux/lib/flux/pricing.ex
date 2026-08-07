@@ -47,11 +47,18 @@ defmodule Flux.Pricing do
 
   @doc """
   Estimated cost in USD for one model's tokens, or `:unknown` when the
-  model has no pricing row.
+  model has no pricing row. Pass a workspace id first to apply that
+  workspace's overrides (self-hosted and fine-tuned models the built-in
+  table can't know).
   """
   def estimate(model, input_tokens, output_tokens)
       when is_binary(model) and is_integer(input_tokens) and is_integer(output_tokens) do
-    case lookup(model) do
+    estimate(nil, model, input_tokens, output_tokens)
+  end
+
+  def estimate(workspace_id, model, input_tokens, output_tokens)
+      when is_binary(model) and is_integer(input_tokens) and is_integer(output_tokens) do
+    case lookup(model, workspace_overrides(workspace_id)) do
       {input_per_m, output_per_m} ->
         {:ok, input_tokens / 1_000_000 * input_per_m + output_tokens / 1_000_000 * output_per_m}
 
@@ -63,13 +70,23 @@ defmodule Flux.Pricing do
   @doc """
   Total estimated cost for a `%{model => %{"input_tokens" => n, "output_tokens" => n}}`
   breakdown. Returns `nil` when none of the models are priced (so callers
-  can distinguish "free" from "no idea").
+  can distinguish "free" from "no idea"). Workspace-id variant applies
+  that workspace's overrides.
   """
-  def cost_for(by_model) when is_map(by_model) do
+  def cost_for(by_model) when is_map(by_model), do: cost_for(nil, by_model)
+
+  def cost_for(workspace_id, by_model) when is_map(by_model) do
     costs =
       for {model, usage} <- by_model,
           {:ok, cost} <-
-            [estimate(model, usage["input_tokens"] || 0, usage["output_tokens"] || 0)] do
+            [
+              estimate(
+                workspace_id,
+                model,
+                usage["input_tokens"] || 0,
+                usage["output_tokens"] || 0
+              )
+            ] do
         cost
       end
 
@@ -79,8 +96,76 @@ defmodule Flux.Pricing do
     end
   end
 
-  defp lookup(model) do
-    table = Map.merge(@defaults, Application.get_env(:flux, :model_pricing, %{}))
+  @doc """
+  Saves workspace price overrides from text lines of
+  `model-prefix input-per-million output-per-million` (blank clears).
+  """
+  def configure_overrides(%Flux.Accounts.Scope{} = scope, text) do
+    lines =
+      text
+      |> to_string()
+      |> String.split(~r/\r?\n/, trim: true)
+      |> Enum.map(&String.split(String.trim(&1)))
+      |> Enum.reject(&(&1 == []))
+
+    parsed =
+      Enum.reduce_while(lines, %{}, fn
+        [model, input, output], acc ->
+          with {input_per_m, ""} <- Float.parse(input),
+               {output_per_m, ""} <- Float.parse(output) do
+            {:cont, Map.put(acc, model, [input_per_m, output_per_m])}
+          else
+            _bad -> {:halt, {:error, Enum.join([model, input, output], " ")}}
+          end
+
+        bad_line, _acc ->
+          {:halt, {:error, Enum.join(bad_line, " ")}}
+      end)
+
+    case parsed do
+      {:error, line} -> {:error, {:invalid_line, line}}
+      overrides when overrides == %{} -> put_overrides(scope, nil)
+      overrides -> put_overrides(scope, overrides)
+    end
+  end
+
+  @doc "The workspace's saved overrides as `%{prefix => [input, output]}`."
+  def overrides(workspace_id) do
+    case Flux.Repo.get(Flux.Accounts.Workspace, workspace_id) do
+      %{custom_config: %{"model_pricing" => %{} = overrides}} -> overrides
+      _none -> %{}
+    end
+  end
+
+  defp put_overrides(scope, value) do
+    with :ok <- Flux.RBAC.authorize(scope, :customization_manage),
+         %Flux.Accounts.Workspace{} = workspace <-
+           Flux.Repo.get(Flux.Accounts.Workspace, Flux.Accounts.Scope.workspace_id(scope)) do
+      custom_config =
+        if value == nil do
+          Map.delete(workspace.custom_config || %{}, "model_pricing")
+        else
+          Map.put(workspace.custom_config || %{}, "model_pricing", value)
+        end
+
+      workspace |> Ecto.Changeset.change(custom_config: custom_config) |> Flux.Repo.update()
+    end
+  end
+
+  defp workspace_overrides(nil), do: %{}
+
+  defp workspace_overrides(workspace_id) do
+    Map.new(overrides(workspace_id), fn
+      {prefix, [input, output]} -> {prefix, {input * 1.0, output * 1.0}}
+      {prefix, {input, output}} -> {prefix, {input, output}}
+    end)
+  end
+
+  defp lookup(model, workspace_table) do
+    table =
+      @defaults
+      |> Map.merge(Application.get_env(:flux, :model_pricing, %{}))
+      |> Map.merge(workspace_table)
 
     table
     |> Enum.filter(fn {prefix, _price} -> String.starts_with?(model, prefix) end)
