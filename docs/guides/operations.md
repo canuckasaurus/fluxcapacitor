@@ -77,8 +77,25 @@ before anything real depends on it.
 - **Serve**: `POST /mcp` speaks JSON-RPC 2.0 with a workspace `ws-` key
   as the bearer token. Every published flux is advertised as a tool
   (input schema from its start variables); `tools/call` runs the flux
-  synchronously and returns its outputs. Point Claude Desktop or any
-  MCP client at `https://your-host/mcp`.
+  synchronously and returns its outputs. The prompt library serves as
+  MCP prompts and dataset documents as MCP resources. Point Claude
+  Desktop or any MCP client at `https://your-host/mcp`.
+
+## OpenAI compatibility
+
+`POST /v1/chat/completions` with an `app-` bearer token maps any
+OpenAI SDK onto a chat app — blocking or streaming (`stream: true`,
+`chat.completion.chunk` frames, `data: [DONE]`). Stateless: the caller
+sends the whole history; the request's `model` field is ignored (the
+app decides, including its fallback). Quotas, guardrails, and
+moderation all apply.
+
+## Email
+
+- `FLUX_SMTP_HOST/PORT/USERNAME/PASSWORD/SSL` + `FLUX_MAIL_FROM`
+  enable delivery; `PHX_HOST` builds console links inside the mails.
+- Members opt into notification kinds per account (Settings → Email
+  notifications) — run failures, budget warnings, the weekly digest.
 
 ## Backups & retention
 

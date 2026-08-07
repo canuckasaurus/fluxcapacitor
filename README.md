@@ -110,7 +110,9 @@ orchestrator, no queue infrastructure beyond Postgres.
 - **Apps on top of fluxes** — chat, completion (form), and chatflow modes;
   published to logged-out visitors at a public URL, embedded via iframe or a
   floating chat bubble, or consumed through the `/v1` service API with
-  per-app tokens, streaming SSE, quotas, and rate limits. Monitoring pages
+  per-app tokens, streaming SSE, quotas, and rate limits — including an
+  **OpenAI-compatible `POST /v1/chat/completions`** (blocking and
+  streaming), so any OpenAI SDK talks to an app with a base-URL swap. Monitoring pages
   track usage, feedback and quality trends, **topic clusters** of what
   people actually ask, and **annotation replies** promote
   liked answers into canonical responses (exact + embedding-fuzzy matched).
@@ -135,9 +137,17 @@ orchestrator, no queue infrastructure beyond Postgres.
   **fallback model** — one retry on another provider when the primary
   errors, recorded on the reply — and chatflows keep **conversation
   variables** (slots written by variable-assigner nodes) inspectable
-  right above the console chat. A **concurrent-run cap** protects
+  right above the console chat. Long chats stay coherent through
+  **rolling conversation memory** (older turns fold into a maintained
+  summary instead of overflowing the window), **push-to-talk voice
+  input** transcribes through the provider's Whisper-style endpoint,
+  and every reply has a **read-aloud button** (browser voices).
+  Guardrails gain **model-backed moderation** — the workspace default
+  model judges content against your policy alongside the regex
+  patterns. A **concurrent-run cap** protects
   provider limits, and notification kinds **route to chosen webhook
-  endpoints** (`notification.*` events). A dashboard **getting-started
+  endpoints** (`notification.*` events) or arrive **by email** per
+  member (account settings opt-in). A dashboard **getting-started
   checklist** walks new workspaces through provider → flux → publish →
   knowledge → first run → invite, a **Ctrl+K command palette** jumps to
   any page, flux, app, or dataset by name, destructive actions confirm
@@ -177,9 +187,12 @@ orchestrator, no queue infrastructure beyond Postgres.
   (Streamable HTTP, encrypted auth headers) and its tools join the picker
   for tool and agent nodes — and FluxCapacitor is itself an MCP server at
   `POST /mcp`, advertising every published flux as a callable tool
-  (input schema derived from its start variables, authenticated with a
-  workspace `ws-` key), so Claude and any other MCP client can run your
-  fluxes directly.
+  (input schema derived from its start variables), the **prompt library
+  as MCP prompts**, and **dataset documents as MCP resources** —
+  authenticated with a workspace `ws-` key, so Claude and any other MCP
+  client can run your fluxes and read your knowledge directly. Agent
+  nodes attach **several toolsets at once** (OpenAPI + plugin + MCP
+  mixed, colliding names deduped).
 - **Enterprise-grade tenancy** — workspaces with role-based access control
   (built-in + custom roles), **OIDC single sign-on**, **SCIM 2.0
   provisioning**, plan-based feature gating, a repo-level tenancy guard on

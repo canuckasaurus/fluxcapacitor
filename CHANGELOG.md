@@ -5,11 +5,39 @@ follows [Keep a Changelog](https://keepachangelog.com/); the project follows
 semantic versioning once past 1.0. Detailed build history lives in the ledger
 at `docs/PARITY-PLAN.md`.
 
-## Unreleased
+## v0.3.0 — 2026-08-07
 
-Two batches: expansion (MCP both ways, retrieval and model resilience)
-on top of hardening (security static analysis, real email, and the
-account/workspace hygiene features).
+Three batches on from v0.2.0: hardening, then interoperability, then
+the conversational round-out. Highlights below; ledger entries 40–42
+carry the detail.
+
+### OpenAI compatibility & voice
+- `POST /v1/chat/completions` with an `app-` token speaks OpenAI's
+  wire format (blocking and streaming) — any OpenAI SDK talks to a
+  chat app with a base-URL swap.
+- Voice input: hold the mic in console or site chat, release to
+  transcribe through the provider's Whisper-style endpoint (a new
+  optional `invoke_transcription` capability on provider plugins);
+  every reply has a read-aloud button (browser voices, no provider).
+
+### Conversations & agents
+- Rolling memory: long chats fold older turns into an incrementally
+  maintained summary on the conversation instead of overflowing the
+  context window.
+- Agent nodes attach multiple toolsets at once (OpenAPI, plugin, and
+  MCP mixed), with colliding tool names deduped.
+- Model-backed moderation beside the regex guardrails: the workspace
+  default model judges inputs against a policy (block or flag;
+  outputs always flag-only; judge failures allow).
+
+### Notifications
+- Per-account email opt-in per notification kind — run failures,
+  budget warnings, the weekly digest, and the rest arrive by mail
+  through the SMTP relay.
+
+### MCP phase 2
+- The `/mcp` server now advertises the prompt library as MCP prompts
+  and dataset documents as MCP resources alongside flux tools.
 
 ### Interoperability
 - MCP client: register Model Context Protocol servers (Streamable

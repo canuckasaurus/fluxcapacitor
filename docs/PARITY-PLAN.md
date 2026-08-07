@@ -807,3 +807,44 @@ fallback columns, dataset/segment parent-child, mcp_servers). The
 lesson written down: propose from the codebase, not from memory — the
 batch's first hour was spent discovering a third of it already
 existed.
+
+**42. Batch 18 — the conversational round-out, and v0.3.0.** Eight
+picks (custom domains and Japanese deferred): **OpenAI compatibility**
+(POST /v1/chat/completions on app- tokens speaks the OpenAI wire
+format both blocking and streaming — chunk frames, [DONE] sentinel,
+usage object; stateless by design with the request's model field
+ignored, the app deciding model and fallback; quota, guardrails, and
+moderation all gate it — any OpenAI SDK now reaches an app with a
+base-URL swap. /v1/models stayed the registry's — the compat surface
+is completions-only and documented as such); **model-backed
+moderation** (a policy textarea beside the regex guardrails; the
+workspace default model answers ALLOW or DENY-with-reason, block
+refuses inputs, flag and all outputs notify only, judge failures
+allow — the product never goes down because the moderator did;
+:moderation_judge injection keeps tests deterministic); **agent
+multi-toolset** (agent_toolset_ids replaces the single id — multi-
+select with a hidden-input clear trick, snapshots union across
+toolsets with colliding names suffixed, old single-id graphs read
+compatibly; the engine needed nothing: it always routed per-tool);
+**rolling conversation memory** (past a 6k-token budget the oldest
+turns summarize into the conversation row — incremental via
+summarized_seq, reused without re-summarizing, degrading to full
+history if the summarizer errors; the summary rides as a second
+system message); **voice** (an optional invoke_transcription
+capability on the provider behaviour, Whisper-shaped multipart in the
+OpenAI and OpenAI-compatible plugins, hand-rolled boundary — no new
+deps; push-to-talk MicRecorder hook uploads through LiveView's own
+file pipeline and the transcript lands in the input box; read-aloud
+uses the browser's speechSynthesis, zero provider involvement, on
+console and site alike); **MCP phase 2** (prompts/list+get serve the
+prompt library, resources/list+read serve dataset documents under
+flux:// URIs — the /mcp endpoint now advertises all three
+capabilities); **notification emails** (per-account kind opt-in on
+account settings, fan-out inside Notifications.notify to subscribed
+workspace members through the SMTP relay, unknown kinds dropped at
+save; PHX_HOST builds the console links); and **v0.3.0** (umbrella
+and apps bumped, CHANGELOG distilled from entries 40–42, tagged, image
+rebuilt). One migration pair (conversation summary columns, account
+email-kinds column). The runtime.exs binding lesson from batch 16 was
+nearly repeated and caught in review — `and (x = ...)` still doesn't
+leak.

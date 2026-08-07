@@ -57,7 +57,7 @@ defmodule Flux.MCP.Client do
     params = %{
       "protocolVersion" => @protocol_version,
       "capabilities" => %{},
-      "clientInfo" => %{"name" => "fluxcapacitor", "version" => "0.2.0"}
+      "clientInfo" => %{"name" => "fluxcapacitor", "version" => "0.3.0"}
     }
 
     case post(url, headers, nil, envelope("initialize", params, 1)) do
