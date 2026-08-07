@@ -29,6 +29,33 @@ defmodule Flux.WebhooksTest do
     assert Webhooks.list_endpoints(scope) == []
   end
 
+  test "send_test delivers a signed webhook.test event synchronously", %{scope: scope} do
+    {:ok, endpoint} = Webhooks.create_endpoint(scope, %{"url" => "https://hooks.example.com/t"})
+
+    Application.put_env(:flux, :alert_req_options, plug: {Req.Test, Flux.WebhookTestStub})
+    on_exit(fn -> Application.delete_env(:flux, :alert_req_options) end)
+
+    parent = self()
+
+    Req.Test.stub(Flux.WebhookTestStub, fn conn ->
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+      [signature] = Plug.Conn.get_req_header(conn, "x-flux-signature")
+      send(parent, {:delivered, body, signature})
+      Plug.Conn.send_resp(conn, 204, "")
+    end)
+
+    assert {:ok, 204} = Webhooks.send_test(scope, endpoint.id)
+
+    assert_receive {:delivered, body, "sha256=" <> hex}
+    assert Jason.decode!(body)["event"] == "webhook.test"
+
+    # The signature is a real HMAC over the exact body bytes.
+    expected = :crypto.mac(:hmac, :sha256, endpoint.secret, body) |> Base.encode16(case: :lower)
+    assert hex == expected
+
+    assert {:error, :not_found} = Webhooks.send_test(scope, Ecto.UUID.generate())
+  end
+
   test "rejects non-http URLs and unknown events", %{scope: scope} do
     assert {:error, changeset} =
              Webhooks.create_endpoint(scope, %{"url" => "ftp://example.com/x"})

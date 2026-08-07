@@ -25,6 +25,12 @@ defmodule Flux.NotificationsRegistryTest do
     assert Notifications.unread_count(scope) == 2
     assert [%{kind: "labeling_completed"}, %{kind: "run_failed"}] = Notifications.list(scope)
 
+    # Kind filters narrow the feed; single mark-read leaves the rest unread.
+    assert [%{kind: "run_failed"}] = Notifications.list(scope, 30, "run_failed")
+    [first | _rest] = Notifications.list(scope)
+    :ok = Notifications.mark_read(scope, first.id)
+    assert Notifications.unread_count(scope) == 1
+
     :ok = Notifications.mark_all_read(scope)
     assert Notifications.unread_count(scope) == 0
 

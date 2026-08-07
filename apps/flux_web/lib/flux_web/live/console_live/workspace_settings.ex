@@ -301,6 +301,20 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
     end
   end
 
+  def handle_event("test_webhook", %{"id" => id}, socket) do
+    case Flux.Webhooks.send_test(socket.assigns.current_scope, id) do
+      {:ok, status} ->
+        {:noreply,
+         put_flash(socket, :info, "Test event sent — the endpoint answered HTTP #{status}.")}
+
+      {:error, message} when is_binary(message) ->
+        {:noreply, put_flash(socket, :error, "Test failed: #{message}")}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Could not send the test event.")}
+    end
+  end
+
   def handle_event("delete_webhook", %{"id" => id}, socket) do
     case Flux.Webhooks.delete_endpoint(socket.assigns.current_scope, id) do
       {:ok, _deleted} ->
@@ -565,6 +579,14 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
                   phx-value-id={webhook.id}
                 >
                   {(webhook.enabled && "Disable") || "Enable"}
+                </button>
+                <button
+                  class="btn btn-ghost btn-xs"
+                  phx-click="test_webhook"
+                  phx-value-id={webhook.id}
+                  title="Send a signed webhook.test event now"
+                >
+                  Send test
                 </button>
                 <button
                   class="btn btn-ghost btn-xs text-error"

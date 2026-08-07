@@ -63,12 +63,25 @@ defmodule Flux.Notifications do
   @doc "The webhook event names notifications can route to."
   def webhook_events, do: for(kind <- @kinds, do: "notification." <> kind)
 
-  def list(%Scope{} = scope, limit \\ 30) do
+  def kinds, do: @kinds
+
+  def list(%Scope{} = scope, limit \\ 30, kind \\ nil) do
     Notification
     |> Repo.scoped(scope)
+    |> then(fn query -> if kind in @kinds, do: where(query, [n], n.kind == ^kind), else: query end)
     |> order_by([n], desc: n.inserted_at, desc: n.id)
     |> limit(^limit)
     |> Repo.all()
+  end
+
+  @doc "Marks one notification read (idempotent)."
+  def mark_read(%Scope{} = scope, notification_id) do
+    Notification
+    |> Repo.scoped(scope)
+    |> where([n], n.id == ^notification_id and is_nil(n.read_at))
+    |> Repo.update_all(set: [read_at: DateTime.utc_now(:second)])
+
+    :ok
   end
 
   def unread_count(%Scope{} = scope) do

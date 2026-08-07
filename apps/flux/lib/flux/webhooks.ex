@@ -26,6 +26,45 @@ defmodule Flux.Webhooks do
   @doc "Every subscribable event (incl. routed notification kinds)."
   def events, do: @run_events ++ @other_events ++ Flux.Notifications.webhook_events()
 
+  @doc """
+  Sends a signed `webhook.test` event to one endpoint synchronously and
+  returns what happened — the "does my receiver work?" button.
+  """
+  def send_test(%Scope{} = scope, endpoint_id) do
+    with :ok <- RBAC.authorize(scope, :api_extension_manage),
+         %Endpoint{} = endpoint <-
+           Repo.one(Repo.scoped(where(Endpoint, id: ^endpoint_id), scope)) ||
+             {:error, :not_found},
+         :ok <- Flux.SSRF.verify_url(endpoint.url) do
+      body =
+        Jason.encode!(%{
+          event: "webhook.test",
+          message: "FluxCapacitor test event — your receiver works.",
+          sent_at: DateTime.utc_now(:second)
+        })
+
+      signature =
+        "sha256=" <>
+          (:crypto.mac(:hmac, :sha256, endpoint.secret, body) |> Base.encode16(case: :lower))
+
+      case Req.post(
+             [
+               url: endpoint.url,
+               body: body,
+               headers: [
+                 {"content-type", "application/json"},
+                 {"x-flux-signature", signature}
+               ],
+               retry: false,
+               receive_timeout: 10_000
+             ] ++ Application.get_env(:flux, :alert_req_options, [])
+           ) do
+        {:ok, %{status: status}} -> {:ok, status}
+        {:error, exception} -> {:error, Exception.message(exception)}
+      end
+    end
+  end
+
   def list_endpoints(%Scope{} = scope) do
     Endpoint
     |> Repo.scoped(scope)
