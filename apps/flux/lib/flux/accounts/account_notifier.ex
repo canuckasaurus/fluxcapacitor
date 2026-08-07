@@ -13,7 +13,7 @@ defmodule Flux.Accounts.AccountNotifier do
     email =
       new()
       |> to(recipient)
-      |> from({"FluxCapacitor", "contact@example.com"})
+      |> from({"FluxCapacitor", Application.get_env(:flux, :mail_from, "contact@example.com")})
       |> subject(subject)
       |> text_body(body)
 

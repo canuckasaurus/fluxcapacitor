@@ -102,6 +102,32 @@ if config_env() == :prod and System.get_env("FLUX_MAILBOX") == "1" do
   config :swoosh, local: true
 end
 
+# FLUX_SMTP_HOST turns on real email delivery over SMTP — works against
+# any relay (SES, Postmark, a corporate server) without picking a vendor
+# API. Companion vars: FLUX_SMTP_PORT (587), FLUX_SMTP_USERNAME,
+# FLUX_SMTP_PASSWORD, FLUX_SMTP_SSL (1 = implicit TLS, else STARTTLS),
+# FLUX_MAIL_FROM (the sender address).
+smtp_host = System.get_env("FLUX_SMTP_HOST")
+
+if config_env() == :prod and smtp_host != nil do
+  config :flux, Flux.Mailer,
+    adapter: Swoosh.Adapters.SMTP,
+    relay: smtp_host,
+    port: String.to_integer(System.get_env("FLUX_SMTP_PORT", "587")),
+    username: System.get_env("FLUX_SMTP_USERNAME"),
+    password: System.get_env("FLUX_SMTP_PASSWORD"),
+    ssl: System.get_env("FLUX_SMTP_SSL") == "1",
+    tls: :if_available,
+    auth: :if_available,
+    retries: 2
+
+  config :swoosh, :api_client, false
+
+  if from = System.get_env("FLUX_MAIL_FROM") do
+    config :flux, :mail_from, from
+  end
+end
+
 # Storage backend toggle: STORAGE_BACKEND=s3 points at any S3-compatible
 # endpoint (MinIO or AWS). Unset keeps the per-env default (:local in dev).
 if System.get_env("STORAGE_BACKEND") == "s3" do

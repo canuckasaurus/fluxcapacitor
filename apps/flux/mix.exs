@@ -51,6 +51,7 @@ defmodule Flux.MixProject do
       {:postgrex, ">= 0.0.0"},
       {:jason, "~> 1.2"},
       {:swoosh, "~> 1.16"},
+      {:gen_smtp, "~> 1.2"},
       {:req, "~> 0.5"},
       {:yaml_elixir, "~> 2.9"},
       {:logger_json, "~> 7.0"},
