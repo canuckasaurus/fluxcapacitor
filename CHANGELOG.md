@@ -5,6 +5,47 @@ follows [Keep a Changelog](https://keepachangelog.com/); the project follows
 semantic versioning once past 1.0. Detailed build history lives in the ledger
 at `docs/PARITY-PLAN.md`.
 
+## v0.2.0 — 2026-08-07
+
+Four batches on from v0.1.0: the chat experience finished, the shop
+windows refreshed, and the operations story completed. Highlights:
+
+### Chat & apps
+- Image uploads for vision models from the chat box (console + sites),
+  conversation history with resume/rename/delete/search, streaming
+  markdown, copy buttons, opt-in follow-up question chips.
+- Published sites carry OpenGraph/meta tags and a favicon from the
+  app's theme, so shared links unfurl properly.
+
+### Providers & tokens
+- Azure OpenAI and Amazon Bedrock (hand-rolled SigV4) providers.
+- API tokens: perpetual or expiring by choice (30/90/365 days),
+  last-used stamps, `401 token_expired`, one-click revocation.
+
+### Debugging & operations
+- Side-by-side run comparison; replay a finished run from any node
+  (upstream outputs reused); batches retry only failed rows; runs
+  export as JSONL with per-node traces; per-node output caching.
+- `/health` + `/health/ready` probes, `mix flux.doctor` environment
+  self-check, webhook test events, rate-limit headers, per-provider
+  health on the admin panel, token/cost Prometheus metrics with
+  provisioned Grafana panels (`--profile metrics`).
+- Notification feed filters by kind with per-item mark-read; cron
+  fields preview their next fire; a new Operations guide ships in
+  the console docs.
+
+### Knowledge & authoring
+- PDF/Office uploads through Tika; depth-1 URL crawl; remembered URL
+  sources re-fetched nightly (replace-in-place); prompt library with
+  an editor insert picker; canvas align/distribute, presence avatars,
+  and sub-flux version pinning.
+
+### Console
+- Ctrl+K command palette (pages, entities, workspace switching),
+  themed confirm dialogs, an in-console API reference with per-endpoint
+  curl examples, dashboard activity feed + getting-started checklist,
+  flux health badges, German joins English/French/Spanish.
+
 ## v0.1.0 — 2026-08-03
 
 The first tagged release: the full platform, from a standing start to 700+

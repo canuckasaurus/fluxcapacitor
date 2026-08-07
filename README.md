@@ -301,6 +301,7 @@ The guides live in `docs/guides` and also render **inside the console** at
 - [Node reference](docs/guides/node-reference.md) — all 25 node types in detail, branching, parallel fan-out, sub-fluxes
 - [Plugin SDK](docs/guides/plugin-sdk.md) — the five capability behaviours with a worked example
 - [Service API](docs/guides/service-api.md) — the `/v1` surface, SSE framing, webhooks, SCIM
+- [Operations](docs/guides/operations.md) — cost controls, guardrails, health probes, `mix flux.doctor`, metrics, backups
 
 ## Getting started
 

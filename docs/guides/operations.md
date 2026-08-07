@@ -1,0 +1,97 @@
+# Operations
+
+Running FluxCapacitor for a team: cost controls, safety rails,
+observability, and backups. Everything here lives in **Settings**,
+the **admin panel** (`FLUX_ADMIN_EMAILS`), or an environment variable.
+
+## Health & self-checks
+
+- `GET /health` — liveness (the VM answers).
+- `GET /health/ready` — readiness: database + storage checks, `503`
+  with per-check detail when degraded. In prod, probe with
+  `Host: localhost` (or through your proxy with `x-forwarded-proto`)
+  so `force_ssl` doesn't bounce the probe.
+- `mix flux.doctor` — one line per configured service (database,
+  storage, Oban, Tika, Gotenberg, coderunner, vector backend,
+  metrics). `skipped` means not configured; the task exits non-zero
+  on any failure, so it slots into deploy scripts.
+
+## Cost controls
+
+All per-workspace, in Settings → Cost controls:
+
+- **Monthly token budget** — warns at 80% (a `budget_warning`
+  notification), refuses new runs past the cap.
+- **Concurrent-run cap** — bounds simultaneous interactive runs;
+  batches and evals are exempt (they already run sequentially).
+- **LLM cache** — identical prompts answer from memory within the
+  TTL; repeated batch/eval runs stop paying twice.
+- **Per-node caching** — deterministic nodes (HTTP, code) opt in with
+  `cache_minutes` on the canvas; identical inputs skip the call.
+- **Per-app daily token limits** — refusals return 429 on the API.
+
+Track spend on the Runs page (cost by flux, CSV export), the
+dashboard rollups, and the Grafana panels (tokens/h, est. USD/h).
+
+## Guardrails
+
+Settings → Guardrails: newline-separated case-insensitive regexes
+checked against chat and run inputs. `block` refuses the input;
+`flag` lets it through. Either way a `guardrail` notification fires
+(routable to webhooks). Outputs are always flag-only — the tokens are
+already spent, so the team gets told instead of the user getting a
+hole in the reply.
+
+## Notifications & webhooks
+
+Every operational event lands in the in-console feed (filterable by
+kind, per-item or bulk mark-read) and can route to signed webhooks:
+endpoints subscribe per event (`run.*`, `notification.*`, …), payloads
+are HMAC-SHA256 signed (`x-flux-signature`), deliveries are logged
+with per-attempt outcomes and manual retry, and the **Send test**
+button fires a `webhook.test` event so you can verify a receiver
+before anything real depends on it.
+
+## Observability
+
+- `FLUX_METRICS=1` exposes Prometheus metrics at `/metrics` — HTTP,
+  LiveView, Ecto, Oban, BEAM, plus run counts/durations/tokens/cost.
+- `docker compose --profile metrics up -d` runs Prometheus and a
+  provisioned Grafana (localhost:3001, admin/fluxgrafana) with the
+  FluxCapacitor dashboard ready.
+- The admin panel shows **per-provider health** (calls, errors, error
+  rate since boot) — "is it us or the provider" at a glance.
+- OpenTelemetry traces and structured JSON logs are one env var each
+  (`OTEL_EXPORTER_OTLP_ENDPOINT`, `FLUX_LOG_JSON=1`).
+- API responses carry `x-ratelimit-limit` / `x-ratelimit-remaining`;
+  429s add `Retry-After`.
+
+## Backups & retention
+
+- **Export** (Settings → Export): the whole workspace — fluxes, apps,
+  datasets, eval sets, labeling projects, retrieval cases — as one
+  JSON archive. Secrets are never included. **Schedule backups** with
+  a cron; archives land on the Files page and fire an `export_ready`
+  notification.
+- **Import** adds an archive's contents to a workspace without
+  touching existing data.
+- **Retention** prunes runs and chat messages past N days (blank
+  keeps forever). Trash (fluxes, apps, datasets, labeling projects)
+  purges after 30 days; notifications sweep at 90 days, webhook
+  delivery logs at 30.
+- **Remembered URL sources** re-fetch nightly at 03:00 UTC, replacing
+  their documents in place.
+
+## Scheduled things, at a glance
+
+| What | When | Where configured |
+|---|---|---|
+| Schedule/plugin triggers | per cron/interval | Editor → Triggers |
+| Recurring batches | per cron | Flux → Batches → Repeat |
+| Scheduled evals | per cron | Flux → Evals |
+| Scheduled exports | per cron | Settings → Export |
+| URL source re-fetch | 03:00 UTC daily | Knowledge → re-fetch nightly |
+| Trash purge & log sweeps | nightly | automatic |
+| Weekly digest | Monday 08:00 UTC | automatic |
+
+Cron fields show a **next fire** preview wherever you enter them.

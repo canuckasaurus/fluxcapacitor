@@ -679,7 +679,7 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                   </option>
                 </select>
               </label>
-               <button class="btn btn-primary btn-sm">Save</button>
+              <button class="btn btn-primary btn-sm">Save</button>
               <button
                 type="button"
                 class="btn btn-outline btn-sm"
@@ -728,7 +728,7 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                 <input type="checkbox" name="remember" class="checkbox checkbox-xs" /> re-fetch
                 nightly
               </label>
-               <button class="btn btn-outline btn-sm">Fetch &amp; index</button>
+              <button class="btn btn-outline btn-sm">Fetch &amp; index</button>
             </form>
 
             <div :if={@url_sources != []} class="text-xs space-y-1" id="url-sources">
@@ -766,7 +766,7 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
               <select name="plugin_id" class="select select-bordered select-sm flex-1">
                 <option :for={plugin <- @datasource_plugins} value={plugin.id}>{plugin.name}</option>
               </select>
-               <button class="btn btn-outline btn-sm">Sync datasource</button>
+              <button class="btn btn-outline btn-sm">Sync datasource</button>
             </form>
 
             <form
@@ -799,7 +799,7 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                   class="input input-bordered input-sm w-28"
                 />
               </label>
-               <button class="btn btn-outline btn-sm">Save auto-sync</button>
+              <button class="btn btn-outline btn-sm">Save auto-sync</button>
             </form>
 
             <form phx-submit="add_text" class="space-y-2" id="paste-form">
@@ -838,7 +838,7 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                 ]}>
                   {document.status}
                 </span>
-                 <span class="text-xs opacity-60">{document.segment_count} segments</span>
+                <span class="text-xs opacity-60">{document.segment_count} segments</span>
                 <span
                   :if={@can_edit}
                   class="ml-auto btn btn-ghost btn-xs text-error"

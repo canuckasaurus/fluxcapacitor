@@ -13,7 +13,8 @@ defmodule FluxWeb.ConsoleLive.Docs do
     {"getting-started", "Getting started"},
     {"node-reference", "Node reference"},
     {"plugin-sdk", "Plugin SDK"},
-    {"service-api", "Service API"}
+    {"service-api", "Service API"},
+    {"operations", "Operations"}
   ]
 
   for {slug, _title} <- @guides do

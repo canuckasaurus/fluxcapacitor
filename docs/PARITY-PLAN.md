@@ -682,3 +682,30 @@ badges, and conversation search all verified in rendered HTML; the
 admin health card hides behind FLUX_ADMIN_EMAILS as designed. The
 demo now enables follow-ups on Support Echo and seeds a bttf-tone
 snippet. 720 tests.
+
+39. ~~Batch 15, the closing ten (#156, 2026-08-07)~~ DONE: **health
+probes** (GET /health liveness + /health/ready readiness with
+database/storage checks and 503-with-detail; probe with Host:
+localhost past prod force_ssl); **mix flux.doctor** (Flux.Doctor runs
+one check per configured service — database, storage, Oban, Tika,
+Gotenberg, coderunner, vector backend, metrics — optional services
+report skipped, never failure; the task exits non-zero on FAIL for
+deploy scripts; verified live: all systems go); **webhook test
+button** (Webhooks.send_test posts a signed webhook.test event
+synchronously and flashes the HTTP status — receiver debugging
+without waiting for a real run); **notification filters** (kind
+chips, per-item mark-read, explicit Mark-all — the page no longer
+force-reads everything on open); **cron previews**
+(FluxWeb.CronPreview scans minute-by-minute through Oban's own parser
+so the preview can never disagree with the scheduler; "next … UTC"
+badges on batch schedules and schedule triggers — a HEEx lesson
+retaught: bindings inside `x && (y = …)` don't leak, top-level
+`y = x && …` does); **eval results CSV** (per-case download on every
+completed eval run); **flux-site meta** (published flux sites carry
+the same OG/meta/favicon treatment app sites got in batch 14);
+**rate-limit headers** (x-ratelimit-limit/-remaining on every allowed
+and denied /v1 response, Retry-After on 429s); **operations guide**
+(docs/guides/operations.md — cost controls, guardrails, probes,
+doctor, metrics, backups, and a table of everything scheduled —
+registered in the console docs); and **v0.2.0** (umbrella + apps
+bumped, CHANGELOG section distilled from entries 35–38, tag pushed).
