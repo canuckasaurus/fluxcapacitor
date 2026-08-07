@@ -72,6 +72,45 @@ defmodule Flux.ChatTest do
     refute Enum.any?(messages, &(&1.id == first_reply.id))
   end
 
+  test "follow-up suggestions run through the app's model", %{scope: scope, app: app} do
+    conversation = Chat.create_conversation(scope, app)
+
+    # No turns yet → no suggestions, no model call.
+    assert Chat.follow_up_suggestions(scope, app, conversation.id) == []
+
+    {:ok, _u, _a} = Chat.send_message(scope, app, conversation, "tell me about flux")
+    assert_receive {:done, _reply}, 5_000
+
+    suggestions = Chat.follow_up_suggestions(scope, app, conversation.id)
+    assert suggestions != []
+    assert Enum.all?(suggestions, &is_binary/1)
+    assert length(suggestions) <= 3
+    # The echo model reflects the transcript it was asked about.
+    assert hd(suggestions) =~ "You said:"
+  end
+
+  test "image uploads attach to messages and reach the model", %{scope: scope, app: app} do
+    path = Path.join(System.tmp_dir!(), "flux-upload-#{System.unique_integer([:positive])}.png")
+    File.write!(path, <<137, 80, 78, 71, 1, 2, 3>>)
+    on_exit(fn -> File.rm(path) end)
+
+    {:ok, file} =
+      Chat.create_upload(scope, app, %{
+        path: path,
+        filename: "diagram.png",
+        content_type: "image/png"
+      })
+
+    conversation = Chat.create_conversation(scope, app)
+
+    {:ok, user_message, _assistant} =
+      Chat.send_message(scope, app, conversation, "what is in this image?", files: [file])
+
+    assert [%{"name" => "diagram.png", "id" => _id}] = user_message.files
+    assert_receive {:done, reply}, 5_000
+    assert reply.content =~ "You said: what is in this image?"
+  end
+
   test "export_finetune builds JSONL from liked replies and annotations", %{
     scope: scope,
     app: app

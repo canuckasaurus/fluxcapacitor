@@ -40,7 +40,13 @@ defmodule FluxWeb.SiteLive.AppSite do
           end
 
         {:ok,
-         assign(socket,
+         socket
+         |> allow_upload(:image,
+           accept: ~w(.png .jpg .jpeg .gif .webp),
+           max_entries: 3,
+           max_file_size: 15_000_000
+         )
+         |> assign(
            page_title: app.name,
            app: app,
            visitor_ip: FluxWeb.SiteRateLimit.visitor_ip(socket),
@@ -49,6 +55,7 @@ defmodule FluxWeb.SiteLive.AppSite do
            conversation: conversation,
            conversations: Chat.visitor_conversations(scope, app.id, end_user_ref),
            messages: messages,
+           followups: [],
            streaming_id: nil,
            streaming_text: ""
          )}
@@ -59,6 +66,12 @@ defmodule FluxWeb.SiteLive.AppSite do
   end
 
   @impl true
+  def handle_event("validate_upload", _params, socket), do: {:noreply, socket}
+
+  def handle_event("cancel_upload", %{"ref" => ref}, socket) do
+    {:noreply, cancel_upload(socket, :image, ref)}
+  end
+
   def handle_event("send", %{"content" => content}, socket) when content != "" do
     %{app: app, site_scope: scope} = socket.assigns
 
@@ -67,7 +80,17 @@ defmodule FluxWeb.SiteLive.AppSite do
         socket.assigns.conversation ||
           Chat.create_conversation(scope, app, %{end_user_ref: socket.assigns.end_user_ref})
 
-      case Chat.send_message(scope, app, conversation, content) do
+      files =
+        consume_uploaded_entries(socket, :image, fn %{path: path}, entry ->
+          Chat.create_upload(scope, app, %{
+            path: path,
+            filename: entry.client_name,
+            content_type: entry.client_type,
+            end_user_ref: socket.assigns.end_user_ref
+          })
+        end)
+
+      case Chat.send_message(scope, app, conversation, content, files: files) do
         {:ok, user_message, assistant_message} ->
           conversations =
             if socket.assigns.conversation == nil do
@@ -81,6 +104,7 @@ defmodule FluxWeb.SiteLive.AppSite do
              conversation: conversation,
              conversations: conversations,
              messages: socket.assigns.messages ++ [user_message],
+             followups: [],
              streaming_id: assistant_message.id,
              streaming_text: ""
            )}
@@ -103,7 +127,7 @@ defmodule FluxWeb.SiteLive.AppSite do
   end
 
   def handle_event("start_over", _params, socket) do
-    {:noreply, assign(socket, conversation: nil, messages: [], streaming_id: nil)}
+    {:noreply, assign(socket, conversation: nil, messages: [], followups: [], streaming_id: nil)}
   end
 
   def handle_event("switch_conversation", %{"conversation-id" => id}, socket) do
@@ -117,7 +141,12 @@ defmodule FluxWeb.SiteLive.AppSite do
           |> Enum.filter(&(&1.status in [:completed, :error] or &1.role == :user))
 
         {:noreply,
-         assign(socket, conversation: conversation, messages: messages, streaming_id: nil)}
+         assign(socket,
+           conversation: conversation,
+           messages: messages,
+           followups: [],
+           streaming_id: nil
+         )}
 
       _not_yours ->
         {:noreply, socket}
@@ -168,9 +197,18 @@ defmodule FluxWeb.SiteLive.AppSite do
   end
 
   def handle_info({:done, message}, socket) do
+    followups =
+      with true <- socket.assigns.app.suggest_followups,
+           %Chat.Conversation{} = conversation <- socket.assigns.conversation do
+        Chat.follow_up_suggestions(socket.assigns.site_scope, socket.assigns.app, conversation.id)
+      else
+        _off -> []
+      end
+
     {:noreply,
      assign(socket,
        messages: socket.assigns.messages ++ [message],
+       followups: followups,
        streaming_id: nil,
        streaming_text: ""
      )}
@@ -330,6 +368,19 @@ defmodule FluxWeb.SiteLive.AppSite do
                 |> Enum.uniq()
                 |> Enum.join(", ")}
               </div>
+              <div
+                :if={message.role == :assistant and message.status == :completed}
+                class="chat-footer mt-1"
+              >
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs copy-reply"
+                  title="Copy this reply"
+                  aria-label="Copy this reply"
+                >
+                  <.icon name="hero-clipboard" class="size-3" /> Copy
+                </button>
+              </div>
             </div>
             <div :if={@streaming_id} class="chat chat-start" id="site-streaming">
               <div class="chat-bubble">
@@ -337,9 +388,51 @@ defmodule FluxWeb.SiteLive.AppSite do
                 <span class="animate-pulse">▌</span>
               </div>
             </div>
+            <div
+              :if={@followups != [] and @streaming_id == nil}
+              class="flex flex-wrap gap-2"
+              id="site-followup-chips"
+            >
+              <button
+                :for={question <- @followups}
+                class="btn btn-outline btn-xs"
+                phx-click="suggest"
+                phx-value-question={question}
+              >
+                {question}
+              </button>
+            </div>
           </div>
 
-          <form phx-submit="send" class="flex gap-2" id="site-chat-form">
+          <form
+            phx-submit="send"
+            phx-change="validate_upload"
+            class="flex gap-2 flex-wrap"
+            id="site-chat-form"
+          >
+            <div :if={@uploads.image.entries != []} class="w-full flex flex-wrap gap-2">
+              <span :for={entry <- @uploads.image.entries} class="badge badge-outline gap-1">
+                <.icon name="hero-photo" class="size-3" />
+                {entry.client_name}
+                <button
+                  type="button"
+                  phx-click="cancel_upload"
+                  phx-value-ref={entry.ref}
+                  aria-label="Remove attachment"
+                  class="text-error"
+                >
+                  ✕
+                </button>
+              </span>
+            </div>
+            <label
+              class="btn btn-ghost btn-square"
+              title="Attach images"
+              aria-label="Attach images"
+            >
+              <.live_file_input upload={@uploads.image} class="hidden" />
+              <.icon name="hero-paper-clip" class="size-4" />
+            </label>
             <input
               type="text"
               name="content"

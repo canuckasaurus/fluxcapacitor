@@ -24,6 +24,7 @@ defmodule Flux.Chat.App do
     field :suggested_questions, {:array, :string}, default: []
     field :daily_token_limit, :integer
     field :annotation_threshold, :float
+    field :suggest_followups, :boolean, default: false
     field :site_theme, :map, default: %{}
     field :site_token, :string
     field :site_enabled, :boolean, default: false
@@ -49,6 +50,7 @@ defmodule Flux.Chat.App do
       :suggested_questions,
       :daily_token_limit,
       :annotation_threshold,
+      :suggest_followups,
       :site_theme
     ])
     |> validate_number(:daily_token_limit, greater_than: 0)

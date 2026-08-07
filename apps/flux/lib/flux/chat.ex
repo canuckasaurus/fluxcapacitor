@@ -507,6 +507,63 @@ defmodule Flux.Chat do
 
   def send_completion(%Scope{}, %App{}, _inputs, _attrs), do: {:error, :not_completion_app}
 
+  @doc """
+  Up to three short follow-up questions for the conversation's recent
+  turns — the chips under a finished reply when the app opts in. Uses
+  the app's own model (or the workspace default); empty on any failure.
+  """
+  def follow_up_suggestions(%Scope{} = scope, %App{} = app, conversation_id) do
+    transcript =
+      scope
+      |> list_messages(conversation_id)
+      |> Enum.filter(&(&1.status == :completed or &1.role == :user))
+      |> Enum.take(-6)
+      |> Enum.map_join("\n", &"#{&1.role}: #{&1.content}")
+
+    {provider, model} =
+      case {app.provider_plugin_id, Providers.default_model_for_workspace(app.workspace_id)} do
+        {nil, %{"provider_plugin_id" => provider, "model" => model}} -> {provider, model}
+        {nil, _none} -> {nil, nil}
+        {provider, _default} -> {provider, app.model}
+      end
+
+    if provider == nil or transcript == "" do
+      []
+    else
+      request = %Flux.Plugin.ModelProvider.Request{
+        model: model,
+        messages: [
+          %{
+            role: :system,
+            content:
+              "You suggest follow-up questions. Reply with up to three short " <>
+                "questions the user might ask next, one per line, no numbering."
+          },
+          %{role: :user, content: "Conversation so far:\n#{transcript}"}
+        ],
+        params: %{}
+      }
+
+      credentials =
+        case Providers.fetch_config(app.workspace_id, provider) do
+          {:ok, config} -> config
+          {:error, :not_configured} -> %{}
+        end
+
+      case runtime().invoke_llm(provider, credentials, request, fn _chunk -> :ok end) do
+        {:ok, result} ->
+          result.content
+          |> String.split(~r/\r?\n/, trim: true)
+          |> Enum.map(&(&1 |> String.replace(~r/^[\s\-\*\d\.\)]+/, "") |> String.trim()))
+          |> Enum.reject(&(&1 == ""))
+          |> Enum.take(3)
+
+        {:error, _reason} ->
+          []
+      end
+    end
+  end
+
   @max_upload_bytes 15 * 1024 * 1024
 
   @doc "Stores an uploaded file via Flux.Storage and records it."

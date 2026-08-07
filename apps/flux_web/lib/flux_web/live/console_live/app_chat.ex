@@ -28,12 +28,20 @@ defmodule FluxWeb.ConsoleLive.AppChat do
           end
 
         {:ok,
-         assign(socket,
+         socket
+         |> allow_upload(:image,
+           accept: ~w(.png .jpg .jpeg .gif .webp),
+           max_entries: 3,
+           max_file_size: 15_000_000
+         )
+         |> assign(
            page_title: app.name,
            app: app,
            conversations: conversations,
            conversation: conversation,
            messages: messages,
+           renaming: false,
+           followups: [],
            streaming_id: nil,
            streaming_text: "",
            api_tokens: Chat.list_api_tokens(scope, app.id),
@@ -53,6 +61,12 @@ defmodule FluxWeb.ConsoleLive.AppChat do
   end
 
   @impl true
+  def handle_event("validate_upload", _params, socket), do: {:noreply, socket}
+
+  def handle_event("cancel_upload", %{"ref" => ref}, socket) do
+    {:noreply, cancel_upload(socket, :image, ref)}
+  end
+
   def handle_event("send", %{"content" => content}, socket) when content != "" do
     scope = socket.assigns.current_scope
     app = socket.assigns.app
@@ -60,7 +74,16 @@ defmodule FluxWeb.ConsoleLive.AppChat do
     conversation =
       socket.assigns.conversation || Chat.create_conversation(scope, app)
 
-    case Chat.send_message(scope, app, conversation, content) do
+    files =
+      consume_uploaded_entries(socket, :image, fn %{path: path}, entry ->
+        Chat.create_upload(scope, app, %{
+          path: path,
+          filename: entry.client_name,
+          content_type: entry.client_type
+        })
+      end)
+
+    case Chat.send_message(scope, app, conversation, content, files: files) do
       {:ok, user_message, assistant_message} ->
         conversations =
           if socket.assigns.conversation == nil do
@@ -74,6 +97,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
            conversation: conversation,
            conversations: conversations,
            messages: socket.assigns.messages ++ [user_message],
+           followups: [],
            streaming_id: assistant_message.id,
            streaming_text: ""
          )}
@@ -88,6 +112,10 @@ defmodule FluxWeb.ConsoleLive.AppChat do
   end
 
   def handle_event("send", _params, socket), do: {:noreply, socket}
+
+  def handle_event("suggest", %{"question" => question}, socket) do
+    handle_event("send", %{"content" => question}, socket)
+  end
 
   def handle_event("stop", _params, socket) do
     if id = socket.assigns.streaming_id do
@@ -121,7 +149,13 @@ defmodule FluxWeb.ConsoleLive.AppChat do
 
   def handle_event("new-conversation", _params, socket) do
     {:noreply,
-     assign(socket, conversation: nil, messages: [], streaming_id: nil, streaming_text: "")}
+     assign(socket,
+       conversation: nil,
+       messages: [],
+       followups: [],
+       streaming_id: nil,
+       streaming_text: ""
+     )}
   end
 
   def handle_event("switch_conversation", %{"conversation-id" => id}, socket) do
@@ -136,9 +170,58 @@ defmodule FluxWeb.ConsoleLive.AppChat do
          assign(socket,
            conversation: conversation,
            messages: resumable_messages(scope, conversation.id),
+           followups: [],
            streaming_id: nil,
-           streaming_text: ""
+           streaming_text: "",
+           renaming: false
          )}
+    end
+  end
+
+  def handle_event("start_rename", _params, socket) do
+    {:noreply, assign(socket, renaming: not socket.assigns.renaming)}
+  end
+
+  def handle_event("rename_conversation", %{"title" => title}, socket) do
+    scope = socket.assigns.current_scope
+
+    with %Flux.Chat.Conversation{} = conversation <- socket.assigns.conversation,
+         title when title != "" <- String.trim(to_string(title)),
+         {:ok, renamed} <- Chat.rename_conversation(scope, conversation.id, title) do
+      {:noreply,
+       assign(socket,
+         conversation: renamed,
+         conversations: Chat.console_conversations(scope, socket.assigns.app.id),
+         renaming: false
+       )}
+    else
+      _invalid -> {:noreply, assign(socket, renaming: false)}
+    end
+  end
+
+  def handle_event("delete_conversation", _params, socket) do
+    scope = socket.assigns.current_scope
+
+    with %Flux.Chat.Conversation{} = conversation <- socket.assigns.conversation,
+         {:ok, _deleted} <- Chat.delete_conversation(scope, conversation.id) do
+      conversations = Chat.console_conversations(scope, socket.assigns.app.id)
+
+      {conversation, messages} =
+        case conversations do
+          [latest | _rest] -> {latest, resumable_messages(scope, latest.id)}
+          [] -> {nil, []}
+        end
+
+      {:noreply,
+       assign(socket,
+         conversation: conversation,
+         conversations: conversations,
+         messages: messages,
+         streaming_id: nil,
+         streaming_text: ""
+       )}
+    else
+      _nothing -> {:noreply, socket}
     end
   end
 
@@ -248,7 +331,8 @@ defmodule FluxWeb.ConsoleLive.AppChat do
            "opening_statement" => params["opening_statement"],
            "suggested_questions" => questions,
            "daily_token_limit" => presence(params["daily_token_limit"]),
-           "annotation_threshold" => presence(params["annotation_threshold"])
+           "annotation_threshold" => presence(params["annotation_threshold"]),
+           "suggest_followups" => params["suggest_followups"] == "on"
          }) do
       {:ok, app} ->
         {:noreply, socket |> put_flash(:info, "Chat settings saved.") |> assign(app: app)}
@@ -311,9 +395,22 @@ defmodule FluxWeb.ConsoleLive.AppChat do
   end
 
   def handle_info({:done, message}, socket) do
+    followups =
+      with true <- socket.assigns.app.suggest_followups,
+           %Flux.Chat.Conversation{} = conversation <- socket.assigns.conversation do
+        Chat.follow_up_suggestions(
+          socket.assigns.current_scope,
+          socket.assigns.app,
+          conversation.id
+        )
+      else
+        _off -> []
+      end
+
     {:noreply,
      assign(socket,
        messages: socket.assigns.messages ++ [message],
+       followups: followups,
        streaming_id: nil,
        streaming_text: ""
      )}
@@ -424,6 +521,25 @@ defmodule FluxWeb.ConsoleLive.AppChat do
             </select>
           </form>
           <button
+            :if={@app.mode in [:chat, :advanced_chat] and @conversation != nil}
+            class="btn btn-sm btn-ghost btn-square"
+            phx-click="start_rename"
+            title="Rename this conversation"
+            aria-label="Rename this conversation"
+          >
+            <.icon name="hero-pencil" class="size-4" />
+          </button>
+          <button
+            :if={@app.mode in [:chat, :advanced_chat] and @conversation != nil}
+            class="btn btn-sm btn-ghost btn-square text-error"
+            phx-click="delete_conversation"
+            data-confirm="Delete this conversation and its messages?"
+            title="Delete this conversation"
+            aria-label="Delete this conversation"
+          >
+            <.icon name="hero-trash" class="size-4" />
+          </button>
+          <button
             :if={@app.mode in [:chat, :advanced_chat]}
             class="btn btn-sm btn-ghost"
             phx-click="new-conversation"
@@ -448,6 +564,24 @@ defmodule FluxWeb.ConsoleLive.AppChat do
           <.link navigate={~p"/console/apps"} class="btn btn-sm btn-ghost">&larr; All apps</.link>
         </div>
       </div>
+
+      <form
+        :if={@renaming and @conversation != nil}
+        phx-submit="rename_conversation"
+        class="flex gap-2 items-center justify-end"
+        id="rename-form"
+      >
+        <input
+          type="text"
+          name="title"
+          value={@conversation.title}
+          placeholder="Conversation title"
+          class="input input-sm input-bordered max-w-60"
+          autofocus
+        />
+        <button class="btn btn-sm btn-primary">Rename</button>
+        <button type="button" class="btn btn-sm btn-ghost" phx-click="start_rename">Cancel</button>
+      </form>
 
       <div
         :if={@app.mode in [:chat, :advanced_chat]}
@@ -477,13 +611,19 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               <% end %>
             </div>
             <div
-              :if={
-                message.role == :assistant and @streaming_id == nil and
-                  message.id == last_assistant_id(@messages)
-              }
-              class="chat-footer mt-1"
+              :if={message.role == :assistant and message.status == :completed}
+              class="chat-footer mt-1 flex gap-1"
             >
               <button
+                type="button"
+                class="btn btn-ghost btn-xs copy-reply"
+                title="Copy this reply"
+                aria-label="Copy this reply"
+              >
+                <.icon name="hero-clipboard" class="size-3" /> Copy
+              </button>
+              <button
+                :if={@streaming_id == nil and message.id == last_assistant_id(@messages)}
                 class="btn btn-ghost btn-xs"
                 phx-click="regenerate"
                 title="Regenerate this reply"
@@ -491,6 +631,14 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               >
                 <.icon name="hero-arrow-path" class="size-3" /> Regenerate
               </button>
+            </div>
+            <div
+              :if={message.role == :user and (message.files || []) != []}
+              class="chat-footer mt-1 flex flex-wrap gap-1"
+            >
+              <span :for={file <- message.files} class="badge badge-outline badge-sm gap-1">
+                <.icon name="hero-photo" class="size-3" /> {file["name"]}
+              </span>
             </div>
             <div
               :if={message.role == :assistant and (message.usage["files"] || []) != []}
@@ -523,21 +671,63 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               <span class="animate-pulse">▌</span>
             </div>
           </div>
+          <div
+            :if={@followups != [] and @streaming_id == nil}
+            class="flex flex-wrap gap-2"
+            id="followup-chips"
+          >
+            <button
+              :for={question <- @followups}
+              class="btn btn-outline btn-xs"
+              phx-click="suggest"
+              phx-value-question={question}
+            >
+              {question}
+            </button>
+          </div>
         </div>
 
-        <form phx-submit="send" class="flex gap-2" id="chat-form">
-          <input
-            type="text"
-            name="content"
-            autocomplete="off"
-            placeholder="Type a message…"
-            class="input input-bordered flex-1"
-            disabled={@streaming_id != nil}
-          />
-          <button :if={@streaming_id == nil} class="btn btn-primary">Send</button>
-          <button :if={@streaming_id} type="button" class="btn btn-warning" phx-click="stop">
-            Stop
-          </button>
+        <form phx-submit="send" phx-change="validate_upload" class="space-y-2" id="chat-form">
+          <div :if={@uploads.image.entries != []} class="flex flex-wrap gap-2">
+            <span
+              :for={entry <- @uploads.image.entries}
+              class="badge badge-outline gap-1"
+            >
+              <.icon name="hero-photo" class="size-3" />
+              {entry.client_name}
+              <button
+                type="button"
+                phx-click="cancel_upload"
+                phx-value-ref={entry.ref}
+                aria-label="Remove attachment"
+                class="text-error"
+              >
+                ✕
+              </button>
+            </span>
+          </div>
+          <div class="flex gap-2 items-center">
+            <label
+              class="btn btn-ghost btn-sm btn-square"
+              title="Attach images (vision models)"
+              aria-label="Attach images"
+            >
+              <.live_file_input upload={@uploads.image} class="hidden" />
+              <.icon name="hero-paper-clip" class="size-4" />
+            </label>
+            <input
+              type="text"
+              name="content"
+              autocomplete="off"
+              placeholder="Type a message…"
+              class="input input-bordered flex-1"
+              disabled={@streaming_id != nil}
+            />
+            <button :if={@streaming_id == nil} class="btn btn-primary">Send</button>
+            <button :if={@streaming_id} type="button" class="btn btn-warning" phx-click="stop">
+              Stop
+            </button>
+          </div>
         </form>
       </div>
 
@@ -591,6 +781,14 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               placeholder="exact only"
               class="input input-bordered input-sm w-48"
             />
+          </label>
+          <label class="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              name="suggest_followups"
+              class="checkbox checkbox-sm"
+              checked={@app.suggest_followups}
+            /> Suggest follow-up questions after each reply (one extra model call per turn)
           </label>
           <button class="btn btn-primary btn-sm">Save chat settings</button>
         </form>

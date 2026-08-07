@@ -77,6 +77,21 @@ window.addEventListener("click", e => {
   })
 }, true)
 
+// ── Copy buttons on chat replies ───────────────────────────────────────
+// Delegated: any .copy-reply button copies its bubble's rendered text.
+window.addEventListener("click", e => {
+  const button = e.target.closest && e.target.closest(".copy-reply")
+  if (!button) return
+  const bubble = button.closest(".chat")
+  const content = bubble && bubble.querySelector(".markdown-chat, .chat-bubble")
+  if (!content) return
+  navigator.clipboard.writeText(content.innerText.trim()).then(() => {
+    const original = button.innerHTML
+    button.innerHTML = "Copied!"
+    setTimeout(() => { button.innerHTML = original }, 1200)
+  })
+})
+
 // ── Command palette (Ctrl/Cmd+K) ───────────────────────────────────────
 // Fetches /console/palette once per open and filters client-side.
 // Pure JS + one JSON endpoint, so every console page gets it for free.

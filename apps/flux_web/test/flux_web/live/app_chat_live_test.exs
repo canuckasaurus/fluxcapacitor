@@ -98,6 +98,49 @@ defmodule FluxWeb.AppChatLiveTest do
     assert html =~ "conversation-switcher"
   end
 
+  test "follow-up chips appear when the app opts in", %{conn: conn, app: app, scope: scope} do
+    {:ok, _app} = Chat.update_app(scope, app, %{"suggest_followups" => true})
+
+    {:ok, lv, _html} = live(conn, ~p"/console/apps/#{app.id}")
+
+    lv
+    |> form("#chat-form", %{"content" => "what next?"})
+    |> render_submit()
+
+    html = poll_until(lv, "followup-chips", 100)
+    assert html =~ "followup-chips"
+    # Echo-backed suggestions reflect the transcript.
+    assert html =~ "You said:"
+
+    # Clicking a chip sends it as the next message and clears the chips.
+    html = lv |> element("#followup-chips button:first-of-type") |> render_click()
+    refute html =~ "followup-chips"
+  end
+
+  test "conversations rename and delete from the switcher", %{
+    conn: conn,
+    app: app,
+    scope: scope
+  } do
+    conversation = Chat.create_conversation(scope, app)
+    {:ok, _u, _a} = Chat.send_message(scope, app, conversation, "name me")
+    assert_receive {:done, _}, 5_000
+
+    {:ok, lv, html} = live(conn, ~p"/console/apps/#{app.id}")
+    assert html =~ "name me"
+
+    # Rename via the pencil → inline form.
+    lv |> element("button[phx-click=start_rename]") |> render_click()
+    html = lv |> form("#rename-form", %{"title" => "Naming ceremony"}) |> render_submit()
+    assert html =~ "Naming ceremony"
+
+    # Delete falls back to an empty pane (no conversations left).
+    html = lv |> element("button[phx-click=delete_conversation]") |> render_click()
+    refute html =~ "Naming ceremony"
+    refute html =~ "conversation-switcher"
+    assert Chat.console_conversations(scope, app.id) == []
+  end
+
   test "creating an API key shows the raw token once", %{conn: conn, app: app} do
     {:ok, lv, _html} = live(conn, ~p"/console/apps/#{app.id}")
 
