@@ -269,6 +269,48 @@ defmodule FluxWeb.RAGIntegrationTest do
     refute ready.content =~ "<p>"
   end
 
+  test "crawl_from_url ingests same-host linked pages, depth 1", %{
+    scope: scope,
+    dataset: dataset
+  } do
+    Application.put_env(:flux_rag, :req_options, plug: {Req.Test, Flux.RAGCrawlStub})
+    on_exit(fn -> Application.delete_env(:flux_rag, :req_options) end)
+
+    Req.Test.stub(Flux.RAGCrawlStub, fn conn ->
+      body =
+        case conn.request_path do
+          "/docs" ->
+            """
+            <html><body><p>Index page.</p>
+            <a href="/docs/setup">Setup</a>
+            <a href="/docs/faq#top">FAQ</a>
+            <a href="/docs/faq">FAQ again</a>
+            <a href="https://elsewhere.example.net/offsite">Offsite</a>
+            <a href="/docs">Self</a>
+            </body></html>
+            """
+
+          "/docs/setup" ->
+            "<html><body><p>Setup steps here.</p></body></html>"
+
+          "/docs/faq" ->
+            "<html><body><p>Frequently asked.</p></body></html>"
+        end
+
+      conn
+      |> Plug.Conn.put_resp_content_type("text/html")
+      |> Plug.Conn.send_resp(200, body)
+    end)
+
+    {:ok, %{added: 3, skipped: 0}} =
+      RAG.crawl_from_url(scope, dataset, "https://example.com/docs")
+
+    names = RAG.list_documents(scope, dataset.id) |> Enum.map(& &1.name) |> Enum.sort()
+    # Root + two distinct same-host links; offsite, self, and the
+    # fragment-duplicate never ingest.
+    assert names == ["example.com/docs", "example.com/docs/faq", "example.com/docs/setup"]
+  end
+
   test "a configured rerank model reorders retrieval results", %{scope: scope, dataset: dataset} do
     ingest!(scope, dataset, "a.md", "Bananas are yellow fruit.")
     ingest!(scope, dataset, "b.md", "Vacation days: employees receive 25 vacation days.")

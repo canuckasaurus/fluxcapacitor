@@ -243,12 +243,32 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
     end
   end
 
-  def handle_event("add_url", %{"url" => url}, socket) do
-    with %{} = dataset <- socket.assigns.selected,
-         {:ok, _document} <-
-           RAG.add_document_from_url(socket.assigns.current_scope, dataset, String.trim(url)) do
-      {:noreply, socket |> put_flash(:info, "Fetched — indexing started.") |> refresh_documents()}
-    else
+  def handle_event("add_url", %{"url" => url} = params, socket) do
+    scope = socket.assigns.current_scope
+    url = String.trim(url)
+
+    result =
+      with %{} = dataset <- socket.assigns.selected do
+        if params["crawl"] == "on" do
+          RAG.crawl_from_url(scope, dataset, url)
+        else
+          RAG.add_document_from_url(scope, dataset, url)
+        end
+      end
+
+    case result do
+      {:ok, %{added: added, skipped: skipped}} ->
+        note = if skipped > 0, do: " (#{skipped} linked pages skipped)", else: ""
+
+        {:noreply,
+         socket
+         |> put_flash(:info, "Fetched #{added} pages#{note} — indexing started.")
+         |> refresh_documents()}
+
+      {:ok, _document} ->
+        {:noreply,
+         socket |> put_flash(:info, "Fetched — indexing started.") |> refresh_documents()}
+
       {:error, message} when is_binary(message) ->
         {:noreply, put_flash(socket, :error, message)}
 
@@ -663,13 +683,19 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                 Index uploads
               </button>
             </form>
-            <form phx-submit="add_url" class="flex gap-2" id="url-form">
+            <form phx-submit="add_url" class="flex gap-2 items-center flex-wrap" id="url-form">
               <input
                 type="url"
                 name="url"
                 placeholder="…or fetch a page: https://example.com/docs"
                 class="input input-bordered input-sm flex-1"
               />
+              <label
+                class="flex items-center gap-1 text-xs opacity-80"
+                title="Also fetch same-site pages this one links to (up to 10 total)"
+              >
+                <input type="checkbox" name="crawl" class="checkbox checkbox-xs" /> crawl links
+              </label>
               <button class="btn btn-outline btn-sm">Fetch &amp; index</button>
             </form>
             <form

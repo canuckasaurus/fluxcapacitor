@@ -207,6 +207,73 @@ defmodule Flux.RAG do
   end
 
   @doc """
+  Ingests a URL plus up to `max_pages - 1` same-host pages it links to
+  (depth 1) — enough to pull a docs site in one action without becoming
+  a crawler. Every page is SSRF-checked; failures skip, not abort.
+  Returns `{:ok, %{added: n, skipped: k}}`.
+  """
+  def crawl_from_url(%Scope{} = scope, %Dataset{} = dataset, url, max_pages \\ 10)
+      when is_binary(url) do
+    max_pages = max_pages |> max(1) |> min(25)
+
+    with :ok <- RBAC.authorize(scope, :dataset_edit),
+         :ok <- Flux.SSRF.verify_url(url),
+         {:ok, %{status: 200, body: body}} <-
+           Req.get(
+             [
+               url: url,
+               redirect: false,
+               max_retries: 1,
+               receive_timeout: 15_000,
+               decode_body: false
+             ] ++ Application.get_env(:flux_rag, :req_options, [])
+           ) do
+      links = same_host_links(url, to_string(body)) |> Enum.take(max_pages - 1)
+
+      results =
+        for page <- [url | links] do
+          case add_document_from_url(scope, dataset, page) do
+            {:ok, _document} -> :added
+            _failed -> :skipped
+          end
+        end
+
+      {:ok,
+       %{
+         added: Enum.count(results, &(&1 == :added)),
+         skipped: Enum.count(results, &(&1 == :skipped))
+       }}
+    else
+      {:ok, %{status: status}} -> {:error, "the URL returned HTTP #{status}"}
+      {:error, message} when is_binary(message) -> {:error, message}
+      {:error, reason} -> {:error, inspect(reason)}
+    end
+  end
+
+  # Absolute same-scheme+host links from the page, fragments stripped,
+  # the page itself excluded, first-appearance order.
+  defp same_host_links(base_url, html) do
+    base = URI.parse(base_url)
+
+    case Floki.parse_document(html) do
+      {:ok, document} ->
+        document
+        |> Floki.attribute("a", "href")
+        |> Enum.map(fn href ->
+          base |> URI.merge(String.trim(href)) |> Map.put(:fragment, nil) |> URI.to_string()
+        end)
+        |> Enum.filter(fn link ->
+          uri = URI.parse(link)
+          uri.scheme in ["http", "https"] and uri.host == base.host and link != base_url
+        end)
+        |> Enum.uniq()
+
+      _not_html ->
+        []
+    end
+  end
+
+  @doc """
   Starts a background sync of an installed datasource plugin into the
   dataset: every document the source offers that the dataset doesn't
   already hold (by name) is fetched and indexed.
