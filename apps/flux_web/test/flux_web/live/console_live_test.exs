@@ -133,6 +133,42 @@ defmodule FluxWeb.ConsoleLiveTest do
       assert Flux.Features.plan_for_workspace(workspace.id) == "team"
     end
 
+    test "the admin panel shows background jobs with retry and cancel", %{
+      conn: conn,
+      account: account
+    } do
+      Application.put_env(:flux, :instance_admins, [account.email])
+      on_exit(fn -> Application.delete_env(:flux, :instance_admins) end)
+
+      # A discarded job with a recorded error shows up as needing attention.
+      {:ok, job} =
+        %{document_id: Ecto.UUID.generate()}
+        |> Flux.RAG.IndexWorker.new()
+        |> Oban.insert()
+
+      Flux.Repo.get!(Oban.Job, job.id)
+      |> Ecto.Changeset.change(
+        state: "discarded",
+        attempt: 3,
+        attempted_at: DateTime.utc_now(),
+        errors: [%{"attempt" => 3, "error" => "boom exploded"}]
+      )
+      |> Flux.Repo.update!()
+
+      {:ok, lv, html} = live(conn, ~p"/console/admin")
+      assert html =~ "Background jobs"
+      assert html =~ "ingest"
+      assert html =~ "boom exploded"
+
+      # Retry moves it out of discarded; the cancel action then parks it.
+      lv |> element(~s{#job-#{job.id} button[phx-click="retry_job"]}) |> render_click()
+      refreshed = Flux.Repo.get!(Oban.Job, job.id)
+      assert refreshed.state in ["available", "scheduled"]
+
+      :ok = Flux.Jobs.discard_job(job.id)
+      assert Flux.Repo.get!(Oban.Job, job.id).state == "cancelled"
+    end
+
     test "members screen lists the owner and can invite", %{
       conn: conn,
       account: account

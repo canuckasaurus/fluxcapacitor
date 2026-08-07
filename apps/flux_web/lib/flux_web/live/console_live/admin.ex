@@ -16,6 +16,8 @@ defmodule FluxWeb.ConsoleLive.Admin do
          page_title: "Instance admin",
          overview: Accounts.instance_overview(),
          provider_health: Flux.ProviderHealth.stats(),
+         queue_stats: Flux.Jobs.queue_stats(),
+         problem_jobs: Flux.Jobs.problem_jobs(),
          plans: Flux.Features.plans()
        )}
     else
@@ -37,6 +39,35 @@ defmodule FluxWeb.ConsoleLive.Admin do
     else
       _error -> {:noreply, put_flash(socket, :error, "Could not change the plan.")}
     end
+  end
+
+  def handle_event("retry_job", %{"id" => id}, socket) do
+    with true <- Accounts.instance_admin?(socket.assigns.current_scope.account),
+         :ok <- Flux.Jobs.retry_job(String.to_integer(id)) do
+      {:noreply, refresh_jobs(put_flash(socket, :info, "Job queued to retry."))}
+    else
+      _error -> {:noreply, put_flash(socket, :error, "Could not retry that job.")}
+    end
+  end
+
+  def handle_event("discard_job", %{"id" => id}, socket) do
+    with true <- Accounts.instance_admin?(socket.assigns.current_scope.account),
+         :ok <- Flux.Jobs.discard_job(String.to_integer(id)) do
+      {:noreply, refresh_jobs(put_flash(socket, :info, "Job cancelled."))}
+    else
+      _error -> {:noreply, put_flash(socket, :error, "Could not cancel that job.")}
+    end
+  end
+
+  def handle_event("refresh_jobs", _params, socket) do
+    {:noreply, refresh_jobs(socket)}
+  end
+
+  defp refresh_jobs(socket) do
+    assign(socket,
+      queue_stats: Flux.Jobs.queue_stats(),
+      problem_jobs: Flux.Jobs.problem_jobs()
+    )
   end
 
   @impl true
@@ -121,6 +152,77 @@ defmodule FluxWeb.ConsoleLive.Admin do
             </tr>
           </tbody>
         </table>
+      </div>
+      <div class="card border border-base-200 p-6 space-y-3" id="background-jobs">
+        <div class="flex items-center justify-between">
+          <h2 class="font-semibold">Background jobs</h2>
+          <button class="btn btn-ghost btn-xs" phx-click="refresh_jobs">Refresh</button>
+        </div>
+
+        <p :if={@queue_stats == []} class="text-sm opacity-60">No jobs recorded yet.</p>
+
+        <table :if={@queue_stats != []} class="table table-xs max-w-2xl">
+          <thead>
+            <tr>
+              <th>Queue</th>
+              <th>Available</th>
+              <th>Executing</th>
+              <th>Scheduled</th>
+              <th>Retryable</th>
+              <th>Discarded</th>
+              <th>Completed</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={row <- @queue_stats}>
+              <td class="font-mono text-xs">{row.queue}</td>
+              <td>{row.available}</td>
+              <td>{row.executing}</td>
+              <td>{row.scheduled}</td>
+              <td class={row.retryable > 0 && "text-warning font-semibold"}>{row.retryable}</td>
+              <td class={row.discarded > 0 && "text-error font-semibold"}>{row.discarded}</td>
+              <td class="opacity-60">{row.completed}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div :if={@problem_jobs != []} class="space-y-2">
+          <h3 class="text-sm font-semibold">Needs attention</h3>
+          <div
+            :for={job <- @problem_jobs}
+            class="flex items-start gap-2 text-xs border-b border-base-200 last:border-0 py-2"
+            id={"job-#{job.id}"}
+          >
+            <span class={[
+              "badge badge-xs mt-0.5",
+              (job.state == "discarded" && "badge-error") || "badge-warning"
+            ]}>
+              {job.state}
+            </span>
+            <div class="min-w-0 flex-1">
+              <p class="font-mono truncate">{job.worker}</p>
+              <p class="opacity-60">
+                {job.queue} · attempt {job.attempt}/{job.max_attempts}
+                <span :if={job.attempted_at}>
+                  · {Calendar.strftime(job.attempted_at, "%m-%d %H:%M:%S")}
+                </span>
+              </p>
+              <p :if={job.last_error} class="text-error/80 truncate" title={job.last_error}>
+                {job.last_error}
+              </p>
+            </div>
+            <button class="btn btn-ghost btn-xs" phx-click="retry_job" phx-value-id={job.id}>
+              Retry
+            </button>
+            <button
+              class="btn btn-ghost btn-xs text-error"
+              phx-click="discard_job"
+              phx-value-id={job.id}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
       </div>
     </Layouts.console>
     """
