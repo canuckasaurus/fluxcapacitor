@@ -203,6 +203,89 @@ defmodule Flux.ProvidersTest do
     assert second["answer"] =~ "You said: two"
   end
 
+  test "replay_run reuses upstream outputs and re-executes from the node", %{scope: scope} do
+    {:ok, workflow} = Flux.Workflows.create_workflow(scope, %{"name" => "Replayable"})
+
+    graph =
+      update_in(workflow.graph, ["nodes"], fn nodes ->
+        Enum.map(nodes, fn
+          %{"id" => "llm_1"} = node ->
+            node
+            |> put_in(["config", "provider_plugin_id"], "echo")
+            |> put_in(["config", "model"], "echo-1")
+            |> put_in(["config", "prompt"], "{{start.query}}")
+
+          node ->
+            node
+        end)
+      end)
+
+    {:ok, workflow} = Flux.Workflows.update_draft(scope, workflow, graph)
+    {:ok, run} = Flux.Workflows.start_run(scope, workflow, %{"query" => "replay me"})
+    assert_receive {:run_finished, %{status: :succeeded}}, 5_000
+
+    # Replay from the LLM node: start's recorded outputs are reused.
+    {:ok, replay} = Flux.Workflows.replay_run(scope, run.id, "llm_1")
+    assert_receive {:run_finished, finished}, 5_000
+    assert finished.id == replay.id
+    assert finished.status == :succeeded
+    assert finished.outputs["answer"] =~ "You said: replay me"
+
+    # The start node was NOT re-executed — only llm_1 and answer_1 ran.
+    replayed_ids = Enum.map(finished.node_executions, & &1["node_id"])
+    refute "start" in replayed_ids
+    assert "llm_1" in replayed_ids
+
+    # Unknown nodes and running runs are refused honestly.
+    assert {:error, :unknown_node} = Flux.Workflows.replay_run(scope, run.id, "ghost")
+  end
+
+  test "retry_failed_rows batches only the failures", %{scope: scope} do
+    {:ok, workflow} = Flux.Workflows.create_workflow(scope, %{"name" => "Batchy"})
+
+    graph =
+      update_in(workflow.graph, ["nodes"], fn nodes ->
+        Enum.map(nodes, fn
+          %{"id" => "llm_1"} = node ->
+            node
+            |> put_in(["config", "provider_plugin_id"], "echo")
+            |> put_in(["config", "model"], "echo-1")
+            |> put_in(["config", "prompt"], "{{start.query}}")
+
+          %{"id" => "start"} = node ->
+            put_in(node, ["config", "variables"], [
+              %{"name" => "query", "label" => "Q", "type" => "text", "required" => true}
+            ])
+
+          node ->
+            node
+        end)
+      end)
+
+    {:ok, workflow} = Flux.Workflows.update_draft(scope, workflow, graph)
+
+    # Row 2 misses the required input → that run fails.
+    {:ok, batch} =
+      Flux.Workflows.start_batch(scope, workflow, [%{"query" => "fine"}, %{"other" => "x"}])
+
+    :ok = Flux.Workflows.perform_batch(batch.id)
+
+    batch = Flux.Workflows.get_batch(scope, batch.id)
+    assert batch.succeeded == 1
+    assert batch.failed == 1
+
+    {:ok, retry} = Flux.Workflows.retry_failed_rows(scope, batch.id)
+    assert retry.total == 1
+    assert retry.rows == [%{"other" => "x"}]
+    assert retry.name =~ "(retry)"
+
+    # Nothing failed → honest refusal.
+    :ok = Flux.Workflows.perform_batch(retry.id)
+    {:ok, all_good} = Flux.Workflows.start_batch(scope, workflow, [%{"query" => "ok"}])
+    :ok = Flux.Workflows.perform_batch(all_good.id)
+    assert {:error, :nothing_failed} = Flux.Workflows.retry_failed_rows(scope, all_good.id)
+  end
+
   test "a subflux_version pin runs that version, not the latest", %{scope: scope} do
     {:ok, subflux} = Flux.Workflows.create_workflow(scope, %{"name" => "Pinned"})
 

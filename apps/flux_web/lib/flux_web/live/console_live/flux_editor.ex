@@ -189,11 +189,23 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
          |> push_navigate(to: ~p"/console/fluxes")}
 
       workflow ->
+        # Presence: everyone with this canvas open shows as an avatar chip.
+        if connected?(socket) do
+          topic = "editor:" <> workflow.id
+          Phoenix.PubSub.subscribe(Flux.PubSub, topic)
+
+          {:ok, _ref} =
+            FluxWeb.Presence.track(self(), topic, scope.account.id, %{
+              email: scope.account.email
+            })
+        end
+
         {:ok,
          socket
          |> assign(
            page_title: workflow.name,
            workflow: workflow,
+           editors: presence_editors(workflow.id),
            graph: workflow.graph,
            selected_id: nil,
            selected_ids: [],
@@ -206,6 +218,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
            toolsets:
              Flux.Tools.list_toolsets(scope) ++ Flux.Tools.installed_plugin_toolsets(scope),
            fluxes: Workflows.list_workflows(scope),
+           prompt_snippets: Flux.Prompts.list(scope),
            datasets: Flux.RAG.list_datasets(scope),
            labeling_projects: Flux.Labeling.list_projects(scope),
            artifact_options: artifact_options(scope, workflow.id),
@@ -417,6 +430,30 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
 
   # Delete/Backspace pressed on the canvas (never from inside a form field):
   # removes the selected edge, or every selected node except start.
+  # Appends a library snippet to the selected node's system prompt — a
+  # copy at insert time, so graphs never dangle on a deleted snippet.
+  def handle_event("insert_snippet", %{"snippet-id" => snippet_id}, socket) do
+    with %{} = snippet <-
+           Enum.find(socket.assigns.prompt_snippets, &(&1.id == snippet_id)),
+         node_id when is_binary(node_id) <- socket.assigns.selected_id do
+      update_graph(socket, fn graph ->
+        update_in(graph, ["nodes"], fn nodes ->
+          Enum.map(nodes, fn
+            %{"id" => ^node_id} = node ->
+              current = to_string(node["config"]["system_prompt"] || "")
+              joined = String.trim(current <> "\n\n" <> snippet.content)
+              put_in(node, ["config", "system_prompt"], joined)
+
+            node ->
+              node
+          end)
+        end)
+      end)
+    else
+      _nothing -> {:noreply, socket}
+    end
+  end
+
   def handle_event("align_selection", %{"mode" => mode}, socket) do
     ids = socket.assigns.selected_ids
 
@@ -868,10 +905,18 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
      )}
   end
 
-  def handle_event("create_token", _params, socket) do
+  def handle_event("create_token", params, socket) do
     scope = socket.assigns.current_scope
 
-    case Workflows.create_api_token(scope, socket.assigns.workflow) do
+    expires_in_days =
+      case Integer.parse(to_string(params["lifetime"] || "")) do
+        {days, ""} when days > 0 -> days
+        _perpetual -> nil
+      end
+
+    case Workflows.create_api_token(scope, socket.assigns.workflow,
+           expires_in_days: expires_in_days
+         ) do
       {:ok, _token, raw} ->
         {:noreply,
          assign(socket,
@@ -1282,6 +1327,10 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
 
   def handle_info({:engine_event, _event}, socket), do: {:noreply, socket}
 
+  def handle_info(%Phoenix.Socket.Broadcast{event: "presence_diff"}, socket) do
+    {:noreply, assign(socket, editors: presence_editors(socket.assigns.workflow.id))}
+  end
+
   def handle_info({:run_finished, run}, socket) do
     socket = assign(socket, run: run)
 
@@ -1344,6 +1393,13 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     |> Map.update("edges", [], fn edges ->
       Enum.reject(edges, &(&1["source"] in ids or &1["target"] in ids))
     end)
+  end
+
+  defp presence_editors(workflow_id) do
+    ("editor:" <> workflow_id)
+    |> FluxWeb.Presence.list()
+    |> Enum.flat_map(fn {_account_id, %{metas: metas}} -> Enum.map(metas, & &1.email) end)
+    |> Enum.uniq()
   end
 
   # Align/distribute the selected nodes' positions; unselected nodes are
@@ -1717,10 +1773,17 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
   end
 
   defp build_config("http_request", config, params) do
+    cache_minutes =
+      case Integer.parse(to_string(Map.get(params, "cache_minutes", ""))) do
+        {minutes, ""} when minutes > 0 -> minutes
+        _off -> 0
+      end
+
     config
     |> Map.put("method", Map.get(params, "method", config["method"] || "get"))
     |> Map.put("url", Map.get(params, "url", ""))
     |> Map.put("body", Map.get(params, "body", ""))
+    |> Map.put("cache_minutes", cache_minutes)
     |> Map.put("headers", indexed_rows(params["hdrs"], ~w(key value), %{}))
   end
 
@@ -2507,6 +2570,22 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
               title="Rename this flux"
             />
           </form>
+          <div
+            :if={length(@editors) > 1}
+            class="flex -space-x-1"
+            id="canvas-presence"
+            title={"Also editing: " <> Enum.join(@editors -- [@current_scope.account.email], ", ")}
+          >
+            <span
+              :for={email <- Enum.take(@editors, 4)}
+              class="avatar placeholder"
+              aria-label={email}
+            >
+              <span class="bg-primary/20 text-primary rounded-full w-6 h-6 text-xs flex items-center justify-center uppercase">
+                {String.slice(email, 0, 2)}
+              </span>
+            </span>
+          </div>
           <span :if={@latest_version} class="badge badge-success badge-sm">
             v{@latest_version.version}
           </span>
@@ -3151,6 +3230,22 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                       disabled={not @can_edit}
                     >{node["config"]["system_prompt"]}</textarea>
                   </label>
+                  <form
+                    :if={@can_edit and @prompt_snippets != []}
+                    phx-change="insert_snippet"
+                    id={"snippet-picker-#{node["id"]}"}
+                  >
+                    <select
+                      name="snippet-id"
+                      class="select select-xs w-full"
+                      aria-label="Insert a prompt snippet"
+                    >
+                      <option value="" selected disabled>Insert from the prompt library…</option>
+                      <option :for={snippet <- @prompt_snippets} value={snippet.id}>
+                        {snippet.name}
+                      </option>
+                    </select>
+                  </form>
                   <label class="floating-label">
                     <span>Prompt</span>
                     <textarea
@@ -3466,6 +3561,18 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                       disabled={not @can_edit}
                     />
                   </div>
+                  <label class="floating-label">
+                    <span>Cache minutes (0 = off; same inputs skip the call)</span>
+                    <input
+                      type="number"
+                      name="cache_minutes"
+                      value={node["config"]["cache_minutes"] || 0}
+                      min="0"
+                      max="1440"
+                      class="input input-sm w-24"
+                      disabled={not @can_edit}
+                    />
+                  </label>
                   <div class="space-y-2">
                     <p class="text-xs font-semibold opacity-70">Headers</p>
                     <div
@@ -4945,6 +5052,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
             <thead>
               <tr>
                 <th>Key</th>
+                <th>Expires</th>
                 <th>Last used</th>
                 <th></th>
               </tr>
@@ -4952,6 +5060,21 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
             <tbody>
               <tr :for={token <- @tokens}>
                 <td class="font-mono text-xs">{token.prefix}</td>
+                <td class="text-xs">
+                  <span :if={token.expires_at == nil} class="badge badge-ghost badge-xs">
+                    never
+                  </span>
+                  <span
+                    :if={token.expires_at != nil}
+                    class={[
+                      "badge badge-xs",
+                      (Flux.Chat.token_expired?(token) && "badge-error") || "badge-ghost"
+                    ]}
+                  >
+                    {(Flux.Chat.token_expired?(token) && "expired") ||
+                      Calendar.strftime(token.expires_at, "%Y-%m-%d")}
+                  </span>
+                </td>
                 <td class="text-xs opacity-60">
                   {(token.last_used_at && Calendar.strftime(token.last_used_at, "%Y-%m-%d %H:%M")) ||
                     "never"}
@@ -4969,9 +5092,21 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
               </tr>
             </tbody>
           </table>
-          <button class="btn btn-primary btn-sm" phx-click="create_token">
-            <.icon name="hero-plus" class="size-4" /> Create API key
-          </button>
+          <form phx-submit="create_token" class="flex gap-2 items-center" id="flux-token-form">
+            <select
+              name="lifetime"
+              class="select select-bordered select-sm"
+              aria-label="Key lifetime"
+            >
+              <option value="">Never expires</option>
+              <option value="30">Expires in 30 days</option>
+              <option value="90">Expires in 90 days</option>
+              <option value="365">Expires in 1 year</option>
+            </select>
+            <button class="btn btn-primary btn-sm">
+              <.icon name="hero-plus" class="size-4" /> Create API key
+            </button>
+          </form>
         </div>
         <div class="modal-backdrop" phx-click="toggle_api"></div>
       </dialog>

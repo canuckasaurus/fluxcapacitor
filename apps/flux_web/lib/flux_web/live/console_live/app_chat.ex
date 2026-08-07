@@ -178,6 +178,19 @@ defmodule FluxWeb.ConsoleLive.AppChat do
     end
   end
 
+  def handle_event("search_conversations", %{"q" => q}, socket) do
+    scope = socket.assigns.current_scope
+    app = socket.assigns.app
+
+    conversations =
+      case String.trim(to_string(q)) do
+        "" -> Chat.console_conversations(scope, app.id)
+        query -> Chat.search_conversations(scope, app.id, query)
+      end
+
+    {:noreply, assign(socket, conversations: conversations)}
+  end
+
   def handle_event("start_rename", _params, socket) do
     {:noreply, assign(socket, renaming: not socket.assigns.renaming)}
   end
@@ -366,8 +379,16 @@ defmodule FluxWeb.ConsoleLive.AppChat do
     end
   end
 
-  def handle_event("create-token", _params, socket) do
-    case Chat.create_api_token(socket.assigns.current_scope, socket.assigns.app) do
+  def handle_event("create-token", params, socket) do
+    expires_in_days =
+      case Integer.parse(to_string(params["lifetime"] || "")) do
+        {days, ""} when days > 0 -> days
+        _perpetual -> nil
+      end
+
+    case Chat.create_api_token(socket.assigns.current_scope, socket.assigns.app,
+           expires_in_days: expires_in_days
+         ) do
       {:ok, _token, raw} ->
         {:noreply,
          assign(socket,
@@ -497,6 +518,20 @@ defmodule FluxWeb.ConsoleLive.AppChat do
           <p class="opacity-60 text-sm">{@app.provider_plugin_id} · {@app.model}</p>
         </div>
         <div class="flex gap-2 items-center">
+          <form
+            :if={@app.mode in [:chat, :advanced_chat]}
+            phx-change="search_conversations"
+            id="conversation-search"
+          >
+            <input
+              type="search"
+              name="q"
+              placeholder="Search threads…"
+              class="input input-bordered input-sm w-36"
+              phx-debounce="300"
+              aria-label="Search conversations"
+            />
+          </form>
           <form
             :if={@app.mode in [:chat, :advanced_chat] and @conversations != []}
             phx-change="switch_conversation"
@@ -1003,9 +1038,17 @@ defmodule FluxWeb.ConsoleLive.AppChat do
       </div>
 
       <div :if={@can_manage} class="card border border-base-200 p-6 space-y-3">
-        <div class="flex items-center justify-between">
+        <div class="flex items-center justify-between gap-2">
           <h2 class="font-semibold">API keys</h2>
-          <button class="btn btn-sm" phx-click="create-token">Create key</button>
+          <form phx-submit="create-token" class="flex gap-2 items-center" id="create-token-form">
+            <select name="lifetime" class="select select-bordered select-sm" aria-label="Key lifetime">
+              <option value="">Never expires</option>
+              <option value="30">Expires in 30 days</option>
+              <option value="90">Expires in 90 days</option>
+              <option value="365">Expires in 1 year</option>
+            </select>
+            <button class="btn btn-sm">Create key</button>
+          </form>
         </div>
         <div :if={@new_token} class="alert alert-info text-sm">
           <span>
@@ -1017,6 +1060,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
           <thead>
             <tr>
               <th>Key</th>
+              <th>Expires</th>
               <th>Last used</th>
               <th></th>
             </tr>
@@ -1024,6 +1068,21 @@ defmodule FluxWeb.ConsoleLive.AppChat do
           <tbody>
             <tr :for={token <- @api_tokens} id={"token-#{token.id}"}>
               <td class="font-mono">{token.prefix}</td>
+              <td class="text-sm">
+                <span :if={token.expires_at == nil} class="badge badge-ghost badge-sm">
+                  never
+                </span>
+                <span
+                  :if={token.expires_at != nil}
+                  class={[
+                    "badge badge-sm",
+                    (Chat.token_expired?(token) && "badge-error") || "badge-ghost"
+                  ]}
+                >
+                  {(Chat.token_expired?(token) && "expired") ||
+                    Calendar.strftime(token.expires_at, "%b %d, %Y")}
+                </span>
+              </td>
               <td class="text-sm opacity-70">
                 {if token.last_used_at,
                   do: Calendar.strftime(token.last_used_at, "%b %d %H:%M"),

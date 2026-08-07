@@ -144,9 +144,16 @@ defmodule FluxWeb.AppChatLiveTest do
   test "creating an API key shows the raw token once", %{conn: conn, app: app} do
     {:ok, lv, _html} = live(conn, ~p"/console/apps/#{app.id}")
 
-    html = lv |> element("button", "Create key") |> render_click()
+    html = lv |> form("#create-token-form", %{"lifetime" => ""}) |> render_submit()
     assert html =~ "app-"
     assert html =~ "Copy this key now"
+    # Perpetual is a first-class choice…
+    assert html =~ "never"
+
+    # …and so is expiring: a 30-day key shows its date.
+    html = lv |> form("#create-token-form", %{"lifetime" => "30"}) |> render_submit()
+    expected = DateTime.utc_now() |> DateTime.add(30, :day) |> Calendar.strftime("%b %d, %Y")
+    assert html =~ expected
   end
 
   describe "completion apps" do

@@ -32,6 +32,15 @@ defmodule FluxWeb.Plugs.ServiceAuth do
       |> assign(:service_workflow, assigns[:workflow])
       |> assign(:service_scope, scope)
     else
+      {:error, :token_expired} ->
+        conn
+        |> put_resp_content_type("application/json")
+        |> send_resp(
+          401,
+          Jason.encode!(%{code: "token_expired", message: "This API token has expired"})
+        )
+        |> halt()
+
       _unauthorized ->
         conn
         |> put_resp_content_type("application/json")

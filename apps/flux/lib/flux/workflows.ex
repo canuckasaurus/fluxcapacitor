@@ -436,6 +436,31 @@ defmodule Flux.Workflows do
 
   ## Runs
 
+  @doc "Per-flux 7-day run health (`%{workflow_id => %{runs, succeeded, tokens}}`)."
+  def flux_health(%Scope{} = scope, days \\ 7) do
+    since = DateTime.add(DateTime.utc_now(:second), -days, :day)
+
+    WorkflowRun
+    |> Repo.scoped(scope)
+    |> where([r], r.inserted_at >= ^since)
+    |> group_by([r], r.workflow_id)
+    |> select([r], {
+      r.workflow_id,
+      %{
+        runs: count(r.id),
+        succeeded: fragment("count(*) filter (where ? = 'succeeded')", r.status),
+        tokens:
+          fragment(
+            "coalesce(sum(coalesce((? ->> 'input_tokens')::bigint, 0) + coalesce((? ->> 'output_tokens')::bigint, 0)), 0)",
+            r.usage,
+            r.usage
+          )
+      }
+    })
+    |> Repo.all()
+    |> Map.new()
+  end
+
   @doc """
   Validates the graph, inserts a `:running` row, subscribes the caller to
   the run topic, and executes in a supervised task. `opts`:
@@ -626,6 +651,43 @@ defmodule Flux.Workflows do
     |> where([r], r.batch_id == ^batch_id)
     |> order_by([r], asc: r.inserted_at, asc: r.id)
     |> Repo.all()
+  end
+
+  @doc """
+  Starts a new batch over only the failed rows of a completed batch —
+  rows match runs by order, and the new batch targets the same
+  draft/version the original did.
+  """
+  def retry_failed_rows(%Scope{} = scope, batch_id) do
+    with %WorkflowBatch{status: :completed} = batch <- get_batch(scope, batch_id),
+         %Workflow{} = workflow <-
+           Repo.get_by(Workflow, [id: batch.workflow_id], skip_workspace_guard: true) ||
+             {:error, :not_found} do
+      failed_rows =
+        scope
+        |> list_batch_runs(batch_id)
+        |> Enum.with_index()
+        |> Enum.filter(fn {run, _index} -> run.status == :failed end)
+        |> Enum.map(fn {_run, index} -> Enum.at(batch.rows, index) end)
+        |> Enum.reject(&is_nil/1)
+
+      version =
+        case batch.target do
+          "v" <> number -> String.to_integer(number)
+          _draft -> nil
+        end
+
+      case failed_rows do
+        [] ->
+          {:error, :nothing_failed}
+
+        rows ->
+          start_batch(scope, workflow, rows, name: batch.name <> " (retry)", version: version)
+      end
+    else
+      %WorkflowBatch{} -> {:error, :still_running}
+      error -> error
+    end
   end
 
   ## Batch schedules (recurring batches on a cron)
@@ -1133,7 +1195,7 @@ defmodule Flux.Workflows do
 
   ## API tokens
 
-  def create_api_token(%Scope{} = scope, %Workflow{} = workflow) do
+  def create_api_token(%Scope{} = scope, %Workflow{} = workflow, opts \\ []) do
     with :ok <- RBAC.authorize(scope, :app_create_and_management),
          :ok <- owned(scope, workflow) do
       raw = "flux-" <> Base.url_encode64(:crypto.strong_rand_bytes(24), padding: false)
@@ -1143,7 +1205,8 @@ defmodule Flux.Workflows do
           workspace_id: workflow.workspace_id,
           workflow_id: workflow.id,
           token_hash: :crypto.hash(:sha256, raw),
-          prefix: String.slice(raw, 0, 13) <> "…"
+          prefix: String.slice(raw, 0, 13) <> "…",
+          expires_at: Flux.Chat.token_expiry(opts[:expires_in_days])
         })
 
       Flux.Audit.record(scope, "api_token.create",
@@ -1183,13 +1246,19 @@ defmodule Flux.Workflows do
     # Token possession is the authorization; the lookup is cross-workspace.
     case Repo.get_by(ApiToken, [token_hash: hash], skip_workspace_guard: true) do
       %ApiToken{workflow_id: workflow_id} = token when not is_nil(workflow_id) ->
-        token
-        |> Ecto.Changeset.change(last_used_at: DateTime.utc_now(:second))
-        |> Repo.update()
+        cond do
+          Flux.Chat.token_expired?(token) ->
+            {:error, :token_expired}
 
-        case Repo.get!(Workflow, workflow_id, skip_workspace_guard: true) do
-          %Workflow{deleted_at: nil} = workflow -> {:ok, workflow, token}
-          _trashed -> {:error, :invalid_token}
+          true ->
+            token
+            |> Ecto.Changeset.change(last_used_at: DateTime.utc_now(:second))
+            |> Repo.update()
+
+            case Repo.get!(Workflow, workflow_id, skip_workspace_guard: true) do
+              %Workflow{deleted_at: nil} = workflow -> {:ok, workflow, token}
+              _trashed -> {:error, :invalid_token}
+            end
         end
 
       _other ->
@@ -1200,6 +1269,92 @@ defmodule Flux.Workflows do
   def fetch_workflow_by_token(_other), do: {:error, :invalid_token}
 
   ## Run internals
+
+  @doc """
+  Starts a NEW run that replays a finished run from `from_node_id`:
+  every node upstream of (or parallel to) the target reuses its recorded
+  outputs, while the target and its descendants execute fresh. The
+  original run is untouched. Chatflow `sys` context is not reconstructed
+  — replay is built for draft/API/batch debugging.
+  """
+  def replay_run(%Scope{} = scope, run_id, from_node_id) do
+    with %WorkflowRun{} = source <-
+           Repo.one(Repo.scoped(where(WorkflowRun, id: ^run_id), scope)) ||
+             {:error, :not_found},
+         true <- source.status in [:succeeded, :failed] || {:error, :not_finished},
+         %Workflow{} = workflow <-
+           Repo.get_by(Workflow, [id: source.workflow_id], skip_workspace_guard: true) ||
+             {:error, :not_found},
+         {:ok, graph} <- Engine.build(run_graph(scope, workflow, source)),
+         true <- Map.has_key?(graph.nodes, from_node_id) || {:error, :unknown_node} do
+      fresh = replay_fresh_ids(graph, from_node_id)
+
+      recorded =
+        for execution <- source.node_executions || [],
+            id = execution["node_id"],
+            Map.has_key?(graph.nodes, id) and id not in fresh,
+            into: %{} do
+          {id, execution["outputs"] || %{}}
+        end
+
+      conversation_defaults =
+        Map.new(graph.conversation_variables, fn variable ->
+          {variable["name"], variable["default"]}
+        end)
+
+      pool =
+        Map.merge(
+          %{"env" => graph.env, "sys" => %{}, "conversation" => conversation_defaults},
+          recorded
+        )
+
+      run =
+        Repo.insert!(%WorkflowRun{
+          workspace_id: workflow.workspace_id,
+          workflow_id: workflow.id,
+          status: :running,
+          source: source.source,
+          version: source.version,
+          inputs: source.inputs
+        })
+
+      :ok = subscribe(run.id)
+
+      resume = %{pool: pool, node_id: from_node_id, input: nil, rerun: true}
+
+      {:ok, _pid} =
+        Task.Supervisor.start_child(Flux.GenerationSupervisor, fn ->
+          Registry.register(Flux.GenerationRegistry, run.id, nil)
+          do_execute(run, graph, %{}, workflow.workspace_id, resume: resume)
+        end)
+
+      {:ok, run}
+    else
+      false -> {:error, :not_finished}
+      {:error, errors} when is_list(errors) -> {:error, {:invalid_graph, errors}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # The target and everything reachable from it — the set that runs fresh.
+  defp replay_fresh_ids(graph, from_node_id) do
+    grow = fn grow, frontier, seen ->
+      next =
+        graph.edges
+        |> Enum.filter(&(&1.source in frontier))
+        |> Enum.map(& &1.target)
+        |> MapSet.new()
+        |> MapSet.difference(seen)
+
+      if MapSet.size(next) == 0 do
+        seen
+      else
+        grow.(grow, next, MapSet.union(seen, next))
+      end
+    end
+
+    grow.(grow, MapSet.new([from_node_id]), MapSet.new([from_node_id]))
+  end
 
   defp execute(run, graph, inputs, workspace_id, run_opts) do
     require OpenTelemetry.Tracer
@@ -1536,6 +1691,10 @@ defmodule Flux.Workflows do
       end,
       http_request: &node_http_request/1,
       run_code: fn request -> Flux.CodeRunner.run(request, workspace_id) end,
+      node_cache: %{
+        get: fn key -> Flux.LLMCache.get(key) end,
+        put: fn key, value, ttl -> Flux.LLMCache.put(key, value, ttl) end
+      },
       read_document: fn %{file_id: file_id} -> Flux.Documents.extract(workspace_id, file_id) end,
       run_subflux: build_subflux_runner(workspace_id, depth),
       retrieve_knowledge: build_knowledge_retriever(workspace_id),
@@ -1889,6 +2048,8 @@ defmodule Flux.Workflows do
 
     case runtime().invoke_llm(request.provider_plugin_id, credentials, provider_request, emit) do
       {:ok, result} ->
+        Flux.ProviderHealth.record(request.provider_plugin_id, :ok)
+
         response = %{
           content: result.content,
           usage: %{
@@ -1902,6 +2063,7 @@ defmodule Flux.Workflows do
         {:ok, response}
 
       {:error, reason} ->
+        Flux.ProviderHealth.record(request.provider_plugin_id, :error)
         {:error, reason}
     end
   end

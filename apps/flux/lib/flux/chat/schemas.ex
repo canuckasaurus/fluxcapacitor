@@ -167,6 +167,8 @@ defmodule Flux.Chat.ApiToken do
     field :token_hash, :binary, redact: true
     field :prefix, :string
     field :last_used_at, :utc_datetime
+    # NULL = perpetual — both lifetimes are first-class choices.
+    field :expires_at, :utc_datetime
 
     timestamps(type: :utc_datetime)
   end

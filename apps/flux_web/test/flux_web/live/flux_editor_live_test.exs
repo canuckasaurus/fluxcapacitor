@@ -210,10 +210,13 @@ defmodule FluxWeb.FluxEditorLiveTest do
     {:ok, lv, _html} = live(conn, ~p"/console/fluxes/#{workflow.id}")
 
     lv |> element("button[phx-click=toggle_api]") |> render_click()
-    html = lv |> element("button", "Create API key") |> render_click()
+    html = lv |> form("#flux-token-form", %{"lifetime" => "90"}) |> render_submit()
 
     assert html =~ "flux-"
     assert html =~ "Copy this key now"
+    # A 90-day key shows its expiry date; perpetual keys show "never".
+    expected = DateTime.utc_now() |> DateTime.add(90, :day) |> Calendar.strftime("%Y-%m-%d")
+    assert html =~ expected
   end
 
   test "triggers modal creates, disables, and deletes a webhook trigger", %{

@@ -72,6 +72,49 @@ defmodule Flux.ChatTest do
     refute Enum.any?(messages, &(&1.id == first_reply.id))
   end
 
+  test "tokens are perpetual by default, expiring by choice, refused when spent", %{
+    scope: scope,
+    app: app
+  } do
+    # Perpetual: no expiry, resolves forever.
+    {:ok, perpetual, raw_perpetual} = Chat.create_api_token(scope, app)
+    assert perpetual.expires_at == nil
+    assert {:ok, _app, _token} = Chat.fetch_app_by_token(raw_perpetual)
+
+    # Expiring: carries its deadline and resolves while fresh.
+    {:ok, expiring, raw_expiring} = Chat.create_api_token(scope, app, expires_in_days: 30)
+    assert DateTime.diff(expiring.expires_at, DateTime.utc_now(), :day) in 29..30
+    assert {:ok, _app, _token} = Chat.fetch_app_by_token(raw_expiring)
+
+    # Push the deadline into the past → honest refusal, distinct error.
+    expiring
+    |> Ecto.Changeset.change(expires_at: DateTime.add(DateTime.utc_now(:second), -1, :day))
+    |> Repo.update!()
+
+    assert {:error, :token_expired} = Chat.fetch_app_by_token(raw_expiring)
+    # The perpetual one is untouched by time.
+    assert {:ok, _app, _token} = Chat.fetch_app_by_token(raw_perpetual)
+  end
+
+  test "conversation search matches titles and message bodies", %{scope: scope, app: app} do
+    first = Chat.create_conversation(scope, app)
+    {:ok, _u, _a} = Chat.send_message(scope, app, first, "the flux capacitor hums")
+    assert_receive {:done, _}, 5_000
+
+    second = Chat.create_conversation(scope, app)
+    {:ok, _u, _a} = Chat.send_message(scope, app, second, "gigawatts and lightning")
+    assert_receive {:done, _}, 5_000
+
+    assert [found] = Chat.search_conversations(scope, app.id, "capacitor")
+    assert found.id == first.id
+
+    # Body text matches too (the echo reply contains the question).
+    assert [found] = Chat.search_conversations(scope, app.id, "gigawatts")
+    assert found.id == second.id
+
+    assert Chat.search_conversations(scope, app.id, "bananaphone") == []
+  end
+
   test "follow-up suggestions run through the app's model", %{scope: scope, app: app} do
     conversation = Chat.create_conversation(scope, app)
 

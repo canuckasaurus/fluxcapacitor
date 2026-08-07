@@ -208,6 +208,26 @@ defmodule Flux.Chat do
     |> Repo.all()
   end
 
+  @doc "Console conversations whose title or messages match `q` (ILIKE)."
+  def search_conversations(%Scope{} = scope, app_id, q, limit \\ 15) do
+    pattern = "%" <> String.replace(to_string(q), ~r/[%_\\]/, "") <> "%"
+    workspace_id = Scope.workspace_id(scope)
+
+    matching =
+      from(m in Message,
+        where: m.workspace_id == ^workspace_id and ilike(m.content, ^pattern),
+        select: m.conversation_id
+      )
+
+    Conversation
+    |> Repo.scoped(scope)
+    |> where([c], c.app_id == ^app_id and is_nil(c.end_user_ref))
+    |> where([c], ilike(c.title, ^pattern) or c.id in subquery(matching))
+    |> order_by([c], desc: c.inserted_at, desc: c.id)
+    |> limit(^limit)
+    |> Repo.all()
+  end
+
   def list_conversations(%Scope{} = scope, app_id, limit \\ 20) do
     Conversation
     |> Repo.scoped(scope)
@@ -999,7 +1019,12 @@ defmodule Flux.Chat do
 
   ## API tokens
 
-  def create_api_token(%Scope{} = scope, %App{} = app) do
+  @doc """
+  Mints an app token. `expires_in_days: nil` (default) is perpetual;
+  an integer makes the token self-destruct after that many days —
+  both lifetimes are deliberate, first-class choices.
+  """
+  def create_api_token(%Scope{} = scope, %App{} = app, opts \\ []) do
     with :ok <- RBAC.authorize(scope, :app_create_and_management) do
       raw = "app-" <> Base.url_encode64(:crypto.strong_rand_bytes(24), padding: false)
 
@@ -1008,7 +1033,8 @@ defmodule Flux.Chat do
           workspace_id: Scope.workspace_id(scope),
           app_id: app.id,
           token_hash: :crypto.hash(:sha256, raw),
-          prefix: String.slice(raw, 0, 12) <> "…"
+          prefix: String.slice(raw, 0, 12) <> "…",
+          expires_at: token_expiry(opts[:expires_in_days])
         })
 
       Flux.Audit.record(scope, "api_token.create",
@@ -1019,6 +1045,18 @@ defmodule Flux.Chat do
       {:ok, token, raw}
     end
   end
+
+  @doc false
+  def token_expiry(nil), do: nil
+
+  def token_expiry(days) when is_integer(days) and days > 0,
+    do: DateTime.add(DateTime.utc_now(:second), days, :day)
+
+  @doc false
+  def token_expired?(%ApiToken{expires_at: nil}), do: false
+
+  def token_expired?(%ApiToken{expires_at: expires_at}),
+    do: DateTime.compare(expires_at, DateTime.utc_now()) == :lt
 
   def list_api_tokens(%Scope{} = scope, app_id) do
     ApiToken |> Repo.scoped(scope) |> where([t], t.app_id == ^app_id) |> Repo.all()
@@ -1051,13 +1089,19 @@ defmodule Flux.Chat do
         {:error, :invalid_token}
 
       token ->
-        token
-        |> Ecto.Changeset.change(last_used_at: DateTime.utc_now(:second))
-        |> Repo.update()
+        cond do
+          token_expired?(token) ->
+            {:error, :token_expired}
 
-        case Repo.get!(App, token.app_id, skip_workspace_guard: true) do
-          %App{deleted_at: nil} = app -> {:ok, app, token}
-          _trashed -> {:error, :invalid_token}
+          true ->
+            token
+            |> Ecto.Changeset.change(last_used_at: DateTime.utc_now(:second))
+            |> Repo.update()
+
+            case Repo.get!(App, token.app_id, skip_workspace_guard: true) do
+              %App{deleted_at: nil} = app -> {:ok, app, token}
+              _trashed -> {:error, :invalid_token}
+            end
         end
     end
   end
@@ -1136,12 +1180,15 @@ defmodule Flux.Chat do
 
     case runtime().invoke_llm(app.provider_plugin_id, credentials, request, emit) do
       {:ok, result} ->
+        Flux.ProviderHealth.record(app.provider_plugin_id, :ok)
+
         finalize(assistant_message, :completed, result.content, %{
           "input_tokens" => result.usage.input_tokens,
           "output_tokens" => result.usage.output_tokens
         })
 
       {:error, reason} ->
+        Flux.ProviderHealth.record(app.provider_plugin_id, :error)
         Flux.StreamBuffers.delete(assistant_message.id)
 
         message =
