@@ -552,3 +552,40 @@ markdown + regenerate in a real conversation, dark mode, and the
 checklist advancing 0/6 → 3/6. Lesson repeated: data-confirm dialogs
 freeze browser automation — the node Delete button is confirm-guarded,
 the Del key path is not.
+
+36. ~~Batch 12: console hardening out of the QA sweep (#153, 2026-08-07)~~
+DONE: **console conversation history** (Chat.console_conversations —
+end_user_ref-nil threads, newest first; the app chat mounts resumed on
+the latest conversation with a switcher select, exactly the courtesy
+sites already paid visitors); **streaming markdown** (the streaming
+bubble renders FluxWeb.Markdown per chunk, so replies format as they
+arrive instead of snapping at the end); **themed confirm modals** (a
+capture-phase click interceptor in app.js swaps every [data-confirm]
+native window.confirm for a DaisyUI <dialog> — on OK the attribute is
+lifted for one synchronous re-click so neither phoenix_html nor
+LiveView re-confirms; keyboard/backdrop cancel; kills the batch-11
+automation freezer for good); **QA regression tests** (markdown +
+tight-bubble markup, conversation resume/switch, Knowledge OUTATIME
+empty state, API-reference render, palette JSON — the sweep's findings
+can't quietly return); **in-console API reference**
+(/console/docs/api-reference generated from the live OpenAPI spec via
+a JSON round-trip — endpoints table with method/path/summary/response
+links, per-schema field tables with types and required badges, cached
+in persistent_term — it can never drift from GET /v1/spec); **command
+palette** (Ctrl/Cmd+K dialog fed by GET /console/palette — pages plus
+fluxes/apps/datasets/labeling projects/doc templates — client-side
+filtering, arrow/enter navigation; the fetch sends no accept header
+because the :browser pipeline negotiates html only, found live);
+**responsive console** (the drawer layout already existed —
+lg:drawer-open with a hamburger header — verified off-canvas behavior
+at narrow widths rather than rebuilt); and **metrics profile**
+(compose prometheus + grafana with a provisioned datasource and a
+hand-authored 8-panel FluxCapacitor dashboard — HTTP rate/latency,
+run counts/duration, Ecto p95, Oban queues, BEAM memory/processes —
+against verified PromEx metric names; found live that prod force_ssl
+301-bounced the in-network scrape of http://app:4000/metrics to
+https, so "app" joined the exclude hosts). Verification was
+DOM-behavioral this round (the browser window sat minimized at 0x0 —
+screenshots impossible): palette open/fetch, confirm-intercept
+before/after semantics, drawer state, API reference content all
+asserted via injected JS against the dev server.

@@ -102,12 +102,19 @@ orchestrator, no queue infrastructure beyond Postgres.
   people actually ask, and **annotation replies** promote
   liked answers into canonical responses (exact + embedding-fuzzy matched).
   Assistant replies **render markdown** (safely — escape-first, no raw
-  HTML) in both the console and public sites, and a **Regenerate button**
-  redoes the last answer in place. A **concurrent-run cap** protects
+  HTML) in both the console and public sites — **streamed chunks render
+  live**, not just the finished reply — and a **Regenerate button**
+  redoes the last answer in place. The console chat **resumes your
+  latest conversation** and switches between recent ones, same as
+  public sites do for visitors. A **concurrent-run cap** protects
   provider limits, and notification kinds **route to chosen webhook
   endpoints** (`notification.*` events). A dashboard **getting-started
   checklist** walks new workspaces through provider → flux → publish →
-  knowledge → first run → invite.
+  knowledge → first run → invite, a **Ctrl+K command palette** jumps to
+  any page, flux, app, or dataset by name, destructive actions confirm
+  through **themed modal dialogs** (no native browser popups), and an
+  **API reference** generated from the live OpenAPI spec sits alongside
+  the guides at /console/docs.
 - **Knowledge (RAG)** — datasets → documents → embedded segments, hybrid
   retrieval (vector cosine + Postgres full-text + **entity mentions**, merged
   by reciprocal rank fusion), optional reranking, URL ingestion, datasource
@@ -283,6 +290,8 @@ Or with Docker:
 docker compose up -d                    # postgres + minio
 docker compose --profile full up -d     # + the app itself
 docker compose --profile rag up -d      # + arangodb/tika (future RAG backends)
+docker compose --profile metrics up -d  # + prometheus & provisioned grafana
+                                        #   dashboard (localhost:3001, admin/fluxgrafana)
 ```
 
 The Echo provider ships built-in with deterministic chat/embedding/rerank
