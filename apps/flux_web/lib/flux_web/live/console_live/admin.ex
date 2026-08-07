@@ -15,6 +15,7 @@ defmodule FluxWeb.ConsoleLive.Admin do
        assign(socket,
          page_title: "Instance admin",
          overview: Accounts.instance_overview(),
+         provider_health: Flux.ProviderHealth.stats(),
          plans: Flux.Features.plans()
        )}
     else
@@ -84,6 +85,38 @@ defmodule FluxWeb.ConsoleLive.Admin do
               <td class="font-mono text-xs">{row.tokens_30d}</td>
               <td class="text-xs opacity-70">
                 {Calendar.strftime(row.workspace.inserted_at, "%Y-%m-%d")}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card border border-base-200 p-6 space-y-3" id="provider-health">
+        <h2 class="font-semibold">Provider health (since boot)</h2>
+        <p :if={@provider_health == []} class="text-sm opacity-60">
+          No model calls yet.
+        </p>
+        <table :if={@provider_health != []} class="table table-sm max-w-xl">
+          <thead>
+            <tr>
+              <th>Provider</th>
+              <th>Calls</th>
+              <th>Errors</th>
+              <th>Error rate</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={row <- @provider_health}>
+              <td class="font-mono text-xs">{row.provider}</td>
+              <td>{row.calls}</td>
+              <td class={row.errors > 0 && "text-error"}>{row.errors}</td>
+              <td>
+                <span class={[
+                  "badge badge-sm",
+                  (row.error_rate > 10 && "badge-error") || "badge-ghost"
+                ]}>
+                  {row.error_rate}%
+                </span>
               </td>
             </tr>
           </tbody>

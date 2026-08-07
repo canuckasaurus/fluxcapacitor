@@ -20,6 +20,7 @@ defmodule FluxWeb.ConsoleLive.Tools do
        page_title: "Tools",
        importing: false,
        expanded_id: nil,
+       snippets: Flux.Prompts.list(scope),
        can_manage: RBAC.can?(scope, :tool_manage)
      )
      |> load_toolsets()}
@@ -34,6 +35,24 @@ defmodule FluxWeb.ConsoleLive.Tools do
   @impl true
   def handle_event("new", _params, socket), do: {:noreply, assign(socket, importing: true)}
   def handle_event("cancel", _params, socket), do: {:noreply, assign(socket, importing: false)}
+
+  def handle_event("save_snippet", %{"name" => name, "content" => content}, socket) do
+    case Flux.Prompts.upsert(socket.assigns.current_scope, name, content) do
+      {:ok, _snippet} ->
+        {:noreply, assign(socket, snippets: Flux.Prompts.list(socket.assigns.current_scope))}
+
+      {:error, %Ecto.Changeset{}} ->
+        {:noreply, put_flash(socket, :error, "A name and content are both required.")}
+
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "You don't have permission to edit snippets.")}
+    end
+  end
+
+  def handle_event("delete_snippet", %{"snippet-id" => snippet_id}, socket) do
+    Flux.Prompts.delete(socket.assigns.current_scope, snippet_id)
+    {:noreply, assign(socket, snippets: Flux.Prompts.list(socket.assigns.current_scope))}
+  end
 
   def handle_event("import", %{"name" => name, "spec" => spec}, socket) do
     case Tools.create_toolset(socket.assigns.current_scope, name, spec) do
@@ -328,6 +347,63 @@ defmodule FluxWeb.ConsoleLive.Tools do
             </button>
           </div>
         </div>
+      </div>
+
+      <div class="card border border-base-200 p-6 space-y-3" id="prompt-library">
+        <h2 class="font-semibold">Prompt library</h2>
+        <p class="text-sm opacity-70">
+          Named, reusable prompt snippets — insert them from any LLM or
+          agent panel in the editor. Saving an existing name overwrites it.
+        </p>
+
+        <form
+          :if={@can_manage}
+          phx-submit="save_snippet"
+          class="flex flex-wrap gap-2 items-start"
+          id="snippet-form"
+        >
+          <input
+            type="text"
+            name="name"
+            placeholder="tone-of-voice"
+            class="input input-bordered input-sm w-44"
+          />
+          <textarea
+            name="content"
+            rows="2"
+            placeholder="You are concise, friendly, and never speculate…"
+            class="textarea textarea-bordered textarea-sm flex-1 min-w-60"
+          ></textarea>
+          <button class="btn btn-sm btn-primary">Save snippet</button>
+        </form>
+
+        <table :if={@snippets != []} class="table table-sm">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Content</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={snippet <- @snippets} id={"snippet-#{snippet.id}"}>
+              <td class="font-mono text-xs">{snippet.name}</td>
+              <td class="text-xs opacity-70 max-w-md truncate">{snippet.content}</td>
+              <td class="text-right">
+                <button
+                  :if={@can_manage}
+                  class="btn btn-ghost btn-xs text-error"
+                  phx-click="delete_snippet"
+                  phx-value-snippet-id={snippet.id}
+                  aria-label="Delete this snippet"
+                >
+                  Delete
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <p :if={@snippets == []} class="text-sm opacity-60">No snippets yet.</p>
       </div>
     </Layouts.console>
     """

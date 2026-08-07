@@ -17,6 +17,7 @@ defmodule Flux.Application do
       {Task.Supervisor, name: Flux.GenerationSupervisor},
       Flux.StreamBuffers,
       Flux.LLMCache,
+      Flux.ProviderHealth,
       {Oban, Application.fetch_env!(:flux, Oban)}
     ]
 
