@@ -25,6 +25,7 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
        llm_cache_minutes: Accounts.llm_cache_minutes(scope),
        max_concurrent_runs: Accounts.max_concurrent_runs(scope),
        guardrails: Flux.Guardrails.config(Flux.Accounts.Scope.workspace_id(scope)),
+       moderation: Flux.Guardrails.moderation_config(Flux.Accounts.Scope.workspace_id(scope)),
        alert_url: Accounts.alert_url(scope),
        alert_secret: Accounts.alert_secret(scope),
        can_webhooks: RBAC.can?(scope, :api_extension_manage),
@@ -112,6 +113,21 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
 
       _error ->
         {:noreply, put_flash(socket, :error, "Could not save the guardrails.")}
+    end
+  end
+
+  def handle_event("set_moderation", %{"policy" => policy, "action" => action}, socket) do
+    case Flux.Guardrails.configure_moderation(socket.assigns.current_scope, policy, action) do
+      {:ok, _workspace} ->
+        workspace_id = Flux.Accounts.Scope.workspace_id(socket.assigns.current_scope)
+
+        {:noreply,
+         socket
+         |> put_flash(:info, "Moderation saved.")
+         |> assign(moderation: Flux.Guardrails.moderation_config(workspace_id))}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not save the moderation policy.")}
     end
   end
 
@@ -555,6 +571,36 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
               </option>
             </select>
             <button class="btn btn-primary btn-sm">Save guardrails</button>
+          </div>
+        </form>
+
+        <div class="divider my-1" />
+
+        <h3 class="text-sm font-semibold">Model-backed moderation</h3>
+        <p class="text-sm opacity-70">
+          The workspace default model judges inputs against this policy
+          (<b>block</b> refuses, <b>flag</b> lets through; outputs are
+          always flag-only). One extra model call per checked message —
+          blank disables. Judge failures allow rather than block.
+        </p>
+
+        <form phx-submit="set_moderation" id="moderation-form" class="space-y-2">
+          <textarea
+            name="policy"
+            rows="3"
+            placeholder="No medical or legal advice. No competitor pricing discussions."
+            class="textarea textarea-bordered textarea-sm w-full max-w-md"
+          >{@moderation && @moderation.policy}</textarea>
+          <div class="flex gap-2 items-center">
+            <select name="action" class="select select-bordered select-sm w-32">
+              <option value="block" selected={(@moderation && @moderation.action) != "flag"}>
+                block
+              </option>
+              <option value="flag" selected={@moderation && @moderation.action == "flag"}>
+                flag
+              </option>
+            </select>
+            <button class="btn btn-primary btn-sm">Save moderation</button>
           </div>
         </form>
       </div>

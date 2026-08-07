@@ -48,18 +48,84 @@ defmodule Flux.Guardrails do
     end
   end
 
-  defp update(scope, value) do
+  defp update(scope, value), do: update_key(scope, "guardrails", value)
+
+  defp update_key(scope, key, value) do
     with :ok <- Flux.RBAC.authorize(scope, :customization_manage),
          %Workspace{} = workspace <- Repo.get(Workspace, Scope.workspace_id(scope)) do
       custom_config =
         if value == nil do
-          Map.delete(workspace.custom_config || %{}, "guardrails")
+          Map.delete(workspace.custom_config || %{}, key)
         else
-          Map.put(workspace.custom_config || %{}, "guardrails", value)
+          Map.put(workspace.custom_config || %{}, key, value)
         end
 
       workspace |> Ecto.Changeset.change(custom_config: custom_config) |> Repo.update()
     end
+  end
+
+  ## Model-backed moderation (opt-in, judged by the workspace default model)
+
+  @doc "The moderation config: `%{policy: text, action: \"block\"|\"flag\"}` or nil."
+  def moderation_config(workspace_id) do
+    case Repo.get(Workspace, workspace_id) do
+      %{custom_config: %{"moderation" => %{"policy" => policy} = config}}
+      when is_binary(policy) and policy != "" ->
+        %{policy: policy, action: config["action"] || "block"}
+
+      _off ->
+        nil
+    end
+  end
+
+  @doc "Saves the moderation policy (blank disables) and action."
+  def configure_moderation(%Scope{} = scope, policy, action) when action in ["block", "flag"] do
+    case String.trim(to_string(policy)) do
+      "" -> update_key(scope, "moderation", nil)
+      policy -> update_key(scope, "moderation", %{"policy" => policy, "action" => action})
+    end
+  end
+
+  # `{:deny, reason}` when the judge refuses the text, :ok otherwise.
+  # Judge failures allow — moderation must not take the product down.
+  defp moderation_verdict(workspace_id, text) do
+    case moderation_config(workspace_id) do
+      nil ->
+        :ok
+
+      %{policy: policy} ->
+        judge =
+          Application.get_env(:flux, :moderation_judge) ||
+            (&default_moderation_judge/2)
+
+        case judge.(workspace_id, moderation_prompt(policy, text)) do
+          "DENY" <> rest -> {:deny, String.trim(String.trim_leading(rest, ":"))}
+          _allow_or_error -> :ok
+        end
+    end
+  end
+
+  defp default_moderation_judge(workspace_id, prompt) do
+    case Flux.Workflows.invoke_default_llm_for_workspace(workspace_id, [
+           %{role: :user, content: prompt}
+         ]) do
+      {:ok, content} when is_binary(content) -> String.trim(content)
+      _error_or_no_model -> "ALLOW"
+    end
+  end
+
+  defp moderation_prompt(policy, text) do
+    """
+    You are a content moderator. Policy:
+
+    #{policy}
+
+    Judge the following content against the policy. Reply with exactly
+    ALLOW, or DENY: <short reason>. Nothing else.
+
+    Content:
+    #{String.slice(text, 0, 8_000)}
+    """
   end
 
   @doc "First matching pattern in the text, or nil."
@@ -87,12 +153,27 @@ defmodule Flux.Guardrails do
   def check_input(workspace_id, text, context \\ "input") do
     case violation(workspace_id, text) do
       nil ->
-        :ok
+        check_input_moderation(workspace_id, text, context)
 
       pattern ->
         notify(workspace_id, pattern, context)
 
         case config(workspace_id) do
+          %{action: "flag"} -> check_input_moderation(workspace_id, text, context)
+          _block -> {:error, :guardrail}
+        end
+    end
+  end
+
+  defp check_input_moderation(workspace_id, text, context) do
+    case moderation_verdict(workspace_id, text) do
+      :ok ->
+        :ok
+
+      {:deny, reason} ->
+        notify(workspace_id, "moderation: #{reason}", context)
+
+        case moderation_config(workspace_id) do
           %{action: "flag"} -> :ok
           _block -> {:error, :guardrail}
         end
@@ -104,6 +185,11 @@ defmodule Flux.Guardrails do
     case violation(workspace_id, text) do
       nil -> :ok
       pattern -> notify(workspace_id, pattern, context)
+    end
+
+    case moderation_verdict(workspace_id, text) do
+      :ok -> :ok
+      {:deny, reason} -> notify(workspace_id, "moderation: #{reason}", context)
     end
   end
 
