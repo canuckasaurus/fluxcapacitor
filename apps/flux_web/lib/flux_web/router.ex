@@ -209,6 +209,7 @@ defmodule FluxWeb.Router do
     pipe_through [:browser, :require_authenticated_account]
 
     post "/workspaces/switch/:id", WorkspaceController, :switch
+    get "/palette", PaletteController, :index
     get "/fluxes-export", FluxDslController, :export_many
     get "/workspace-export", WorkspaceExportController, :export
     get "/usage-export", WorkspaceExportController, :usage

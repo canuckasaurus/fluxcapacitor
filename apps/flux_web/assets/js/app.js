@@ -32,6 +32,141 @@ const liveSocket = new LiveSocket("/live", Socket, {
   hooks: {...colocatedHooks},
 })
 
+// ── Themed confirm ─────────────────────────────────────────────────────
+// Replaces the native window.confirm for every [data-confirm] click with
+// a DaisyUI <dialog>. Capture phase runs before phoenix_html's and
+// LiveView's own handlers; on OK the attribute is lifted for one
+// synchronous re-click so neither library re-confirms. (Native confirm
+// also freezes browser automation — see the batch-11 QA notes.)
+function themedConfirm(message) {
+  return new Promise(resolve => {
+    const dialog = document.createElement("dialog")
+    dialog.className = "modal"
+    dialog.innerHTML = `
+      <div class="modal-box max-w-sm">
+        <h3 class="font-semibold text-base mb-2">Are you sure?</h3>
+        <p class="text-sm opacity-80 whitespace-pre-wrap" data-confirm-message></p>
+        <div class="modal-action">
+          <button type="button" class="btn btn-sm" data-cancel>Cancel</button>
+          <button type="button" class="btn btn-sm btn-error" data-ok>Confirm</button>
+        </div>
+      </div>`
+    dialog.querySelector("[data-confirm-message]").textContent = message
+    document.body.appendChild(dialog)
+    const done = ok => { dialog.close(); dialog.remove(); resolve(ok) }
+    dialog.querySelector("[data-ok]").addEventListener("click", () => done(true))
+    dialog.querySelector("[data-cancel]").addEventListener("click", () => done(false))
+    dialog.addEventListener("cancel", e => { e.preventDefault(); done(false) })
+    dialog.addEventListener("click", e => { if (e.target === dialog) done(false) })
+    dialog.showModal()
+    dialog.querySelector("[data-ok]").focus()
+  })
+}
+
+window.addEventListener("click", e => {
+  const el = e.target.closest && e.target.closest("[data-confirm]")
+  if (!el) return
+  e.preventDefault()
+  e.stopImmediatePropagation()
+  const message = el.getAttribute("data-confirm")
+  themedConfirm(message).then(ok => {
+    if (!ok) return
+    el.removeAttribute("data-confirm")
+    el.click()
+    el.setAttribute("data-confirm", message)
+  })
+}, true)
+
+// ── Command palette (Ctrl/Cmd+K) ───────────────────────────────────────
+// Fetches /console/palette once per open and filters client-side.
+// Pure JS + one JSON endpoint, so every console page gets it for free.
+const paletteKindBadge = {
+  page: "→", flux: "⚡", app: "💬", dataset: "📚", labeling: "🏷", template: "📄"
+}
+
+function openPalette() {
+  if (document.getElementById("command-palette")) return
+
+  const dialog = document.createElement("dialog")
+  dialog.id = "command-palette"
+  dialog.className = "modal items-start pt-24"
+  dialog.innerHTML = `
+    <div class="modal-box max-w-lg p-0">
+      <input type="text" placeholder="Jump to a page, flux, app, dataset…"
+        class="input input-bordered w-full rounded-b-none focus:outline-none"
+        aria-label="Command palette search" />
+      <ul class="menu w-full max-h-80 overflow-y-auto flex-nowrap p-1"></ul>
+    </div>`
+  document.body.appendChild(dialog)
+
+  const input = dialog.querySelector("input")
+  const list = dialog.querySelector("ul")
+  let entries = []
+  let matches = []
+  let selected = 0
+
+  const close = () => { dialog.close(); dialog.remove() }
+
+  const go = entry => { if (entry) { close(); window.location.href = entry.url } }
+
+  const renderList = () => {
+    const query = input.value.trim().toLowerCase()
+    matches = entries
+      .filter(e => e.label.toLowerCase().includes(query))
+      .sort((a, b) => {
+        const aStarts = a.label.toLowerCase().startsWith(query) ? 0 : 1
+        const bStarts = b.label.toLowerCase().startsWith(query) ? 0 : 1
+        return aStarts - bStarts || a.label.localeCompare(b.label)
+      })
+      .slice(0, 12)
+    selected = Math.min(selected, Math.max(matches.length - 1, 0))
+    list.innerHTML = ""
+    matches.forEach((entry, i) => {
+      const li = document.createElement("li")
+      const a = document.createElement("a")
+      a.className = i === selected ? "active" : ""
+      a.innerHTML = `<span class="w-5 text-center">${paletteKindBadge[entry.kind] || "•"}</span>`
+      a.appendChild(document.createTextNode(entry.label))
+      const kind = document.createElement("span")
+      kind.className = "ml-auto badge badge-ghost badge-xs"
+      kind.textContent = entry.kind
+      a.appendChild(kind)
+      a.addEventListener("mousedown", e => { e.preventDefault(); go(entry) })
+      li.appendChild(a)
+      list.appendChild(li)
+    })
+    if (matches.length === 0) {
+      list.innerHTML = `<li class="p-3 text-sm opacity-60">Nothing matches.</li>`
+    }
+  }
+
+  input.addEventListener("input", () => { selected = 0; renderList() })
+  input.addEventListener("keydown", e => {
+    if (e.key === "ArrowDown") { e.preventDefault(); selected = Math.min(selected + 1, matches.length - 1); renderList() }
+    else if (e.key === "ArrowUp") { e.preventDefault(); selected = Math.max(selected - 1, 0); renderList() }
+    else if (e.key === "Enter") { e.preventDefault(); go(matches[selected]) }
+  })
+  dialog.addEventListener("cancel", e => { e.preventDefault(); close() })
+  dialog.addEventListener("click", e => { if (e.target === dialog) close() })
+
+  dialog.showModal()
+  input.focus()
+
+  // No accept header: the :browser pipeline only negotiates html, and
+  // the controller answers JSON regardless.
+  fetch("/console/palette")
+    .then(resp => resp.json())
+    .then(data => { entries = data.entries || []; renderList() })
+    .catch(() => { list.innerHTML = `<li class="p-3 text-sm opacity-60">Could not load.</li>` })
+}
+
+window.addEventListener("keydown", e => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+    e.preventDefault()
+    openPalette()
+  }
+})
+
 // Show progress bar on live navigation and form submits
 topbar.config({barColors: {0: "#29d"}, shadowColor: "rgba(0, 0, 0, .3)"})
 window.addEventListener("phx:page-loading-start", _info => topbar.show(300))
