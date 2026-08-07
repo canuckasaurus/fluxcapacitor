@@ -122,7 +122,25 @@ function openPalette() {
 
   const close = () => { dialog.close(); dialog.remove() }
 
-  const go = entry => { if (entry) { close(); window.location.href = entry.url } }
+  const go = entry => {
+    if (!entry) return
+    close()
+    if (entry.kind === "workspace") {
+      // Workspace switching is a POST — build a CSRF'd form on the fly.
+      const form = document.createElement("form")
+      form.method = "POST"
+      form.action = entry.url
+      const token = document.createElement("input")
+      token.type = "hidden"
+      token.name = "_csrf_token"
+      token.value = document.querySelector("meta[name='csrf-token']").getAttribute("content")
+      form.appendChild(token)
+      document.body.appendChild(form)
+      form.submit()
+    } else {
+      window.location.href = entry.url
+    }
+  }
 
   const renderList = () => {
     const query = input.value.trim().toLowerCase()

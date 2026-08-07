@@ -48,6 +48,13 @@ defmodule FluxWeb.SiteLive.AppSite do
          )
          |> assign(
            page_title: app.name,
+           # Shared links unfurl with the app's identity, not the platform's.
+           page_meta: %{
+             title: app.site_theme["title"] || app.name,
+             description: app.description || "Chat with #{app.name}",
+             image: app.site_theme["logo_url"],
+             favicon: app.site_theme["logo_url"]
+           },
            app: app,
            visitor_ip: FluxWeb.SiteRateLimit.visitor_ip(socket),
            site_scope: scope,

@@ -627,3 +627,58 @@ operations, observability, plugins, enterprise), and the README picked
 up uploads/follow-ups/copy, comparison, crawl, align, curl, and the
 token/cost panels. Note for the ledger's conscience: API token hygiene
 has now been passed over eight times.
+
+38. ~~Batch 14, the twenty-item mega-batch (#155, 2026-08-07)~~ DONE:
+**API token hygiene, at last** (expires_at on api_tokens — NULL is a
+first-class perpetual choice, per the user; create forms offer
+never/30/90/365 days on both app keys and flux keys; tables show
+expiry + last-used badges; expired tokens answer 401 token_expired on
+/v1 while perpetual ones outlive time itself); **node replay**
+(Workflows.replay_run: a finished run re-executes from any node in a
+NEW run — recorded outputs seed the pool for everything outside the
+target's descendant set, the engine's rerun-resume path does the rest;
+per-node replay buttons in the runs drill-in; chatflow sys context is
+honestly not reconstructed); **batch retry** (retry_failed_rows maps
+failed runs back to their rows by order and starts a "(retry)" batch
+against the same target); **remembered URL sources** (dataset_url_sources
+table + "re-fetch nightly" checkbox — the 03:00 UTC tick re-fetches
+each source through a synthetic editor scope, and URL ingestion now
+replaces same-named documents instead of duplicating); **published-site
+meta** (root layout renders page_meta description/OG/favicon; app
+sites fill it from theme + description so shared links unfurl);
+**palette verbs** (workspace-switch entries POST through a CSRF'd
+form the palette JS builds); **flux health badges** (7-day
+runs/success/tokens per flux via one grouped query, warning-tinted
+when anything failed); **German** (full de catalog hand-translated,
+picked up automatically by Gettext.known_locales — and de-DE promptly
+broke the locale fallback test exactly like es did in batch 3;
+pt-BR is the new "unknown"); **PDF/Office uploads** (knowledge accepts
+pdf/docx/doc/xlsx/pptx; Flux.Documents.extract_binary reuses the
+native-or-Tika pipeline; per-file failures flash instead of aborting);
+**prompt library** (prompt_snippets table, Flux.Prompts upsert-by-name,
+a Tools-page card, and an insert picker on the LLM panel that copies
+the snippet into the system prompt at insert time — no dangling
+references); **per-node output caching** (nodes opting in via
+cache_minutes memoize outputs+branch through a new host node_cache
+capability riding the LLMCache ETS, keyed on config + pool minus sys —
+conservative by design; cache input on the http_request panel;
+node_cache_hit event emitted); **canvas presence** (Phoenix.Presence
+child; the editor tracks per-canvas and renders avatar chips when 2+
+people share a graph); **provider health** (ETS call/error counters
+recorded at both LLM invoke sites, per-provider table with error rate
+on the admin panel — in-memory since boot, honestly labeled);
+**runs JSONL export** (runs-export streams 500 runs with full
+per-node traces); **dashboard activity feed** (Audit.list distilled to
+a card) and **live cards** (30s interval refresh while open);
+**conversation search** (titles OR message bodies via ILIKE subquery,
+debounced box beside the switcher). Two items turned out to already
+exist and were verified, not rebuilt: **OpenAPI tool import** IS
+Flux.Tools (spec to operations with encrypted auth, since the tools
+epic) and the **segment browser** (list/edit/re-embed/enable-disable
+with retrieval honoring the flag) shipped with the knowledge epic.
+QA round 2 ran DOM-behavioral against the dev server (window still
+0x0): activity feed, prompt library, compare + JSONL, flux health
+badges, and conversation search all verified in rendered HTML; the
+admin health card hides behind FLUX_ADMIN_EMAILS as designed. The
+demo now enables follow-ups on Support Echo and seeds a bttf-tone
+snippet. 720 tests.

@@ -61,7 +61,18 @@ defmodule FluxWeb.PaletteController do
         %{label: template.name, kind: "template", url: "/console/templates"}
       end
 
-    pages ++ fluxes ++ apps ++ datasets ++ projects ++ templates
+    # Other workspaces switch via POST (the palette JS builds the form).
+    workspaces =
+      for {workspace, _membership} <- Flux.Accounts.list_workspaces(scope.account),
+          workspace.id != scope.workspace.id do
+        %{
+          label: "Switch to #{workspace.name}",
+          kind: "workspace",
+          url: "/console/workspaces/switch/#{workspace.id}"
+        }
+      end
+
+    pages ++ workspaces ++ fluxes ++ apps ++ datasets ++ projects ++ templates
   end
 
   defp rag, do: Application.get_env(:flux, :rag_module, Flux.RAG)

@@ -114,6 +114,14 @@ defmodule Flux.Demo do
 
     {:ok, _template} = Flux.Workflows.save_as_template(scope, triage)
 
+    # A reusable snippet in the prompt library for the editor's picker.
+    {:ok, _snippet} =
+      Flux.Prompts.upsert(
+        scope,
+        "bttf-tone",
+        "Answer with 1985 optimism. Never mention roads — where we're going, we don't need them."
+      )
+
     # A model artifact under a registry name, resolvable as registry:ticket-intent.
     {:ok, stored} =
       Flux.Workflows.store_workspace_file(
@@ -401,7 +409,8 @@ defmodule Flux.Demo do
         "model" => "echo-1",
         "system_prompt" => "You are a friendly demo assistant.",
         "opening_statement" => "Hi! I'm the demo assistant — ask me anything.",
-        "suggested_questions" => ["What can you do?", "How do refunds work?"]
+        "suggested_questions" => ["What can you do?", "How do refunds work?"],
+        "suggest_followups" => true
       })
 
     {:ok, support} = Flux.Chat.enable_site(scope, support)

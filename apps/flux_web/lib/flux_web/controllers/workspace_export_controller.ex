@@ -4,6 +4,37 @@ defmodule FluxWeb.WorkspaceExportController do
 
   plug FluxWeb.Plugs.RequirePermission, :app_import_export_dsl
 
+  @doc "Full JSONL of recent runs — inputs, outputs, per-node traces."
+  def runs(conn, _params) do
+    scope = conn.assigns.current_scope
+
+    jsonl =
+      scope
+      |> Flux.Workflows.list_workspace_runs(%{}, 500)
+      |> Enum.map_join("\n", fn %{run: run, workflow_name: workflow_name} ->
+        Jason.encode!(%{
+          id: run.id,
+          workflow: workflow_name,
+          workflow_id: run.workflow_id,
+          status: run.status,
+          source: run.source,
+          version: run.version,
+          inserted_at: run.inserted_at,
+          elapsed_ms: run.elapsed_ms,
+          inputs: run.inputs,
+          outputs: run.outputs,
+          error: run.error,
+          usage: run.usage,
+          node_executions: run.node_executions
+        })
+      end)
+
+    send_download(conn, {:binary, jsonl},
+      filename: "runs.jsonl",
+      content_type: "application/x-ndjson"
+    )
+  end
+
   def usage(conn, _params) do
     send_download(
       conn,

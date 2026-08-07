@@ -93,6 +93,25 @@ defmodule FluxWeb.ConsoleLive.Runs do
     {:noreply, assign(socket, compare_ids: [])}
   end
 
+  def handle_event("replay", %{"run-id" => run_id, "node-id" => node_id}, socket) do
+    case Workflows.replay_run(socket.assigns.current_scope, run_id, node_id) do
+      {:ok, _run} ->
+        {:noreply,
+         socket
+         |> put_flash(
+           :info,
+           "Replaying from that node — upstream outputs are reused, not re-paid."
+         )
+         |> load_runs()}
+
+      {:error, :not_finished} ->
+        {:noreply, put_flash(socket, :error, "Only finished runs can be replayed.")}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Could not replay from that node.")}
+    end
+  end
+
   def handle_event("rerun", %{"id" => id}, socket) do
     scope = socket.assigns.current_scope
 
@@ -262,7 +281,14 @@ defmodule FluxWeb.ConsoleLive.Runs do
             />
           </form>
 
-          <span class="text-xs opacity-60 ml-auto" id="runs-totals">
+          <a
+            href={~p"/console/runs-export"}
+            class="btn btn-ghost btn-xs ml-auto"
+            title="Download recent runs with per-node traces as JSONL"
+          >
+            <.icon name="hero-arrow-down-tray" class="size-3" /> JSONL
+          </a>
+          <span class="text-xs opacity-60" id="runs-totals">
             {length(@rows)} runs · {@totals.tokens} tokens
             <span :if={@totals.cost > 0}>
               · ~${:erlang.float_to_binary(@totals.cost, decimals: 4)} est.
@@ -454,6 +480,8 @@ defmodule FluxWeb.ConsoleLive.Runs do
                           <th class="w-48">Timeline</th>
 
                           <th>Outputs</th>
+
+                          <th></th>
                         </tr>
                       </thead>
 
@@ -494,6 +522,20 @@ defmodule FluxWeb.ConsoleLive.Runs do
 
                           <td class="font-mono break-all max-w-md">
                             {summarize(node_execution["outputs"] || %{})}
+                          </td>
+
+                          <td>
+                            <button
+                              :if={run.status in [:succeeded, :failed]}
+                              class="btn btn-ghost btn-xs"
+                              phx-click="replay"
+                              phx-value-run-id={run.id}
+                              phx-value-node-id={node_execution["node_id"]}
+                              title="Replay from this node — upstream outputs are reused"
+                              aria-label="Replay from this node"
+                            >
+                              <.icon name="hero-play" class="size-3" />
+                            </button>
                           </td>
                         </tr>
                       </tbody>

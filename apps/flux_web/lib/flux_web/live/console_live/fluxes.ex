@@ -30,6 +30,7 @@ defmodule FluxWeb.ConsoleLive.Fluxes do
     assign(socket,
       workflows: Workflows.list_workflows(scope),
       versions: Workflows.latest_versions(scope),
+      health: Workflows.flux_health(scope),
       trashed: Workflows.list_trashed_workflows(scope),
       workspace_templates: Workflows.list_workspace_templates(scope)
     )
@@ -479,6 +480,17 @@ defmodule FluxWeb.ConsoleLive.Fluxes do
             <span :if={is_nil(@versions[workflow.id])} class="badge badge-ghost badge-sm ml-1">
               draft
             </span>
+            <%= if health = @health[workflow.id] do %>
+              <span
+                class={[
+                  "badge badge-sm ml-1",
+                  (health.succeeded < health.runs && "badge-warning") || "badge-ghost"
+                ]}
+                title="Runs over the last 7 days"
+              >
+                {health.succeeded}/{health.runs} ok · {health.tokens} tok (7d)
+              </span>
+            <% end %>
           </p>
           <p :if={workflow.description} class="text-sm opacity-70">{workflow.description}</p>
           <div class="flex gap-2">

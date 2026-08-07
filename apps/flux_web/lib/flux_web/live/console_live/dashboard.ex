@@ -2,15 +2,28 @@ defmodule FluxWeb.ConsoleLive.Dashboard do
   @moduledoc false
   use FluxWeb, :live_view
 
+  @refresh_ms 30_000
+
   @impl true
   def mount(_params, _session, socket) do
-    {:ok,
-     assign(socket,
-       page_title: "Dashboard",
-       usage: Flux.Usage.workspace_summary(socket.assigns.current_scope),
-       quality: Flux.Usage.quality_summary(socket.assigns.current_scope),
-       onboarding: Flux.Usage.onboarding(socket.assigns.current_scope)
-     )}
+    # Live-ish dashboard: refresh the cards every 30s while open.
+    if connected?(socket), do: :timer.send_interval(@refresh_ms, :refresh)
+
+    {:ok, refresh(assign(socket, page_title: "Dashboard"))}
+  end
+
+  @impl true
+  def handle_info(:refresh, socket), do: {:noreply, refresh(socket)}
+
+  defp refresh(socket) do
+    scope = socket.assigns.current_scope
+
+    assign(socket,
+      usage: Flux.Usage.workspace_summary(scope),
+      quality: Flux.Usage.quality_summary(scope),
+      onboarding: Flux.Usage.onboarding(scope),
+      activity: Flux.Audit.list(scope, 8)
+    )
   end
 
   defp onboarding_step(:provider), do: {"Connect a model provider", ~p"/console/plugins"}
@@ -226,6 +239,24 @@ defmodule FluxWeb.ConsoleLive.Dashboard do
         <p :if={@quality.recent_evals == []} class="text-sm opacity-60">
           {gettext("No evals yet — score a flux from its Evals page and results land here.")}
         </p>
+      </div>
+
+      <div :if={@activity != []} class="card border border-base-200 p-6 space-y-2" id="activity-feed">
+        <h2 class="font-semibold">{gettext("Recent activity")}</h2>
+        <ul class="space-y-1">
+          <li :for={entry <- @activity} class="text-sm flex items-baseline gap-2">
+            <span class="opacity-50 text-xs whitespace-nowrap">
+              {Calendar.strftime(entry.inserted_at, "%b %d %H:%M")}
+            </span>
+            <span class="badge badge-ghost badge-xs">{entry.action}</span>
+            <span class="opacity-70 truncate">
+              {(entry.actor && entry.actor.email) || "system"}
+            </span>
+          </li>
+        </ul>
+        <.link navigate={~p"/console/audit"} class="link link-hover text-xs opacity-60">
+          {gettext("Full audit log")} →
+        </.link>
       </div>
 
       <div class="grid gap-4 sm:grid-cols-2">

@@ -87,6 +87,25 @@ defmodule FluxWeb.ConsoleLive.FluxBatches do
     end
   end
 
+  def handle_event("retry_failed", %{"batch-id" => batch_id}, socket) do
+    case Workflows.retry_failed_rows(socket.assigns.current_scope, batch_id) do
+      {:ok, _batch} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Retrying the failed rows as a new batch.")
+         |> assign(
+           batches:
+             Workflows.list_batches(socket.assigns.current_scope, socket.assigns.workflow.id)
+         )}
+
+      {:error, :nothing_failed} ->
+        {:noreply, put_flash(socket, :error, "No failed rows to retry.")}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Could not retry that batch.")}
+    end
+  end
+
   def handle_event("schedule_batch", %{"batch-id" => batch_id, "cron" => cron}, socket) do
     scope = socket.assigns.current_scope
 
@@ -271,6 +290,15 @@ defmodule FluxWeb.ConsoleLive.FluxBatches do
                 >
                   Results CSV
                 </a>
+                <button
+                  :if={batch.status == :completed and batch.failed > 0}
+                  class="btn btn-ghost btn-xs"
+                  phx-click="retry_failed"
+                  phx-value-batch-id={batch.id}
+                  title="Start a new batch over only this batch's failed rows"
+                >
+                  Retry failed
+                </button>
                 <button
                   :if={batch.status == :completed and @selected_labeling_project}
                   class="btn btn-ghost btn-xs"

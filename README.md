@@ -58,10 +58,18 @@ orchestrator, no queue infrastructure beyond Postgres.
   triggers) to a second published version with per-arm run stats. Run
   drill-ins render a **timeline waterfall** per node with **per-node
   token attribution**, any **two runs compare side by side** (status,
-  I/O, per-node timings and tokens aligned by node), runs are
-  **text-searchable** by content, webhooks keep a **delivery log** with
-  manual retry, and `FLUX_ADMIN_EMAILS` unlocks an **instance admin
-  panel** for self-host operators. Run counts, durations, **tokens, and
+  I/O, per-node timings and tokens aligned by node), any node can
+  **replay a finished run from that point** — upstream outputs are
+  reused, not re-paid — batches **retry only their failed rows**, runs
+  are **text-searchable** by content and **export as JSONL** with full
+  per-node traces, deterministic nodes opt into **output caching**
+  (`cache_minutes` skips identical calls), webhooks keep a **delivery
+  log** with manual retry, and `FLUX_ADMIN_EMAILS` unlocks an
+  **instance admin panel** with a **per-provider health table** (calls,
+  errors, error rate since boot). The Fluxes index shows **7-day health
+  badges** per flux, the dashboard carries a live-refreshing **activity
+  feed**, and the canvas shows **who else is editing** via presence
+  avatars. Run counts, durations, **tokens, and
   estimated cost** all export as Prometheus metrics onto the provisioned
   Grafana dashboard.
   **Guardrails** (regex deny patterns) block or flag inputs and flag
@@ -112,9 +120,14 @@ orchestrator, no queue infrastructure beyond Postgres.
   **copy button** on every reply, opt-in **follow-up question chips**
   after each answer, and **image uploads** straight from the chat box
   for vision models. The console chat **resumes your latest
-  conversation**, switches between recent ones, and **renames or
-  deletes** them from the switcher, same as public sites do for
-  visitors. A **concurrent-run cap** protects
+  conversation**, switches between recent ones, **searches across
+  threads** (titles and message bodies), and **renames or deletes**
+  them from the switcher, same as public sites do for visitors.
+  Published sites carry **OpenGraph/meta tags and a favicon** from the
+  app's theme, so shared links unfurl with the app's identity. API
+  tokens are **perpetual or expiring by choice** (30/90/365 days),
+  show **expiry and last-used**, revoke in one click, and expired ones
+  answer `401 token_expired`. A **concurrent-run cap** protects
   provider limits, and notification kinds **route to chosen webhook
   endpoints** (`notification.*` events). A dashboard **getting-started
   checklist** walks new workspaces through provider → flux → publish →
@@ -127,8 +140,10 @@ orchestrator, no queue infrastructure beyond Postgres.
 - **Knowledge (RAG)** — datasets → documents → embedded segments, hybrid
   retrieval (vector cosine + Postgres full-text + **entity mentions**, merged
   by reciprocal rank fusion), optional reranking, URL ingestion (with a
-  **depth-1 crawl** of same-site links to pull a docs site in one
-  action), datasource auto-sync, multi-dataset queries, per-dataset retrieval settings
+  **depth-1 crawl** of same-site links, and **remembered sources
+  re-fetched nightly**, replacing their documents in place), **PDF and
+  Office uploads** extracted through Tika right in the console,
+  datasource auto-sync, multi-dataset queries, per-dataset retrieval settings
   (including **markdown-aware chunking**, model-backed **query
   expansion**, and **document tags** the knowledge node filters by), and
   citations that flow onto chat answers. Similarity ranks in-BEAM by default, in SQL with the
@@ -314,7 +329,7 @@ scratch drive, and a labeling project wired to the Model trainer flux
 ## Testing
 
 ```bash
-mix test                             # full umbrella suite (~700 tests), hermetic
+mix test                             # full umbrella suite (~720 tests), hermetic
 ```
 
 The suite runs with no network: providers stub through `Req.Test` or the

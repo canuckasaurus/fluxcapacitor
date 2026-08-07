@@ -1,0 +1,267 @@
+## "msgid"s in this file come from POT (.pot) files.
+###
+### Do not add, change, or remove "msgid"s manually here as
+### they're tied to the ones in the corresponding POT file
+### (with the same domain).
+###
+### Use "mix gettext.extract --merge" or "mix gettext.merge"
+### to merge POT files into PO files.
+msgid ""
+msgstr ""
+"Language: de\n"
+"Plural-Forms: nplurals=2; plural=(n!=1);\n"
+
+msgid "Actions"
+msgstr "Aktionen"
+
+msgid "An email was sent to %{email}, please access it to confirm your account."
+msgstr "Eine E-Mail wurde an %{email} gesendet — bitte öffnen Sie sie, um Ihr Konto zu bestätigen."
+
+msgid "Attempting to reconnect"
+msgstr "Verbindung wird wiederhergestellt"
+
+msgid "Console"
+msgstr "Konsole"
+
+msgid "Continue with %{provider}"
+msgstr "Weiter mit %{provider}"
+
+msgid "Create an account"
+msgstr "Konto erstellen"
+
+msgid "Create your account — already registered?"
+msgstr "Erstellen Sie Ihr Konto — bereits registriert?"
+
+msgid "Creating account..."
+msgstr "Konto wird erstellt..."
+
+msgid "Docs"
+msgstr "Doku"
+
+msgid "Email"
+msgstr "E-Mail"
+
+msgid "If your email is in our system, you will receive instructions for logging in shortly."
+msgstr "Wenn Ihre E-Mail-Adresse in unserem System hinterlegt ist, erhalten Sie in Kürze Anweisungen zur Anmeldung."
+
+msgid "Log in"
+msgstr "Anmelden"
+
+msgid "Log in and stay logged in"
+msgstr "Anmelden und angemeldet bleiben"
+
+msgid "Log in only this time"
+msgstr "Nur dieses Mal anmelden"
+
+msgid "Log in to your workspace — or"
+msgstr "Melden Sie sich in Ihrem Arbeitsbereich an — oder"
+
+msgid "Log in with email"
+msgstr "Mit E-Mail anmelden"
+
+msgid "Password"
+msgstr "Passwort"
+
+msgid "Reauthenticate to perform sensitive account actions."
+msgstr "Melden Sie sich erneut an, um sensible Kontoaktionen durchzuführen."
+
+msgid "Something went wrong!"
+msgstr "Etwas ist schiefgelaufen!"
+
+msgid "We can't find the internet"
+msgstr "Das Internet ist nicht erreichbar"
+
+msgid "We'll email you a magic link — no password needed to start."
+msgstr "Wir senden Ihnen einen Magic-Link per E-Mail — kein Passwort nötig."
+
+msgid "close"
+msgstr "schließen"
+
+msgid "create an account"
+msgstr "Konto erstellen"
+
+msgid "or use a password"
+msgstr "oder ein Passwort verwenden"
+
+msgid "Add knowledge"
+msgstr "Wissen hinzufügen"
+
+msgid "App"
+msgstr "App"
+
+msgid "Apps"
+msgstr "Apps"
+
+msgid "Audit log"
+msgstr "Audit-Protokoll"
+
+msgid "Build"
+msgstr "Bauen"
+
+msgid "Create a Flux"
+msgstr "Flux erstellen"
+
+msgid "Daily"
+msgstr "Täglich"
+
+msgid "Day"
+msgstr "Tag"
+
+msgid "Doc templates"
+msgstr "Dokumentvorlagen"
+
+msgid "Flux Creator"
+msgstr "Flux-Creator"
+
+msgid "Ground"
+msgstr "Grundlagen"
+
+msgid "Interviews"
+msgstr "Interviews"
+
+msgid "Invite your team"
+msgstr "Team einladen"
+
+msgid "Knowledge"
+msgstr "Wissen"
+
+msgid "Labeling"
+msgstr "Labeling"
+
+msgid "Members"
+msgstr "Mitglieder"
+
+msgid "Nothing to report yet — usage appears here once apps and fluxes run."
+msgstr "Noch nichts zu berichten — die Nutzung erscheint hier, sobald Apps und Fluxes laufen."
+
+msgid "Operate"
+msgstr "Betreiben"
+
+msgid "Plugins"
+msgstr "Plugins"
+
+msgid "Replies"
+msgstr "Antworten"
+
+msgid "Run tokens"
+msgstr "Ausführungs-Tokens"
+
+msgid "Runs"
+msgstr "Ausführungen"
+
+msgid "Set up plugins"
+msgstr "Plugins einrichten"
+
+msgid "Settings"
+msgstr "Einstellungen"
+
+msgid "Tokens"
+msgstr "Tokens"
+
+msgid "Tokens in"
+msgstr "Tokens ein"
+
+msgid "Tokens out"
+msgstr "Tokens aus"
+
+msgid "Tools"
+msgstr "Werkzeuge"
+
+msgid "Top apps by tokens"
+msgstr "Top-Apps nach Tokens"
+
+msgid "Uploads"
+msgstr "Uploads"
+
+msgid "Usage (last %{days} days)"
+msgstr "Nutzung (letzte %{days} Tage)"
+
+msgid "Welcome to"
+msgstr "Willkommen bei"
+
+msgid "You're signed in as"
+msgstr "Sie sind angemeldet als"
+
+msgid "Chat applications backed by your configured models."
+msgstr "Chat-Anwendungen auf Basis Ihrer konfigurierten Modelle."
+
+msgid "Design, debug, and publish AI workflows."
+msgstr "KI-Workflows entwerfen, debuggen und veröffentlichen."
+
+msgid "Document collections your fluxes can retrieve from."
+msgstr "Dokumentsammlungen, aus denen Ihre Fluxes abrufen können."
+
+msgid "Documentation"
+msgstr "Dokumentation"
+
+msgid "Fluxes"
+msgstr "Fluxes"
+
+msgid "New dataset"
+msgstr "Neuer Datensatz"
+
+msgid "The guides, right here in the console."
+msgstr "Die Anleitungen, direkt in der Konsole."
+
+msgid "Workspace settings"
+msgstr "Arbeitsbereich-Einstellungen"
+
+msgid "Batch runs"
+msgstr "Batch-Ausführungen"
+
+msgid "Eval set"
+msgstr "Evaluationsset"
+
+msgid "Evaluations"
+msgstr "Evaluationen"
+
+msgid "Everything the workspace has stored — run outputs, artifacts, uploads."
+msgstr "Alles, was der Arbeitsbereich gespeichert hat — Ausgaben, Artefakte, Uploads."
+
+msgid "Files"
+msgstr "Dateien"
+
+msgid "No evals yet — score a flux from its Evals page and results land here."
+msgstr "Noch keine Evaluationen — bewerten Sie einen Flux über seine Evaluationsseite, und die Ergebnisse erscheinen hier."
+
+msgid "Pass / fail"
+msgstr "Bestanden / fehlgeschlagen"
+
+msgid "Quality"
+msgstr "Qualität"
+
+msgid "Score"
+msgstr "Punktzahl"
+
+msgid "Target"
+msgstr "Ziel"
+
+msgid "agreement"
+msgstr "Übereinstimmung"
+
+msgid "gates"
+msgstr "Gates"
+
+msgid "scheduled"
+msgstr "geplant"
+
+msgid "to label"
+msgstr "zu labeln"
+
+msgid "Failures, regressions, and completions across the workspace."
+msgstr "Fehlschläge, Regressionen und Abschlüsse im gesamten Arbeitsbereich."
+
+msgid "Getting started"
+msgstr "Erste Schritte"
+
+msgid "Getting started progress"
+msgstr "Fortschritt der ersten Schritte"
+
+msgid "Notifications"
+msgstr "Benachrichtigungen"
+
+msgid "Recent activity"
+msgstr "Letzte Aktivität"
+
+msgid "Full audit log"
+msgstr "Vollständiges Audit-Protokoll"
