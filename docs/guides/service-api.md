@@ -2,7 +2,9 @@
 
 Bearer-token HTTP API, wire-compatible with the upstream reference so
 existing client SDKs work. The machine-readable contract is served at
-`GET /v1/spec` (OpenAPI, strict schemas) and enforced by contract tests.
+`GET /v1/spec` (OpenAPI, strict schemas) and enforced by contract tests;
+a browsable **API reference** generated from that same spec lives in
+the console at `/console/docs/api-reference`.
 
 **Tokens** are minted in the console: `app-…` on an app's page, `flux-…`
 in the flux editor's API modal. The token names the app/flux — no other

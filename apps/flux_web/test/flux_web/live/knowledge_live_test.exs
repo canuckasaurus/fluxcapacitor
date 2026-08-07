@@ -14,6 +14,12 @@ defmodule FluxWeb.KnowledgeLiveTest do
     %{conn: log_in_account(conn, account), scope: scope}
   end
 
+  test "an empty workspace gets the themed empty state", %{conn: conn} do
+    {:ok, _lv, html} = live(conn, ~p"/console/knowledge")
+    assert html =~ "No knowledge yet"
+    assert html =~ "outatime-plate"
+  end
+
   test "create dataset, paste a document, index, and hit-test", %{conn: conn, scope: scope} do
     {:ok, lv, _html} = live(conn, ~p"/console/knowledge")
 

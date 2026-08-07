@@ -30,6 +30,32 @@ defmodule FluxWeb.DocsLiveTest do
     assert html =~ "mix flux.demo"
   end
 
+  test "the API reference renders from the live OpenAPI spec", %{conn: conn} do
+    {:ok, _lv, html} = live(conn, ~p"/console/docs/api-reference")
+
+    # Endpoints table from the spec paths.
+    assert html =~ "Service API reference"
+    assert html =~ "/v1/chat-messages"
+    assert html =~ "/v1/workflows/run"
+    assert html =~ "Send a chat message"
+
+    # Schemas section with anchors and field tables.
+    assert html =~ ~s(id="schema-ChatMessage")
+    assert html =~ ~s(id="schema-Error")
+    assert html =~ "conversation_id"
+    assert html =~ "required"
+  end
+
+  test "the palette endpoint lists pages and workspace entities", %{conn: conn} do
+    conn = get(conn, ~p"/console/palette")
+    %{"entries" => entries} = json_response(conn, 200)
+
+    labels = Enum.map(entries, & &1["label"])
+    assert "Dashboard" in labels
+    assert "Runs" in labels
+    assert Enum.all?(entries, &(is_binary(&1["url"]) and is_binary(&1["kind"])))
+  end
+
   test "guide images rewrite to console paths and the assets exist", %{conn: conn} do
     {:ok, _lv, html} = live(conn, ~p"/console/docs/getting-started")
 
