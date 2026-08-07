@@ -341,7 +341,14 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
         # the other office formats through Tika when configured.
         case Flux.Documents.extract_binary(entry.client_name, entry.client_type, binary) do
           {:ok, content} when content != "" ->
-            {:ok, RAG.add_document(scope, dataset, %{name: entry.client_name, content: content})}
+            # Same-named uploads replace the previous version in place.
+            {:ok,
+             RAG.add_document(
+               scope,
+               dataset,
+               %{name: entry.client_name, content: content},
+               replace: true
+             )}
 
           {:ok, _empty} ->
             {:ok, {:error, "#{entry.client_name}: no readable text"}}

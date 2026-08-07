@@ -139,10 +139,22 @@ defmodule Flux.RAG do
   Adds a text document and enqueues indexing (extract for files happens
   before this via `Flux.Documents`). Returns the pending document.
   """
-  def add_document(%Scope{} = scope, %Dataset{} = dataset, %{name: name, content: content})
+  def add_document(scope, dataset, attrs, opts \\ [])
+
+  def add_document(%Scope{} = scope, %Dataset{} = dataset, %{name: name, content: content}, opts)
       when is_binary(content) do
     with :ok <- RBAC.authorize(scope, :dataset_edit),
          true <- dataset.workspace_id == Scope.workspace_id(scope) || {:error, :not_found} do
+      # `replace: true` swaps out same-named documents instead of
+      # duplicating — re-uploading a file updates the dataset in place.
+      if Keyword.get(opts, :replace, false) do
+        Document
+        |> Repo.scoped(scope)
+        |> where([d], d.dataset_id == ^dataset.id and d.name == ^name)
+        |> Repo.all()
+        |> Enum.each(&Repo.delete/1)
+      end
+
       document =
         Repo.insert!(%Document{
           workspace_id: dataset.workspace_id,
@@ -197,15 +209,7 @@ defmodule Flux.RAG do
         name = String.trim_leading("#{uri.host}#{uri.path}", "/")
 
         # Refresh runs replace the previous fetch instead of duplicating.
-        existing =
-          Document
-          |> Repo.scoped(scope)
-          |> where([d], d.dataset_id == ^dataset.id and d.name == ^name)
-          |> Repo.all()
-
-        Enum.each(existing, &Repo.delete/1)
-
-        add_document(scope, dataset, %{name: name, content: content})
+        add_document(scope, dataset, %{name: name, content: content}, replace: true)
       else
         {:error, "the URL did not return readable text"}
       end

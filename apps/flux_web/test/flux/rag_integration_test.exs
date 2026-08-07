@@ -53,6 +53,30 @@ defmodule FluxWeb.RAGIntegrationTest do
     assert Enum.all?(segments, &is_list(&1.embedding))
   end
 
+  test "replace-mode uploads swap same-named documents instead of duplicating", %{
+    scope: scope,
+    dataset: dataset
+  } do
+    {:ok, first} =
+      RAG.add_document(scope, dataset, %{name: "policy.md", content: "old policy"}, replace: true)
+
+    Oban.drain_queue(queue: :ingest)
+
+    {:ok, second} =
+      RAG.add_document(scope, dataset, %{name: "policy.md", content: "new policy"}, replace: true)
+
+    Oban.drain_queue(queue: :ingest)
+
+    documents = RAG.list_documents(scope, dataset.id)
+    assert [%{name: "policy.md", content: "new policy"}] = documents
+    assert second.id != first.id
+
+    # Without replace, a same-named add still appends (URL sources and
+    # pasted text keep their historic behavior explicitly).
+    {:ok, _third} = RAG.add_document(scope, dataset, %{name: "policy.md", content: "third"})
+    assert length(RAG.list_documents(scope, dataset.id)) == 2
+  end
+
   test "parent-child datasets match on children but return parent sections", %{
     scope: scope,
     dataset: dataset
