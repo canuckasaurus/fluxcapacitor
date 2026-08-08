@@ -46,9 +46,9 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
      )
      |> allow_upload(:document,
        accept: ~w(.txt .md .markdown .csv .json .html .htm .pdf .docx .doc .xlsx .pptx
-            .png .jpg .jpeg .gif .webp),
+            .png .jpg .jpeg .gif .webp .mp3 .wav .webm),
        max_entries: 5,
-       max_file_size: 15_000_000
+       max_file_size: 25_000_000
      )
      |> assign(
        datasets: RAG.list_datasets(scope),
@@ -89,6 +89,21 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
         case Flux.Workflows.describe_image_for_workspace(workspace_id, binary, entry.client_type) do
           {:ok, description} -> {:ok, "[image: #{entry.client_name}]\n\n" <> description}
           {:error, _reason} -> {:error, "no vision-capable default model configured"}
+        end
+
+      type when type in ["audio/mpeg", "audio/wav", "audio/webm", "video/webm"] ->
+        case Flux.Providers.transcribe(workspace_id, binary, %{
+               filename: entry.client_name,
+               content_type: type
+             }) do
+          {:ok, %{text: text}} when text != "" ->
+            {:ok, "[audio: #{entry.client_name}]\n\n" <> text}
+
+          {:ok, _empty} ->
+            {:error, "the recording transcribed to nothing"}
+
+          {:error, _reason} ->
+            {:error, "the default provider has no transcription endpoint"}
         end
 
       _document ->
