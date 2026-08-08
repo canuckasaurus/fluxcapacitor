@@ -126,6 +126,11 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
       label: "Interview",
       icon: "hero-clipboard-document-check",
       accent: "bg-warning/10 text-warning"
+    },
+    "delay" => %{
+      label: "Delay",
+      icon: "hero-clock",
+      accent: "bg-secondary/10 text-secondary"
     }
   }
 
@@ -165,13 +170,14 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     "file_output" =>
       "Writes your content to a downloadable file — HTML, PDF, Markdown, text, CSV, or JSON.",
     "interview" =>
-      "Pauses the run and asks a stored question set as one form; answers land in the pool."
+      "Pauses the run and asks a stored question set as one form; answers land in the pool.",
+    "delay" => "Waits before continuing — fixed seconds or until a timestamp (max 300s)."
   }
 
   @addable_types ~w(llm knowledge_retrieval if_else question_classifier parameter_extractor
                     document_extractor iteration loop human_input labeling interview template
                     document file_output tool http_request code agent variable_aggregator
-                    variable_assigner list_operator answer end)
+                    variable_assigner list_operator delay answer end)
   @zoom_levels [50, 65, 80, 100, 125, 150]
   @failable_types ~w(llm tool http_request code agent question_classifier parameter_extractor
                      document_extractor iteration loop knowledge_retrieval document file_output)
@@ -256,6 +262,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
            palette_query: "",
            node_debug: nil,
            zoom: 100,
+           find_query: "",
            undo_stack: [],
            redo_stack: [],
            show_history: false,
@@ -381,6 +388,21 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
   def handle_event("marquee_select", %{"ids" => ids}, socket) when is_list(ids) do
     valid = Enum.filter(ids, &find_node(socket.assigns.graph, &1))
     {:noreply, set_selection(socket, valid)}
+  end
+
+  def handle_event("canvas_find", %{"q" => query}, socket) do
+    query = String.trim(query)
+
+    socket = assign(socket, find_query: query)
+
+    case query != "" &&
+           Enum.find(socket.assigns.graph["nodes"] || [], &find_match?(query, &1)) do
+      %{"id" => id} ->
+        {:noreply, push_event(socket, "canvas-jump", %{id: "node-#{id}"})}
+
+      _none ->
+        {:noreply, socket}
+    end
   end
 
   def handle_event("deselect", _params, socket) do
@@ -1674,6 +1696,8 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     }
   end
 
+  defp default_config("delay"), do: %{"seconds" => "5", "until" => ""}
+
   defp default_config("answer"), do: %{"answer" => ""}
   defp default_config("end"), do: %{"outputs" => [%{"key" => "result", "value" => ""}]}
 
@@ -1849,6 +1873,12 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     |> Map.put("format", Map.get(params, "format", config["format"] || "html"))
     |> Map.put("content", Map.get(params, "content", config["content"] || ""))
     |> Map.put("output_name", Map.get(params, "output_name", config["output_name"] || ""))
+  end
+
+  defp build_config("delay", config, params) do
+    config
+    |> Map.put("seconds", Map.get(params, "seconds", config["seconds"] || ""))
+    |> Map.put("until", Map.get(params, "until", config["until"] || ""))
   end
 
   defp build_config("interview", config, params) do
@@ -2337,6 +2367,13 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
   defp round_num(value) when is_number(value), do: round(value)
   defp round_num(_value), do: 0
 
+  defp find_match?(query, node) when is_binary(query) and query != "" do
+    haystack = String.downcase("#{node["title"]} #{node["type"]} #{node["id"]}")
+    String.contains?(haystack, String.downcase(query))
+  end
+
+  defp find_match?(_query, _node), do: false
+
   ## Render helpers
 
   defp meta(type), do: Map.get(@node_meta, type, @node_meta["end"])
@@ -2481,7 +2518,8 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     "knowledge_retrieval" => ~w(result citations count),
     "document" => ~w(url name file_id size),
     "file_output" => ~w(url name file_id size format),
-    "interview" => ~w(output)
+    "interview" => ~w(output),
+    "delay" => ~w(waited_ms)
   }
 
   defp variable_hints(graph, selected_id) do
@@ -2838,6 +2876,19 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
             >
               <.icon name="hero-photo" class="size-4" />
             </.link>
+            <form phx-change="canvas_find" id="canvas-find" class="inline-flex">
+              <input
+                type="text"
+                name="q"
+                value={@find_query}
+                placeholder="Find node…"
+                autocomplete="off"
+                class="input input-bordered input-sm w-32"
+                title="Matching nodes highlight; the first match scrolls into view (Ctrl+F)"
+                id="canvas-find-input"
+                phx-hook="CanvasFind"
+              />
+            </form>
             <button
               :if={@can_edit}
               class="btn btn-sm btn-ghost"
@@ -3097,6 +3148,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                     "absolute w-52 rounded-box border bg-base-100 shadow-sm select-none cursor-grab",
                     (node["id"] in @selected_ids && "border-primary shadow-md") ||
                       "border-base-300",
+                    find_match?(@find_query, node) && "ring-2 ring-warning",
                     state_ring(@node_states[node["id"]])
                   ]}
                   style={"left: #{node_x(node)}px; top: #{node_y(node)}px;"}
@@ -3732,6 +3784,33 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                   <p class="text-xs opacity-60">
                     The run pauses here and asks the questions as one form; each answer
                     lands as <code>{"{{#{node["id"]}.<name>}}"}</code>.
+                  </p>
+                <% "delay" -> %>
+                  <label class="floating-label">
+                    <span>Seconds to wait (templated; max 300)</span>
+                    <input
+                      type="text"
+                      name="seconds"
+                      value={node["config"]["seconds"]}
+                      placeholder="5"
+                      class="input input-sm w-full"
+                      disabled={not @can_edit}
+                    />
+                  </label>
+                  <label class="floating-label">
+                    <span>…or until (ISO-8601 timestamp, templated; wins when set)</span>
+                    <input
+                      type="text"
+                      name="until"
+                      value={node["config"]["until"]}
+                      placeholder="{{start.resume_at}}"
+                      class="input input-sm w-full"
+                      disabled={not @can_edit}
+                    />
+                  </label>
+                  <p class="text-xs opacity-60">
+                    Pacing for rate-limited APIs; anything past 300s belongs on a
+                    schedule trigger.
                   </p>
                 <% "http_request" -> %>
                   <div class="flex gap-2">

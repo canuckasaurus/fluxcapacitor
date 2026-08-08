@@ -102,11 +102,33 @@ window.addEventListener("phx:speak-fallback", e => {
   speechSynthesis.speak(new SpeechSynthesisUtterance(e.detail.text))
 })
 
+// Canvas find: Ctrl/Cmd+F focuses the box while the editor is open;
+// the server pushes the first match to scroll into view.
+const CanvasFind = {
+  mounted() {
+    this.onKey = e => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "f") {
+        e.preventDefault()
+        this.el.focus()
+        this.el.select()
+      }
+    }
+    window.addEventListener("keydown", this.onKey)
+    this.handleEvent("canvas-jump", ({id}) => {
+      const node = document.getElementById(id)
+      if (node) node.scrollIntoView({behavior: "smooth", block: "center", inline: "center"})
+    })
+  },
+  destroyed() {
+    window.removeEventListener("keydown", this.onKey)
+  },
+}
+
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: {...colocatedHooks, MicRecorder},
+  hooks: {...colocatedHooks, MicRecorder, CanvasFind},
 })
 
 // ── Themed confirm ─────────────────────────────────────────────────────

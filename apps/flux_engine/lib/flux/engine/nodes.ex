@@ -1555,6 +1555,61 @@ defmodule Flux.Engine.Nodes.Iteration do
   defp format(reason), do: inspect(reason)
 end
 
+defmodule Flux.Engine.Nodes.Delay do
+  @moduledoc """
+  Waits before continuing: `seconds` (template-capable, capped at 300)
+  or `until` (a template resolving to an ISO-8601 timestamp; waits at
+  most the same cap). Pacing for rate-limited APIs and cooling-off
+  steps — anything longer belongs on a schedule, and the error says so.
+  Outputs `%{"waited_ms" => n}`.
+  """
+  @behaviour Flux.Engine.Node
+
+  alias Flux.Engine.Template
+
+  @max_wait_ms 300_000
+
+  @impl true
+  def run(node, pool, _host) do
+    with {:ok, wait_ms} <- resolve_wait(node, pool) do
+      Process.sleep(wait_ms)
+      {:ok, %{"waited_ms" => wait_ms}}
+    end
+  end
+
+  defp resolve_wait(node, pool) do
+    until = Template.render(to_string(node.config["until"] || ""), pool)
+    seconds = Template.render(to_string(node.config["seconds"] || ""), pool)
+
+    cond do
+      until != "" ->
+        case DateTime.from_iso8601(until) do
+          {:ok, target, _offset} ->
+            bounded(DateTime.diff(target, DateTime.utc_now(), :millisecond))
+
+          _invalid ->
+            {:error, "until must be an ISO-8601 timestamp, got #{inspect(until)}"}
+        end
+
+      seconds != "" ->
+        case Float.parse(seconds) do
+          {value, _rest} when value >= 0 -> bounded(round(value * 1000))
+          _invalid -> {:error, "seconds must be a number, got #{inspect(seconds)}"}
+        end
+
+      true ->
+        {:error, "the delay node needs seconds or until"}
+    end
+  end
+
+  defp bounded(wait_ms) when wait_ms <= 0, do: {:ok, 0}
+
+  defp bounded(wait_ms) when wait_ms > @max_wait_ms,
+    do: {:error, "delays cap at 300s — use a schedule trigger for longer waits"}
+
+  defp bounded(wait_ms), do: {:ok, wait_ms}
+end
+
 defmodule Flux.Engine.Nodes.SubfluxVersion do
   @moduledoc false
   # Iteration and loop accept an optional `subflux_version` pin ("" or nil
