@@ -14,6 +14,7 @@ defmodule Flux.PluginRuntime do
     Flux.Plugins.OpenAICompatible,
     Flux.Plugins.AzureOpenAI,
     Flux.Plugins.Bedrock,
+    Flux.Plugins.Ollama,
     Flux.Plugins.Echo,
     Flux.Plugins.Utility,
     Flux.Plugins.RSS,

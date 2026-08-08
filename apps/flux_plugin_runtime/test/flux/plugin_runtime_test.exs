@@ -13,6 +13,7 @@ defmodule Flux.PluginRuntimeTest do
              "bedrock",
              "echo",
              "gemini",
+             "ollama",
              "openai",
              "openai_compatible"
            ]
