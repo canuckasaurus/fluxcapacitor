@@ -98,6 +98,33 @@ defmodule Flux.Providers do
     end
   end
 
+  @doc """
+  Generates an image through the workspace default model's provider
+  (the `builtin:images` tool). `opts` may carry `"model"` and `"size"`.
+  `{:error, :not_supported}` when no default is set or the provider has
+  no image endpoint.
+  """
+  def generate_image(workspace_id, prompt, opts \\ %{}) when is_binary(prompt) do
+    case default_model_for_workspace(workspace_id) do
+      %{"provider_plugin_id" => plugin_id} when is_binary(plugin_id) and plugin_id != "" ->
+        credentials =
+          case fetch_config(workspace_id, plugin_id) do
+            {:ok, config} -> config
+            {:error, :not_configured} -> %{}
+          end
+
+        invoke_opts =
+          %{}
+          |> then(&(((m = presence(opts["model"])) && Map.put(&1, :model, m)) || &1))
+          |> then(&(((s = presence(opts["size"])) && Map.put(&1, :size, s)) || &1))
+
+        runtime().invoke_image(plugin_id, credentials, prompt, invoke_opts)
+
+      _no_default ->
+        {:error, :not_supported}
+    end
+  end
+
   @doc "All model-provider plugin manifests known to the runtime."
   def list_provider_plugins, do: runtime().list_model_providers()
 

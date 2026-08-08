@@ -180,6 +180,36 @@ defmodule Flux.Plugins.OpenAI do
   end
 
   @impl Flux.Plugin.ModelProvider
+  def invoke_image(credentials, prompt, opts) do
+    image_request(base_url(credentials) <> "/images/generations", auth(credentials), prompt, opts)
+  end
+
+  @doc "One OpenAI-shaped text-to-image call — shared with the compatible plugin."
+  def image_request(url, headers, prompt, opts) do
+    with :ok <- Flux.SSRF.verify_url(url),
+         {:ok, %{status: 200, body: %{"data" => [%{"b64_json" => b64} | _rest]}}} <-
+           Req.post(
+             SSE.req_options(
+               url: url,
+               headers: headers,
+               json: %{
+                 model: opts[:model] || "gpt-image-1",
+                 prompt: String.slice(prompt, 0, 4_000),
+                 size: opts[:size] || "1024x1024"
+               },
+               receive_timeout: 120_000
+             )
+           ),
+         {:ok, image} <- Base.decode64(b64) do
+      {:ok, %{image: image, content_type: "image/png"}}
+    else
+      {:ok, %{status: status, body: body}} -> {:error, {:http_error, status, body}}
+      :error -> {:error, "the provider sent unparseable image data"}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @impl Flux.Plugin.ModelProvider
   def invoke_llm(credentials, request, emit) do
     chat_completions(
       base_url(credentials) <> "/chat/completions",

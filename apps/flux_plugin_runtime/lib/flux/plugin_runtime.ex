@@ -178,6 +178,20 @@ defmodule Flux.PluginRuntime do
     end
   end
 
+  @doc "Text-to-image through a provider's optional `invoke_image` capability."
+  def invoke_image(plugin_id, credentials, prompt, opts \\ %{}) when is_binary(prompt) do
+    with {:ok, module} <- fetch_plugin(plugin_id) do
+      if function_exported?(module, :invoke_image, 3) do
+        run_supervised(
+          fn -> module.invoke_image(credentials, prompt, opts) end,
+          @invoke_timeout
+        )
+      else
+        {:error, :not_supported}
+      end
+    end
+  end
+
   def invoke_rerank(plugin_id, credentials, model, query, documents) do
     with {:ok, module} <- fetch_plugin(plugin_id) do
       if function_exported?(module, :invoke_rerank, 4) do

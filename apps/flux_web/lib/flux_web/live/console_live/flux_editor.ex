@@ -131,6 +131,11 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
       label: "Delay",
       icon: "hero-clock",
       accent: "bg-secondary/10 text-secondary"
+    },
+    "subflux" => %{
+      label: "Sub-flux",
+      icon: "hero-arrow-top-right-on-square",
+      accent: "bg-primary/10 text-primary"
     }
   }
 
@@ -171,13 +176,15 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
       "Writes your content to a downloadable file — HTML, PDF, Markdown, text, CSV, or JSON.",
     "interview" =>
       "Pauses the run and asks a stored question set as one form; answers land in the pool.",
-    "delay" => "Waits before continuing — fixed seconds or until a timestamp (max 300s)."
+    "delay" => "Waits before continuing — fixed seconds or until a timestamp (max 300s).",
+    "subflux" =>
+      "Calls another published flux as one node — its start variables map from templates, its end outputs come back."
   }
 
   @addable_types ~w(llm knowledge_retrieval if_else question_classifier parameter_extractor
                     document_extractor iteration loop human_input labeling interview template
                     document file_output tool http_request code agent variable_aggregator
-                    variable_assigner list_operator delay answer end)
+                    variable_assigner list_operator delay subflux answer end)
   @zoom_levels [50, 65, 80, 100, 125, 150]
   @failable_types ~w(llm tool http_request code agent question_classifier parameter_extractor
                      document_extractor iteration loop knowledge_retrieval document file_output)
@@ -224,7 +231,8 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
            toolsets:
              Flux.Tools.list_toolsets(scope) ++
                Flux.Tools.installed_plugin_toolsets(scope) ++
-               Flux.Tools.mcp_toolsets(scope),
+               Flux.Tools.mcp_toolsets(scope) ++
+               Flux.Tools.builtin_toolsets(scope),
            fluxes: Workflows.list_workflows(scope),
            prompt_snippets: Flux.Prompts.list(scope),
            datasets: Flux.RAG.list_datasets(scope),
@@ -1698,6 +1706,9 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
 
   defp default_config("delay"), do: %{"seconds" => "5", "until" => ""}
 
+  defp default_config("subflux"),
+    do: %{"workflow_id" => "", "subflux_version" => "", "inputs" => %{}}
+
   defp default_config("answer"), do: %{"answer" => ""}
   defp default_config("end"), do: %{"outputs" => [%{"key" => "result", "value" => ""}]}
 
@@ -1814,8 +1825,31 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
       "fallback_model" => fallback_model,
       "system_prompt" => Map.get(params, "system_prompt", ""),
       "prompt" => Map.get(params, "prompt", ""),
+      "vision_variable" => Map.get(params, "vision_variable", config["vision_variable"] || ""),
       "output_schema" => parse_output_schema(params["output_schema"], config["output_schema"])
     }
+  end
+
+  defp build_config("subflux", config, params) do
+    inputs =
+      params
+      |> Map.get("inputs", "")
+      |> to_string()
+      |> String.split(["\r\n", "\n"])
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.flat_map(fn line ->
+        case String.split(line, "=", parts: 2) do
+          [name, template] when name != "" -> [{String.trim(name), String.trim(template)}]
+          _no_equals -> []
+        end
+      end)
+      |> Map.new()
+
+    config
+    |> Map.put("workflow_id", Map.get(params, "workflow_id", config["workflow_id"] || ""))
+    |> Map.put("inputs", inputs)
+    |> put_subflux_version(params)
   end
 
   defp build_config("start", config, params) do
@@ -3500,6 +3534,17 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                     >{node["config"]["prompt"]}</textarea>
                   </label>
                   <label class="floating-label">
+                    <span>Vision image (optional — a file variable, e.g. start.photo)</span>
+                    <input
+                      type="text"
+                      name="vision_variable"
+                      value={node["config"]["vision_variable"]}
+                      placeholder="start.photo"
+                      class="input input-sm w-full font-mono"
+                      disabled={not @can_edit}
+                    />
+                  </label>
+                  <label class="floating-label">
                     <span>
                       Output schema (JSON, optional — adds a structured {"{{node.output}}"} )
                     </span>
@@ -3811,6 +3856,52 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                   <p class="text-xs opacity-60">
                     Pacing for rate-limited APIs; anything past 300s belongs on a
                     schedule trigger.
+                  </p>
+                <% "subflux" -> %>
+                  <label class="floating-label">
+                    <span>Flux to call (published)</span>
+                    <select
+                      name="workflow_id"
+                      class="select select-sm w-full"
+                      disabled={not @can_edit}
+                    >
+                      <option value="" selected={node["config"]["workflow_id"] in [nil, ""]}>
+                        Choose a flux…
+                      </option>
+                      <option
+                        :for={flux <- @fluxes}
+                        :if={flux.id != @workflow.id}
+                        value={flux.id}
+                        selected={node["config"]["workflow_id"] == flux.id}
+                      >
+                        {flux.name}
+                      </option>
+                    </select>
+                  </label>
+                  <label class="floating-label">
+                    <span>Inputs — one per line, name = template</span>
+                    <textarea
+                      name="inputs"
+                      rows="3"
+                      placeholder="query = {{start.query}}\ntone = friendly"
+                      class="textarea textarea-sm w-full font-mono"
+                      disabled={not @can_edit}
+                    >{Enum.map_join(node["config"]["inputs"] || %{}, "\n", fn {name, template} -> "#{name} = #{template}" end)}</textarea>
+                  </label>
+                  <label class="floating-label">
+                    <span>Pin to version (blank = latest published)</span>
+                    <input
+                      type="text"
+                      name="subflux_version"
+                      value={node["config"]["subflux_version"]}
+                      placeholder="v3"
+                      class="input input-sm w-24"
+                      disabled={not @can_edit}
+                    />
+                  </label>
+                  <p class="text-xs opacity-60">
+                    The sub-flux's end outputs become this node's outputs
+                    (<code>{"{{#{node["id"]}.<key>}}"}</code>).
                   </p>
                 <% "http_request" -> %>
                   <div class="flex gap-2">

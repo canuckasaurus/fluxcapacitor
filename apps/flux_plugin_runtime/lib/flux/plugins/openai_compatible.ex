@@ -114,6 +114,11 @@ defmodule Flux.Plugins.OpenAICompatible do
     Flux.Plugins.OpenAI.invoke_speech(credentials, text, opts)
   end
 
+  @impl Flux.Plugin.ModelProvider
+  def invoke_image(credentials, prompt, opts) do
+    Flux.Plugins.OpenAI.invoke_image(credentials, prompt, opts)
+  end
+
   defp auth(%{"api_key" => key}) when is_binary(key) and key != "",
     do: [{"authorization", "Bearer #{key}"}]
 

@@ -116,8 +116,16 @@ defmodule Flux.Plugin.ModelProvider do
   @callback invoke_speech(credentials, text :: String.t(), opts :: map()) ::
               {:ok, %{audio: binary(), content_type: String.t()}} | {:error, term()}
 
+  @doc """
+  Text-to-image. `opts` may carry `:model` and `:size`. Returns the
+  image bytes with their content type.
+  """
+  @callback invoke_image(credentials, prompt :: String.t(), opts :: map()) ::
+              {:ok, %{image: binary(), content_type: String.t()}} | {:error, term()}
+
   @optional_callbacks invoke_embeddings: 3,
                       invoke_rerank: 4,
                       invoke_transcription: 3,
-                      invoke_speech: 3
+                      invoke_speech: 3,
+                      invoke_image: 3
 end

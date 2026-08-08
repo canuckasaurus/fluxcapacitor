@@ -122,4 +122,9 @@ defmodule Flux.Plugins.Echo do
   def invoke_speech(_credentials, text, _opts) do
     {:ok, %{audio: "FAKE-MP3:" <> String.slice(text, 0, 50), content_type: "audio/mpeg"}}
   end
+
+  @impl Flux.Plugin.ModelProvider
+  def invoke_image(_credentials, prompt, _opts) do
+    {:ok, %{image: "FAKE-PNG:" <> String.slice(prompt, 0, 50), content_type: "image/png"}}
+  end
 end

@@ -110,6 +110,12 @@ defmodule Flux.FakeRuntime do
 
   def invoke_speech(_other, _credentials, _text, _opts), do: {:error, :not_supported}
 
+  def invoke_image("echo", _credentials, prompt, _opts) do
+    {:ok, %{image: "FAKE-PNG:" <> String.slice(prompt, 0, 50), content_type: "image/png"}}
+  end
+
+  def invoke_image(_other, _credentials, _prompt, _opts), do: {:error, :not_supported}
+
   # Deterministic bag-of-words vectors, mirroring the real Echo plugin so
   # retrieval tests get meaningful cosine similarity without any API.
   @embed_dims 16

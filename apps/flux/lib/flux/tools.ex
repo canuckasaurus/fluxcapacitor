@@ -130,6 +130,34 @@ defmodule Flux.Tools do
     Flux.MCP.invoke_for_workspace(workspace_id, server_id, operation_id, args)
   end
 
+  # The built-in image toolset: generates through the workspace default
+  # provider and lands the PNG beside other run outputs on Files.
+  def invoke_for_workspace(workspace_id, "builtin:images", "generate_image", args)
+      when is_map(args) do
+    prompt = to_string(args["prompt"] || "")
+
+    with true <- prompt != "" || {:error, "generate_image needs a prompt"},
+         {:ok, %{image: image}} <- Flux.Providers.generate_image(workspace_id, prompt, args),
+         {:ok, stored} <- Flux.Workflows.store_run_output(workspace_id, "generated.png", image) do
+      {:ok,
+       %{
+         status: 200,
+         body: stored,
+         text: "generated #{stored["url"]} (#{stored["size"]} bytes)"
+       }}
+    else
+      {:error, :not_supported} ->
+        {:error, "the workspace default provider cannot generate images"}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  def invoke_for_workspace(_workspace_id, "builtin:" <> _rest, _operation_id, _args) do
+    {:error, :unknown_toolset}
+  end
+
   def invoke_for_workspace(workspace_id, "plugin:" <> plugin_id, operation_id, args)
       when is_map(args) do
     if plugin_installed?(workspace_id, plugin_id) do
@@ -267,6 +295,36 @@ defmodule Flux.Tools do
           end
       }
     end
+  end
+
+  @doc """
+  Built-in toolsets every workspace gets without setup. Currently one:
+  image generation through the workspace default provider.
+  """
+  def builtin_toolsets(%Scope{} = _scope) do
+    [
+      %{
+        id: "builtin:images",
+        name: "Images (built-in)",
+        operations: [
+          %{
+            "operation_id" => "generate_image",
+            "name" => "generate_image",
+            "description" =>
+              "Generate an image from a text prompt through the workspace " <>
+                "default provider. The result lands on the Files page.",
+            "parameters" => %{
+              "type" => "object",
+              "properties" => %{
+                "prompt" => %{"type" => "string", "description" => "What to draw"},
+                "size" => %{"type" => "string", "description" => "Optional, e.g. 1024x1024"}
+              },
+              "required" => ["prompt"]
+            }
+          }
+        ]
+      }
+    ]
   end
 
   @doc """
