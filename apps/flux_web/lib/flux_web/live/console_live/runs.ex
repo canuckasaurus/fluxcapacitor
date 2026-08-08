@@ -25,6 +25,7 @@ defmodule FluxWeb.ConsoleLive.Runs do
        sources: @sources,
        statuses: @statuses,
        expanded_run: nil,
+       share_url: nil,
        compare_ids: [],
        limit: @page_size,
        flux_costs: Flux.Usage.flux_costs(scope)
@@ -74,7 +75,16 @@ defmodule FluxWeb.ConsoleLive.Runs do
   end
 
   def handle_event("toggle_run", %{"id" => id}, socket) do
-    {:noreply, assign(socket, expanded_run: (socket.assigns.expanded_run == id && nil) || id)}
+    {:noreply,
+     assign(socket,
+       expanded_run: (socket.assigns.expanded_run == id && nil) || id,
+       share_url: nil
+     )}
+  end
+
+  def handle_event("share_run", %{"id" => id}, socket) do
+    token = FluxWeb.RunShareController.sign(id)
+    {:noreply, assign(socket, share_url: url(~p"/share/runs/#{token}"))}
   end
 
   # Pick up to two runs; the newest pick displaces the oldest.
@@ -454,6 +464,23 @@ defmodule FluxWeb.ConsoleLive.Runs do
                     >
                       <.icon name="hero-arrow-path" class="size-3" /> Re-run
                     </button>
+                    <button
+                      class="btn btn-ghost btn-xs"
+                      phx-click="share_run"
+                      phx-value-id={run.id}
+                      title="Create a read-only share link (30-day expiry, no console access needed)"
+                    >
+                      <.icon name="hero-link" class="size-3" /> Share trace
+                    </button>
+                    <input
+                      :if={@share_url && @expanded_run == run.id}
+                      type="text"
+                      readonly
+                      value={@share_url}
+                      class="input input-bordered input-xs w-96 font-mono"
+                      onclick="this.select()"
+                      id={"share-url-#{run.id}"}
+                    />
                     <p :if={run.error} class="text-error font-mono">{run.error}</p>
 
                     <p :if={run.inputs != %{}}>

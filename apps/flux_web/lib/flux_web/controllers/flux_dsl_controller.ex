@@ -24,6 +24,82 @@ defmodule FluxWeb.FluxDslController do
     end
   end
 
+  @node_w 176
+  @node_h 56
+
+  @doc "The draft graph as a standalone SVG — for design docs and PRs."
+  def export_svg(conn, %{"id" => id}) do
+    scope = conn.assigns.current_scope
+
+    case Workflows.get_workflow(scope, id) do
+      %Workflow{} = workflow ->
+        send_download(
+          conn,
+          {:binary, graph_svg(workflow)},
+          filename: "#{workflow.name}.svg",
+          content_type: "image/svg+xml"
+        )
+
+      {:error, :not_found} ->
+        conn |> put_flash(:error, "Flux not found.") |> redirect(to: ~p"/console/fluxes")
+    end
+  end
+
+  defp graph_svg(workflow) do
+    nodes = List.wrap(workflow.graph["nodes"])
+    edges = List.wrap(workflow.graph["edges"])
+    positions = Map.new(nodes, &{&1["id"], node_position(&1)})
+
+    {max_x, max_y} =
+      Enum.reduce(positions, {400, 300}, fn {_id, {x, y}}, {mx, my} ->
+        {max(mx, x + @node_w + 40), max(my, y + @node_h + 40)}
+      end)
+
+    edge_lines =
+      for edge <- edges,
+          {x1, y1} = Map.get(positions, edge["source"], {0, 0}),
+          {x2, y2} = Map.get(positions, edge["target"], {0, 0}) do
+        ~s|<line x1="#{x1 + @node_w}" y1="#{y1 + div(@node_h, 2)}" x2="#{x2}" | <>
+          ~s|y2="#{y2 + div(@node_h, 2)}" stroke="#888" stroke-width="1.5" | <>
+          ~s|marker-end="url(#arrow)"/>|
+      end
+
+    node_boxes =
+      for node <- nodes do
+        {x, y} = positions[node["id"]]
+        title = svg_escape(node["title"] || node["id"])
+        type = svg_escape(node["type"] || "")
+
+        ~s|<g transform="translate(#{x},#{y})">| <>
+          ~s|<rect width="#{@node_w}" height="#{@node_h}" rx="8" fill="#f4f4f5" | <>
+          ~s|stroke="#a1a1aa" stroke-width="1"/>| <>
+          ~s|<text x="10" y="22" font-size="12" font-weight="bold" fill="#18181b">#{title}</text>| <>
+          ~s|<text x="10" y="40" font-size="10" fill="#71717a">#{type}</text></g>|
+      end
+
+    ~s|<svg xmlns="http://www.w3.org/2000/svg" width="#{max_x}" height="#{max_y}" | <>
+      ~s|viewBox="0 0 #{max_x} #{max_y}" font-family="system-ui, sans-serif">| <>
+      ~s|<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" | <>
+      ~s|markerHeight="7" orient="auto-start-reverse">| <>
+      ~s|<path d="M 0 0 L 10 5 L 0 10 z" fill="#888"/></marker></defs>| <>
+      Enum.join(edge_lines) <> Enum.join(node_boxes) <> "</svg>"
+  end
+
+  defp node_position(node) do
+    x = get_in(node, ["position", "x"]) || 0
+    y = get_in(node, ["position", "y"]) || 0
+    {round(x * 1.0), round(y * 1.0)}
+  end
+
+  defp svg_escape(text) do
+    text
+    |> to_string()
+    |> String.replace("&", "&amp;")
+    |> String.replace("<", "&lt;")
+    |> String.replace(">", "&gt;")
+    |> String.slice(0, 40)
+  end
+
   @doc "Bulk export: the selected fluxes as one multi-document YAML file."
   def export_many(conn, %{"ids" => ids}) when is_list(ids) do
     scope = conn.assigns.current_scope
@@ -191,6 +267,49 @@ defmodule FluxWeb.FluxDslController do
         )
 
       _error ->
+        conn |> put_flash(:error, "App not found.") |> redirect(to: ~p"/console/apps")
+    end
+  end
+
+  @doc "Monitoring tables as CSV: ?kind=feedback (rated replies) or usage (daily stats)."
+  def monitor_export(conn, %{"id" => app_id} = params) do
+    scope = conn.assigns.current_scope
+
+    case Flux.Chat.get_app(scope, app_id) do
+      %Flux.Chat.App{} = app ->
+        {rows, name} =
+          case params["kind"] do
+            "usage" ->
+              rows =
+                for day <- Flux.Chat.usage_stats(scope, app.id, 90) do
+                  [to_string(day.day), day.messages, day.input_tokens, day.output_tokens]
+                end
+
+              {[["day", "messages", "input_tokens", "output_tokens"] | rows], "usage"}
+
+            _feedback ->
+              rows =
+                for %{message: message, question: question} <-
+                      Flux.Chat.list_feedback(scope, app.id, :all, 1_000) do
+                  [
+                    Calendar.strftime(message.inserted_at, "%Y-%m-%d %H:%M:%S"),
+                    to_string(message.feedback),
+                    question || "",
+                    message.content
+                  ]
+                end
+
+              {[["when", "feedback", "question", "reply"] | rows], "feedback"}
+          end
+
+        send_download(
+          conn,
+          {:binary, Flux.CSV.encode(rows)},
+          filename: "#{app.name}-#{name}.csv",
+          content_type: "text/csv"
+        )
+
+      {:error, :not_found} ->
         conn |> put_flash(:error, "App not found.") |> redirect(to: ~p"/console/apps")
     end
   end
