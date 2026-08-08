@@ -252,6 +252,42 @@ defmodule Flux.Chat do
     |> Enum.sort()
   end
 
+  @doc """
+  A/B comparison for a chat app's model test: replies, feedback, and
+  tokens per variant over the recent history (variant "b" is stamped
+  on the reply's usage; everything else is the primary).
+  """
+  def app_ab_stats(%Scope{} = scope, app_id, limit \\ 1_000) do
+    Message
+    |> Repo.scoped(scope)
+    |> join(:inner, [m], c in Conversation, on: m.conversation_id == c.id)
+    |> where([m, c], c.app_id == ^app_id and m.role == :assistant and m.status == :completed)
+    |> order_by([m], desc: m.inserted_at)
+    |> limit(^limit)
+    |> select([m], %{usage: m.usage, feedback: m.feedback})
+    |> Repo.all()
+    |> Enum.reduce(
+      %{
+        "a" => %{replies: 0, likes: 0, dislikes: 0, tokens: 0},
+        "b" => %{replies: 0, likes: 0, dislikes: 0, tokens: 0}
+      },
+      fn message, acc ->
+        variant = (message.usage["variant"] == "b" && "b") || "a"
+
+        Map.update!(acc, variant, fn stats ->
+          %{
+            replies: stats.replies + 1,
+            likes: stats.likes + ((message.feedback == :like && 1) || 0),
+            dislikes: stats.dislikes + ((message.feedback == :dislike && 1) || 0),
+            tokens:
+              stats.tokens + (message.usage["input_tokens"] || 0) +
+                (message.usage["output_tokens"] || 0)
+          }
+        end)
+      end
+    )
+  end
+
   ## Human handoff
 
   @doc "A visitor asked for a human: flag the conversation and tell the team."
@@ -1360,6 +1396,10 @@ defmodule Flux.Chat do
   defp generate(app, history, assistant_message) do
     {history, summary} = fold_history(app, assistant_message.conversation_id, history)
 
+    # Model A/B: ab_split% of conversations (stable per conversation)
+    # run the challenger; the reply's usage records which variant.
+    {app, variant} = pick_ab_variant(app, assistant_message.conversation_id)
+
     request = %Flux.Plugin.ModelProvider.Request{
       model: app.model,
       messages: inject_summary(build_prompt(app, history), summary),
@@ -1381,16 +1421,42 @@ defmodule Flux.Chat do
       {:ok, result} ->
         Flux.ProviderHealth.record(app.provider_plugin_id, :ok)
 
-        finalize(assistant_message, :completed, result.content, %{
+        usage = %{
           "input_tokens" => result.usage.input_tokens,
           "output_tokens" => result.usage.output_tokens
-        })
+        }
+
+        usage =
+          (variant == "b" &&
+             Map.merge(usage, %{
+               "variant" => "b",
+               "model_used" => "#{app.provider_plugin_id}/#{app.model}"
+             })) || usage
+
+        finalize(assistant_message, :completed, result.content, usage)
 
       {:error, reason} ->
         Flux.ProviderHealth.record(app.provider_plugin_id, :error)
         generate_fallback(app, request, emit, assistant_message, reason)
     end
   end
+
+  # ab_split% of conversations (stable by conversation id) swap in the
+  # challenger model; everything downstream sees a normal app.
+  defp pick_ab_variant(
+         %App{ab_split: split, ab_provider_plugin_id: plugin, ab_model: model} = app,
+         conversation_id
+       )
+       when is_integer(split) and split > 0 and is_binary(plugin) and plugin != "" and
+              is_binary(model) and model != "" do
+    if rem(:erlang.phash2(conversation_id), 100) < split do
+      {%{app | provider_plugin_id: plugin, model: model}, "b"}
+    else
+      {app, "a"}
+    end
+  end
+
+  defp pick_ab_variant(app, _conversation_id), do: {app, "a"}
 
   # A configured backup model gets one try when the primary errors; the
   # reply's usage records which model actually answered.

@@ -18,6 +18,10 @@ defmodule Flux.Chat.App do
     field :model, :string
     field :fallback_provider_plugin_id, :string
     field :fallback_model, :string
+    # Model A/B: ab_split% of conversations run the challenger model.
+    field :ab_provider_plugin_id, :string
+    field :ab_model, :string
+    field :ab_split, :integer, default: 0
     field :system_prompt, :string
     field :prompt_template, :string
     field :input_form, {:array, :map}, default: []
@@ -47,6 +51,9 @@ defmodule Flux.Chat.App do
       :model,
       :fallback_provider_plugin_id,
       :fallback_model,
+      :ab_provider_plugin_id,
+      :ab_model,
+      :ab_split,
       :system_prompt,
       :prompt_template,
       :input_form,
@@ -61,6 +68,7 @@ defmodule Flux.Chat.App do
     ])
     |> validate_number(:daily_token_limit, greater_than: 0)
     |> validate_number(:rate_limit_per_minute, greater_than: 0, less_than_or_equal_to: 10_000)
+    |> validate_number(:ab_split, greater_than_or_equal_to: 0, less_than_or_equal_to: 100)
     |> validate_number(:annotation_threshold,
       greater_than_or_equal_to: 0.0,
       less_than_or_equal_to: 1.0

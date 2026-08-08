@@ -420,6 +420,19 @@ defmodule FluxWeb.ConsoleLive.AppChat do
           {nil, nil}
       end
 
+    {ab_plugin, ab_model} =
+      case String.split(params["ab_choice"] || "keep", "|", parts: 2) do
+        [plugin, model] -> {plugin, model}
+        ["keep"] -> {socket.assigns.app.ab_provider_plugin_id, socket.assigns.app.ab_model}
+        _cleared -> {nil, nil}
+      end
+
+    ab_split =
+      case Integer.parse(to_string(params["ab_split"] || "")) do
+        {n, ""} when n in 0..100 -> n
+        _off -> 0
+      end
+
     case Chat.update_app(scope, socket.assigns.app, %{
            "opening_statement" => params["opening_statement"],
            "suggested_questions" => questions,
@@ -428,7 +441,10 @@ defmodule FluxWeb.ConsoleLive.AppChat do
            "annotation_threshold" => presence(params["annotation_threshold"]),
            "suggest_followups" => params["suggest_followups"] == "on",
            "fallback_provider_plugin_id" => fallback_plugin,
-           "fallback_model" => fallback_model
+           "fallback_model" => fallback_model,
+           "ab_provider_plugin_id" => ab_plugin,
+           "ab_model" => ab_model,
+           "ab_split" => (ab_plugin && ab_split) || 0
          }) do
       {:ok, app} ->
         {:noreply, socket |> put_flash(:info, "Chat settings saved.") |> assign(app: app)}
@@ -998,6 +1014,34 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               </option>
             </select>
           </label>
+          <div :if={@app.mode == :chat} class="flex flex-wrap gap-2 items-end">
+            <label class="form-control block">
+              <span class="label-text text-sm mb-1">
+                A/B challenger model (splits conversations against the primary)
+              </span>
+              <select name="ab_choice" class="select select-bordered select-sm w-full max-w-md">
+                <option value="" selected={@app.ab_model in [nil, ""]}>No A/B test</option>
+                <option
+                  :for={%{plugin_id: pid, plugin_name: pname, model: m} <- @models}
+                  value={"#{pid}|#{m.name}"}
+                  selected={@app.ab_provider_plugin_id == pid and @app.ab_model == m.name}
+                >
+                  {pname} — {m.label}
+                </option>
+              </select>
+            </label>
+            <label class="form-control block">
+              <span class="label-text text-sm mb-1">% of conversations</span>
+              <input
+                type="number"
+                name="ab_split"
+                value={@app.ab_split}
+                min="0"
+                max="100"
+                class="input input-bordered input-sm w-24"
+              />
+            </label>
+          </div>
           <button class="btn btn-primary btn-sm">Save chat settings</button>
         </form>
       </div>
