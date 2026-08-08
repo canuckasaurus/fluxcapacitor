@@ -458,6 +458,70 @@ defmodule Flux.RAG do
     end
   end
 
+  ## Bulk document operations (multi-select in the dataset browser)
+
+  @doc """
+  Enables or disables several documents at once. The flag cascades to
+  their segments, which is what retrieval actually filters on — content
+  stays indexed and flips back losslessly.
+  """
+  def set_documents_enabled(%Scope{} = scope, document_ids, enabled)
+      when is_list(document_ids) and is_boolean(enabled) do
+    with :ok <- RBAC.authorize(scope, :dataset_edit) do
+      {count, _} =
+        Document
+        |> Repo.scoped(scope)
+        |> where([d], d.id in ^document_ids)
+        |> Repo.update_all(set: [enabled: enabled])
+
+      Segment
+      |> Repo.scoped(scope)
+      |> where([s], s.document_id in ^document_ids)
+      |> Repo.update_all(set: [enabled: enabled])
+
+      {:ok, count}
+    end
+  end
+
+  @doc "Deletes several documents at once (segments cascade)."
+  def delete_documents(%Scope{} = scope, document_ids) when is_list(document_ids) do
+    with :ok <- RBAC.authorize(scope, :dataset_edit) do
+      {count, _} =
+        Document
+        |> Repo.scoped(scope)
+        |> where([d], d.id in ^document_ids)
+        |> Repo.delete_all()
+
+      {:ok, count}
+    end
+  end
+
+  @doc "Adds tags to several documents at once (merged with existing, deduped)."
+  def tag_documents(%Scope{} = scope, document_ids, tags)
+      when is_list(document_ids) and is_list(tags) do
+    with :ok <- RBAC.authorize(scope, :dataset_edit) do
+      normalized =
+        tags
+        |> Enum.map(&(&1 |> to_string() |> String.trim() |> String.downcase()))
+        |> Enum.reject(&(&1 == ""))
+        |> Enum.uniq()
+
+      documents =
+        Document
+        |> Repo.scoped(scope)
+        |> where([d], d.id in ^document_ids)
+        |> Repo.all()
+
+      for document <- documents do
+        document
+        |> Ecto.Changeset.change(tags: Enum.uniq(document.tags ++ normalized))
+        |> Repo.update!()
+      end
+
+      {:ok, length(documents)}
+    end
+  end
+
   def list_segments(%Scope{} = scope, document_id, limit \\ 100) do
     Segment
     |> Repo.scoped(scope)
@@ -569,7 +633,9 @@ defmodule Flux.RAG do
               position: position,
               content: chunk,
               parent_content: parent,
-              embedding: vector
+              embedding: vector,
+              # Re-indexing a disabled document must not silently re-enable it.
+              enabled: document.enabled
             })
           end
 

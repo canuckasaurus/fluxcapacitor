@@ -39,6 +39,7 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
        retrieval_summary: nil,
        documents: [],
        url_sources: [],
+       selected_doc_ids: MapSet.new(),
        expanded_document_id: nil,
        editing_segment_id: nil,
        segments: [],
@@ -57,6 +58,20 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
   end
 
   defp plugin_runtime, do: Application.get_env(:flux, :plugin_runtime, Flux.PluginRuntime)
+
+  defp bulk_set_enabled(socket, enabled) do
+    ids = MapSet.to_list(socket.assigns.selected_doc_ids)
+
+    case RAG.set_documents_enabled(socket.assigns.current_scope, ids, enabled) do
+      {:ok, count} ->
+        socket
+        |> put_flash(:info, "#{(enabled && "Enabled") || "Disabled"} #{count} documents.")
+        |> refresh_documents()
+
+      _error ->
+        put_flash(socket, :error, "Could not update the selected documents.")
+    end
+  end
 
   defp refresh_segments(socket) do
     case socket.assigns.expanded_document_id do
@@ -425,6 +440,58 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
 
   def handle_event("refresh", _params, socket) do
     {:noreply, refresh_documents(socket)}
+  end
+
+  def handle_event("toggle_doc_select", %{"document-id" => id}, socket) do
+    selected = socket.assigns.selected_doc_ids
+
+    selected =
+      if MapSet.member?(selected, id),
+        do: MapSet.delete(selected, id),
+        else: MapSet.put(selected, id)
+
+    {:noreply, assign(socket, selected_doc_ids: selected)}
+  end
+
+  def handle_event("clear_doc_selection", _params, socket) do
+    {:noreply, assign(socket, selected_doc_ids: MapSet.new())}
+  end
+
+  def handle_event("bulk_enable_documents", _params, socket) do
+    {:noreply, bulk_set_enabled(socket, true)}
+  end
+
+  def handle_event("bulk_disable_documents", _params, socket) do
+    {:noreply, bulk_set_enabled(socket, false)}
+  end
+
+  def handle_event("bulk_delete_documents", _params, socket) do
+    ids = MapSet.to_list(socket.assigns.selected_doc_ids)
+
+    case RAG.delete_documents(socket.assigns.current_scope, ids) do
+      {:ok, count} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Deleted #{count} documents.")
+         |> assign(selected_doc_ids: MapSet.new())
+         |> refresh_documents()}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not delete the selected documents.")}
+    end
+  end
+
+  def handle_event("bulk_tag_documents", %{"tags" => tags}, socket) do
+    ids = MapSet.to_list(socket.assigns.selected_doc_ids)
+
+    case RAG.tag_documents(socket.assigns.current_scope, ids, String.split(tags, ",")) do
+      {:ok, count} ->
+        {:noreply,
+         socket |> put_flash(:info, "Tagged #{count} documents.") |> refresh_documents()}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not tag the selected documents.")}
+    end
   end
 
   def handle_event("delete_document", %{"document-id" => id}, socket) do
@@ -969,32 +1036,82 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
 
             <p :if={@documents == []} class="text-sm opacity-60">Nothing indexed yet.</p>
 
-            <div :for={document <- @documents} class="rounded-box border border-base-200">
+            <div
+              :if={@can_edit and @selected_doc_ids != MapSet.new()}
+              class="flex flex-wrap items-center gap-2 rounded-box bg-base-200/60 px-3 py-2"
+              id="bulk-doc-bar"
+            >
+              <span class="text-xs font-semibold">
+                {MapSet.size(@selected_doc_ids)} selected
+              </span>
+              <button class="btn btn-outline btn-xs" phx-click="bulk_enable_documents">
+                Enable
+              </button>
+              <button class="btn btn-outline btn-xs" phx-click="bulk_disable_documents">
+                Disable
+              </button>
+              <form phx-submit="bulk_tag_documents" class="flex gap-1" id="bulk-tag-form">
+                <input
+                  type="text"
+                  name="tags"
+                  placeholder="add tags, comma-separated"
+                  class="input input-bordered input-xs w-48"
+                />
+                <button class="btn btn-outline btn-xs">Tag</button>
+              </form>
               <button
-                type="button"
-                class="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-base-200/60"
-                phx-click="expand_document"
-                phx-value-document-id={document.id}
+                class="btn btn-outline btn-xs text-error"
+                phx-click="bulk_delete_documents"
+                data-confirm="Delete the selected documents and their segments?"
               >
-                <span class="text-sm font-medium truncate">{document.name}</span>
-                <span class={[
-                  "badge badge-sm",
-                  document.status == :ready && "badge-success",
-                  document.status == :error && "badge-error",
-                  document.status in [:pending, :indexing] && "badge-info"
-                ]}>
-                  {document.status}
-                </span>
-                <span class="text-xs opacity-60">{document.segment_count} segments</span>
-                <span
+                Delete
+              </button>
+              <button class="btn btn-ghost btn-xs" phx-click="clear_doc_selection">Clear</button>
+            </div>
+
+            <div :for={document <- @documents} class="rounded-box border border-base-200">
+              <div class="w-full flex items-center gap-2 px-3 py-2">
+                <input
                   :if={@can_edit}
-                  class="ml-auto btn btn-ghost btn-xs text-error"
-                  phx-click="delete_document"
+                  type="checkbox"
+                  class="checkbox checkbox-xs"
+                  checked={MapSet.member?(@selected_doc_ids, document.id)}
+                  phx-click="toggle_doc_select"
+                  phx-value-document-id={document.id}
+                  id={"doc-select-#{document.id}"}
+                />
+                <button
+                  type="button"
+                  class="flex-1 flex items-center gap-2 text-left hover:bg-base-200/60 min-w-0"
+                  phx-click="expand_document"
                   phx-value-document-id={document.id}
                 >
-                  âœ•
-                </span>
-              </button>
+                  <span class={[
+                    "text-sm font-medium truncate",
+                    !document.enabled && "opacity-50 line-through"
+                  ]}>
+                    {document.name}
+                  </span>
+                  <span class={[
+                    "badge badge-sm",
+                    document.status == :ready && "badge-success",
+                    document.status == :error && "badge-error",
+                    document.status in [:pending, :indexing] && "badge-info"
+                  ]}>
+                    {document.status}
+                  </span>
+                  <span :if={!document.enabled} class="badge badge-ghost badge-sm">disabled</span>
+                  <span class="text-xs opacity-60">{document.segment_count} segments</span>
+                  <span
+                    :if={@can_edit}
+                    class="ml-auto btn btn-ghost btn-xs text-error"
+                    phx-click="delete_document"
+                    phx-value-document-id={document.id}
+                  >
+                    âœ•
+                  </span>
+                </button>
+              </div>
               <div
                 :if={@expanded_document_id == document.id}
                 class="border-t border-base-200 p-3 space-y-2"

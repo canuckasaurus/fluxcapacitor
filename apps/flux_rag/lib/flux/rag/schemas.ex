@@ -118,6 +118,9 @@ defmodule Flux.RAG.Document do
 
     field(:name, :string)
     field(:status, Ecto.Enum, values: [:pending, :indexing, :ready, :error], default: :pending)
+    # Disabled documents keep their segments but retrieval skips them
+    # (the flag cascades to segments' enabled).
+    field(:enabled, :boolean, default: true)
     field(:error, :string)
     field(:segment_count, :integer, default: 0)
     field(:content, :string)
