@@ -214,6 +214,7 @@ measured on the dev workstation, echo provider:
 | Recurring batches | per cron | Flux → Batches → Repeat |
 | Scheduled evals | per cron | Flux → Evals |
 | Scheduled retrieval evals | per cron | Knowledge → Settings |
+| Scheduled conversation evals | per cron | App → Monitoring |
 | Scheduled exports | per cron | Settings → Export |
 | URL source re-fetch | 03:00 UTC daily | Knowledge → re-fetch nightly |
 | Trash purge & log sweeps | nightly | automatic |

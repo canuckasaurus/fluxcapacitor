@@ -995,3 +995,39 @@ had to remove. Four migrations (accounts_tokens
 device info, apps A/B columns, datasets retrieval-eval columns,
 conversation_evals). Custom domains and
 the Japanese locale stay on the table.
+
+**47. Batch 23 — composition, sight, and pictures.** **Sub-flux call
+node** (the call-site extract-to-flux always apologized for: a
+"subflux" node runs any published flux as one step — the runner's
+request grew an inputs variant beside iteration's item/index, templates
+map the child's start variables, its end outputs come back as the
+node's outputs, version pin included; verified end-to-end by a
+published Greeter sub-flux answering "hello Marty" through a Caller
+parent); **LLM node vision** (a vision_variable resolves an uploaded
+image's file id through a new read_image host capability — base64 via
+Flux.Documents.fetch_image, refusing non-images — and rides the last
+user message exactly like chat uploads; missing capability or
+unreadable file fails the node honestly); **image generation**
+(optional invoke_image on the provider behaviour, OpenAI
+/images/generations b64_json shape shared with the compatible plugin,
+FAKE-PNG fakes; a builtin:images toolset appears in every tool/agent
+picker with one generate_image operation that stores the PNG through
+store_run_output onto Files); **GET /v1/models** (OpenAI list shape —
+provider models with an app- token's bound model first — so SDKs
+autodiscover; the model REGISTRY moved to /v1/registry/models, a
+documented breaking change reversing batch 18's "completions-only"
+stance now that the user asked for autodiscovery; spec, contract
+tests, and guide updated); **conversation-eval crons** (the batch-22
+scripted dialogues take a schedule column with the standard
+Oban-parsed cron + minute-start dedupe, run from the schedule worker
+tick; score drops notify as before); **bulk document operations**
+(documents gain an enabled flag cascading to their segments — what
+retrieval actually filters on, and re-indexing a disabled document
+stays disabled; multi-select bar in the dataset browser
+enables/disables/tags/deletes at once); and the **instance
+announcement banner** (an "announcement" key in instance_settings, an
+admin-panel form beside the status note, and a warning bar atop the
+console layout). Two migrations (conversation_evals.schedule,
+rag_documents.enabled — the banner needed none). Correction mid-batch: the
+LLM-node edit initially left a stray brace block — the batch-22
+"replace the whole expression" lesson applied within the hour.

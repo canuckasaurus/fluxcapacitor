@@ -16,7 +16,9 @@ orchestrator, no queue infrastructure beyond Postgres.
   approve/deny before executing — with multi-select
   **align/distribute** tools on the canvas — branching,
   iteration and bounded loops over sub-fluxes — **pinnable to a specific
-  published version** for reproducible composition — code execution, HTTP,
+  published version** for reproducible composition — a **sub-flux call
+  node** that runs any published flux as a single step (inputs mapped
+  from templates, its outputs flowing back) — code execution, HTTP,
   knowledge retrieval, human-input and labeling pause/resume, classifiers,
   extractors, **timed delays** (seconds or until a timestamp, for pacing
   rate-limited APIs), and more) with
@@ -119,7 +121,8 @@ orchestrator, no queue infrastructure beyond Postgres.
   per app**) — including an
   **OpenAI-compatible `POST /v1/chat/completions`** (blocking and
   streaming) that reaches **chatflow apps too** (bridged through their
-  flux), plus **OpenAI-compatible `/v1/embeddings`**, so any OpenAI SDK
+  flux), plus **OpenAI-compatible `/v1/embeddings`** and a
+  **`GET /v1/models` listing** for SDK autodiscovery, so any OpenAI SDK
   talks to apps and embedding models with a base-URL swap. Monitoring pages
   track usage, feedback and quality trends, **topic clusters** of what
   people actually ask, and **annotation replies** promote
@@ -204,7 +207,12 @@ orchestrator, no queue infrastructure beyond Postgres.
   auto-discovers from whatever `ollama pull` installed — and a **model
   playground** races one prompt across up to four models side by side
   (latency, tokens, cost per column; one click promotes the winner to
-  workspace default).
+  workspace default). Providers with an image endpoint gain
+  **text-to-image** (`invoke_image`, OpenAI images shape) — a built-in
+  **Images toolset** puts `generate_image` in every tool and agent
+  node's picker, with results landing on the Files page — and **LLM
+  nodes see images**: point a `vision_variable` at an uploaded image
+  and it rides the prompt to vision-capable models.
   **MCP goes both ways**: register any Model Context Protocol server
   (Streamable HTTP, encrypted auth headers) and its tools join the picker
   for tool and agent nodes — and FluxCapacitor is itself an MCP server at
@@ -235,7 +243,10 @@ orchestrator, no queue infrastructure beyond Postgres.
   **run-a-flux-over-this-dataset** button that turns every document
   into a batch row (batches run rows **in parallel** when asked, up to
   8 at once), and **audio uploads** (voice memos, meeting recordings)
-  transcribe through the provider into searchable documents. Site
+  transcribe through the provider into searchable documents. The
+  dataset browser takes **bulk document operations** — multi-select to
+  enable/disable (disabled documents stay indexed but retrieval skips
+  them), tag, or delete several at once. Site
   visitors can **ask for a human** — the
   conversation flags into a console queue and a teammate's reply lands
   in the visitor's chat live — and conversations take **labels** for
@@ -262,7 +273,9 @@ orchestrator, no queue infrastructure beyond Postgres.
   via **read-only share links**, the canvas exports as **SVG**,
   monitoring tables download as **CSV**, the LLM cache reports its
   **hit rate**, owners can **archive workspaces** instead of deleting,
-  and a **monthly cost report** emails opted-in members on the 1st.
+  a **monthly cost report** emails opted-in members on the 1st, and an
+  instance-admin **announcement banner** tops every console page for
+  maintenance windows and migration notices.
 
 ## Architecture
 

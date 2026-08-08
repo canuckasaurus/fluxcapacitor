@@ -54,7 +54,9 @@ them and exposes each as `{{start.<name>}}`. Chatflows also get
 
 Calls a chat model and streams the reply. Pick a provider+model, write
 a `system_prompt` and `prompt` (both templated), optionally attach an
-`output_schema` for structured JSON output (`{{node.output}}`) and a
+`output_schema` for structured JSON output (`{{node.output}}`), a
+`vision_variable` (a file variable holding an uploaded image — it rides
+the user message to vision-capable models), and a
 fallback model that takes over when the primary errors. Outputs `text`,
 `usage`, `model_used`, `fallback_used`.
 
@@ -153,6 +155,13 @@ Hybrid (keyword + vector + entity) retrieval across the datasets you
 check, using RRF ranking. `top_k` left blank defers to each dataset's
 own retrieval settings. Outputs `result` (joined passages),
 `citations`, `count`.
+
+### `subflux`
+
+Calls another published flux as one node: `inputs` maps the sub-flux's
+start variables from templates, and its end outputs become this node's
+outputs (`{{node.<key>}}`). Pinnable to a version; one level deep, same
+as iteration and loop. The call-site companion to extract-to-flux.
 
 ### `delay`
 

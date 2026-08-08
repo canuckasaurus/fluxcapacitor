@@ -5,6 +5,33 @@ follows [Keep a Changelog](https://keepachangelog.com/); the project follows
 semantic versioning once past 1.0. Detailed build history lives in the ledger
 at `docs/PARITY-PLAN.md`.
 
+## Unreleased
+
+### Breaking
+- The model-registry API moved from `GET/POST /v1/models` to
+  `GET/POST /v1/registry/models`. `GET /v1/models` now answers in
+  OpenAI's list shape (the workspace's provider models, the app's bound
+  model first) so OpenAI SDKs and gateways autodiscover.
+
+### Batch 23
+- Sub-flux call node: run a published flux as a single node — inputs
+  map from templates (`name = {{ref}}` per line), the sub-flux's end
+  outputs come back as the node's outputs, version-pinnable.
+- LLM node vision: a `vision_variable` resolving to an uploaded image
+  rides the user message to vision-capable models — workflows can
+  finally see images.
+- Image generation: an optional `invoke_image` provider capability
+  (OpenAI images shape on the OpenAI/compatible plugins) exposed as a
+  built-in `Images` toolset for tool and agent nodes; generated PNGs
+  land on the Files page.
+- Conversation evals take a cron — scripted dialogues re-run
+  unattended, score drops notify (same treatment retrieval evals got).
+- Bulk document operations: multi-select in the dataset browser to
+  enable/disable (a new per-document flag that cascades to segments —
+  retrieval skips disabled documents), tag, or delete several at once.
+- Instance announcement banner: admins set a note that shows atop
+  every console page (maintenance windows, migration notices).
+
 ## v0.4.0 — 2026-08-08
 
 Three batches on from v0.3.0: enterprise sign-on, model experimentation,
