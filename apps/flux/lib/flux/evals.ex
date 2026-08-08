@@ -537,23 +537,26 @@ defmodule Flux.Evals do
   # Test injection wins; otherwise a per-eval judge ("plugin|model"),
   # falling back to the workspace default model.
   defp judge_reply(eval_run, messages) do
+    judge_llm(eval_run.workspace_id, eval_run.judge, messages)
+  end
+
+  @doc false
+  # Shared judge dispatch (also used by conversation evals): the
+  # `:eval_judge` test injection, then `judge` as "plugin|model", then
+  # the workspace default model.
+  def judge_llm(workspace_id, judge, messages) do
     case Application.get_env(:flux, :eval_judge) do
       nil ->
-        case parse_judge_choice(eval_run.judge) do
+        case parse_judge_choice(judge) do
           {plugin_id, model} ->
-            Workflows.invoke_model_for_workspace(
-              eval_run.workspace_id,
-              plugin_id,
-              model,
-              messages
-            )
+            Workflows.invoke_model_for_workspace(workspace_id, plugin_id, model, messages)
 
           nil ->
-            Workflows.invoke_default_llm_for_workspace(eval_run.workspace_id, messages)
+            Workflows.invoke_default_llm_for_workspace(workspace_id, messages)
         end
 
       fun when is_function(fun, 2) ->
-        fun.(eval_run.workspace_id, messages)
+        fun.(workspace_id, messages)
     end
   end
 
@@ -567,7 +570,10 @@ defmodule Flux.Evals do
   defp presence(nil), do: nil
   defp presence(text) when is_binary(text), do: with("" <- String.trim(text), do: nil)
 
-  defp parse_judge_reply(reply) do
+  @doc false
+  # Extracts {score, reason} from a judge's JSON reply (shared with
+  # conversation evals).
+  def parse_judge_reply(reply) do
     with {:ok, start} <- find(reply, "{"),
          {:ok, stop} <- rfind(reply, "}"),
          {:ok, %{"score" => score} = decoded} <-

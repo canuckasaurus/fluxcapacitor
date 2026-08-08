@@ -18,6 +18,8 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
          app: app,
          conversations: Chat.list_conversations(scope, app.id, 50),
          handoffs: Chat.handoff_queue(scope, app.id),
+         ab_stats: (app.ab_split > 0 && Chat.app_ab_stats(scope, app.id)) || nil,
+         conversation_evals: Flux.ConversationEvals.list_conversation_evals(scope, app.id),
          all_labels: Chat.conversation_labels(scope, app.id),
          label_filter: nil,
          usage: Chat.usage_stats(scope, app.id),
@@ -174,6 +176,50 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
     else
       {:noreply, assign(socket, selected_id: id, messages: Chat.list_messages(scope, id))}
     end
+  end
+
+  def handle_event("add_conversation_eval", params, socket) do
+    scope = socket.assigns.current_scope
+
+    attrs = %{
+      "name" => params["name"],
+      "expectation" => params["expectation"],
+      "turns" => String.split(params["turns"] || "", ["\r\n", "\n"])
+    }
+
+    case Flux.ConversationEvals.create_conversation_eval(scope, socket.assigns.app, attrs) do
+      {:ok, _eval} ->
+        {:noreply, refresh_conversation_evals(socket)}
+
+      {:error, %Ecto.Changeset{}} ->
+        {:noreply,
+         put_flash(socket, :error, "Needs a name, an expectation, and at least one turn.")}
+
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "You don't have permission to edit apps.")}
+    end
+  end
+
+  def handle_event("run_conversation_eval", %{"eval-id" => id}, socket) do
+    case Flux.ConversationEvals.run_conversation_eval(socket.assigns.current_scope, id) do
+      {:ok, _eval} -> {:noreply, refresh_conversation_evals(socket)}
+      _error -> {:noreply, put_flash(socket, :error, "The conversation eval could not run.")}
+    end
+  end
+
+  def handle_event("delete_conversation_eval", %{"eval-id" => id}, socket) do
+    Flux.ConversationEvals.delete_conversation_eval(socket.assigns.current_scope, id)
+    {:noreply, refresh_conversation_evals(socket)}
+  end
+
+  defp refresh_conversation_evals(socket) do
+    assign(socket,
+      conversation_evals:
+        Flux.ConversationEvals.list_conversation_evals(
+          socket.assigns.current_scope,
+          socket.assigns.app.id
+        )
+    )
   end
 
   # Direct-model apps price against their bound model; chatflow apps get
@@ -479,6 +525,120 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
             {message.content}
           </p>
         </div>
+      </div>
+
+      <div :if={@ab_stats} class="card border border-base-200 p-4 space-y-2" id="model-ab-card">
+        <h2 class="font-semibold text-sm">
+          Model A/B — {@app.provider_plugin_id}/{@app.model} vs {@app.ab_provider_plugin_id}/{@app.ab_model} ({@app.ab_split}% B)
+        </h2>
+        <table class="table table-xs max-w-xl">
+          <thead>
+            <tr>
+              <th>Variant</th>
+              <th>Replies</th>
+              <th>👍</th>
+              <th>👎</th>
+              <th>Tokens</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={{variant, label} <- [{"a", "A (primary)"}, {"b", "B (challenger)"}]}>
+              <td>{label}</td>
+              <td>{@ab_stats[variant].replies}</td>
+              <td>{@ab_stats[variant].likes}</td>
+              <td>{@ab_stats[variant].dislikes}</td>
+              <td class="font-mono">{@ab_stats[variant].tokens}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card border border-base-200 p-4 space-y-3" id="conversation-evals">
+        <h2 class="font-semibold text-sm">
+          <.icon name="hero-chat-bubble-left-right" class="size-4 inline" /> Conversation evals
+        </h2>
+        <p class="text-xs opacity-60">
+          Scripted dialogues replayed through the app and judged as a whole —
+          catches behaviors that only show up across turns.
+        </p>
+        <div
+          :for={eval <- @conversation_evals}
+          class="rounded-box border border-base-200 p-3 space-y-1"
+          id={"conversation-eval-#{eval.id}"}
+        >
+          <div class="flex items-center gap-2">
+            <span class="font-semibold text-sm">{eval.name}</span>
+            <span class="badge badge-ghost badge-sm">{length(eval.turns)} turns</span>
+            <span
+              :if={eval.last_score}
+              class={[
+                "badge badge-sm",
+                (eval.last_score >= 0.7 && "badge-success") || "badge-error"
+              ]}
+            >
+              {eval.last_score}
+            </span>
+            <span :if={eval.last_run_at} class="text-xs opacity-50">
+              {Calendar.strftime(eval.last_run_at, "%Y-%m-%d %H:%M")}
+            </span>
+            <div :if={@can_edit} class="ml-auto flex gap-1">
+              <button
+                class="btn btn-primary btn-xs"
+                phx-click="run_conversation_eval"
+                phx-value-eval-id={eval.id}
+              >
+                Run
+              </button>
+              <button
+                class="btn btn-ghost btn-xs"
+                phx-click="delete_conversation_eval"
+                phx-value-eval-id={eval.id}
+              >
+                <.icon name="hero-trash" class="size-3" />
+              </button>
+            </div>
+          </div>
+          <p :if={eval.last_reason} class="text-xs opacity-70">{eval.last_reason}</p>
+          <details :if={eval.last_transcript != []}>
+            <summary class="text-xs opacity-60 cursor-pointer">Last transcript</summary>
+            <div class="space-y-1 mt-1 max-h-48 overflow-y-auto">
+              <p :for={message <- eval.last_transcript} class="text-xs">
+                <span class="font-semibold">{message["role"]}:</span> {message["content"]}
+              </p>
+            </div>
+          </details>
+        </div>
+        <form
+          :if={@can_edit}
+          phx-submit="add_conversation_eval"
+          class="space-y-2"
+          id="add-conversation-eval"
+        >
+          <div class="flex gap-2">
+            <input
+              type="text"
+              name="name"
+              placeholder="Name"
+              class="input input-bordered input-sm w-48"
+              required
+            />
+            <input
+              type="text"
+              name="expectation"
+              placeholder="Expectation — what a good dialogue looks like"
+              class="input input-bordered input-sm flex-1"
+              required
+            />
+          </div>
+          <textarea
+            name="turns"
+            rows="3"
+            placeholder="User turns, one per line"
+            class="textarea textarea-bordered textarea-sm w-full font-mono"
+            required
+          ></textarea>
+          <button class="btn btn-outline btn-sm">Add conversation eval</button>
+        </form>
       </div>
 
       <div
