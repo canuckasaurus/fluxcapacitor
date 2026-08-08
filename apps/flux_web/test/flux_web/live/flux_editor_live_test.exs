@@ -537,6 +537,37 @@ defmodule FluxWeb.FluxEditorLiveTest do
     assert copy["position"]["x"] == original["position"]["x"] + 40
   end
 
+  test "extracting a selection makes a new flux with externalized inputs", %{
+    conn: conn,
+    workflow: workflow,
+    scope: scope
+  } do
+    workflow = wire_echo(scope, workflow)
+    {:ok, lv, _html} = live(conn, ~p"/console/fluxes/#{workflow.id}")
+
+    # Select the llm + answer nodes and extract them.
+    render_hook(lv, "marquee_select", %{"ids" => ["llm_1", "answer_1"]})
+    render_click(lv, "extract_subflux", %{})
+
+    extracted = Enum.find(Workflows.list_workflows(scope), &(&1.name =~ "extracted"))
+    assert extracted != nil
+
+    node_ids = Enum.map(extracted.graph["nodes"], & &1["id"])
+    assert "start" in node_ids and "llm_1" in node_ids and "answer_1" in node_ids
+
+    # {{start.query}} referenced the parent's start → became a start
+    # variable of the extracted flux, and the prompt was rewritten.
+    start = Enum.find(extracted.graph["nodes"], &(&1["id"] == "start"))
+    assert [%{"name" => "start_query"}] = start["config"]["variables"]
+
+    llm = Enum.find(extracted.graph["nodes"], &(&1["id"] == "llm_1"))
+    assert llm["config"]["prompt"] == "{{start.start_query}}"
+
+    # Internal references survive untouched.
+    answer = Enum.find(extracted.graph["nodes"], &(&1["id"] == "answer_1"))
+    assert answer["config"]["answer"] == "{{llm_1.text}}"
+  end
+
   test "rename updates the workflow name", %{conn: conn, workflow: workflow, scope: scope} do
     {:ok, lv, _html} = live(conn, ~p"/console/fluxes/#{workflow.id}")
 

@@ -525,6 +525,57 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     end
   end
 
+  def handle_event("extract_subflux", _params, socket) do
+    scope = socket.assigns.current_scope
+    graph = socket.assigns.graph
+    ids = MapSet.new(socket.assigns.selected_ids)
+
+    nodes =
+      Enum.filter(
+        graph["nodes"] || [],
+        &(MapSet.member?(ids, &1["id"]) and &1["type"] != "start")
+      )
+
+    internal_ids = MapSet.new(nodes, & &1["id"])
+
+    edges =
+      Enum.filter(graph["edges"] || [], fn edge ->
+        MapSet.member?(internal_ids, edge["source"]) and
+          MapSet.member?(internal_ids, edge["target"])
+      end)
+
+    with false <- nodes == [],
+         {rewritten, variables} = externalize_references(nodes, internal_ids),
+         {:ok, extracted} <-
+           Workflows.create_workflow(scope, %{
+             "name" => "#{socket.assigns.workflow.name} — extracted",
+             "description" => "Extracted from #{socket.assigns.workflow.name}"
+           }),
+         start_node = %{
+           "id" => "start",
+           "type" => "start",
+           "title" => "Start",
+           "position" => %{"x" => 40, "y" => 40},
+           "config" => %{"variables" => variables}
+         },
+         {:ok, _updated} <-
+           Workflows.update_draft(scope, extracted, %{
+             "nodes" => [start_node | rewritten],
+             "edges" => edges
+           }) do
+      {:noreply,
+       socket
+       |> put_flash(
+         :info,
+         "#{length(nodes)} node(s) extracted — wire it back in with an iteration or loop node."
+       )
+       |> push_navigate(to: ~p"/console/fluxes/#{extracted.id}")}
+    else
+      true -> {:noreply, put_flash(socket, :error, "Select the nodes to extract first.")}
+      _error -> {:noreply, put_flash(socket, :error, "Could not extract the selection.")}
+    end
+  end
+
   def handle_event("copy_selection", _params, socket) do
     graph = socket.assigns.graph
 
@@ -708,6 +759,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
               current["type"]
               |> build_config(current["config"], params)
               |> put_retry(params)
+              |> put_timeout(params)
 
             current
             |> Map.put("title", Map.get(params, "title", current["title"]))
@@ -1556,6 +1608,16 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
 
   defp put_retry(config, _params), do: config
 
+  # Seconds in the UI, milliseconds in the config; blank clears.
+  defp put_timeout(config, %{"timeout_seconds" => seconds}) do
+    case Integer.parse(to_string(seconds)) do
+      {n, ""} when n > 0 -> Map.put(config, "timeout_ms", min(n, 1_800) * 1_000)
+      _off -> Map.delete(config, "timeout_ms")
+    end
+  end
+
+  defp put_timeout(config, _params), do: config
+
   defp filtered_palette(""), do: @addable_types
 
   defp filtered_palette(query) do
@@ -2154,6 +2216,68 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
   # Snapshots every operation of the chosen toolset as an agent tool
   # (name/description/JSON-schema parameters + invocation binding). The
   # toolset comes from the workspace-scoped assigns, never a raw id lookup.
+  # Extraction: template references leaving the selection ({{node.field}}
+  # where node isn't extracted) become start variables of the new flux
+  # ({{start.node_field}}), so the extracted graph runs standalone.
+  @reference_pattern ~r/\{\{\s*([a-zA-Z0-9_\-]+)((?:\.[a-zA-Z0-9_\-]+)+)\s*\}\}/
+
+  defp externalize_references(nodes, internal_ids) do
+    external =
+      nodes
+      |> Enum.flat_map(fn node -> collect_references(node["config"]) end)
+      |> Enum.uniq()
+      |> Enum.reject(fn {root, _path} -> MapSet.member?(internal_ids, root) end)
+
+    mapping =
+      Map.new(external, fn {root, path} ->
+        variable =
+          "#{root}#{path}" |> String.replace(~r/[^a-zA-Z0-9_]/, "_") |> String.slice(0, 60)
+
+        {"{{#{root}#{path}}}", "{{start.#{variable}}}"}
+      end)
+
+    variables =
+      external
+      |> Enum.map(fn {root, path} ->
+        name = "#{root}#{path}" |> String.replace(~r/[^a-zA-Z0-9_]/, "_") |> String.slice(0, 60)
+        %{"name" => name, "type" => "text", "required" => false}
+      end)
+      |> Enum.uniq_by(& &1["name"])
+
+    rewritten =
+      Enum.map(nodes, fn node ->
+        Map.put(node, "config", rewrite_references(node["config"], mapping))
+      end)
+
+    {rewritten, variables}
+  end
+
+  defp collect_references(value) when is_binary(value) do
+    for [_full, root, path] <- Regex.scan(@reference_pattern, value), do: {root, path}
+  end
+
+  defp collect_references(value) when is_map(value),
+    do: Enum.flat_map(value, fn {_key, v} -> collect_references(v) end)
+
+  defp collect_references(value) when is_list(value),
+    do: Enum.flat_map(value, &collect_references/1)
+
+  defp collect_references(_other), do: []
+
+  defp rewrite_references(value, mapping) when is_binary(value) do
+    Regex.replace(@reference_pattern, value, fn full, root, path ->
+      Map.get(mapping, "{{#{root}#{path}}}", full)
+    end)
+  end
+
+  defp rewrite_references(value, mapping) when is_map(value),
+    do: Map.new(value, fn {key, v} -> {key, rewrite_references(v, mapping)} end)
+
+  defp rewrite_references(value, mapping) when is_list(value),
+    do: Enum.map(value, &rewrite_references(&1, mapping))
+
+  defp rewrite_references(value, _mapping), do: value
+
   # Union across several toolsets; colliding names get a numeric suffix
   # so the model can always address every tool unambiguously.
   defp snapshot_tools_multi(ids, toolsets) do
@@ -2721,6 +2845,15 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
               title="Auto-arrange nodes left to right"
             >
               <.icon name="hero-rectangle-group" class="size-4" /> Tidy
+            </button>
+            <button
+              :if={@can_edit and length(@selected_ids) > 1}
+              class="btn btn-sm btn-ghost"
+              phx-click="extract_subflux"
+              title="Copy the selected nodes into a new flux — external references become start variables"
+              id="extract-subflux"
+            >
+              <.icon name="hero-scissors" class="size-4" /> Extract
             </button>
             <div
               :if={@can_edit and length(@selected_ids) > 1}
@@ -4726,6 +4859,19 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                   value={node["config"]["retry"]["max_retries"] || 0}
                   min="0"
                   max="5"
+                  class="input input-sm w-24"
+                  disabled={not @can_edit}
+                />
+              </label>
+
+              <label :if={node["type"] != "start"} class="floating-label block">
+                <span>Timeout (seconds; blank = none, max 1800)</span>
+                <input
+                  type="number"
+                  name="timeout_seconds"
+                  value={node["config"]["timeout_ms"] && div(node["config"]["timeout_ms"], 1000)}
+                  min="1"
+                  max="1800"
                   class="input input-sm w-24"
                   disabled={not @can_edit}
                 />
