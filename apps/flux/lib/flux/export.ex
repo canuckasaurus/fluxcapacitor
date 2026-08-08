@@ -164,7 +164,36 @@ defmodule Flux.Export do
 
   defp apps(scope) do
     for app <- Flux.Chat.list_apps(scope) do
-      %{"name" => app.name, "dsl" => Flux.Workflows.DSL.export_app(app)}
+      %{
+        "name" => app.name,
+        "dsl" => Flux.Workflows.DSL.export_app(app),
+        "conversations" => conversations(scope, app)
+      }
+    end
+  end
+
+  # Chat history rides the backup (capped per app so archives stay
+  # bounded): titles, labels, and completed turns.
+  @max_conversations_per_app 500
+
+  defp conversations(scope, app) do
+    for conversation <-
+          Flux.Chat.list_conversations(scope, app.id, @max_conversations_per_app) do
+      %{
+        "title" => conversation.title,
+        "end_user_ref" => conversation.end_user_ref,
+        "labels" => conversation.labels,
+        "inserted_at" => conversation.inserted_at,
+        "messages" =>
+          for message <- Flux.Chat.list_messages(scope, conversation.id),
+              message.status == :completed or message.role == :user do
+            %{
+              "role" => to_string(message.role),
+              "content" => message.content,
+              "inserted_at" => message.inserted_at
+            }
+          end
+      }
     end
   end
 

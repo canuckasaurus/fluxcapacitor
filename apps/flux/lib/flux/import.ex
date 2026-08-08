@@ -107,13 +107,44 @@ defmodule Flux.Import do
   defp import_apps(scope, entries) do
     Enum.reduce(entries, {0, []}, fn entry, {count, warnings} ->
       with {:ok, %{attrs: attrs}} <- Flux.Workflows.DSL.parse_app(entry["dsl"] || ""),
-           {:ok, _app} <- Flux.Chat.create_app(scope, attrs) do
+           {:ok, app} <- Flux.Chat.create_app(scope, attrs) do
+        import_conversations(scope, app, List.wrap(entry["conversations"]))
         {count + 1, warnings}
       else
         {:error, reason} ->
           {count, warnings ++ ["app #{entry["name"]}: #{format(reason)}"]}
       end
     end)
+  end
+
+  # Archived chat history restores as completed turns (no streaming
+  # placeholders, no usage — the transcript is the point).
+  defp import_conversations(scope, app, entries) do
+    for entry <- entries do
+      conversation =
+        Flux.Chat.create_conversation(scope, app, %{
+          title: entry["title"],
+          end_user_ref: entry["end_user_ref"]
+        })
+
+      if is_list(entry["labels"]) and entry["labels"] != [] do
+        Flux.Chat.set_conversation_labels(scope, conversation.id, entry["labels"])
+      end
+
+      for message <- List.wrap(entry["messages"]),
+          message["role"] in ["user", "assistant"],
+          is_binary(message["content"]) do
+        Flux.Repo.insert!(%Flux.Chat.Message{
+          workspace_id: conversation.workspace_id,
+          conversation_id: conversation.id,
+          role: String.to_existing_atom(message["role"]),
+          content: message["content"],
+          status: :completed
+        })
+      end
+    end
+
+    :ok
   end
 
   defp import_datasets(scope, entries) do
