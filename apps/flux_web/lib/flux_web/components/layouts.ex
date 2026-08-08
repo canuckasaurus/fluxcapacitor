@@ -106,6 +106,14 @@ defmodule FluxWeb.Layouts do
       <input id="console-drawer" type="checkbox" class="drawer-toggle" />
 
       <div class="drawer-content min-h-screen min-w-0 flex flex-col">
+        <div
+          :if={announcement = Flux.InstanceSettings.get("announcement")}
+          class="bg-warning/20 border-b border-warning/40 px-4 py-2 text-sm text-center"
+          id="instance-announcement"
+        >
+          <.icon name="hero-megaphone" class="size-4 inline mr-1" />
+          {announcement}
+        </div>
         <header class="navbar min-h-12 gap-1 border-b border-base-200 lg:hidden">
           <label for="console-drawer" class="btn btn-ghost btn-sm btn-square" aria-label="Open menu">
             <.icon name="hero-bars-3" class="size-5" />

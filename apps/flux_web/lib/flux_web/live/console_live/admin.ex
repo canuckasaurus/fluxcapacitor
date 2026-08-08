@@ -20,6 +20,7 @@ defmodule FluxWeb.ConsoleLive.Admin do
          problem_jobs: Flux.Jobs.problem_jobs(),
          archived: Accounts.archived_workspaces(),
          status_note: Flux.InstanceSettings.get("status_note"),
+         announcement: Flux.InstanceSettings.get("announcement"),
          plans: Flux.Features.plans()
        )}
     else
@@ -73,6 +74,19 @@ defmodule FluxWeb.ConsoleLive.Admin do
        socket
        |> put_flash(:info, "Status note saved — it shows on /status.")
        |> assign(status_note: Flux.InstanceSettings.get("status_note"))}
+    else
+      _not_admin -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("save_announcement", %{"note" => note}, socket) do
+    with true <- Accounts.instance_admin?(socket.assigns.current_scope.account) do
+      :ok = Flux.InstanceSettings.put("announcement", note)
+
+      {:noreply,
+       socket
+       |> put_flash(:info, "Announcement saved — it shows atop every console page.")
+       |> assign(announcement: Flux.InstanceSettings.get("announcement"))}
     else
       _not_admin -> {:noreply, socket}
     end
@@ -194,6 +208,23 @@ defmodule FluxWeb.ConsoleLive.Admin do
             class="textarea textarea-bordered textarea-sm w-full max-w-xl"
           >{@status_note}</textarea>
           <button class="btn btn-primary btn-sm">Save note</button>
+        </form>
+      </div>
+
+      <div class="card border border-base-200 p-6 space-y-2" id="announcement-card">
+        <h2 class="font-semibold">Console announcement</h2>
+        <p class="text-sm opacity-70">
+          Shown as a banner atop every console page while non-blank — for
+          maintenance windows and migration notices. Blank to clear.
+        </p>
+        <form phx-submit="save_announcement" id="announcement-form" class="space-y-2">
+          <textarea
+            name="note"
+            rows="2"
+            placeholder="e.g. Scheduled maintenance Saturday 02:00–03:00 UTC."
+            class="textarea textarea-bordered textarea-sm w-full max-w-xl"
+          >{@announcement}</textarea>
+          <button class="btn btn-primary btn-sm">Save announcement</button>
         </form>
       </div>
 
