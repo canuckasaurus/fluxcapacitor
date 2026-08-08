@@ -1329,7 +1329,20 @@ defmodule Flux.Engine.Nodes.KnowledgeRetrieval do
         |> Enum.map(&Template.render(to_string(&1), pool))
         |> Enum.reject(&(&1 == ""))
 
-      case retrieve.(%{dataset_ids: dataset_ids, query: query, top_k: top_k, tags: tags}) do
+      # Metadata filter: values are templates too ({{start.region}}).
+      metadata =
+        (node.config["metadata_filter"] || %{})
+        |> Enum.map(fn {key, value} -> {key, Template.render(to_string(value), pool)} end)
+        |> Enum.reject(fn {_key, value} -> value == "" end)
+        |> Map.new()
+
+      case retrieve.(%{
+             dataset_ids: dataset_ids,
+             query: query,
+             top_k: top_k,
+             tags: tags,
+             metadata: metadata
+           }) do
         {:ok, hits} ->
           citations =
             Enum.map(hits, fn hit ->

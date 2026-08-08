@@ -33,6 +33,7 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
        datasource_plugins: datasource_plugins,
        can_edit: RBAC.can?(scope, :dataset_edit),
        can_create: RBAC.can?(scope, :dataset_create_and_management),
+       fluxes: Flux.Workflows.list_workflows(scope),
        selected: nil,
        retrieval_cases: [],
        retrieval_summary: nil,
@@ -44,7 +45,8 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
        hits: nil
      )
      |> allow_upload(:document,
-       accept: ~w(.txt .md .markdown .csv .json .html .htm .pdf .docx .doc .xlsx .pptx),
+       accept: ~w(.txt .md .markdown .csv .json .html .htm .pdf .docx .doc .xlsx .pptx
+            .png .jpg .jpeg .gif .webp),
        max_entries: 5,
        max_file_size: 15_000_000
      )
@@ -78,6 +80,19 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
           documents: RAG.list_documents(socket.assigns.current_scope, dataset.id),
           url_sources: RAG.list_url_sources(socket.assigns.current_scope, dataset.id)
         )
+    end
+  end
+
+  defp extract_or_describe(workspace_id, entry, binary) do
+    case entry.client_type do
+      "image/" <> _subtype ->
+        case Flux.Workflows.describe_image_for_workspace(workspace_id, binary, entry.client_type) do
+          {:ok, description} -> {:ok, "[image: #{entry.client_name}]\n\n" <> description}
+          {:error, _reason} -> {:error, "no vision-capable default model configured"}
+        end
+
+      _document ->
+        Flux.Documents.extract_binary(entry.client_name, entry.client_type, binary)
     end
   end
 
@@ -172,6 +187,27 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
        retrieval_cases: RAG.list_retrieval_cases(scope, socket.assigns.selected.id),
        retrieval_summary: nil
      )}
+  end
+
+  def handle_event(
+        "set_document_metadata",
+        %{"document-id" => document_id, "metadata" => metadata},
+        socket
+      ) do
+    parsed =
+      metadata
+      |> String.split(",")
+      |> Enum.map(&String.split(&1, "=", parts: 2))
+      |> Enum.filter(&match?([_key, _value], &1))
+      |> Map.new(fn [key, value] -> {key, value} end)
+
+    case RAG.set_document_metadata(socket.assigns.current_scope, document_id, parsed) do
+      {:ok, _document} ->
+        {:noreply, refresh_documents(socket)}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not save the metadata.")}
+    end
   end
 
   def handle_event("set_document_tags", %{"document-id" => document_id, "tags" => tags}, socket) do
@@ -337,9 +373,10 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
       consume_uploaded_entries(socket, :document, fn %{path: path}, entry ->
         binary = File.read!(path)
 
-        # One pipeline for everything: text/HTML/docx natively, PDF and
-        # the other office formats through Tika when configured.
-        case Flux.Documents.extract_binary(entry.client_name, entry.client_type, binary) do
+        # Images ingest through the workspace vision model: the
+        # description (with any visible text transcribed) is what
+        # indexes; everything else takes the extraction pipeline.
+        case extract_or_describe(dataset.workspace_id, entry, binary) do
           {:ok, content} when content != "" ->
             # Same-named uploads replace the previous version in place.
             {:ok,
@@ -457,6 +494,44 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
        |> assign(selected: updated, datasets: RAG.list_datasets(socket.assigns.current_scope))}
     else
       _error -> {:noreply, put_flash(socket, :error, "Could not save the settings.")}
+    end
+  end
+
+  def handle_event("run_flux_over_dataset", %{"workflow-id" => workflow_id}, socket) do
+    scope = socket.assigns.current_scope
+
+    with %{} = dataset <- socket.assigns.selected,
+         workflow when not is_tuple(workflow) <-
+           Flux.Workflows.get_workflow(scope, workflow_id) do
+      rows =
+        for document <- RAG.list_documents(scope, dataset.id),
+            document.content not in [nil, ""] do
+          content = String.slice(document.content, 0, 20_000)
+          %{"query" => content, "content" => content, "name" => document.name}
+        end
+
+      case rows != [] &&
+             Flux.Workflows.start_batch(scope, workflow, rows, name: "dataset: #{dataset.name}") do
+        {:ok, batch} ->
+          {:noreply,
+           socket
+           |> put_flash(
+             :info,
+             "#{batch.total} document(s) queued through #{workflow.name} — results on the Batches page."
+           )
+           |> push_navigate(to: ~p"/console/fluxes/#{workflow.id}/batches")}
+
+        false ->
+          {:noreply, put_flash(socket, :error, "This dataset has no readable documents.")}
+
+        {:error, :unauthorized} ->
+          {:noreply, put_flash(socket, :error, "You don't have permission to run batches.")}
+
+        _error ->
+          {:noreply, put_flash(socket, :error, "Could not start the batch.")}
+      end
+    else
+      _missing -> {:noreply, socket}
     end
   end
 
@@ -711,6 +786,22 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
             </form>
           </div>
 
+          <div :if={@can_edit and @fluxes != []} class="card border border-base-200 p-4 space-y-2">
+            <p class="text-sm font-semibold">Run a flux over this dataset</p>
+            <p class="text-xs opacity-60">
+              Every document becomes a batch row (its text as <span class="font-mono">query</span>/<span class="font-mono">content</span>,
+              plus <span class="font-mono">name</span>) — bulk summarize, classify, or
+              extract without a CSV.
+            </p>
+            <form phx-submit="run_flux_over_dataset" class="flex gap-2" id="dataset-flux-form">
+              <select name="workflow-id" class="select select-bordered select-sm w-64" required>
+                <option value="" disabled selected>Pick a flux…</option>
+                <option :for={flux <- @fluxes} value={flux.id}>{flux.name}</option>
+              </select>
+              <button class="btn btn-outline btn-sm">Queue batch</button>
+            </form>
+          </div>
+
           <div :if={@can_edit} class="card border border-base-200 p-4 space-y-3">
             <p class="text-sm font-semibold">Add documents</p>
 
@@ -888,6 +979,26 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                     placeholder="tags, comma-separated (retrieval filters)"
                     class="input input-bordered input-xs w-64"
                   /> <button class="btn btn-ghost btn-xs">Save tags</button>
+                </form>
+
+                <form
+                  :if={@can_edit}
+                  phx-submit="set_document_metadata"
+                  class="flex gap-2"
+                  id={"metadata-form-#{document.id}"}
+                >
+                  <input type="hidden" name="document-id" value={document.id} />
+                  <input
+                    type="text"
+                    name="metadata"
+                    value={
+                      Enum.map_join(Enum.sort(document.metadata), ", ", fn {key, value} ->
+                        "#{key}=#{value}"
+                      end)
+                    }
+                    placeholder="metadata: key=value, key=value (retrieval filters)"
+                    class="input input-bordered input-xs w-64"
+                  /> <button class="btn btn-ghost btn-xs">Save metadata</button>
                 </form>
 
                 <div

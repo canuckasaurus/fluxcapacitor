@@ -813,6 +813,24 @@ defmodule Flux.RAG do
     end
   end
 
+  @doc "Sets a document's metadata map (string keys/values; blank values drop)."
+  def set_document_metadata(%Scope{} = scope, document_id, metadata) when is_map(metadata) do
+    with :ok <- RBAC.authorize(scope, :dataset_edit),
+         %Document{} = document <-
+           Repo.one(Repo.scoped(where(Document, id: ^document_id), scope)) ||
+             {:error, :not_found} do
+      normalized =
+        metadata
+        |> Enum.map(fn {key, value} ->
+          {String.trim(to_string(key)), String.trim(to_string(value))}
+        end)
+        |> Enum.reject(fn {key, value} -> key == "" or value == "" end)
+        |> Map.new()
+
+      document |> Ecto.Changeset.change(metadata: normalized) |> Repo.update()
+    end
+  end
+
   ## Retrieval evals (golden question → expected-passage cases)
 
   def add_retrieval_case(%Scope{} = scope, %Dataset{} = dataset, attrs) do
@@ -942,6 +960,7 @@ defmodule Flux.RAG do
       ids = Enum.map(ranked, fn {segment_id, _score} -> segment_id end)
       scores = Map.new(ranked)
       tags = opts |> Keyword.get(:tags, []) |> List.wrap() |> Enum.reject(&(&1 == ""))
+      metadata_filter = Keyword.get(opts, :metadata, %{})
 
       segments =
         Segment
@@ -955,6 +974,15 @@ defmodule Flux.RAG do
             query
           else
             where(query, [s, d], fragment("? && ?", d.tags, ^tags))
+          end
+        end)
+        |> then(fn query ->
+          # Metadata filter: JSONB containment — the document must carry
+          # every requested key/value pair.
+          if metadata_filter == %{} do
+            query
+          else
+            where(query, [s, d], fragment("? @> ?", d.metadata, ^metadata_filter))
           end
         end)
         |> preload([s, d], document: d)
