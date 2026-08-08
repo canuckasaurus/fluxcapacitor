@@ -40,6 +40,7 @@ defmodule FluxWeb.Router do
 
     # OpenAI-compatible: any OpenAI SDK with base_url swapped in.
     post "/chat/completions", OpenAIController, :create
+    post "/embeddings", OpenAIController, :embeddings
 
     post "/chat-messages", ChatMessageController, :create
     post "/workflows/run", WorkflowRunController, :create

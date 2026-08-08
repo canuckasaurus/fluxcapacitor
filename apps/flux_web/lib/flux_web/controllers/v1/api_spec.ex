@@ -68,6 +68,34 @@ defmodule FluxWeb.V1.ApiSpec do
       })
     end
 
+    defmodule EmbeddingList do
+      @moduledoc false
+      require OpenApiSpex
+
+      OpenApiSpex.schema(%{
+        title: "EmbeddingList",
+        description: "OpenAI-compatible embeddings response (POST /v1/embeddings)",
+        type: :object,
+        properties: %{
+          object: %Schema{type: :string, enum: ["list"]},
+          model: %Schema{type: :string},
+          data: %Schema{
+            type: :array,
+            items: %Schema{
+              type: :object,
+              properties: %{
+                object: %Schema{type: :string},
+                index: %Schema{type: :integer},
+                embedding: %Schema{type: :array, items: %Schema{type: :number}}
+              }
+            }
+          },
+          usage: %Schema{type: :object}
+        },
+        required: [:object, :data]
+      })
+    end
+
     defmodule ChatMessage do
       @moduledoc false
       require OpenApiSpex
@@ -859,6 +887,7 @@ defmodule FluxWeb.V1.ApiSpec do
   @schema_modules [
     Schemas.Error,
     Schemas.ChatCompletion,
+    Schemas.EmbeddingList,
     Schemas.ChatMessage,
     Schemas.WorkflowRun,
     Schemas.Parameters,
@@ -912,6 +941,7 @@ defmodule FluxWeb.V1.ApiSpec do
     "/chat-messages" => {:post, "Send a chat message (blocking or SSE)", "ChatMessage"},
     "/chat/completions" =>
       {:post, "OpenAI-compatible chat completion (any OpenAI SDK)", "ChatCompletion"},
+    "/embeddings" => {:post, "OpenAI-compatible embeddings", "EmbeddingList"},
     "/completion-messages" => {:post, "Run a completion app", "ChatMessage"},
     "/workflows/run" => {:post, "Run the token's published flux", "WorkflowRun"},
     "/workflows/runs/{id}/resume" => {:post, "Resume a paused run", "WorkflowRun"},

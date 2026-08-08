@@ -66,6 +66,38 @@ defmodule Flux.Providers do
     end
   end
 
+  @doc "One embeddings call with the workspace's credentials (OpenAI-compat API)."
+  def embed(workspace_id, plugin_id, model, texts) when is_list(texts) do
+    credentials =
+      case fetch_config(workspace_id, plugin_id) do
+        {:ok, config} -> config
+        {:error, :not_configured} -> %{}
+      end
+
+    runtime().invoke_embeddings(plugin_id, credentials, model, texts)
+  end
+
+  @doc """
+  Transcribes audio through the workspace default model's provider
+  (audio documents in knowledge). `{:error, :not_supported}` when no
+  default is set or the provider has no speech-to-text.
+  """
+  def transcribe(workspace_id, audio, opts \\ %{}) when is_binary(audio) do
+    case default_model_for_workspace(workspace_id) do
+      %{"provider_plugin_id" => plugin_id} when is_binary(plugin_id) and plugin_id != "" ->
+        credentials =
+          case fetch_config(workspace_id, plugin_id) do
+            {:ok, config} -> config
+            {:error, :not_configured} -> %{}
+          end
+
+        runtime().invoke_transcription(plugin_id, credentials, audio, opts)
+
+      _no_default ->
+        {:error, :not_supported}
+    end
+  end
+
   @doc "All model-provider plugin manifests known to the runtime."
   def list_provider_plugins, do: runtime().list_model_providers()
 

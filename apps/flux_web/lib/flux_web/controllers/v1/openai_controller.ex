@@ -42,6 +42,65 @@ defmodule FluxWeb.V1.OpenAIController do
     end
   end
 
+  @doc """
+  OpenAI-compatible embeddings: `POST /v1/embeddings` with any service
+  token. The `model` field names a configured embedding model; `input`
+  is a string or array of strings.
+  """
+  def embeddings(conn, params) do
+    scope = conn.assigns[:service_scope]
+    inputs = params["input"] |> List.wrap() |> Enum.map(&to_string/1)
+    model_name = to_string(params["model"] || "")
+
+    embedding_entry =
+      Enum.find(Flux.Providers.available_models(scope), fn entry ->
+        entry.model.type == :text_embedding and entry.model.name == model_name
+      end)
+
+    cond do
+      inputs == [] or Enum.all?(inputs, &(&1 == "")) ->
+        openai_error(
+          conn,
+          400,
+          "input must be a non-empty string or array.",
+          "invalid_request_error"
+        )
+
+      embedding_entry == nil ->
+        openai_error(
+          conn,
+          404,
+          "No configured embedding model named #{inspect(model_name)}.",
+          "invalid_request_error"
+        )
+
+      true ->
+        workspace_id = Flux.Accounts.Scope.workspace_id(scope)
+
+        case Flux.Providers.embed(workspace_id, embedding_entry.plugin_id, model_name, inputs) do
+          {:ok, %{vectors: vectors, usage: usage}} ->
+            data =
+              vectors
+              |> Enum.with_index()
+              |> Enum.map(fn {vector, index} ->
+                %{"object" => "embedding", "index" => index, "embedding" => vector}
+              end)
+
+            tokens = usage[:input_tokens] || 0
+
+            json(conn, %{
+              "object" => "list",
+              "data" => data,
+              "model" => model_name,
+              "usage" => %{"prompt_tokens" => tokens, "total_tokens" => tokens}
+            })
+
+          {:error, reason} ->
+            openai_error(conn, 502, "The provider errored: #{inspect(reason)}", "api_error")
+        end
+    end
+  end
+
   # Chatflow apps bridge through their flux; direct-model apps call the
   # provider — same OpenAI contract either way.
   defp completion_fun(%{mode: :advanced_chat}),

@@ -82,6 +82,34 @@ defmodule FluxWeb.OpenAICompatTest do
     assert String.trim(body) |> String.ends_with?("data: [DONE]")
   end
 
+  test "embeddings answer in OpenAI shape with a ws- token", %{scope: scope} do
+    {:ok, _token, ws_raw} = Chat.create_workspace_token(scope)
+
+    conn =
+      build_conn()
+      |> put_req_header("authorization", "Bearer " <> ws_raw)
+      |> put_req_header("content-type", "application/json")
+      |> post(
+        ~p"/v1/embeddings",
+        Jason.encode!(%{"model" => "echo-embed", "input" => ["hello", "world"]})
+      )
+
+    response = json_response(conn, 200)
+    assert response["object"] == "list"
+    assert response["model"] == "echo-embed"
+    assert [%{"index" => 0, "embedding" => first}, %{"index" => 1}] = response["data"]
+    assert length(first) == 16
+
+    # Unknown embedding models refuse honestly.
+    missing =
+      build_conn()
+      |> put_req_header("authorization", "Bearer " <> ws_raw)
+      |> put_req_header("content-type", "application/json")
+      |> post(~p"/v1/embeddings", Jason.encode!(%{"model" => "ghost", "input" => "hi"}))
+
+    assert json_response(missing, 404)["error"]["message"] =~ "ghost"
+  end
+
   test "chatflow apps bridge through their published flux", %{conn: _conn, scope: scope} do
     {:ok, workflow} = Flux.Workflows.create_workflow(scope, %{"name" => "Bridge Flux"})
 
