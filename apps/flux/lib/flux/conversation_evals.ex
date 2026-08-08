@@ -34,6 +34,7 @@ defmodule Flux.ConversationEvals do
       field :turns, {:array, :string}, default: []
       field :expectation, :string
       field :judge, :string
+      field :schedule, :string
 
       field :last_score, :float
       field :last_reason, :string
@@ -45,13 +46,34 @@ defmodule Flux.ConversationEvals do
 
     def changeset(eval, attrs) do
       eval
-      |> cast(attrs, [:name, :turns, :expectation, :judge])
+      |> cast(attrs, [:name, :turns, :expectation, :judge, :schedule])
       |> validate_required([:name, :expectation])
       |> validate_length(:name, min: 1, max: 255)
       |> update_change(:turns, fn turns ->
         turns |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))
       end)
       |> validate_turns()
+      |> validate_schedule()
+    end
+
+    # Same parser as every other cron field in the platform.
+    defp validate_schedule(changeset) do
+      case get_change(changeset, :schedule) do
+        nil ->
+          changeset
+
+        "" ->
+          put_change(changeset, :schedule, nil)
+
+        schedule ->
+          case Oban.Cron.Expression.parse(schedule) do
+            {:ok, _expression} ->
+              changeset
+
+            {:error, _reason} ->
+              add_error(changeset, :schedule, "is not a valid cron expression")
+          end
+      end
     end
 
     defp validate_turns(changeset) do
@@ -66,6 +88,43 @@ defmodule Flux.ConversationEvals do
           add_error(changeset, :turns, "needs at least one user turn")
       end
     end
+  end
+
+  @doc """
+  Minute tick (via the schedule worker): re-runs every conversation eval
+  whose cron matches this minute. Score drops notify through
+  `run_conversation_eval/2` as usual.
+  """
+  def run_scheduled(now \\ DateTime.utc_now(:second)) do
+    minute_start = %{now | second: 0}
+
+    evals =
+      Repo.all(
+        where(ConversationEval, [e], not is_nil(e.schedule)),
+        skip_workspace_guard: true
+      )
+
+    for eval <- evals,
+        cron_due?(eval.schedule, now),
+        is_nil(eval.last_run_at) or DateTime.compare(eval.last_run_at, minute_start) == :lt do
+      run_conversation_eval(worker_scope(eval.workspace_id), eval.id)
+    end
+
+    :ok
+  end
+
+  defp cron_due?(schedule, now) do
+    case Oban.Cron.Expression.parse(schedule) do
+      {:ok, expression} -> Oban.Cron.Expression.now?(expression, now)
+      {:error, _reason} -> false
+    end
+  end
+
+  defp worker_scope(workspace_id) do
+    %Scope{
+      workspace: %Flux.Accounts.Workspace{id: workspace_id},
+      membership: %Flux.Accounts.Membership{workspace_id: workspace_id, role: :editor}
+    }
   end
 
   def list_conversation_evals(%Scope{} = scope, app_id) do

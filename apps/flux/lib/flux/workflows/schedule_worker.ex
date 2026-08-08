@@ -43,6 +43,7 @@ defmodule Flux.Workflows.ScheduleWorker do
     end
 
     Flux.Evals.run_scheduled(now)
+    Flux.ConversationEvals.run_scheduled(now)
     Workflows.run_scheduled_batches(now)
     Flux.Export.run_scheduled(now)
     Flux.Usage.send_weekly_digests(now)

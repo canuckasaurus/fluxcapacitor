@@ -184,6 +184,7 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
     attrs = %{
       "name" => params["name"],
       "expectation" => params["expectation"],
+      "schedule" => params["schedule"],
       "turns" => String.split(params["turns"] || "", ["\r\n", "\n"])
     }
 
@@ -569,6 +570,9 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
           <div class="flex items-center gap-2">
             <span class="font-semibold text-sm">{eval.name}</span>
             <span class="badge badge-ghost badge-sm">{length(eval.turns)} turns</span>
+            <span :if={eval.schedule} class="badge badge-ghost badge-sm font-mono">
+              {eval.schedule}
+            </span>
             <span
               :if={eval.last_score}
               class={[
@@ -628,6 +632,13 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
               placeholder="Expectation — what a good dialogue looks like"
               class="input input-bordered input-sm flex-1"
               required
+            />
+            <input
+              type="text"
+              name="schedule"
+              placeholder="cron (optional)"
+              class="input input-bordered input-sm w-36 font-mono"
+              title="Re-run unattended on this schedule; score drops raise a notification"
             />
           </div>
           <textarea
