@@ -134,6 +134,82 @@ defmodule Flux.Usage do
     :ok
   end
 
+  @doc """
+  Monthly cost reports (minute-tick sweep, 1st of the month 08:00 UTC):
+  every workspace with run activity last month gets one `cost_report`
+  notification — tokens, estimated USD, top fluxes — which reaches
+  opted-in members by email through the notification fan-out. A
+  per-month marker in custom_config stops repeats.
+  """
+  def send_monthly_cost_reports(now \\ DateTime.utc_now(:second)) do
+    today = DateTime.to_date(now)
+
+    if today.day == 1 and now.hour == 8 and now.minute == 0 do
+      last_month_start = today |> Date.add(-1) |> Date.beginning_of_month()
+      month = Calendar.strftime(last_month_start, "%Y-%m")
+      since = DateTime.new!(last_month_start, ~T[00:00:00])
+      until = DateTime.new!(Date.beginning_of_month(today), ~T[00:00:00])
+
+      for workspace <- Repo.all(Flux.Accounts.Workspace),
+          (workspace.custom_config || %{})["cost_report_sent"] != month do
+        runs =
+          Flux.Workflows.WorkflowRun
+          |> where(
+            [r],
+            r.workspace_id == ^workspace.id and r.inserted_at >= ^since and
+              r.inserted_at < ^until
+          )
+          |> select([r], %{workflow_id: r.workflow_id, usage: r.usage})
+          |> Repo.all(skip_workspace_guard: true)
+
+        if runs != [] do
+          tokens =
+            Enum.sum(
+              for run <- runs,
+                  do: (run.usage["input_tokens"] || 0) + (run.usage["output_tokens"] || 0)
+            )
+
+          cost = Enum.sum(for run <- runs, do: run.usage["estimated_cost_usd"] || 0.0)
+
+          top =
+            runs
+            |> Enum.group_by(& &1.workflow_id)
+            |> Enum.map(fn {workflow_id, group} -> {workflow_id, length(group)} end)
+            |> Enum.sort_by(fn {_id, count} -> -count end)
+            |> Enum.take(3)
+            |> Enum.map_join(", ", fn {workflow_id, count} ->
+              name =
+                (workflow_id &&
+                   case Repo.get(Flux.Workflows.Workflow, workflow_id, skip_workspace_guard: true) do
+                     %{name: name} -> name
+                     nil -> "deleted flux"
+                   end) || "ad-hoc"
+
+              "#{name} (#{count})"
+            end)
+
+          cost_text =
+            (cost > 0 && " · ~$#{:erlang.float_to_binary(cost * 1.0, decimals: 2)}") || ""
+
+          Flux.Notifications.notify(
+            workspace.id,
+            "cost_report",
+            "#{month} cost report: #{length(runs)} runs · #{tokens} tokens#{cost_text} · top: #{top}",
+            "/console/runs"
+          )
+
+          workspace
+          |> Ecto.Changeset.change(
+            custom_config: Map.put(workspace.custom_config || %{}, "cost_report_sent", month)
+          )
+          |> Repo.update()
+        end
+      end
+    end
+
+    :ok
+  end
+
   @doc "This calendar month's run tokens for one flux (per-flux budgets)."
   def month_tokens_for_workflow(workflow_id) do
     month_start =
