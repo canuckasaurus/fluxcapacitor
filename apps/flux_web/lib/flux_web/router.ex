@@ -111,6 +111,27 @@ defmodule FluxWeb.Router do
     get "/ready", HealthController, :ready
   end
 
+  # Public status page (HTML for humans, JSON for scripts and monitors
+  # like Uptime Kuma).
+  scope "/status", FluxWeb do
+    pipe_through :browser
+
+    get "/", StatusController, :show
+  end
+
+  scope "/status", FluxWeb do
+    pipe_through :api
+
+    get "/json", StatusController, :show_json
+  end
+
+  # Shared run traces: the signed token in the URL is the authorization.
+  scope "/share", FluxWeb do
+    pipe_through :browser
+
+    get "/runs/:token", RunShareController, :show
+  end
+
   ## Public published app sites (token in path is the authorization)
 
   scope "/site", FluxWeb do
@@ -238,12 +259,14 @@ defmodule FluxWeb.Router do
     get "/audit-export", WorkspaceExportController, :audit
     post "/workspace-import", WorkspaceExportController, :import
     get "/fluxes/:id/export", FluxDslController, :export
+    get "/fluxes/:id/svg", FluxDslController, :export_svg
     get "/fluxes/:id/runs/:run_id/fixture", FluxDslController, :run_fixture
     get "/fluxes/:id/batches/:batch_id/results", FluxDslController, :batch_results
     get "/fluxes/:id/evals/:eval_run_id/results", FluxDslController, :eval_results
     get "/apps/:id/export", FluxDslController, :export_app
     get "/apps/:id/conversations/:conversation_id/export", FluxDslController, :conversation_export
     get "/apps/:id/finetune-export", FluxDslController, :finetune_export
+    get "/apps/:id/monitor-export", FluxDslController, :monitor_export
     get "/labeling/:id/export", FluxDslController, :labeling_export
     get "/templates/:id/file", DocTemplateController, :file
     post "/templates/:id/test-render", DocTemplateController, :test_render
@@ -270,6 +293,7 @@ defmodule FluxWeb.Router do
       live "/admin", ConsoleLive.Admin, :index
       live "/plugins", ConsoleLive.Plugins, :index
       live "/tools", ConsoleLive.Tools, :index
+      live "/playground", ConsoleLive.Playground, :index
       live "/templates", ConsoleLive.DocTemplates, :index
       live "/interviews", ConsoleLive.Interviews, :index
       live "/docs", ConsoleLive.Docs, :index

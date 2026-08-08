@@ -39,6 +39,10 @@ defmodule FluxWeb.SiteLive.AppSite do
             {nil, []}
           end
 
+        # Human replies arrive on the conversation topic while the tab
+        # is open — the handoff loop closes live.
+        if connected?(socket) && conversation, do: Chat.subscribe_conversation(conversation.id)
+
         {:ok,
          socket
          |> allow_upload(:image,
@@ -84,8 +88,17 @@ defmodule FluxWeb.SiteLive.AppSite do
 
     if allowed?(socket) do
       conversation =
-        socket.assigns.conversation ||
-          Chat.create_conversation(scope, app, %{end_user_ref: socket.assigns.end_user_ref})
+        case socket.assigns.conversation do
+          nil ->
+            created =
+              Chat.create_conversation(scope, app, %{end_user_ref: socket.assigns.end_user_ref})
+
+            Chat.subscribe_conversation(created.id)
+            created
+
+          existing ->
+            existing
+        end
 
       files =
         consume_uploaded_entries(socket, :image, fn %{path: path}, entry ->
@@ -131,6 +144,18 @@ defmodule FluxWeb.SiteLive.AppSite do
 
   def handle_event("suggest", %{"question" => question}, socket) do
     handle_event("send", %{"content" => question}, socket)
+  end
+
+  def handle_event("request_handoff", _params, socket) do
+    %{app: app, site_scope: scope} = socket.assigns
+
+    with %Flux.Chat.Conversation{} = conversation <- socket.assigns.conversation,
+         {:ok, flagged} <- Chat.request_handoff(scope, app, conversation.id) do
+      Chat.subscribe_conversation(flagged.id)
+      {:noreply, assign(socket, conversation: flagged)}
+    else
+      _no_conversation -> {:noreply, socket}
+    end
   end
 
   def handle_event("start_over", _params, socket) do
@@ -199,6 +224,16 @@ defmodule FluxWeb.SiteLive.AppSite do
   end
 
   @impl true
+  def handle_info({:human_reply, message}, socket) do
+    conversation = socket.assigns.conversation
+
+    {:noreply,
+     assign(socket,
+       messages: socket.assigns.messages ++ [message],
+       conversation: conversation && %{conversation | handoff_requested_at: nil}
+     )}
+  end
+
   def handle_info({:chunk, delta}, socket) do
     {:noreply, assign(socket, streaming_text: socket.assigns.streaming_text <> delta)}
   end
@@ -469,7 +504,28 @@ defmodule FluxWeb.SiteLive.AppSite do
             >
               <.icon name="hero-arrow-path" class="size-4" />
             </button>
+            <button
+              :if={
+                @conversation != nil and @conversation.handoff_requested_at == nil and
+                  @streaming_id == nil
+              }
+              type="button"
+              class="btn btn-ghost btn-sm"
+              phx-click="request_handoff"
+              title="Ask a person to join this conversation"
+              id="request-handoff"
+            >
+              <.icon name="hero-user" class="size-4" /> Talk to a human
+            </button>
           </form>
+          <p
+            :if={@conversation != nil and @conversation.handoff_requested_at != nil}
+            class="text-sm opacity-70"
+            id="handoff-waiting"
+          >
+            <.icon name="hero-clock" class="size-4 inline" />
+            The team has been notified — a human will reply right here.
+          </p>
         </div>
 
         <div :if={@app.mode == :completion} class="space-y-4">

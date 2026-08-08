@@ -17,6 +17,9 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
          page_title: "#{app.name} — monitoring",
          app: app,
          conversations: Chat.list_conversations(scope, app.id, 50),
+         handoffs: Chat.handoff_queue(scope, app.id),
+         all_labels: Chat.conversation_labels(scope, app.id),
+         label_filter: nil,
          usage: Chat.usage_stats(scope, app.id),
          feedback_filter: :all,
          feedback: Chat.list_feedback(scope, app.id),
@@ -43,6 +46,55 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
   end
 
   @impl true
+  def handle_event(
+        "human_reply",
+        %{"conversation-id" => conversation_id, "content" => content},
+        socket
+      ) do
+    scope = socket.assigns.current_scope
+
+    case String.trim(to_string(content)) do
+      "" ->
+        {:noreply, socket}
+
+      content ->
+        case Chat.human_reply(scope, conversation_id, content) do
+          {:ok, _message} ->
+            {:noreply,
+             socket
+             |> put_flash(:info, "Reply sent — the visitor sees it live.")
+             |> assign(handoffs: Chat.handoff_queue(scope, socket.assigns.app.id))}
+
+          _error ->
+            {:noreply, put_flash(socket, :error, "Could not send the reply.")}
+        end
+    end
+  end
+
+  def handle_event(
+        "set_labels",
+        %{"conversation-id" => conversation_id, "labels" => labels},
+        socket
+      ) do
+    scope = socket.assigns.current_scope
+
+    case Chat.set_conversation_labels(scope, conversation_id, String.split(labels, ",")) do
+      {:ok, _conversation} ->
+        {:noreply,
+         assign(socket,
+           conversations: Chat.list_conversations(scope, socket.assigns.app.id, 50),
+           all_labels: Chat.conversation_labels(scope, socket.assigns.app.id)
+         )}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not save the labels.")}
+    end
+  end
+
+  def handle_event("filter_label", %{"label" => label}, socket) do
+    {:noreply, assign(socket, label_filter: (label == "" && nil) || label)}
+  end
+
   def handle_event("filter_feedback", %{"filter" => filter}, socket)
       when filter in ~w(all like dislike) do
     filter = String.to_existing_atom(filter)
@@ -153,9 +205,25 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
           <h1 class="text-2xl font-bold">{@app.name} — monitoring</h1>
           <p class="opacity-60 text-sm">Recent conversations and their messages.</p>
         </div>
-        <.link navigate={~p"/console/apps/#{@app.id}"} class="btn btn-sm btn-ghost">
-          &larr; Back to app
-        </.link>
+        <div class="flex gap-2">
+          <.link
+            href={~p"/console/apps/#{@app.id}/monitor-export?kind=usage"}
+            class="btn btn-sm btn-ghost"
+            title="Daily usage stats (90 days) as CSV"
+          >
+            <.icon name="hero-arrow-down-tray" class="size-4" /> Usage CSV
+          </.link>
+          <.link
+            href={~p"/console/apps/#{@app.id}/monitor-export?kind=feedback"}
+            class="btn btn-sm btn-ghost"
+            title="Rated replies with their questions as CSV"
+          >
+            <.icon name="hero-arrow-down-tray" class="size-4" /> Feedback CSV
+          </.link>
+          <.link navigate={~p"/console/apps/#{@app.id}"} class="btn btn-sm btn-ghost">
+            &larr; Back to app
+          </.link>
+        </div>
       </div>
 
       <div :if={@usage != []} class="card border border-base-200 p-6 space-y-3">
@@ -413,9 +481,63 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
         </div>
       </div>
 
+      <div
+        :if={@handoffs != []}
+        class="card border border-warning/60 p-4 space-y-3"
+        id="handoff-queue"
+      >
+        <h2 class="font-semibold text-sm">
+          <.icon name="hero-hand-raised" class="size-4 inline text-warning" />
+          Waiting for a human ({length(@handoffs)})
+        </h2>
+        <div :for={conversation <- @handoffs} class="space-y-1" id={"handoff-#{conversation.id}"}>
+          <p class="text-sm">
+            <span class="font-semibold">{conversation.title || "Untitled conversation"}</span>
+            <span class="text-xs opacity-60">
+              — waiting since {Calendar.strftime(conversation.handoff_requested_at, "%H:%M")}
+            </span>
+            <button
+              class="btn btn-ghost btn-xs"
+              phx-click="select"
+              phx-value-conversation-id={conversation.id}
+            >
+              View
+            </button>
+          </p>
+          <form
+            phx-submit="human_reply"
+            class="flex gap-2"
+            id={"handoff-reply-#{conversation.id}"}
+          >
+            <input type="hidden" name="conversation-id" value={conversation.id} />
+            <input
+              type="text"
+              name="content"
+              placeholder="Reply as a human — the visitor sees it live"
+              class="input input-bordered input-sm flex-1"
+              autocomplete="off"
+            />
+            <button class="btn btn-primary btn-sm">Send</button>
+          </form>
+        </div>
+      </div>
+
       <p :if={@conversations == []} class="text-sm opacity-60">No conversations yet.</p>
 
-      <div :for={conversation <- @conversations} class="card border border-base-200">
+      <form :if={@all_labels != []} phx-change="filter_label" id="label-filter" class="w-fit">
+        <select name="label" class="select select-bordered select-sm">
+          <option value="">All labels</option>
+          <option :for={label <- @all_labels} value={label} selected={@label_filter == label}>
+            {label}
+          </option>
+        </select>
+      </form>
+
+      <div
+        :for={conversation <- @conversations}
+        :if={@label_filter == nil or @label_filter in conversation.labels}
+        class="card border border-base-200"
+      >
         <button
           type="button"
           class="flex items-center gap-3 px-4 py-3 text-left hover:bg-base-200/60"
@@ -428,12 +550,39 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
           <span :if={conversation.end_user_ref} class="badge badge-ghost badge-sm font-mono">
             {conversation.end_user_ref}
           </span>
+          <span :for={label <- conversation.labels} class="badge badge-outline badge-sm">
+            {label}
+          </span>
+          <span
+            :if={conversation.handoff_requested_at}
+            class="badge badge-warning badge-sm"
+            title="Visitor asked for a human"
+          >
+            handoff
+          </span>
           <span class="ml-auto text-xs opacity-60">
             {Calendar.strftime(conversation.inserted_at, "%Y-%m-%d %H:%M")}
           </span>
         </button>
 
         <div :if={@selected_id == conversation.id} class="border-t border-base-200 p-4 space-y-2">
+          <form
+            :if={@can_edit}
+            phx-submit="set_labels"
+            class="flex gap-2 items-center"
+            id={"labels-#{conversation.id}"}
+          >
+            <input type="hidden" name="conversation-id" value={conversation.id} />
+            <input
+              type="text"
+              name="labels"
+              value={Enum.join(conversation.labels, ", ")}
+              placeholder="labels, comma-separated (billing, vip, …)"
+              class="input input-bordered input-xs w-72"
+              autocomplete="off"
+            />
+            <button class="btn btn-ghost btn-xs">Save labels</button>
+          </form>
           <div :for={message <- @messages} class="flex items-start gap-2 text-sm">
             <span class={[
               "badge badge-sm shrink-0",
