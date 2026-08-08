@@ -329,7 +329,27 @@ defmodule Flux.Engine.Runner do
     {max_retries, interval_ms}
   end
 
+  # Any node may carry `timeout_ms` (60s floor for sanity, 30min cap);
+  # past the deadline the node fails with an honest error instead of
+  # stalling the whole run.
   defp safe_run(node, pool, host) do
+    case node.config["timeout_ms"] do
+      timeout when is_integer(timeout) and timeout > 0 ->
+        timeout = timeout |> max(1_000) |> min(30 * 60 * 1_000)
+        task = Task.async(fn -> do_safe_run(node, pool, host) end)
+
+        case Task.yield(task, timeout) || Task.shutdown(task, :brutal_kill) do
+          {:ok, result} -> result
+          nil -> {:error, "node timed out after #{timeout}ms"}
+          {:exit, reason} -> {:error, "node crashed: #{inspect(reason)}"}
+        end
+
+      _no_timeout ->
+        do_safe_run(node, pool, host)
+    end
+  end
+
+  defp do_safe_run(node, pool, host) do
     # The executing node's id, readable by host capabilities (each
     # parallel branch is its own process, so this is branch-safe) — how
     # the embedding app attributes model usage per node.
