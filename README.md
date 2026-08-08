@@ -186,6 +186,11 @@ orchestrator, no queue infrastructure beyond Postgres.
   tool plugin** (retrieve from LlamaCloud managed indexes or call
   llama_deploy workflow services as functions inside a flux), plus **Notion**,
   **S3-compatible**, and **Google Drive** (service-account) datasources.
+  **Ollama** runs local models with zero config — the model list
+  auto-discovers from whatever `ollama pull` installed — and a **model
+  playground** races one prompt across up to four models side by side
+  (latency, tokens, cost per column; one click promotes the winner to
+  workspace default).
   **MCP goes both ways**: register any Model Context Protocol server
   (Streamable HTTP, encrypted auth headers) and its tools join the picker
   for tool and agent nodes — and FluxCapacitor is itself an MCP server at
@@ -207,7 +212,17 @@ orchestrator, no queue infrastructure beyond Postgres.
   Costs stay honest with **workspace price overrides** (self-hosted and
   fine-tuned models priced per million tokens), **per-flux monthly
   budgets** beside the workspace one, and same-named document re-uploads
-  **replace in place** instead of duplicating.
+  **replace in place** instead of duplicating. Datasets also take
+  **image uploads** (described and text-transcribed by the workspace
+  vision model, indexed like any document), **typed metadata per
+  document** that retrieval and the knowledge node filter on, and a
+  **run-a-flux-over-this-dataset** button that turns every document
+  into a batch row. Site visitors can **ask for a human** — the
+  conversation flags into a console queue and a teammate's reply lands
+  in the visitor's chat live — and conversations take **labels** for
+  triage. Guardrails gain a **redact action** (matches masked with
+  `•••` in messages, replies, and run inputs instead of refusing), and
+  public site chat is **flood-protected** per visitor and per site.
 - **Operations built in** — Oban (on Postgres) is the platform's only
   scheduler: cron/interval triggers, document indexing, retention sweeps,
   batch and eval execution, and **signed outgoing webhooks** (per-workspace
@@ -221,7 +236,14 @@ orchestrator, no queue infrastructure beyond Postgres.
   with their last error, retry/cancel in place), structured LLM output
   is **validated against its JSON schema with one corrective retry**,
   and the codebase holds the line with **sobelow, credo, deps.audit,
-  and dialyzer** wired into the workflow.
+  and dialyzer** wired into the workflow. A public **/status page**
+  shows component health with an admin-editable incident note (an
+  optional Uptime Kuma compose profile watches the same probes),
+  webhooks speak **Slack Block Kit** on request, failing runs hand off
+  via **read-only share links**, the canvas exports as **SVG**,
+  monitoring tables download as **CSV**, the LLM cache reports its
+  **hit rate**, owners can **archive workspaces** instead of deleting,
+  and a **monthly cost report** emails opted-in members on the 1st.
 
 ## Architecture
 

@@ -7,6 +7,32 @@ at `docs/PARITY-PLAN.md`.
 
 ## Unreleased
 
+### Conversations & support
+- Human handoff: site visitors can ask for a person; the conversation
+  flags into a console queue (with notification) and a teammate's
+  reply lands in the visitor's chat live.
+- Conversation labels, filterable on the monitoring page.
+- Guardrails gain a redact action — matches mask with `•••` in chat
+  messages, replies, and run inputs instead of refusing.
+
+### Models & knowledge
+- Ollama provider: local models auto-discover from `/api/tags`.
+- Model playground: one prompt across up to four models side by side
+  with latency, tokens, and cost; one click sets the workspace default.
+- Image documents: datasets accept images, described and
+  text-transcribed by the workspace vision model.
+- Typed document metadata with retrieval and knowledge-node filters.
+- Run a flux over a dataset: every document becomes a batch row.
+
+### Operations & sharing
+- Public /status page (component health + admin incident note), JSON
+  variant for monitors, optional Uptime Kuma compose profile.
+- Slack Block Kit format on webhook endpoints.
+- Read-only share links for run traces (signed, 30-day expiry).
+- Canvas SVG export; monitoring feedback/usage CSV exports.
+- LLM cache hit-rate stats; workspace archive (owner archives,
+  instance admin restores); monthly cost report notification + email.
+
 ### API & apps
 - The OpenAI-compatible endpoint reaches chatflow apps — bridged
   through their published flux with the earlier turns as history.

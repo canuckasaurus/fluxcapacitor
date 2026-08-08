@@ -97,6 +97,16 @@ bound flux runs with the last user message as the query and earlier
 turns as `{{sys.history}}`. Quotas, guardrails, moderation, and the
 app's own rate limit all apply.
 
+## Status page
+
+- `GET /status` (public, no login): component health from the doctor
+  checks plus an incident note editable in the admin panel.
+  `GET /status/json` answers the same for scripts.
+- Optional external monitor: `docker compose --profile uptime up -d`
+  starts Uptime Kuma on :3002 — point its checks at
+  `http://app:4000/health/ready` and `/status/json` for alerting
+  history and hosted public status beyond the native page.
+
 ## Alerting
 
 `ops/alerts.yml` ships five Prometheus rules (app down, 5xx rate, run
@@ -110,7 +120,11 @@ Metric names are verified against the live `/metrics` endpoint.
 - `FLUX_SMTP_HOST/PORT/USERNAME/PASSWORD/SSL` + `FLUX_MAIL_FROM`
   enable delivery; `PHX_HOST` builds console links inside the mails.
 - Members opt into notification kinds per account (Settings → Email
-  notifications) — run failures, budget warnings, the weekly digest.
+  notifications) — run failures, budget warnings, the weekly digest,
+  handoff requests, and the monthly cost report (1st of the month,
+  last month's tokens, estimated USD, and top fluxes).
+- Webhook endpoints take a **Slack format** option: events post as
+  Block Kit, ready for an incoming-webhook URL.
 
 ## Backups & retention
 

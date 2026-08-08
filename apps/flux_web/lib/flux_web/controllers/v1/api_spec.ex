@@ -30,6 +30,44 @@ defmodule FluxWeb.V1.ApiSpec do
       })
     end
 
+    defmodule ChatCompletion do
+      @moduledoc false
+      require OpenApiSpex
+
+      OpenApiSpex.schema(%{
+        title: "ChatCompletion",
+        description:
+          "OpenAI-compatible completion (POST /v1/chat/completions, app- tokens; " <>
+            "stream: true answers chat.completion.chunk SSE frames ending in [DONE])",
+        type: :object,
+        properties: %{
+          id: %Schema{type: :string},
+          object: %Schema{type: :string, enum: ["chat.completion"]},
+          created: %Schema{type: :integer},
+          model: %Schema{type: :string},
+          choices: %Schema{
+            type: :array,
+            items: %Schema{
+              type: :object,
+              properties: %{
+                index: %Schema{type: :integer},
+                message: %Schema{
+                  type: :object,
+                  properties: %{
+                    role: %Schema{type: :string},
+                    content: %Schema{type: :string}
+                  }
+                },
+                finish_reason: %Schema{type: :string}
+              }
+            }
+          },
+          usage: %Schema{type: :object}
+        },
+        required: [:id, :object, :choices]
+      })
+    end
+
     defmodule ChatMessage do
       @moduledoc false
       require OpenApiSpex
@@ -820,6 +858,7 @@ defmodule FluxWeb.V1.ApiSpec do
 
   @schema_modules [
     Schemas.Error,
+    Schemas.ChatCompletion,
     Schemas.ChatMessage,
     Schemas.WorkflowRun,
     Schemas.Parameters,
@@ -871,6 +910,8 @@ defmodule FluxWeb.V1.ApiSpec do
       {:get, "List a document's segments", "SegmentList"},
     "/datasets/{id}/retrieve" => {:post, "Retrieve matching segments", "RetrieveResult"},
     "/chat-messages" => {:post, "Send a chat message (blocking or SSE)", "ChatMessage"},
+    "/chat/completions" =>
+      {:post, "OpenAI-compatible chat completion (any OpenAI SDK)", "ChatCompletion"},
     "/completion-messages" => {:post, "Run a completion app", "ChatMessage"},
     "/workflows/run" => {:post, "Run the token's published flux", "WorkflowRun"},
     "/workflows/runs/{id}/resume" => {:post, "Resume a paused run", "WorkflowRun"},
@@ -914,7 +955,11 @@ defmodule FluxWeb.V1.ApiSpec do
         version: "1.0.0",
         description:
           "Bearer-token service API (app-… tokens for chat/completion apps, " <>
-            "flux-… tokens for workflows). Wire-compatible with the upstream reference."
+            "flux-… tokens for workflows, ws-… tokens for workspace-level " <>
+            "endpoints). Wire-compatible with the upstream reference. " <>
+            "Beyond /v1: POST /mcp speaks Model Context Protocol with a ws- " <>
+            "token; POST /triggers/webhook/{token} starts a published flux " <>
+            "from any outside system."
       },
       paths:
         for {path, methods} <- @operations, into: %{} do

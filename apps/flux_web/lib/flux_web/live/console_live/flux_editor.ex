@@ -2705,6 +2705,15 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
             >
               <.icon name="hero-arrow-up-tray" class="size-4" /> Export
             </.link>
+            <.link
+              :if={@can_export}
+              href={~p"/console/fluxes/#{@workflow.id}/svg"}
+              class="btn btn-sm btn-ghost btn-square"
+              title="Download the canvas as SVG"
+              aria-label="Download the canvas as SVG"
+            >
+              <.icon name="hero-photo" class="size-4" />
+            </.link>
             <button
               :if={@can_edit}
               class="btn btn-sm btn-ghost"

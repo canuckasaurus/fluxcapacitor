@@ -883,3 +883,52 @@ Prometheus via rule_files, with every metric name verified against
 the live /metrics scrape rather than guessed; the first draft's
 guessed names lasted four minutes). One migration (two workflow
 columns, one app column).
+
+**44. Batch 20 — the mega eighteen (everything but custom domains and
+Japanese).** One dissolved on contact again: public-site flood
+protection already existed (FluxWeb.SiteRateLimit, per-site and
+per-visitor buckets inside the LiveView — the both-layers grep rule
+now includes "protection that lives beside the feature, not in the
+router"). Built: **model playground** (/console/playground races one
+prompt across ≤4 models in parallel tasks — reply, latency, tokens,
+cost per column, one click to workspace default); **image documents**
+(knowledge uploads accept images; describe_image_for_workspace runs
+the workspace vision model with a transcribe-then-describe prompt and
+the description indexes like text); **document metadata** (typed
+key-values, JSONB-containment retrieval filter, template-capable
+metadata_filter on the knowledge node, editor beside tags); **flux
+over dataset** (every document becomes a batch row — query/content/
+name — one button from the dataset panel to the Batches page);
+**human handoff** ("Talk to a human" on sites flags the conversation,
+notifies as a new handoff kind, queues on the monitor page; a console
+reply inserts a human-marked assistant message and broadcasts on a
+new conversation topic the site subscribes to — the loop closes live);
+**conversation labels** (chips + monitor filter, comma-edited);
+**Ollama provider** (auto-discovering /api/tags, chat over the
+OpenAI-compatible /v1 surface — SSRF note: local hosts need
+FLUX_SSRF_ALLOW in prod); **guardrail redact** (third action beside
+block/flag: sanitize_input masks stored chat messages and the model's
+view, finalize masks replies, maybe_redact_inputs masks run input
+strings — notify-always, refuse-never); **shareable run traces**
+(Phoenix.Token-signed /share/runs/:token, 30-day expiry, dead-view
+read-only trace — zero migrations); **canvas SVG export**
+(server-rendered boxes and arrows from graph coordinates; the ~s()
+paren-nesting sigil trap from batch 12 struck again and lasted one
+compile); **Slack webhooks** (a format column; the AlertWorker wraps
+payload scalars in Block Kit when "slack"); **workspace archive** (the
+dormant archived status surfaced: owner archives from the danger
+zone, resolution skips archived workspaces, instance admins restore);
+**cache observability** (hit/miss/entry counters in the cache ETS
+table, hit-rate line on the cost card); **status page** (public
+/status + /status/json from the doctor checks with an admin-editable
+incident note in a new instance_settings table; per the user's
+uptime-kuma suggestion an optional --profile uptime ships Kuma
+pointed at the health probes — native page first, sidecar optional);
+**monthly cost report** (1st-of-month 08:00 tick beside the weekly
+digest; a new cost_report notification kind rides the batch-18 email
+fan-out for free); **API reference completeness** (ChatCompletion
+schema + /chat/completions in the OpenAPI spec, ws- tokens, /mcp and
+webhook triggers named in the spec description); and **monitor CSVs**
+(feedback-with-questions and 90-day daily usage). One migration
+(labels/handoff on conversations, metadata on documents, format on
+webhook endpoints, instance_settings).
