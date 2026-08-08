@@ -214,6 +214,62 @@ defmodule FluxWeb.RAGIntegrationTest do
     assert length(RAG.list_retrieval_cases(scope, dataset.id)) == 1
   end
 
+  test "scheduled retrieval evals score due datasets and flag regressions", %{
+    scope: scope,
+    dataset: dataset
+  } do
+    ingest!(scope, dataset, "vacation.md", "Vacation policy: employees receive 25 paid days.")
+
+    {:ok, _} =
+      RAG.add_retrieval_case(scope, dataset, %{
+        "question" => "how many vacation days do we get?",
+        "expected" => "25 paid days"
+      })
+
+    # An invalid cron never saves; a valid one arms the schedule.
+    assert {:error, _changeset} =
+             RAG.update_dataset(scope, dataset, %{"retrieval_eval_cron" => "not a cron"})
+
+    {:ok, dataset} = RAG.update_dataset(scope, dataset, %{"retrieval_eval_cron" => "* * * * *"})
+
+    now = DateTime.utc_now(:second)
+    assert :ok = RAG.run_scheduled_retrieval_evals(now)
+
+    scored = Flux.Repo.get!(Flux.RAG.Dataset, dataset.id, skip_workspace_guard: true)
+    assert scored.last_retrieval_hit_rate == 1.0
+    assert scored.last_retrieval_mrr == 1.0
+    assert scored.last_retrieval_eval_at
+
+    # Same minute → the dedupe guard keeps it from double-firing.
+    assert :ok = RAG.run_scheduled_retrieval_evals(now)
+
+    unchanged = Flux.Repo.get!(Flux.RAG.Dataset, dataset.id, skip_workspace_guard: true)
+    assert unchanged.last_retrieval_eval_at == scored.last_retrieval_eval_at
+
+    # Break retrieval (the expected text no longer exists) and re-run in
+    # a later minute: the score drop raises an eval_regressed note.
+    [gold] = RAG.list_retrieval_cases(scope, dataset.id)
+    {:ok, _} = RAG.delete_retrieval_case(scope, gold.id)
+
+    {:ok, _} =
+      RAG.add_retrieval_case(scope, dataset, %{
+        "question" => "how many vacation days do we get?",
+        "expected" => "text that appears nowhere at all"
+      })
+
+    scored
+    |> Ecto.Changeset.change(last_retrieval_eval_at: DateTime.add(now, -3600, :second))
+    |> Flux.Repo.update!()
+
+    assert :ok = RAG.run_scheduled_retrieval_evals(now)
+
+    regressed = Flux.Repo.get!(Flux.RAG.Dataset, dataset.id, skip_workspace_guard: true)
+    assert regressed.last_retrieval_hit_rate == 0.0
+
+    titles = Enum.map(Flux.Notifications.list(scope), & &1.title)
+    assert Enum.any?(titles, &(&1 =~ "Retrieval on \"Handbook\" regressed"))
+  end
+
   test "hybrid retrieval finds the relevant segment first", %{scope: scope, dataset: dataset} do
     ingest!(scope, dataset, "vacation.md", """
     Vacation policy: employees receive 25 paid days of vacation per year.
