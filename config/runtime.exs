@@ -222,6 +222,47 @@ if config_env() == :prod do
          :app_base_url,
          "https://" <> System.get_env("PHX_HOST", "localhost")
 
+  # SAML SSO: SAML_IDP_METADATA_FILE (mounted IdP metadata XML) turns it
+  # on; SAML_SP_KEY/SAML_SP_CERT (PEM paths) when the IdP wants signed
+  # requests. See FluxWeb.SAML for the endpoints to give your IdP.
+  saml_metadata = System.get_env("SAML_IDP_METADATA_FILE")
+
+  if saml_metadata not in [nil, ""] do
+    base_url = "https://" <> System.get_env("PHX_HOST", "localhost")
+
+    sp =
+      %{
+        id: "flux-sp",
+        entity_id: System.get_env("SAML_SP_ENTITY_ID", base_url)
+      }
+      |> then(fn sp ->
+        key = System.get_env("SAML_SP_KEY")
+        cert = System.get_env("SAML_SP_CERT")
+
+        if key not in [nil, ""] and cert not in [nil, ""] do
+          Map.merge(sp, %{keyfile: key, certfile: cert})
+        else
+          sp
+        end
+      end)
+
+    config :samly, Samly.Provider,
+      idp_id_from: :path_segment,
+      service_providers: [sp],
+      identity_providers: [
+        %{
+          id: "idp",
+          sp_id: "flux-sp",
+          base_url: base_url <> "/sso",
+          metadata_file: saml_metadata,
+          sign_requests: System.get_env("SAML_SP_KEY") not in [nil, ""],
+          sign_metadata: System.get_env("SAML_SP_KEY") not in [nil, ""],
+          signed_assertion_in_resp: System.get_env("SAML_REQUIRE_SIGNED", "1") == "1",
+          signed_envelopes_in_resp: false
+        }
+      ]
+  end
+
   config :flux_web, FluxWeb.Endpoint,
     url: [
       host: System.get_env("PHX_HOST", "localhost"),

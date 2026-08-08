@@ -13,19 +13,32 @@ defmodule FluxWeb.Application do
     OpentelemetryPhoenix.setup(adapter: :bandit)
     OpentelemetryEcto.setup([:flux, :repo])
 
-    children = [
-      FluxWeb.Telemetry,
-      FluxWeb.PromEx,
-      FluxWeb.Presence,
-      {FluxWeb.RateLimit, clean_period: :timer.minutes(1)},
-      # Start to serve requests, typically the last entry
-      FluxWeb.Endpoint
-    ]
+    children =
+      [
+        FluxWeb.Telemetry,
+        FluxWeb.PromEx,
+        FluxWeb.Presence,
+        {FluxWeb.RateLimit, clean_period: :timer.minutes(1)}
+      ] ++
+        saml_children() ++
+        [
+          # Start to serve requests, typically the last entry
+          FluxWeb.Endpoint
+        ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
     opts = [strategy: :one_for_one, name: FluxWeb.Supervisor]
     Supervisor.start_link(children, opts)
+  end
+
+  # Samly only starts when an IdP is configured (SAML_IDP_METADATA_FILE).
+  defp saml_children do
+    if FluxWeb.SAML.configured?() do
+      [{Samly.Provider, []}]
+    else
+      []
+    end
   end
 
   # Tell Phoenix to update the endpoint configuration

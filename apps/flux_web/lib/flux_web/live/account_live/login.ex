@@ -95,6 +95,15 @@ defmodule FluxWeb.AccountLive.Login do
               {gettext("Continue with %{provider}", provider: FluxWeb.OIDC.provider_name())}
             </.link>
           </div>
+          <div :if={FluxWeb.SAML.configured?()}>
+            <.link
+              href={"/sso/auth/signin/idp?target_url=#{URI.encode_www_form("/auth/saml/complete")}"}
+              class="btn btn-outline w-full mt-3"
+              id="saml-login"
+            >
+              {gettext("Continue with SAML SSO")}
+            </.link>
+          </div>
         </div>
       </div>
     </Layouts.app>

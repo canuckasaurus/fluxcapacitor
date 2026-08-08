@@ -4,7 +4,7 @@ defmodule FluxWeb.MixProject do
   def project do
     [
       app: :flux_web,
-      version: "0.3.0",
+      version: "0.4.0",
       build_path: "../../_build",
       config_path: "../../config/config.exs",
       deps_path: "../../deps",
@@ -63,6 +63,7 @@ defmodule FluxWeb.MixProject do
       {:flux_plugin_runtime, in_umbrella: true},
       {:jason, "~> 1.2"},
       {:jose, "~> 1.11"},
+      {:samly, "~> 1.4"},
       {:earmark, "~> 1.4"},
       {:bandit, "~> 1.5"},
       {:hammer, "~> 7.0"},

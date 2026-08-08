@@ -112,6 +112,26 @@ defmodule FluxWeb.Router do
     get "/ready", HealthController, :ready
   end
 
+  # SAML SSO (Samly): metadata, request, and assertion-consumer routes.
+  # The IdP POSTs assertions here, so CSRF stays off; the session is
+  # still fetched so the assertion lands in it.
+  pipeline :saml do
+    plug :accepts, ["html"]
+    plug :fetch_session
+  end
+
+  scope "/sso" do
+    pipe_through :saml
+
+    forward "/", Samly.Router
+  end
+
+  scope "/auth", FluxWeb do
+    pipe_through [:browser]
+
+    get "/saml/complete", SamlController, :complete
+  end
+
   # Public status page (HTML for humans, JSON for scripts and monitors
   # like Uptime Kuma).
   scope "/status", FluxWeb do
