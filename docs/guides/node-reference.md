@@ -154,6 +154,14 @@ check, using RRF ranking. `top_k` left blank defers to each dataset's
 own retrieval settings. Outputs `result` (joined passages),
 `citations`, `count`.
 
+### `delay`
+
+Waits before continuing: `seconds` (fractions allowed) or `until` (an
+ISO-8601 timestamp), both template-capable, capped at 300 seconds —
+pacing for rate-limited APIs and cooling-off steps. Anything longer
+belongs on a schedule trigger, and the error says so. Outputs
+`waited_ms`.
+
 ### `document_extractor`
 
 Turns an uploaded file (from a file-type start variable) into plain

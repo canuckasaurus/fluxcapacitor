@@ -47,7 +47,7 @@ defmodule FluxWeb.McpController do
         "prompts" => %{"listChanged" => false},
         "resources" => %{"listChanged" => false}
       },
-      "serverInfo" => %{"name" => "fluxcapacitor", "version" => "0.3.0"}
+      "serverInfo" => %{"name" => "fluxcapacitor", "version" => "0.4.0"}
     })
   end
 

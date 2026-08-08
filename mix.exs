@@ -4,7 +4,7 @@ defmodule Flux.Umbrella.MixProject do
   def project do
     [
       apps_path: "apps",
-      version: "0.3.0",
+      version: "0.4.0",
       dialyzer: [
         plt_add_apps: [:mix, :ex_unit],
         ignore_warnings: ".dialyzer_ignore.exs"

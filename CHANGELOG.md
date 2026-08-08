@@ -5,7 +5,28 @@ follows [Keep a Changelog](https://keepachangelog.com/); the project follows
 semantic versioning once past 1.0. Detailed build history lives in the ledger
 at `docs/PARITY-PLAN.md`.
 
-## Unreleased
+## v0.4.0 — 2026-08-08
+
+Three batches on from v0.3.0: enterprise sign-on, model experimentation,
+and evals that watch themselves. Ledger entries 43–46 carry the detail.
+
+### Batch 22
+- SAML 2.0 single sign-on (Samly/esaml, native — no proxy sidecar):
+  point `SAML_IDP_METADATA_FILE` at the IdP metadata and the login page
+  grows an SSO button; assertions provision accounts like OIDC.
+- Chat-app model A/B: a challenger model takes a stable percentage of
+  conversations; the monitoring page compares replies, feedback, and
+  tokens per variant.
+- Conversation-level evals: scripted multi-turn dialogues replay
+  through an app (or its chatflow) and an LLM judge scores the whole
+  transcript — regressions raise a notification.
+- Scheduled retrieval evals: a cron on the dataset re-scores the golden
+  retrieval cases; a hit-rate or MRR drop raises a notification.
+- Delay node: wait `seconds` or until an ISO-8601 time (both
+  template-capable, 300s cap) — pacing for rate-limited APIs.
+- Canvas find: Ctrl/Cmd-F on the editor filters nodes by title, type,
+  or id, highlights matches, and jumps to the first.
+- Sessions in account settings show each token's IP and browser.
 
 ### Batch 21
 - Chatflow conversations fold the same rolling summary into

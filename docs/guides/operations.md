@@ -126,6 +126,25 @@ Metric names are verified against the live `/metrics` endpoint.
 - Webhook endpoints take a **Slack format** option: events post as
   Block Kit, ready for an incoming-webhook URL.
 
+## SAML single sign-on
+
+Native SP-side SAML 2.0 (Samly/esaml) beside the OIDC login:
+
+- `SAML_IDP_METADATA_FILE` — path to the IdP's metadata XML (mount it
+  into the container). Setting this is what turns SAML on; the login
+  page grows a "Continue with SSO" button.
+- `SAML_SP_ENTITY_ID` — SP entity id (defaults to the app URL).
+- `SAML_SP_KEY` / `SAML_SP_CERT` — PEM paths, only when the IdP
+  requires signed requests (`openssl req -x509 -newkey rsa:2048
+  -nodes -days 1095` makes a pair).
+- `SAML_REQUIRE_SIGNED=0` — accept unsigned assertions (leave unset in
+  production).
+
+Point the IdP at `<base>/sso/sp/metadata/idp` for SP metadata; it
+POSTs assertions to `<base>/sso/sp/consume/idp`. The email attribute
+(`email`, `mail`, the OID form, or the XML-SOAP claim — the subject as
+a fallback) provisions or resolves an account exactly like OIDC.
+
 ## Backups & retention
 
 - **Export** (Settings → Export): the whole workspace — fluxes, apps,
@@ -194,6 +213,7 @@ measured on the dev workstation, echo provider:
 | Schedule/plugin triggers | per cron/interval | Editor → Triggers |
 | Recurring batches | per cron | Flux → Batches → Repeat |
 | Scheduled evals | per cron | Flux → Evals |
+| Scheduled retrieval evals | per cron | Knowledge → Settings |
 | Scheduled exports | per cron | Settings → Export |
 | URL source re-fetch | 03:00 UTC daily | Knowledge → re-fetch nightly |
 | Trash purge & log sweeps | nightly | automatic |

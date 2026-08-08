@@ -18,7 +18,8 @@ orchestrator, no queue infrastructure beyond Postgres.
   iteration and bounded loops over sub-fluxes — **pinnable to a specific
   published version** for reproducible composition — code execution, HTTP,
   knowledge retrieval, human-input and labeling pause/resume, classifiers,
-  extractors, and more) with
+  extractors, **timed delays** (seconds or until a timestamp, for pacing
+  rate-limited APIs), and more) with
   retries, error branches, **parallel branch fan-out**, model fallback chains,
   environment/conversation variables, versioning, and rollback. Template nodes
   render simple `{{refs}}`, a **Jinja subset** (filters, conditionals, loops),
@@ -105,7 +106,9 @@ orchestrator, no queue infrastructure beyond Postgres.
   human review, model trainer, report writer, intent router, plus
   workspace-saved **custom templates**) seeds new fluxes; a selection
   on the canvas **extracts into a new flux** (outside references become
-  start variables), and any node can carry its own **timeout**. Workspace
+  start variables), any node can carry its own **timeout**, and
+  **Ctrl/Cmd-F finds nodes on the canvas** by title, type, or id
+  (matches highlight, the view jumps to the first). Workspace
   export archives carry the whole quality loop — eval sets, labeling
   projects with labels and gold standards, retrieval cases — so backups
   restore it intact.
@@ -151,7 +154,12 @@ orchestrator, no queue infrastructure beyond Postgres.
   when the provider has a speech endpoint, browser voices otherwise.
   Guardrails gain **model-backed moderation** — the workspace default
   model judges content against your policy alongside the regex
-  patterns. A **concurrent-run cap** protects
+  patterns. Chat apps run **model A/B tests**: a challenger model takes
+  a chosen share of conversations (stable per conversation) and the
+  monitoring page compares replies, feedback, and tokens per variant —
+  and **conversation-level evals** replay scripted multi-turn dialogues
+  through the app, with an LLM judge scoring the whole transcript
+  (score drops raise a notification). A **concurrent-run cap** protects
   provider limits, and notification kinds **route to chosen webhook
   endpoints** (`notification.*` events) or arrive **by email** per
   member (account settings opt-in). A dashboard **getting-started
@@ -179,7 +187,9 @@ orchestrator, no queue infrastructure beyond Postgres.
   the **ArangoDB entity graph** (`FLUX_ARANGO_URL`) upgrades
   related-entity lookups to real 1–2 hop weighted traversals.
   **Retrieval evals** (golden question → expected-passage cases, hit rate
-  + MRR per dataset) make chunking and backend changes measurable.
+  + MRR per dataset) make chunking and backend changes measurable — and
+  a **cron on the dataset re-scores them unattended**, raising a
+  notification when hit rate or MRR drops.
 - **Plugins** — one SDK (`packages/flux_plugin`) with five capability
   behaviours: **model providers** (OpenAI, Anthropic, Gemini, **Azure
   OpenAI** deployments, **Amazon Bedrock** Claude models with hand-rolled
@@ -206,13 +216,15 @@ orchestrator, no queue infrastructure beyond Postgres.
   nodes attach **several toolsets at once** (OpenAPI + plugin + MCP
   mixed, colliding names deduped).
 - **Enterprise-grade tenancy** — workspaces with role-based access control
-  (built-in + custom roles), **OIDC single sign-on**, **SCIM 2.0
+  (built-in + custom roles), **OIDC and SAML 2.0 single sign-on** (point
+  `SAML_IDP_METADATA_FILE` at your IdP's metadata and the login page
+  grows an SSO button), **SCIM 2.0
   provisioning**, plan-based feature gating, a repo-level tenancy guard on
   every query against tenant tables, per-workspace encryption keys, an
   append-only audit trail (**date-filterable, exports as CSV**),
   workspace export/import archives with a **rehearsed restore
   runbook**, and per-account **session management** (see every signed-in
-  device, revoke one, or log out everywhere).
+  device **with its IP and browser**, revoke one, or log out everywhere).
   Costs stay honest with **workspace price overrides** (self-hosted and
   fine-tuned models priced per million tokens), **per-flux monthly
   budgets** beside the workspace one, and same-named document re-uploads

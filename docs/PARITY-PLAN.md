@@ -961,3 +961,37 @@ carry timeout_ms — runner wraps execution in a supervised task,
 brutal-kills past the deadline, and fails with "timed out after Nms";
 seconds in the editor beside the retries field). One migration
 (workflow_batches.concurrency).
+
+**46. Batch 22 — enterprise sign-on and self-watching evals (v0.4.0).**
+**SAML 2.0 SSO** (native via Samly/esaml, no proxy sidecar:
+SAML_IDP_METADATA_FILE arms a conditional Samly.Provider child and the
+/sso forward; assertions land on /auth/saml/complete where the email
+attribute — email/mail/OID/XML-SOAP claim, subject as fallback —
+provisions accounts through the same get_or_register_sso_account as
+OIDC; SAML_SP_KEY/CERT sign requests when the IdP demands it);
+**delay node** (seconds or until an ISO-8601 time, template-capable,
+300s cap with an error pointing longer waits at schedule triggers;
+outputs waited_ms); **canvas find** (Ctrl/Cmd-F focuses a filter box,
+matches ring in warning yellow, the canvas scrolls to the first hit);
+**chat-app model A/B** (challenger plugin/model/split columns on apps;
+phash2(conversation_id) rem 100 keeps each conversation on its
+variant; variant-b replies stamp usage and the monitor compares
+replies/likes/dislikes/tokens per variant); **scheduled retrieval
+evals** (a cron on the dataset re-runs evaluate_retrieval on the
+minute tick, persists last hit rate/MRR, and a drop raises
+eval_regressed — the batch-7 golden cases now watch themselves);
+**conversation-level evals** (scripted user turns replay through the
+app's stateless completion — chatflows included — and the whole
+transcript goes to the LLM judge shared with eval sets via the newly
+public judge_llm/parse_judge_reply; score drops notify; card on the
+app monitor with transcript drill-in); **session device info**
+(accounts_tokens carry ip + user-agent captured at login; settings
+sessions list shows IP and a browser label); and the **v0.4.0 cut**
+(all six mix.exs plus both MCP version strings bumped, CHANGELOG
+distilled, tag pushed). Lesson recorded once more: when an Edit
+restructures a call, replace the whole expression — patching its tail
+left an orphaned case head in save_chat_settings that a follow-up edit
+had to remove. Four migrations (accounts_tokens
+device info, apps A/B columns, datasets retrieval-eval columns,
+conversation_evals). Custom domains and
+the Japanese locale stay on the table.
