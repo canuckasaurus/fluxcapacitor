@@ -254,8 +254,15 @@ defmodule Flux.Accounts do
   @doc """
   Generates a session token.
   """
-  def generate_account_session_token(account) do
+  def generate_account_session_token(account, device_info \\ %{}) do
     {token, account_token} = AccountToken.build_session_token(account)
+
+    account_token = %{
+      account_token
+      | ip: device_info[:ip],
+        user_agent: device_info[:user_agent] && String.slice(device_info[:user_agent], 0, 250)
+    }
+
     Repo.insert!(account_token)
     token
   end

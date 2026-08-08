@@ -119,6 +119,10 @@ defmodule FluxWeb.AccountLive.Settings do
           <.icon name="hero-computer-desktop" class="size-4 opacity-60" />
           <span>
             Signed in {Calendar.strftime(token.inserted_at, "%b %d, %Y %H:%M")} UTC
+            <span :if={token.ip} class="opacity-60">· {token.ip}</span>
+            <span :if={token.user_agent} class="opacity-60" title={token.user_agent}>
+              · {browser_label(token.user_agent)}
+            </span>
           </span>
           <span
             :if={token.token == @current_session_token}
@@ -171,6 +175,17 @@ defmodule FluxWeb.AccountLive.Settings do
       |> assign(:trigger_submit, false)
 
     {:ok, socket}
+  end
+
+  defp browser_label(user_agent) do
+    cond do
+      user_agent =~ "Edg/" -> "Edge"
+      user_agent =~ "OPR/" -> "Opera"
+      user_agent =~ "Firefox/" -> "Firefox"
+      user_agent =~ "Chrome/" -> "Chrome"
+      user_agent =~ "Safari/" -> "Safari"
+      true -> "browser"
+    end
   end
 
   @impl true

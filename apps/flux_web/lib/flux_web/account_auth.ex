@@ -118,7 +118,12 @@ defmodule FluxWeb.AccountAuth do
   # function will clear the session to avoid fixation attacks. See the
   # renew_session function to customize this behaviour.
   defp create_or_extend_session(conn, account, params) do
-    token = Accounts.generate_account_session_token(account)
+    device_info = %{
+      ip: conn.remote_ip |> :inet.ntoa() |> to_string(),
+      user_agent: conn |> Plug.Conn.get_req_header("user-agent") |> List.first()
+    }
+
+    token = Accounts.generate_account_session_token(account, device_info)
     remember_me = get_session(conn, :account_remember_me)
 
     conn

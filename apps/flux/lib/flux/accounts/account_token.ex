@@ -19,6 +19,9 @@ defmodule Flux.Accounts.AccountToken do
     field :context, :string
     field :sent_to, :string
     field :authenticated_at, :naive_datetime
+    # Where the session signed in from (settings page's "which device?").
+    field :ip, :string
+    field :user_agent, :string
     belongs_to :account, Flux.Accounts.Account
 
     timestamps(updated_at: false)
