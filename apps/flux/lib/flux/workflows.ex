@@ -1792,6 +1792,7 @@ defmodule Flux.Workflows do
         put: fn key, value, ttl -> Flux.LLMCache.put(key, value, ttl) end
       },
       read_document: fn %{file_id: file_id} -> Flux.Documents.extract(workspace_id, file_id) end,
+      read_image: fn %{file_id: file_id} -> Flux.Documents.fetch_image(workspace_id, file_id) end,
       run_subflux: build_subflux_runner(workspace_id, depth),
       retrieve_knowledge: build_knowledge_retriever(workspace_id),
       fetch_doc_template: fn template_id ->
@@ -1834,7 +1835,9 @@ defmodule Flux.Workflows do
     store_run_output(workspace_id, name, binary)
   end
 
-  defp store_run_output(workspace_id, name, binary) do
+  @doc false
+  # Also the landing spot for generated images (builtin:images tool).
+  def store_run_output(workspace_id, name, binary) do
     key = "run_outputs/#{workspace_id}/#{Ecto.UUID.generate()}-#{name}"
     token = "file_" <> Base.url_encode64(:crypto.strong_rand_bytes(18), padding: false)
 
@@ -1862,6 +1865,7 @@ defmodule Flux.Workflows do
   defp content_type_for(name) do
     case name |> Path.extname() |> String.downcase() do
       ".docx" -> @docx_content_type
+      ".png" -> "image/png"
       ".pdf" -> "application/pdf"
       ".html" -> "text/html; charset=utf-8"
       ".md" -> "text/markdown; charset=utf-8"
@@ -1956,7 +1960,7 @@ defmodule Flux.Workflows do
   # Iteration items run the sub-flux's published version inline (no run
   # rows, silent host) — depth-capped so sub-fluxes cannot nest further.
   defp build_subflux_runner(workspace_id, depth) do
-    fn %{workflow_id: workflow_id, item: item, index: index} = request ->
+    fn %{workflow_id: workflow_id} = request ->
       scope = %Scope{workspace: %Flux.Accounts.Workspace{id: workspace_id}}
 
       with :ok <- (depth < 1 && :ok) || {:error, "sub-fluxes cannot start their own sub-fluxes"},
@@ -1968,11 +1972,9 @@ defmodule Flux.Workflows do
                {:error, subflux_version_error(request[:version])},
            {:ok, graph} <- Engine.build(version.graph) do
         sub_host = build_host(workspace_id, fn _event -> :ok end, depth + 1)
-        item_text = if is_binary(item), do: item, else: Jason.encode!(item)
+        {inputs, sys} = subflux_run_inputs(request)
 
-        case Engine.run(graph, %{"item" => item_text, "index" => index}, sub_host,
-               sys: %{"item" => item, "index" => index}
-             ) do
+        case Engine.run(graph, inputs, sub_host, sys: sys) do
           {:ok, result} -> {:ok, result.outputs}
           {:paused, _paused} -> {:error, "sub-fluxes cannot pause for human input"}
           {:error, failure} -> {:error, failure.error}
@@ -1983,6 +1985,15 @@ defmodule Flux.Workflows do
         {:error, reason} -> {:error, reason}
       end
     end
+  end
+
+  # Iteration/loop hand the sub-flux one item; the subflux call node
+  # maps arbitrary start variables instead.
+  defp subflux_run_inputs(%{inputs: inputs}) when is_map(inputs), do: {inputs, %{}}
+
+  defp subflux_run_inputs(%{item: item, index: index}) do
+    item_text = if is_binary(item), do: item, else: Jason.encode!(item)
+    {%{"item" => item_text, "index" => index}, %{"item" => item, "index" => index}}
   end
 
   # A pinned version makes composed fluxes reproducible; unpinned stays

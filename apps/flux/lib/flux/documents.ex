@@ -23,6 +23,24 @@ defmodule Flux.Documents do
   end
 
   @doc """
+  Loads an uploaded image as base64 for vision requests (the LLM node's
+  `vision_variable`). Refuses non-image files by content type.
+  """
+  def fetch_image(workspace_id, file_id) do
+    with {:ok, file} <- fetch(workspace_id, file_id) do
+      case file.content_type do
+        "image/" <> _subtype ->
+          with {:ok, binary} <- Flux.Storage.get(file.key) do
+            {:ok, %{data: Base.encode64(binary), media_type: file.content_type}}
+          end
+
+        _other ->
+          {:error, "#{file.name} is not an image"}
+      end
+    end
+  end
+
+  @doc """
   Extracts text from a raw binary through the same pipeline as
   `extract/2` — native formats directly, office formats via Tika when
   configured. Used by knowledge uploads (PDF/Office ingestion).

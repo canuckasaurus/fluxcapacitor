@@ -40,7 +40,8 @@ defmodule Flux.Engine.Node do
     "document" => Flux.Engine.Nodes.Document,
     "file_output" => Flux.Engine.Nodes.FileOutput,
     "interview" => Flux.Engine.Nodes.Interview,
-    "delay" => Flux.Engine.Nodes.Delay
+    "delay" => Flux.Engine.Nodes.Delay,
+    "subflux" => Flux.Engine.Nodes.Subflux
   }
 
   @doc "The module implementing a node type."

@@ -49,7 +49,7 @@ defmodule Flux.Engine.Graph do
                  variable_aggregator variable_assigner list_operator
                  question_classifier parameter_extractor document_extractor iteration
                  loop human_input labeling knowledge_retrieval document file_output
-                 interview delay)
+                 interview delay subflux)
 
   def node_types, do: @node_types
 

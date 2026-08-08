@@ -15,6 +15,7 @@ defmodule Flux.Engine.Host do
             http_request: nil,
             run_code: nil,
             read_document: nil,
+            read_image: nil,
             run_subflux: nil,
             retrieve_knowledge: nil,
             fetch_doc_template: nil,

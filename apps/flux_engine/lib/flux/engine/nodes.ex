@@ -57,7 +57,9 @@ defmodule Flux.Engine.Nodes.LLM do
   @moduledoc """
   Renders the prompt templates and invokes the model through the host.
   Config: `provider_plugin_id`, `model`, `system_prompt`, `prompt`,
-  `params`, and optional `output_schema` (a JSON schema) — when set, a
+  `params`, optional `vision_variable` (resolves to an uploaded image's
+  file id — the image rides the user message to vision-capable models),
+  and optional `output_schema` (a JSON schema) — when set, a
   forced `respond` tool call yields a structured `"output"` map,
   validated against the schema with one corrective retry (errors quoted
   back to the model) before the node fails.
@@ -92,50 +94,88 @@ defmodule Flux.Engine.Nodes.LLM do
           [%{role: :system, content: system}, %{role: :user, content: prompt}]
         end
 
-      request = %{
-        provider_plugin_id: plugin_id,
-        model: model,
-        messages: messages,
-        params: node.config["params"] || %{}
-      }
-
-      request =
-        if is_map(schema) do
-          Map.put(request, :tools, [
-            %{
-              "name" => "respond",
-              "description" => "Report the final structured answer.",
-              "parameters" => schema
-            }
-          ])
-        else
-          request
-        end
-
-      chunk_emit = fn delta ->
-        Host.emit(host, {:node_chunk, %{node_id: node.id, delta: delta}})
-      end
-
-      case invoke_with_fallback(node, host, invoke, request, chunk_emit) do
-        {:ok, %{content: content} = result, model_used, fallback?} ->
-          outputs = %{
-            "text" => content,
-            "usage" => Map.get(result, :usage, %{}),
-            "model_used" => model_used,
-            "fallback_used" => fallback?
-          }
-
-          if is_map(schema) do
-            with_valid_output(outputs, result, schema, host, node, invoke, request, chunk_emit)
-          else
-            {:ok, outputs}
-          end
-
-        {:error, reason} ->
-          {:error, reason}
+      with {:ok, messages} <- attach_vision(messages, node, pool, host) do
+        run_with_messages(node, host, invoke, messages, schema, plugin_id, model)
       end
     end
   end
+
+  defp run_with_messages(node, host, invoke, messages, schema, plugin_id, model) do
+    request = %{
+      provider_plugin_id: plugin_id,
+      model: model,
+      messages: messages,
+      params: node.config["params"] || %{}
+    }
+
+    request =
+      if is_map(schema) do
+        Map.put(request, :tools, [
+          %{
+            "name" => "respond",
+            "description" => "Report the final structured answer.",
+            "parameters" => schema
+          }
+        ])
+      else
+        request
+      end
+
+    chunk_emit = fn delta ->
+      Host.emit(host, {:node_chunk, %{node_id: node.id, delta: delta}})
+    end
+
+    case invoke_with_fallback(node, host, invoke, request, chunk_emit) do
+      {:ok, %{content: content} = result, model_used, fallback?} ->
+        outputs = %{
+          "text" => content,
+          "usage" => Map.get(result, :usage, %{}),
+          "model_used" => model_used,
+          "fallback_used" => fallback?
+        }
+
+        if is_map(schema) do
+          with_valid_output(outputs, result, schema, host, node, invoke, request, chunk_emit)
+        else
+          {:ok, outputs}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # A configured vision variable resolves to an uploaded image's file id;
+  # the host loads it as base64 and it rides the last user message the
+  # same way chat uploads do. A missing capability or unreadable file
+  # fails the node honestly rather than silently dropping the image.
+  defp attach_vision(messages, node, pool, host) do
+    selector = to_string(node.config["vision_variable"] || "")
+
+    if selector == "" do
+      {:ok, messages}
+    else
+      file_id =
+        case Template.resolve(pool, selector) do
+          nil -> Template.render(selector, pool)
+          value -> to_string(value)
+        end
+
+      with {:ok, read} <- vision_capability(host),
+           {:ok, image} <- read.(%{file_id: file_id}) do
+        {:ok, put_image_on_user_message(messages, image)}
+      end
+    end
+  end
+
+  defp put_image_on_user_message(messages, image) do
+    List.update_at(messages, -1, fn message ->
+      Map.put(message, :images, [%{data: image.data, media_type: image.media_type}])
+    end)
+  end
+
+  defp vision_capability(%Host{read_image: fun}) when is_function(fun, 1), do: {:ok, fun}
+  defp vision_capability(_host), do: {:error, "this run's host cannot read images"}
 
   # Structured replies validate against the schema; an invalid one gets a
   # single retry with the errors quoted back, then fails honestly.
@@ -1553,6 +1593,52 @@ defmodule Flux.Engine.Nodes.Iteration do
 
   defp format(reason) when is_binary(reason), do: reason
   defp format(reason), do: inspect(reason)
+end
+
+defmodule Flux.Engine.Nodes.Subflux do
+  @moduledoc """
+  Calls another published flux as a single node: `inputs` maps the
+  sub-flux's start variables to templates rendered from this run's
+  pool, and the sub-flux's end outputs become this node's outputs.
+  Config: `workflow_id`, optional `subflux_version` pin, `inputs`
+  (`%{"var" => "template"}`). The composition extract-to-flux leaves
+  for you — one level deep, same as iteration and loop.
+  """
+  @behaviour Flux.Engine.Node
+
+  alias Flux.Engine.{Host, Template}
+
+  @impl true
+  def run(node, pool, host) do
+    workflow_id = to_string(node.config["workflow_id"] || "")
+
+    with :ok <- require_workflow(workflow_id),
+         {:ok, run_subflux} <- capability(host) do
+      inputs =
+        for {name, template} <- node.config["inputs"] || %{}, into: %{} do
+          {to_string(name), Template.render(to_string(template), pool)}
+        end
+
+      request = %{workflow_id: workflow_id, inputs: inputs}
+
+      request =
+        if version = Flux.Engine.Nodes.SubfluxVersion.parse(node.config["subflux_version"]),
+          do: Map.put(request, :version, version),
+          else: request
+
+      case run_subflux.(request) do
+        {:ok, outputs} when is_map(outputs) -> {:ok, outputs}
+        {:error, reason} when is_binary(reason) -> {:error, reason}
+        {:error, reason} -> {:error, inspect(reason)}
+      end
+    end
+  end
+
+  defp require_workflow(""), do: {:error, "the subflux node needs a flux to call"}
+  defp require_workflow(_id), do: :ok
+
+  defp capability(%Host{run_subflux: fun}) when is_function(fun, 1), do: {:ok, fun}
+  defp capability(_host), do: {:error, "this run's host cannot run sub-fluxes"}
 end
 
 defmodule Flux.Engine.Nodes.Delay do
