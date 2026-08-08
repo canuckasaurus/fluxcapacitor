@@ -114,6 +114,18 @@ services:
     depends_on:
       - prometheus
 
+  # Optional external monitor (--profile uptime): point checks at
+  # http://app:4000/health/ready and /status/json. The native /status
+  # page needs no sidecar; this is for alerting history and public
+  # status hosting beyond it.
+  uptime-kuma:
+    image: louislam/uptime-kuma:1
+    profiles: ["uptime"]
+    volumes:
+      - uptime_kuma_data:/app/data
+    ports:
+      - "3002:3001"
+
   app:
     build: .
     profiles: ["full"]
@@ -150,3 +162,4 @@ volumes:
   coderunner_cache:
   prometheus_data:
   grafana_data:
+  uptime_kuma_data:

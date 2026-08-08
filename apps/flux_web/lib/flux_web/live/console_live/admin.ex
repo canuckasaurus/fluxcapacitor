@@ -18,6 +18,8 @@ defmodule FluxWeb.ConsoleLive.Admin do
          provider_health: Flux.ProviderHealth.stats(),
          queue_stats: Flux.Jobs.queue_stats(),
          problem_jobs: Flux.Jobs.problem_jobs(),
+         archived: Accounts.archived_workspaces(),
+         status_note: Flux.InstanceSettings.get("status_note"),
          plans: Flux.Features.plans()
        )}
     else
@@ -61,6 +63,31 @@ defmodule FluxWeb.ConsoleLive.Admin do
 
   def handle_event("refresh_jobs", _params, socket) do
     {:noreply, refresh_jobs(socket)}
+  end
+
+  def handle_event("save_status_note", %{"note" => note}, socket) do
+    with true <- Accounts.instance_admin?(socket.assigns.current_scope.account) do
+      :ok = Flux.InstanceSettings.put("status_note", note)
+
+      {:noreply,
+       socket
+       |> put_flash(:info, "Status note saved — it shows on /status.")
+       |> assign(status_note: Flux.InstanceSettings.get("status_note"))}
+    else
+      _not_admin -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("restore_workspace", %{"workspace-id" => workspace_id}, socket) do
+    with true <- Accounts.instance_admin?(socket.assigns.current_scope.account),
+         {:ok, workspace} <- Accounts.restore_workspace(workspace_id) do
+      {:noreply,
+       socket
+       |> put_flash(:info, "#{workspace.name} restored.")
+       |> assign(archived: Accounts.archived_workspaces(), overview: Accounts.instance_overview())}
+    else
+      _error -> {:noreply, put_flash(socket, :error, "Could not restore that workspace.")}
+    end
   end
 
   defp refresh_jobs(socket) do
@@ -153,6 +180,45 @@ defmodule FluxWeb.ConsoleLive.Admin do
           </tbody>
         </table>
       </div>
+      <div class="card border border-base-200 p-6 space-y-2" id="status-note-card">
+        <h2 class="font-semibold">Status page incident note</h2>
+        <p class="text-sm opacity-70">
+          Shown on the public <a href="/status" class="link">/status</a>
+          page while non-blank — for planned maintenance and incident updates.
+        </p>
+        <form phx-submit="save_status_note" id="status-note-form" class="space-y-2">
+          <textarea
+            name="note"
+            rows="2"
+            placeholder="e.g. Provider X is degraded; replies may be slow."
+            class="textarea textarea-bordered textarea-sm w-full max-w-xl"
+          >{@status_note}</textarea>
+          <button class="btn btn-primary btn-sm">Save note</button>
+        </form>
+      </div>
+
+      <div
+        :if={@archived != []}
+        class="card border border-base-200 p-6 space-y-2"
+        id="archived-workspaces"
+      >
+        <h2 class="font-semibold">Archived workspaces</h2>
+        <div :for={workspace <- @archived} class="flex items-center gap-3 text-sm">
+          <.icon name="hero-archive-box" class="size-4 opacity-60" />
+          <span class="font-semibold">{workspace.name}</span>
+          <span class="text-xs opacity-60">
+            archived {Calendar.strftime(workspace.updated_at, "%Y-%m-%d")}
+          </span>
+          <button
+            class="btn btn-ghost btn-xs ml-auto"
+            phx-click="restore_workspace"
+            phx-value-workspace-id={workspace.id}
+          >
+            Restore
+          </button>
+        </div>
+      </div>
+
       <div class="card border border-base-200 p-6 space-y-3" id="background-jobs">
         <div class="flex items-center justify-between">
           <h2 class="font-semibold">Background jobs</h2>

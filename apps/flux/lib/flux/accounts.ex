@@ -867,6 +867,37 @@ defmodule Flux.Accounts do
     end
   end
 
+  @doc """
+  Archives the workspace (owner only): it leaves the switcher and stops
+  resolving as anyone's current workspace, but nothing is deleted — the
+  gentle alternative to the danger zone. Instance admins restore.
+  """
+  def archive_workspace(%Scope{} = scope) do
+    with true <- Scope.role(scope) == :owner || {:error, :unauthorized},
+         %Workspace{} = workspace <- Repo.get(Workspace, Scope.workspace_id(scope)) do
+      workspace |> Ecto.Changeset.change(status: "archived") |> Repo.update()
+    end
+  end
+
+  @doc "Instance-admin restore of an archived workspace."
+  def restore_workspace(workspace_id) do
+    case Repo.get(Workspace, workspace_id) do
+      %Workspace{status: "archived"} = workspace ->
+        workspace |> Ecto.Changeset.change(status: "normal") |> Repo.update()
+
+      %Workspace{} = workspace ->
+        {:ok, workspace}
+
+      nil ->
+        {:error, :not_found}
+    end
+  end
+
+  @doc "Archived workspaces, for the admin panel's restore list."
+  def archived_workspaces do
+    Repo.all(from(w in Workspace, where: w.status == "archived", order_by: [desc: w.updated_at]))
+  end
+
   @doc "Builds a scope with the account's current (or fallback) workspace attached."
   def scope_for(%Account{} = account) do
     scope = Scope.for_account(account)
