@@ -18,6 +18,54 @@ defmodule Flux.Providers do
   # fake with Application.put_env(:flux, :plugin_runtime, Fake).
   defp runtime, do: Application.get_env(:flux, :plugin_runtime, Flux.PluginRuntime)
 
+  @doc """
+  One playground call: the prompt against one provider/model, timed and
+  costed. Returns `{:ok, %{content, latency_ms, input_tokens,
+  output_tokens, cost_usd}}` or `{:error, reason}`.
+  """
+  def playground_run(workspace_id, plugin_id, model, prompt) do
+    credentials =
+      case fetch_config(workspace_id, plugin_id) do
+        {:ok, config} -> config
+        {:error, :not_configured} -> %{}
+      end
+
+    request = %Flux.Plugin.ModelProvider.Request{
+      model: model,
+      messages: [%{role: :user, content: prompt}],
+      params: %{}
+    }
+
+    {elapsed_us, result} =
+      :timer.tc(fn ->
+        runtime().invoke_llm(plugin_id, credentials, request, fn _chunk -> :ok end)
+      end)
+
+    case result do
+      {:ok, reply} ->
+        input = reply.usage.input_tokens
+        output = reply.usage.output_tokens
+
+        cost =
+          case Flux.Pricing.estimate(workspace_id, model, input, output) do
+            {:ok, cost} -> cost
+            :unknown -> nil
+          end
+
+        {:ok,
+         %{
+           content: reply.content,
+           latency_ms: div(elapsed_us, 1000),
+           input_tokens: input,
+           output_tokens: output,
+           cost_usd: cost
+         }}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   @doc "All model-provider plugin manifests known to the runtime."
   def list_provider_plugins, do: runtime().list_model_providers()
 
