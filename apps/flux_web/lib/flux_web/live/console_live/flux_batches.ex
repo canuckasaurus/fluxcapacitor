@@ -57,10 +57,20 @@ defmodule FluxWeb.ConsoleLive.FluxBatches do
         {:ok, {entry.client_name, File.read!(path)}}
       end)
 
+    concurrency =
+      case Integer.parse(to_string(params["concurrency"] || "")) do
+        {n, ""} when n > 1 -> n
+        _sequential -> 1
+      end
+
     with [{filename, text}] <- uploads,
          {:ok, rows} <- Flux.CSV.parse_with_header(text),
          {:ok, _batch} <-
-           Workflows.start_batch(scope, workflow, rows, name: filename, version: version) do
+           Workflows.start_batch(scope, workflow, rows,
+             name: filename,
+             version: version,
+             concurrency: concurrency
+           ) do
       {:noreply,
        socket
        |> put_flash(:info, "Batch started — #{length(rows)} rows.")
@@ -220,6 +230,16 @@ defmodule FluxWeb.ConsoleLive.FluxBatches do
             <option :for={version <- @versions} value={"v#{version.version}"}>
               v{version.version}
             </option>
+          </select>
+          <select
+            name="concurrency"
+            class="select select-bordered select-sm"
+            title="Rows in flight at once — parallel batches finish faster but hit provider limits harder"
+          >
+            <option value="1">1 at a time</option>
+            <option value="2">2 parallel</option>
+            <option value="4">4 parallel</option>
+            <option value="8">8 parallel</option>
           </select>
           <button class="btn btn-primary btn-sm">Run batch</button>
         </form>

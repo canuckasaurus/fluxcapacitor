@@ -155,6 +155,8 @@ defmodule Flux.Workflows.WorkflowBatch do
 
     field :name, :string
     field :target, :string, default: "draft"
+    # Rows in flight at once (1 = sequential, capped in start_batch).
+    field :concurrency, :integer, default: 1
     field :status, Ecto.Enum, values: [:running, :completed], default: :running
     field :graph, :map
     field :rows, {:array, :map}, default: []

@@ -641,6 +641,12 @@ defmodule Flux.Workflows do
         with {:ok, graph_map, target} <-
                resolve_batch_target(scope, workflow, Keyword.get(opts, :version)),
              {:ok, _graph} <- validate_batch_graph(graph_map) do
+          concurrency =
+            case Keyword.get(opts, :concurrency, 1) do
+              n when is_integer(n) and n > 1 -> min(n, 8)
+              _sequential -> 1
+            end
+
           batch =
             Repo.insert!(%WorkflowBatch{
               workspace_id: Scope.workspace_id(scope),
@@ -649,6 +655,7 @@ defmodule Flux.Workflows do
               target: target,
               graph: graph_map,
               rows: rows,
+              concurrency: concurrency,
               total: length(rows)
             })
 
@@ -854,26 +861,16 @@ defmodule Flux.Workflows do
 
     with %WorkflowBatch{status: :running} <- batch,
          {:ok, graph} <- Engine.build(batch.graph) do
-      Enum.each(batch.rows, fn row ->
-        run =
-          Repo.insert!(%WorkflowRun{
-            workspace_id: batch.workspace_id,
-            workflow_id: batch.workflow_id,
-            batch_id: batch.id,
-            status: :running,
-            source: :batch,
-            inputs: row
-          })
-
-        {:ok, finished} = do_execute(run, graph, row, batch.workspace_id, [])
-
-        counter = if finished.status == :succeeded, do: :succeeded, else: :failed
-
-        from(b in WorkflowBatch, where: b.id == ^batch.id)
-        |> Repo.update_all([inc: [{counter, 1}]], skip_workspace_guard: true)
-
-        broadcast_batch(batch)
-      end)
+      # concurrency > 1 runs rows in parallel (bounded); order of
+      # completion doesn't matter — every row is independent.
+      batch.rows
+      |> Task.async_stream(
+        fn row -> perform_batch_row(batch, graph, row) end,
+        max_concurrency: max(batch.concurrency || 1, 1),
+        ordered: false,
+        timeout: :infinity
+      )
+      |> Stream.run()
 
       from(b in WorkflowBatch, where: b.id == ^batch.id)
       |> Repo.update_all([set: [status: "completed"]], skip_workspace_guard: true)
@@ -893,6 +890,27 @@ defmodule Flux.Workflows do
     end
 
     :ok
+  end
+
+  defp perform_batch_row(batch, graph, row) do
+    run =
+      Repo.insert!(%WorkflowRun{
+        workspace_id: batch.workspace_id,
+        workflow_id: batch.workflow_id,
+        batch_id: batch.id,
+        status: :running,
+        source: :batch,
+        inputs: row
+      })
+
+    {:ok, finished} = do_execute(run, graph, row, batch.workspace_id, [])
+
+    counter = if finished.status == :succeeded, do: :succeeded, else: :failed
+
+    from(b in WorkflowBatch, where: b.id == ^batch.id)
+    |> Repo.update_all([inc: [{counter, 1}]], skip_workspace_guard: true)
+
+    broadcast_batch(batch)
   end
 
   @doc false
