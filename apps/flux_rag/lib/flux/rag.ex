@@ -902,6 +902,70 @@ defmodule Flux.RAG do
     }
   end
 
+  @doc """
+  Minute tick (via the schedule worker): runs `evaluate_retrieval/2` for
+  every dataset whose `retrieval_eval_cron` matches this minute, stores
+  the scores, and raises an `eval_regressed` notification when hit rate
+  or MRR fell below the previous run.
+  """
+  def run_scheduled_retrieval_evals(now \\ DateTime.utc_now(:second)) do
+    minute_start = %{now | second: 0}
+
+    datasets =
+      Repo.all(
+        where(Dataset, [d], not is_nil(d.retrieval_eval_cron) and is_nil(d.deleted_at)),
+        skip_workspace_guard: true
+      )
+
+    for dataset <- datasets,
+        cron_due?(dataset.retrieval_eval_cron, now),
+        is_nil(dataset.last_retrieval_eval_at) or
+          DateTime.compare(dataset.last_retrieval_eval_at, minute_start) == :lt do
+      scope = url_source_scope(dataset.workspace_id)
+      report = evaluate_retrieval(scope, dataset.id)
+
+      if is_number(report.hit_rate) do
+        maybe_notify_retrieval_regression(dataset, report)
+      end
+
+      dataset
+      |> Ecto.Changeset.change(
+        last_retrieval_hit_rate: report.hit_rate,
+        last_retrieval_mrr: report.mrr,
+        last_retrieval_eval_at: DateTime.utc_now(:second)
+      )
+      |> Repo.update()
+    end
+
+    :ok
+  end
+
+  defp maybe_notify_retrieval_regression(dataset, report) do
+    regressed =
+      (is_number(dataset.last_retrieval_hit_rate) and
+         report.hit_rate < dataset.last_retrieval_hit_rate) or
+        (is_number(dataset.last_retrieval_mrr) and is_number(report.mrr) and
+           report.mrr < dataset.last_retrieval_mrr)
+
+    if regressed do
+      Flux.Notifications.notify(
+        dataset.workspace_id,
+        "eval_regressed",
+        "Retrieval on \"#{dataset.name}\" regressed: hit rate " <>
+          "#{dataset.last_retrieval_hit_rate} → #{report.hit_rate}, MRR " <>
+          "#{dataset.last_retrieval_mrr} → #{report.mrr}",
+        "/console/knowledge/#{dataset.id}"
+      )
+    end
+  end
+
+  defp cron_due?(cron, now) do
+    case Oban.Cron.Expression.parse(cron) do
+      {:ok, expression} -> Oban.Cron.Expression.now?(expression, now)
+      {:error, _reason} -> false
+    end
+  end
+
   defp embed(_dataset, []), do: {:ok, []}
 
   defp embed(dataset, chunks) do

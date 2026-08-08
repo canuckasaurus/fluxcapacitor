@@ -501,7 +501,8 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
              "retrieval_top_k" => params["retrieval_top_k"],
              "score_threshold" => params["score_threshold"],
              "entity_plugin_id" => entity_plugin,
-             "entity_model" => entity_model
+             "entity_model" => entity_model,
+             "retrieval_eval_cron" => params["retrieval_eval_cron"]
            }) do
       {:noreply,
        socket
@@ -788,6 +789,26 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                     {pname} â€” {m.label}
                   </option>
                 </select>
+              </label>
+              <label class="form-control">
+                <span class="label-text text-xs opacity-70 mb-1">Retrieval eval cron</span>
+                <input
+                  type="text"
+                  name="retrieval_eval_cron"
+                  value={@selected.retrieval_eval_cron}
+                  placeholder="0 6 * * *"
+                  class="input input-bordered input-sm w-36 font-mono"
+                  title="Scores the golden retrieval cases on this schedule; a drop in hit rate or MRR raises an eval-regressed notification"
+                />
+                <span
+                  :if={preview = FluxWeb.CronPreview.describe(@selected.retrieval_eval_cron)}
+                  class="text-[10px] opacity-50 mt-1"
+                >
+                  {preview}
+                </span>
+                <span :if={@selected.last_retrieval_eval_at} class="text-[10px] opacity-50 mt-1">
+                  last: hit rate {@selected.last_retrieval_hit_rate}, MRR {@selected.last_retrieval_mrr}
+                </span>
               </label>
               <button class="btn btn-primary btn-sm">Save</button>
               <button

@@ -56,6 +56,10 @@ defmodule Flux.Workflows.ScheduleWorker do
       rag.refresh_url_sources(now)
     end
 
+    if Code.ensure_loaded?(rag) and function_exported?(rag, :run_scheduled_retrieval_evals, 1) do
+      rag.run_scheduled_retrieval_evals(now)
+    end
+
     plugin_due =
       from(t in Trigger,
         where: t.enabled and t.type == :plugin and not is_nil(t.plugin_id),

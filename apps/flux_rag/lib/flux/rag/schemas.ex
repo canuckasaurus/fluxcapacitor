@@ -27,6 +27,12 @@ defmodule Flux.RAG.Dataset do
     field(:score_threshold, :float)
     field(:entity_plugin_id, :string)
     field(:entity_model, :string)
+    # Scheduled retrieval evals: cron + the last run's scores, so a
+    # regression is detectable (and notifiable) without a human diff.
+    field(:retrieval_eval_cron, :string)
+    field(:last_retrieval_hit_rate, :float)
+    field(:last_retrieval_mrr, :float)
+    field(:last_retrieval_eval_at, :utc_datetime)
     field(:deleted_at, :utc_datetime)
 
     timestamps(type: :utc_datetime)
@@ -51,7 +57,8 @@ defmodule Flux.RAG.Dataset do
       :retrieval_top_k,
       :score_threshold,
       :entity_plugin_id,
-      :entity_model
+      :entity_model,
+      :retrieval_eval_cron
     ])
     |> validate_required([:name, :embedding_plugin_id, :embedding_model])
     |> validate_number(:chunk_size, greater_than_or_equal_to: 200, less_than_or_equal_to: 4000)
@@ -73,6 +80,28 @@ defmodule Flux.RAG.Dataset do
           changeset
       end
     end)
+    |> validate_retrieval_cron()
+  end
+
+  # Same parser as schedule triggers and eval sets: anything Oban's cron
+  # accepts. Blank clears the schedule.
+  defp validate_retrieval_cron(changeset) do
+    case get_change(changeset, :retrieval_eval_cron) do
+      nil ->
+        changeset
+
+      "" ->
+        put_change(changeset, :retrieval_eval_cron, nil)
+
+      cron ->
+        case Oban.Cron.Expression.parse(cron) do
+          {:ok, _expression} ->
+            changeset
+
+          {:error, _reason} ->
+            add_error(changeset, :retrieval_eval_cron, "is not a valid cron expression")
+        end
+    end
   end
 end
 
