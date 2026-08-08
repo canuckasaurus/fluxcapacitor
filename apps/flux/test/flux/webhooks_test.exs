@@ -56,6 +56,42 @@ defmodule Flux.WebhooksTest do
     assert {:error, :not_found} = Webhooks.send_test(scope, Ecto.UUID.generate())
   end
 
+  test "slack-format endpoints deliver Block Kit payloads", %{scope: scope, workspace: workspace} do
+    {:ok, _endpoint} =
+      Webhooks.create_endpoint(scope, %{
+        "url" => "https://hooks.slack.com/services/T000/B000/x",
+        "events" => ["run.failed"],
+        "format" => "slack"
+      })
+
+    Application.put_env(:flux, :alert_req_options, plug: {Req.Test, Flux.SlackStub})
+    on_exit(fn -> Application.delete_env(:flux, :alert_req_options) end)
+
+    parent = self()
+
+    Req.Test.stub(Flux.SlackStub, fn conn ->
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+      send(parent, {:slack_body, Jason.decode!(body)})
+      Plug.Conn.send_resp(conn, 200, "ok")
+    end)
+
+    :ok =
+      Webhooks.dispatch(workspace.id, "run.failed", %{
+        "workflow_run_id" => "abc-123",
+        "status" => "failed"
+      })
+
+    # Manual Oban mode: drain the delivery.
+    Oban.drain_queue(queue: :default)
+
+    assert_receive {:slack_body, body}
+    assert body["text"] =~ "run.failed"
+    assert [%{"type" => "section"} | _rest] = body["blocks"]
+
+    fields_block = List.last(body["blocks"])
+    assert fields_block["text"]["text"] =~ "*workflow_run_id:* abc-123"
+  end
+
   test "rejects non-http URLs and unknown events", %{scope: scope} do
     assert {:error, changeset} =
              Webhooks.create_endpoint(scope, %{"url" => "ftp://example.com/x"})

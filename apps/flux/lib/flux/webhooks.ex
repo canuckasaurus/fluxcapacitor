@@ -161,6 +161,7 @@ defmodule Flux.Webhooks do
         "url" => endpoint.url,
         "secret" => endpoint.secret,
         "payload" => payload,
+        "format" => endpoint.format,
         "delivery_id" => delivery.id
       }
       |> Flux.Workflows.AlertWorker.new()
@@ -193,6 +194,7 @@ defmodule Flux.Webhooks do
           "url" => endpoint.url,
           "secret" => endpoint.secret,
           "payload" => delivery.payload,
+          "format" => endpoint.format,
           "delivery_id" => delivery.id
         }
         |> Flux.Workflows.AlertWorker.new()

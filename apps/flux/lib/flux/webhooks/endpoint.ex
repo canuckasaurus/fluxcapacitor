@@ -16,6 +16,9 @@ defmodule Flux.Webhooks.Endpoint do
     field :url, :string
     field :secret, :string, redact: true
     field :events, {:array, :string}, default: []
+    # "json" posts the raw payload; "slack" wraps it in Block Kit so an
+    # incoming-webhook URL renders it readable in a channel.
+    field :format, :string, default: "json"
     field :enabled, :boolean, default: true
 
     timestamps(type: :utc_datetime)
@@ -23,7 +26,8 @@ defmodule Flux.Webhooks.Endpoint do
 
   def changeset(endpoint, attrs) do
     endpoint
-    |> cast(attrs, [:url, :events, :enabled])
+    |> cast(attrs, [:url, :events, :enabled, :format])
+    |> validate_inclusion(:format, ["json", "slack"])
     |> validate_required([:url])
     |> validate_length(:url, max: 2048)
     |> validate_url()

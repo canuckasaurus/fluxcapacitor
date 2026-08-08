@@ -11,7 +11,11 @@ defmodule Flux.Workflows.AlertWorker do
   @impl Oban.Worker
   def perform(%Oban.Job{attempt: attempt, args: %{"url" => url, "payload" => payload} = args}) do
     with :ok <- Flux.SSRF.verify_url(url) do
-      body = Jason.encode!(payload)
+      body =
+        case args["format"] do
+          "slack" -> Jason.encode!(slack_payload(payload))
+          _json -> Jason.encode!(payload)
+        end
 
       headers =
         [{"content-type", "application/json"}] ++ signature_headers(args["secret"], body)
@@ -38,6 +42,33 @@ defmodule Flux.Workflows.AlertWorker do
           {:error, inspect(reason)}
       end
     end
+  end
+
+  # Block Kit wrapper for Slack incoming webhooks: a headline from the
+  # event name plus the payload's scalar fields as a readable list.
+  defp slack_payload(payload) do
+    event = payload["event"] || "flux.event"
+
+    fields =
+      payload
+      |> Enum.reject(fn {key, value} -> key == "event" or is_map(value) or is_list(value) end)
+      |> Enum.map_join("\n", fn {key, value} -> "*#{key}:* #{value}" end)
+
+    %{
+      "text" => "FluxCapacitor: #{event}",
+      "blocks" =>
+        [
+          %{
+            "type" => "section",
+            "text" => %{"type" => "mrkdwn", "text" => "*FluxCapacitor* — `#{event}`"}
+          }
+        ] ++
+          if fields == "" do
+            []
+          else
+            [%{"type" => "section", "text" => %{"type" => "mrkdwn", "text" => fields}}]
+          end
+    }
   end
 
   defp signature_headers(secret, body) when is_binary(secret) and secret != "" do
