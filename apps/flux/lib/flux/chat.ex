@@ -1321,8 +1321,20 @@ defmodule Flux.Chat do
       # The message is offered both as {{sys.query}} (chatflow convention)
       # and as the "query" start variable so the default starter graph
       # works as a chatflow unchanged. Prior completed turns arrive as
-      # {{sys.history}} ("user: …\nassistant: …") for multi-turn memory.
+      # {{sys.history}} ("user: …\nassistant: …") for multi-turn memory —
+      # with the same rolling summary folding direct-model apps get, so
+      # long chatflow conversations stay inside the window too.
+      {history, summary} = fold_history(app, conversation.id, history)
       history_text = chatflow_history(history)
+
+      history_text =
+        case summary do
+          text when is_binary(text) and text != "" ->
+            "summary of earlier turns: #{text}\n#{history_text}"
+
+          _none ->
+            history_text
+        end
 
       {:ok, _run} =
         Flux.Workflows.start_run(scope, workflow, %{"query" => query},
@@ -1544,21 +1556,36 @@ defmodule Flux.Chat do
         ((previous_summary && "\n\nCurrent summary:\n#{previous_summary}") || "") <>
         "\n\nNew turns to fold in:\n#{transcript}"
 
-    credentials =
-      case Providers.fetch_config(app.workspace_id, app.provider_plugin_id) do
-        {:ok, config} -> config
-        {:error, :not_configured} -> %{}
+    # Chatflow apps have no bound model — the workspace default folds.
+    if app.provider_plugin_id in [nil, ""] do
+      case Flux.Workflows.invoke_default_llm_for_workspace(app.workspace_id, [
+             %{role: :user, content: prompt}
+           ]) do
+        {:ok, content} when is_binary(content) and content != "" -> {:ok, content}
+        _error -> :error
       end
+    else
+      credentials =
+        case Providers.fetch_config(app.workspace_id, app.provider_plugin_id) do
+          {:ok, config} -> config
+          {:error, :not_configured} -> %{}
+        end
 
-    request = %Flux.Plugin.ModelProvider.Request{
-      model: app.model,
-      messages: [%{role: :user, content: prompt}],
-      params: %{}
-    }
+      request = %Flux.Plugin.ModelProvider.Request{
+        model: app.model,
+        messages: [%{role: :user, content: prompt}],
+        params: %{}
+      }
 
-    case runtime().invoke_llm(app.provider_plugin_id, credentials, request, fn _chunk -> :ok end) do
-      {:ok, %{content: content}} when is_binary(content) and content != "" -> {:ok, content}
-      _error -> :error
+      case runtime().invoke_llm(
+             app.provider_plugin_id,
+             credentials,
+             request,
+             fn _chunk -> :ok end
+           ) do
+        {:ok, %{content: content}} when is_binary(content) and content != "" -> {:ok, content}
+        _error -> :error
+      end
     end
   end
 
