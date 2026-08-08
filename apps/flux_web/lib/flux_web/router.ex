@@ -41,6 +41,7 @@ defmodule FluxWeb.Router do
     # OpenAI-compatible: any OpenAI SDK with base_url swapped in.
     post "/chat/completions", OpenAIController, :create
     post "/embeddings", OpenAIController, :embeddings
+    get "/models", OpenAIController, :models
 
     post "/chat-messages", ChatMessageController, :create
     post "/workflows/run", WorkflowRunController, :create
@@ -75,8 +76,10 @@ defmodule FluxWeb.Router do
     get "/labeling/projects/:id/next", QualityController, :labeling_next
     post "/labeling/tasks/:id/label", QualityController, :labeling_label
     get "/labeling/projects/:id/export", QualityController, :labeling_export
-    get "/models", QualityController, :models
-    post "/models", QualityController, :model_register
+    # Moved from /v1/models in v0.5.0 — that path is now the
+    # OpenAI-compatible listing so SDKs autodiscover.
+    get "/registry/models", QualityController, :models
+    post "/registry/models", QualityController, :model_register
     get "/notifications", QualityController, :notifications
     get "/datasets/:id/retrieval-cases", QualityController, :retrieval_cases
     post "/datasets/:id/retrieval-cases", QualityController, :retrieval_case_create

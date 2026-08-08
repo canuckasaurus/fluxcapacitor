@@ -314,7 +314,7 @@ defmodule FluxWeb.V1.ContractTest do
 
     registered =
       conn
-      |> post(~p"/v1/models", %{
+      |> post(~p"/v1/registry/models", %{
         "name" => "contract-model",
         "file_id" => stored["file_id"],
         "metrics" => %{"acc" => 0.9}
@@ -323,7 +323,7 @@ defmodule FluxWeb.V1.ContractTest do
 
     assert_schema(registered, "ModelRegistered", spec)
 
-    body = conn |> get(~p"/v1/models") |> json_response(200)
+    body = conn |> get(~p"/v1/registry/models") |> json_response(200)
     assert_schema(body, "ModelList", spec)
     assert [%{"name" => "contract-model", "version" => 1}] = body["data"]
 

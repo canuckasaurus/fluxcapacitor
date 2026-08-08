@@ -43,6 +43,40 @@ defmodule FluxWeb.V1.OpenAIController do
   end
 
   @doc """
+  OpenAI-compatible model listing: `GET /v1/models` with any service
+  token — every model the workspace's configured providers offer, so
+  SDKs and gateways autodiscover. With an `app-` token the app's own
+  bound model leads the list.
+  """
+  def models(conn, _params) do
+    scope = conn.assigns[:service_scope]
+    app = conn.assigns[:service_app]
+
+    provider_entries =
+      for %{plugin_id: plugin_id, model: model} <- Flux.Providers.available_models(scope) do
+        %{
+          "id" => model.name,
+          "object" => "model",
+          "owned_by" => plugin_id
+        }
+      end
+
+    app_entries =
+      case app do
+        %{model: model, provider_plugin_id: plugin_id}
+        when is_binary(model) and model != "" ->
+          [%{"id" => model, "object" => "model", "owned_by" => plugin_id}]
+
+        _chatflow_or_none ->
+          []
+      end
+
+    data = Enum.uniq_by(app_entries ++ provider_entries, & &1["id"])
+
+    json(conn, %{"object" => "list", "data" => data})
+  end
+
+  @doc """
   OpenAI-compatible embeddings: `POST /v1/embeddings` with any service
   token. The `model` field names a configured embedding model; `input`
   is a string or array of strings.

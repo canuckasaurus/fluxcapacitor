@@ -745,13 +745,42 @@ defmodule FluxWeb.V1.ApiSpec do
       })
     end
 
+    defmodule ProviderModelList do
+      @moduledoc false
+      require OpenApiSpex
+
+      OpenApiSpex.schema(%{
+        title: "ProviderModelList",
+        description: "OpenAI-compatible GET /v1/models response",
+        type: :object,
+        properties: %{
+          object: %Schema{type: :string, enum: ["list"]},
+          data: %Schema{
+            type: :array,
+            items: %Schema{
+              type: :object,
+              properties: %{
+                id: %Schema{type: :string},
+                object: %Schema{type: :string, enum: ["model"]},
+                owned_by: %Schema{type: :string}
+              },
+              required: [:id, :object, :owned_by],
+              additionalProperties: false
+            }
+          }
+        },
+        required: [:object, :data],
+        additionalProperties: false
+      })
+    end
+
     defmodule ModelRegistered do
       @moduledoc false
       require OpenApiSpex
 
       OpenApiSpex.schema(%{
         title: "ModelRegistered",
-        description: "201 response of POST /v1/models",
+        description: "201 response of POST /v1/registry/models",
         type: :object,
         properties: %{
           id: %Schema{type: :string, format: :uuid},
@@ -913,6 +942,7 @@ defmodule FluxWeb.V1.ApiSpec do
     Schemas.LabelingNextTask,
     Schemas.LabelingLabeled,
     Schemas.ModelList,
+    Schemas.ProviderModelList,
     Schemas.ModelRegistered,
     Schemas.NotificationList,
     Schemas.RetrievalCaseList,
@@ -964,7 +994,8 @@ defmodule FluxWeb.V1.ApiSpec do
       {:post, "Push items as labeling tasks", "LabelingTasksCreated", 201},
     "/labeling/projects/{id}/next" => {:get, "Claim the next unlabeled task", "LabelingNextTask"},
     "/labeling/tasks/{id}/label" => {:post, "Submit a label", "LabelingLabeled"},
-    "/models" => [
+    "/models" => {:get, "OpenAI-compatible provider model list", "ProviderModelList"},
+    "/registry/models" => [
       {:get, "List registered models", "ModelList"},
       {:post, "Register a stored file as a model", "ModelRegistered", 201}
     ],
