@@ -103,7 +103,9 @@ orchestrator, no queue infrastructure beyond Postgres.
   **`/v1` API** for CI and data pipelines — covered by the strict OpenAPI
   contract at `GET /v1/spec` — and a **template gallery** (triage, RAG,
   human review, model trainer, report writer, intent router, plus
-  workspace-saved **custom templates**) seeds new fluxes. Workspace
+  workspace-saved **custom templates**) seeds new fluxes; a selection
+  on the canvas **extracts into a new flux** (outside references become
+  start variables), and any node can carry its own **timeout**. Workspace
   export archives carry the whole quality loop — eval sets, labeling
   projects with labels and gold standards, retrieval cases — so backups
   restore it intact.
@@ -114,7 +116,8 @@ orchestrator, no queue infrastructure beyond Postgres.
   per app**) — including an
   **OpenAI-compatible `POST /v1/chat/completions`** (blocking and
   streaming) that reaches **chatflow apps too** (bridged through their
-  flux), so any OpenAI SDK talks to an app with a base-URL swap. Monitoring pages
+  flux), plus **OpenAI-compatible `/v1/embeddings`**, so any OpenAI SDK
+  talks to apps and embedding models with a base-URL swap. Monitoring pages
   track usage, feedback and quality trends, **topic clusters** of what
   people actually ask, and **annotation replies** promote
   liked answers into canonical responses (exact + embedding-fuzzy matched).
@@ -141,7 +144,8 @@ orchestrator, no queue infrastructure beyond Postgres.
   variables** (slots written by variable-assigner nodes) inspectable
   right above the console chat. Long chats stay coherent through
   **rolling conversation memory** (older turns fold into a maintained
-  summary instead of overflowing the window), **push-to-talk voice
+  summary instead of overflowing the window — chatflows fold the same
+  way into `{{sys.history}}`), **push-to-talk voice
   input** transcribes through the provider's Whisper-style endpoint,
   and every reply has a **read-aloud button** — **real provider voices**
   when the provider has a speech endpoint, browser voices otherwise.
@@ -217,7 +221,10 @@ orchestrator, no queue infrastructure beyond Postgres.
   vision model, indexed like any document), **typed metadata per
   document** that retrieval and the knowledge node filter on, and a
   **run-a-flux-over-this-dataset** button that turns every document
-  into a batch row. Site visitors can **ask for a human** — the
+  into a batch row (batches run rows **in parallel** when asked, up to
+  8 at once), and **audio uploads** (voice memos, meeting recordings)
+  transcribe through the provider into searchable documents. Site
+  visitors can **ask for a human** — the
   conversation flags into a console queue and a teammate's reply lands
   in the visitor's chat live — and conversations take **labels** for
   triage. Guardrails gain a **redact action** (matches masked with

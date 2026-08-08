@@ -7,6 +7,20 @@ at `docs/PARITY-PLAN.md`.
 
 ## Unreleased
 
+### Batch 21
+- Chatflow conversations fold the same rolling summary into
+  `{{sys.history}}` that direct-model apps get.
+- OpenAI-compatible `POST /v1/embeddings` with any service token.
+- Batches run rows in parallel on request (2/4/8; capped at 8).
+- Audio uploads (mp3/wav/webm) transcribe into dataset documents
+  through the workspace default provider.
+- Extract-to-flux: a canvas selection becomes a new flux with outside
+  references rewritten as start variables.
+- Workspace exports carry conversations (titles, labels, completed
+  turns, capped at 500 per app) and restore them on import.
+- Any node takes `timeout_ms` (editor field in seconds) — a stalling
+  node fails honestly instead of hanging the run.
+
 ### Conversations & support
 - Human handoff: site visitors can ask for a person; the conversation
   flags into a console queue (with notification) and a teammate's

@@ -932,3 +932,32 @@ webhook triggers named in the spec description); and **monitor CSVs**
 (feedback-with-questions and 90-day daily usage). One migration
 (labels/handoff on conversations, metadata on documents, format on
 webhook endpoints, instance_settings).
+
+**45. Batch 21 — the leverage seven (custom domains, Japanese, and
+SAML left on the table).** **Chatflow rolling memory** (the
+{{sys.history}} text now folds through the same summary machinery
+direct-model apps got in v0.3.0 — summarize falls back to the
+workspace default model since chatflows bind no provider);
+**OpenAI-compatible embeddings** (POST /v1/embeddings resolves the
+named embedding model across configured providers and answers in
+OpenAI's list shape — external RAG pipelines point at FluxCapacitor
+with a base-URL swap); **batch concurrency** (a per-batch 1/2/4/8
+selector; perform_batch fans rows through Task.async_stream, every
+row still its own run with the same counters and broadcasts);
+**audio documents** (mp3/wav/webm uploads transcribe through the
+workspace default provider's speech endpoint and index as
+"[audio: name]" documents); **extract-to-flux** (a multi-selection
+plus one button copies nodes and internal edges into a new flux;
+template references leaving the selection — including the parent's
+start — rewrite to start variables of the extracted graph, verified
+by a live-view test asserting {{start.query}} became
+{{start.start_query}}; the honest scope note: no automatic call-site
+replacement — iteration and loop nodes are the wiring, and the flash
+says so); **conversations in backups** (workspace exports carry up to
+500 conversations per app with titles, labels, and completed turns;
+import restores them — the archive finally holds the chat history the
+restore drill couldn't see); and **per-node timeouts** (any node may
+carry timeout_ms — runner wraps execution in a supervised task,
+brutal-kills past the deadline, and fails with "timed out after Nms";
+seconds in the editor beside the retries field). One migration
+(workflow_batches.concurrency).
