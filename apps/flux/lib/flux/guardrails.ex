@@ -26,7 +26,8 @@ defmodule Flux.Guardrails do
   end
 
   @doc "Saves patterns (newline-separated; blank disables) and the action."
-  def configure(%Scope{} = scope, patterns_text, action) when action in ["block", "flag"] do
+  def configure(%Scope{} = scope, patterns_text, action)
+      when action in ["block", "flag", "redact"] do
     patterns =
       patterns_text
       |> to_string()
@@ -151,17 +152,85 @@ defmodule Flux.Guardrails do
   and the action is block. Either way a violation notifies the team.
   """
   def check_input(workspace_id, text, context \\ "input") do
+    case sanitize_input(workspace_id, text, context) do
+      {:ok, _text} -> :ok
+      {:error, :guardrail} -> {:error, :guardrail}
+    end
+  end
+
+  @doc """
+  Like `check_input/3` but returns the text to actually use: with the
+  `redact` action, matched patterns are masked (`•••`) before the model
+  ever sees them — PII protection that doesn't refuse the message.
+  """
+  def sanitize_input(workspace_id, text, context \\ "input") do
     case violation(workspace_id, text) do
       nil ->
-        check_input_moderation(workspace_id, text, context)
+        with :ok <- check_input_moderation(workspace_id, text, context), do: {:ok, text}
 
       pattern ->
         notify(workspace_id, pattern, context)
 
         case config(workspace_id) do
-          %{action: "flag"} -> check_input_moderation(workspace_id, text, context)
-          _block -> {:error, :guardrail}
+          %{action: "flag"} ->
+            with :ok <- check_input_moderation(workspace_id, text, context), do: {:ok, text}
+
+          %{action: "redact"} ->
+            redacted = redact_text(workspace_id, text)
+
+            with :ok <- check_input_moderation(workspace_id, redacted, context),
+                 do: {:ok, redacted}
+
+          _block ->
+            {:error, :guardrail}
         end
+    end
+  end
+
+  @doc "Masks every configured pattern's matches in the text."
+  def redact_text(workspace_id, text) do
+    case config(workspace_id) do
+      nil ->
+        text
+
+      %{patterns: patterns} ->
+        Enum.reduce(patterns, text, fn pattern, acc ->
+          case Regex.compile(pattern, "i") do
+            {:ok, regex} -> Regex.replace(regex, acc, "•••")
+            {:error, _reason} -> acc
+          end
+        end)
+    end
+  end
+
+  @doc "Redact-mode masks string values in a run's inputs map; other modes pass through."
+  def maybe_redact_inputs(workspace_id, inputs) when is_map(inputs) do
+    case config(workspace_id) do
+      %{action: "redact"} ->
+        Map.new(inputs, fn
+          {key, value} when is_binary(value) -> {key, redact_text(workspace_id, value)}
+          pair -> pair
+        end)
+
+      _other ->
+        inputs
+    end
+  end
+
+  @doc """
+  Output text to store/show: redact-mode masks matches (and notifies);
+  other modes return the text untouched (`flag_output/3` still tells
+  the team).
+  """
+  def sanitize_output(workspace_id, text, context \\ "output") do
+    case {config(workspace_id), violation(workspace_id, text)} do
+      {%{action: "redact"}, pattern} when pattern != nil ->
+        notify(workspace_id, pattern, context)
+        redact_text(workspace_id, text)
+
+      _other ->
+        flag_output(workspace_id, text, context)
+        text
     end
   end
 

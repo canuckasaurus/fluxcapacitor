@@ -91,6 +91,9 @@ defmodule Flux.Chat.Conversation do
     belongs_to :app, Flux.Chat.App
     field :title, :string
     field :end_user_ref, :string
+    field :labels, {:array, :string}, default: []
+    # Set when a site visitor asks for a human; cleared on console reply.
+    field :handoff_requested_at, :utc_datetime
     field :variables, :map, default: %{}
     # Rolling memory: older turns fold into `summary` once the history
     # outgrows the token window; `summarized_seq` is the last folded turn.

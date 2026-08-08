@@ -484,6 +484,7 @@ defmodule Flux.Workflows do
   """
   def start_run(%Scope{} = scope, %Workflow{} = workflow, inputs, opts \\ []) do
     graph_map = Keyword.get(opts, :graph, workflow.graph)
+    inputs = Flux.Guardrails.maybe_redact_inputs(workflow.workspace_id, inputs)
 
     with :ok <- check_token_budget(workflow.workspace_id),
          :ok <- check_flux_budget(workflow),
@@ -1899,7 +1900,8 @@ defmodule Flux.Workflows do
         true ->
           case rag.retrieve_many(scope, dataset_ids, query,
                  top_k: top_k,
-                 tags: Map.get(request, :tags, [])
+                 tags: Map.get(request, :tags, []),
+                 metadata: Map.get(request, :metadata, %{})
                ) do
             {:ok, []} when dataset_ids != [] ->
               # Distinguish "no matches" from "no such dataset".
@@ -2046,6 +2048,27 @@ defmodule Flux.Workflows do
       {:ok, %{content: content}} -> {:ok, content}
       {:error, reason} -> {:error, "the model errored: #{inspect(reason)}"}
     end
+  end
+
+  @doc """
+  Describes an image with the workspace default (vision-capable) model —
+  the ingestion path for image documents. Returns `{:ok, description}`.
+  """
+  def describe_image_for_workspace(workspace_id, binary, content_type)
+      when is_binary(binary) do
+    prompt = """
+    Describe this image thoroughly for a search index: transcribe any
+    visible text verbatim, then describe the content, layout, charts,
+    and anything a person might later search for. Plain text only.
+    """
+
+    invoke_default_llm_for_workspace(workspace_id, [
+      %{
+        role: :user,
+        content: prompt,
+        images: [%{data: Base.encode64(binary), media_type: content_type}]
+      }
+    ])
   end
 
   @doc "Like `invoke_default_llm/2` for callers that only hold a workspace id (workers)."

@@ -23,6 +23,7 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
        export_schedule: Accounts.export_schedule(scope),
        token_budget: Accounts.token_budget(scope),
        llm_cache_minutes: Accounts.llm_cache_minutes(scope),
+       cache_stats: Flux.LLMCache.stats(),
        pricing_overrides:
          Flux.Pricing.overrides(Flux.Accounts.Scope.workspace_id(scope)) |> Enum.sort(),
        max_concurrent_runs: Accounts.max_concurrent_runs(scope),
@@ -320,7 +321,11 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
   end
 
   def handle_event("add_webhook", params, socket) do
-    attrs = %{"url" => params["url"], "events" => Map.get(params, "events", [])}
+    attrs = %{
+      "url" => params["url"],
+      "events" => Map.get(params, "events", []),
+      "format" => Map.get(params, "format", "json")
+    }
 
     case Flux.Webhooks.create_endpoint(socket.assigns.current_scope, attrs) do
       {:ok, _endpoint} ->
@@ -396,6 +401,19 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
 
       _error ->
         {:noreply, put_flash(socket, :error, "Could not remove the webhook.")}
+    end
+  end
+
+  def handle_event("archive_workspace", _params, socket) do
+    case Accounts.archive_workspace(socket.assigns.current_scope) do
+      {:ok, _workspace} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Workspace archived — an instance admin can restore it.")
+         |> redirect(to: ~p"/console")}
+
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "Only the owner can archive the workspace.")}
     end
   end
 
@@ -561,6 +579,13 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
           <button class="btn btn-primary btn-sm">Save</button>
         </form>
 
+        <p class="text-xs opacity-60" id="cache-stats">
+          Cache since boot (instance-wide): {@cache_stats.hits} hits / {@cache_stats.misses} misses ({@cache_stats.hit_rate}% hit rate), {@cache_stats.entries} entr{(@cache_stats.entries ==
+                                                                                                                                                                        1 &&
+                                                                                                                                                                        "y") ||
+            "ies"} held.
+        </p>
+
         <div class="divider my-1" />
 
         <h3 class="text-sm font-semibold">Model price overrides</h3>
@@ -602,11 +627,21 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
           >{Enum.join((@guardrails && @guardrails.patterns) || [], "\n")}</textarea>
           <div class="flex gap-2 items-center">
             <select name="action" class="select select-bordered select-sm w-32">
-              <option value="block" selected={(@guardrails && @guardrails.action) != "flag"}>
+              <option
+                value="block"
+                selected={(@guardrails && @guardrails.action) not in ["flag", "redact"]}
+              >
                 block
               </option>
               <option value="flag" selected={@guardrails && @guardrails.action == "flag"}>
                 flag
+              </option>
+              <option
+                value="redact"
+                selected={@guardrails && @guardrails.action == "redact"}
+                title="Mask matches with ••• in chat messages, replies, and run inputs instead of refusing"
+              >
+                redact
               </option>
             </select>
             <button class="btn btn-primary btn-sm">Save guardrails</button>
@@ -732,7 +767,16 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
               required
               placeholder="https://hooks.example.com/flux"
               class="input input-bordered input-sm w-full max-w-md"
-            /> <button class="btn btn-primary btn-sm">Add webhook</button>
+            />
+            <select
+              name="format"
+              class="select select-bordered select-sm w-28"
+              title="slack wraps events in Block Kit for Slack incoming-webhook URLs"
+            >
+              <option value="json">JSON</option>
+              <option value="slack">Slack</option>
+            </select>
+            <button class="btn btn-primary btn-sm">Add webhook</button>
           </div>
 
           <div class="flex flex-wrap gap-3 text-sm">
@@ -954,6 +998,17 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
 
       <div :if={@owner?} class="card border border-error/40 p-6 space-y-3" id="danger-card">
         <h2 class="font-semibold text-error">Danger zone</h2>
+
+        <div class="flex items-center gap-3">
+          <button
+            class="btn btn-outline btn-sm"
+            phx-click="archive_workspace"
+            data-confirm="Archive this workspace? It leaves everyone's switcher (nothing is deleted); an instance admin can restore it."
+          >
+            <.icon name="hero-archive-box" class="size-4" /> Archive workspace
+          </button>
+          <span class="text-xs opacity-60">The reversible alternative to deleting.</span>
+        </div>
 
         <p class="text-sm opacity-70">
           Deleting the workspace permanently removes every app, flux, dataset,

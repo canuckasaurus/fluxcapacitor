@@ -222,6 +222,111 @@ defmodule Flux.Chat do
     })
   end
 
+  @doc "Replaces a conversation's labels (trimmed, deduped, max 10)."
+  def set_conversation_labels(%Scope{} = scope, conversation_id, labels) when is_list(labels) do
+    labels =
+      labels
+      |> Enum.map(&String.trim(to_string(&1)))
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.uniq()
+      |> Enum.take(10)
+
+    case get_conversation(scope, conversation_id) do
+      %Conversation{} = conversation ->
+        conversation |> Ecto.Changeset.change(labels: labels) |> Repo.update()
+
+      error ->
+        error
+    end
+  end
+
+  @doc "Every label in use across an app's conversations (filter chips)."
+  def conversation_labels(%Scope{} = scope, app_id) do
+    Conversation
+    |> Repo.scoped(scope)
+    |> where([c], c.app_id == ^app_id)
+    |> select([c], c.labels)
+    |> Repo.all()
+    |> List.flatten()
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  ## Human handoff
+
+  @doc "A visitor asked for a human: flag the conversation and tell the team."
+  def request_handoff(%Scope{} = scope, %App{} = app, conversation_id) do
+    case get_conversation(scope, conversation_id) do
+      %Conversation{handoff_requested_at: nil} = conversation ->
+        {:ok, flagged} =
+          conversation
+          |> Ecto.Changeset.change(handoff_requested_at: DateTime.utc_now(:second))
+          |> Repo.update()
+
+        Flux.Notifications.notify(
+          app.workspace_id,
+          "handoff",
+          "A visitor asked for a human in #{app.name}.",
+          "/console/apps/#{app.id}/monitor"
+        )
+
+        {:ok, flagged}
+
+      %Conversation{} = already_flagged ->
+        {:ok, already_flagged}
+
+      error ->
+        error
+    end
+  end
+
+  @doc """
+  A teammate answers from the console: inserts a completed assistant
+  message (marked human), clears the handoff flag, and broadcasts on the
+  conversation topic so an open site chat sees it live.
+  """
+  def human_reply(%Scope{} = scope, conversation_id, content)
+      when is_binary(content) and content != "" do
+    with %Conversation{} = conversation <- get_conversation(scope, conversation_id) do
+      message =
+        Repo.insert!(%Message{
+          workspace_id: conversation.workspace_id,
+          conversation_id: conversation.id,
+          role: :assistant,
+          content: content,
+          status: :completed,
+          usage: %{"human" => true, "author" => (scope.account && scope.account.email) || ""}
+        })
+
+      {:ok, conversation} =
+        conversation
+        |> Ecto.Changeset.change(handoff_requested_at: nil)
+        |> Repo.update()
+
+      Phoenix.PubSub.broadcast(
+        Flux.PubSub,
+        conversation_topic(conversation.id),
+        {:human_reply, message}
+      )
+
+      {:ok, message}
+    end
+  end
+
+  @doc "Conversations currently waiting on a human, oldest wait first."
+  def handoff_queue(%Scope{} = scope, app_id) do
+    Conversation
+    |> Repo.scoped(scope)
+    |> where([c], c.app_id == ^app_id and not is_nil(c.handoff_requested_at))
+    |> order_by([c], asc: c.handoff_requested_at)
+    |> Repo.all()
+  end
+
+  def conversation_topic(conversation_id), do: "conversation:#{conversation_id}"
+
+  def subscribe_conversation(conversation_id),
+    do: Phoenix.PubSub.subscribe(Flux.PubSub, conversation_topic(conversation_id))
+
   @doc "Console-originated conversations (no end-user ref), newest first."
   def console_conversations(%Scope{} = scope, app_id, limit \\ 15) do
     Conversation
@@ -409,15 +514,15 @@ defmodule Flux.Chat do
 
   def send_message(%Scope{} = scope, %App{} = app, %Conversation{} = conversation, content, opts)
       when is_binary(content) do
-    cond do
-      quota_exceeded?(app) ->
-        {:error, :quota_exceeded}
-
-      Flux.Guardrails.check_input(app.workspace_id, content, "chat (#{app.name})") != :ok ->
-        {:error, :guardrail}
-
-      true ->
-        do_send_message(scope, app, conversation, content, opts)
+    if quota_exceeded?(app) do
+      {:error, :quota_exceeded}
+    else
+      # Redact-mode guardrails mask the stored message too — the model
+      # and the transcript both see the sanitized text.
+      case Flux.Guardrails.sanitize_input(app.workspace_id, content, "chat (#{app.name})") do
+        {:ok, content} -> do_send_message(scope, app, conversation, content, opts)
+        {:error, :guardrail} -> {:error, :guardrail}
+      end
     end
   end
 
@@ -1759,6 +1864,12 @@ defmodule Flux.Chat do
 
   defp finalize(message, status, content, usage, citations \\ []) do
     Flux.StreamBuffers.delete(message.id)
+
+    # Redact-mode guardrails mask model output before it's stored;
+    # other modes flag-and-notify without touching the reply.
+    content =
+      (status == :completed && Flux.Guardrails.sanitize_output(message.workspace_id, content)) ||
+        content
 
     message =
       message
