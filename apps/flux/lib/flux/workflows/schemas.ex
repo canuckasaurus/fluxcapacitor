@@ -50,6 +50,7 @@ defmodule Flux.Workflows.WorkflowVersion do
     belongs_to :workspace, Flux.Accounts.Workspace
     belongs_to :workflow, Flux.Workflows.Workflow
     belongs_to :published_by, Flux.Accounts.Account
+    field :note, :string
 
     field :version, :integer
     field :graph, :map

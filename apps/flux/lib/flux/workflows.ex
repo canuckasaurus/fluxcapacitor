@@ -258,7 +258,9 @@ defmodule Flux.Workflows do
 
   ## Publishing
 
-  def publish(%Scope{} = scope, %Workflow{} = workflow) do
+  def publish(scope, workflow, note \\ nil)
+
+  def publish(%Scope{} = scope, %Workflow{} = workflow, note) do
     with :ok <- RBAC.authorize(scope, :app_release_and_version),
          :ok <- owned(scope, workflow),
          {:ok, _graph} <- Engine.build(workflow.graph) do
@@ -267,6 +269,7 @@ defmodule Flux.Workflows do
         workflow_id: workflow.id,
         published_by_id: Scope.account_id(scope),
         version: next_version(scope, workflow),
+        note: presence_note(note),
         graph: workflow.graph
       }
 
@@ -284,6 +287,13 @@ defmodule Flux.Workflows do
     else
       {:error, errors} when is_list(errors) -> {:error, {:invalid_graph, errors}}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp presence_note(note) do
+    case String.trim(to_string(note || "")) do
+      "" -> nil
+      trimmed -> String.slice(trimmed, 0, 255)
     end
   end
 
