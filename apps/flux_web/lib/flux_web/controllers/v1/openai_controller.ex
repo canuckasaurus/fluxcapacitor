@@ -26,9 +26,43 @@ defmodule FluxWeb.V1.OpenAIController do
       true ->
         with {:ok, messages} <- normalize_messages(params["messages"]),
              {:ok, tools} <- normalize_tools(params["tools"], app),
+             {:ok, schema} <- normalize_response_format(params["response_format"], app, tools),
              :ok <- guard_input(app, messages) do
-          respond(conn, app, messages, params["stream"] == true, tools)
+          case schema do
+            nil ->
+              respond(conn, app, messages, params["stream"] == true, tools)
+
+            :json_object ->
+              respond(conn, app, json_object_messages(messages), params["stream"] == true, [])
+
+            schema ->
+              respond_structured(conn, app, messages, schema, params["stream"] == true)
+          end
         else
+          {:error, :bad_response_format} ->
+            openai_error(
+              conn,
+              400,
+              "response_format needs type json_schema with a schema (json_object also works).",
+              "invalid_request_error"
+            )
+
+          {:error, :format_needs_direct_model} ->
+            openai_error(
+              conn,
+              400,
+              "response_format needs a direct-model app.",
+              "invalid_request_error"
+            )
+
+          {:error, :format_conflicts_with_tools} ->
+            openai_error(
+              conn,
+              400,
+              "response_format and tools cannot be combined here.",
+              "invalid_request_error"
+            )
+
           {:error, :bad_messages} ->
             openai_error(
               conn,
@@ -150,6 +184,147 @@ defmodule FluxWeb.V1.OpenAIController do
             openai_error(conn, 502, "The provider errored: #{inspect(reason)}", "api_error")
         end
     end
+  end
+
+  # OpenAI `response_format` → nil (text), :json_object (instruction
+  # only), or the JSON schema to force + validate against.
+  defp normalize_response_format(nil, _app, _tools), do: {:ok, nil}
+  defp normalize_response_format(%{"type" => "text"}, _app, _tools), do: {:ok, nil}
+
+  defp normalize_response_format(%{"type" => type}, %{mode: :advanced_chat}, _tools)
+       when type in ["json_object", "json_schema"],
+       do: {:error, :format_needs_direct_model}
+
+  defp normalize_response_format(%{"type" => "json_object"}, _app, _tools),
+    do: {:ok, :json_object}
+
+  defp normalize_response_format(%{"type" => "json_schema"} = format, _app, tools) do
+    cond do
+      tools != [] ->
+        {:error, :format_conflicts_with_tools}
+
+      match?(%{"schema" => %{}}, format["json_schema"]) ->
+        {:ok, format["json_schema"]["schema"]}
+
+      true ->
+        {:error, :bad_response_format}
+    end
+  end
+
+  defp normalize_response_format(_other, _app, _tools), do: {:error, :bad_response_format}
+
+  defp json_object_messages(messages) do
+    messages ++ [%{role: :user, content: "Respond with a single JSON object and nothing else."}]
+  end
+
+  # json_schema structured outputs: force a `respond` tool (same
+  # machinery as the LLM node), validate against the schema with one
+  # corrective retry, and answer the JSON as message content.
+  defp respond_structured(conn, app, messages, schema, stream?) do
+    respond_tool = %Flux.Plugin.ModelProvider.ToolDef{
+      name: "respond",
+      description: "Report the final structured answer.",
+      parameters: schema
+    }
+
+    invoke = fn attempt_messages ->
+      Chat.stateless_completion(app, attempt_messages, fn _chunk -> :ok end,
+        tools: [respond_tool]
+      )
+    end
+
+    with {:ok, result, model_used} <- invoke.(messages),
+         {:ok, output} <- validated_output(invoke, messages, result, schema) do
+      deliver_structured(conn, Jason.encode!(output), model_used, result, stream?)
+    else
+      {:error, {:schema, errors}} ->
+        openai_error(
+          conn,
+          502,
+          "The model's structured answer failed the schema: #{Enum.join(errors, "; ")}",
+          "api_error"
+        )
+
+      {:error, reason} ->
+        openai_error(conn, 502, "The model errored: #{inspect(reason)}", "api_error")
+    end
+  end
+
+  defp validated_output(invoke, messages, result, schema) do
+    output = structured_from(result)
+
+    case Flux.Engine.SchemaCheck.validate(output, schema) do
+      :ok ->
+        {:ok, output}
+
+      {:error, errors} ->
+        retry_messages =
+          messages ++
+            [
+              %{
+                role: :user,
+                content:
+                  "Your previous structured answer failed validation: " <>
+                    Enum.join(errors, "; ") <>
+                    ". Call respond again with a corrected answer."
+              }
+            ]
+
+        with {:ok, retried, _model_used} <- invoke.(retry_messages) do
+          retried_output = structured_from(retried)
+
+          case Flux.Engine.SchemaCheck.validate(retried_output, schema) do
+            :ok -> {:ok, retried_output}
+            {:error, retry_errors} -> {:error, {:schema, retry_errors}}
+          end
+        end
+    end
+  end
+
+  defp structured_from(result) do
+    case Map.get(result, :tool_calls, []) do
+      [%{name: "respond", arguments: %{} = arguments} | _rest] ->
+        arguments
+
+      _no_respond_call ->
+        case Jason.decode(to_string(result.content || "")) do
+          {:ok, %{} = decoded} -> decoded
+          _not_json -> %{}
+        end
+    end
+  end
+
+  defp deliver_structured(conn, content, model_used, result, false) do
+    json(conn, %{
+      "id" => completion_id(),
+      "object" => "chat.completion",
+      "created" => System.system_time(:second),
+      "model" => model_used,
+      "choices" => [
+        %{
+          "index" => 0,
+          "message" => %{"role" => "assistant", "content" => content},
+          "finish_reason" => "stop"
+        }
+      ],
+      "usage" => usage(result)
+    })
+  end
+
+  defp deliver_structured(conn, content, model_used, result, true) do
+    id = completion_id()
+    created = System.system_time(:second)
+
+    conn =
+      conn
+      |> put_resp_content_type("text/event-stream")
+      |> put_resp_header("cache-control", "no-cache")
+      |> send_chunked(200)
+
+    {_, conn} = sse(conn, chunk_frame(id, created, model_used, %{"content" => content}, nil))
+    {_, conn} = sse(conn, chunk_frame(id, created, model_used, %{}, "stop", usage(result)))
+    {_, conn} = chunk(conn, "data: [DONE]\n\n")
+    conn
   end
 
   # Tools only reach direct-model apps; the chatflow bridge runs its
