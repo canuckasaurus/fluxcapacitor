@@ -201,7 +201,7 @@ defmodule FluxWeb.FluxEditorLiveTest do
 
     {:ok, lv, _html} = live(conn, ~p"/console/fluxes/#{workflow.id}")
 
-    html = lv |> element("button", "Publish") |> render_click()
+    html = lv |> element("#publish-form") |> render_submit(%{"note" => ""})
     assert html =~ "v1"
     assert Workflows.latest_version(scope, workflow.id).version == 1
   end
@@ -327,7 +327,7 @@ defmodule FluxWeb.FluxEditorLiveTest do
     wire_echo(scope, workflow)
     {:ok, lv, _html} = live(conn, ~p"/console/fluxes/#{workflow.id}")
 
-    lv |> element("button", "Publish") |> render_click()
+    lv |> element("#publish-form") |> render_submit(%{"note" => ""})
 
     # Mutate the draft after publishing.
     render_click(lv, "add_node", %{"type" => "template"})
