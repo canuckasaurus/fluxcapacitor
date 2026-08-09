@@ -478,6 +478,76 @@ defmodule FluxWeb.V1.QualityController do
 
   ## Helpers
 
+  ## Conversation evals & model A/B (app-… tokens)
+
+  def conversation_evals(conn, _params) do
+    with {:ok, app} <- require_app(conn) do
+      data =
+        for eval <-
+              Flux.ConversationEvals.list_conversation_evals(conn.assigns.service_scope, app.id) do
+          conversation_eval_json(eval)
+        end
+
+      json(conn, %{data: data})
+    else
+      {:error, :no_app_token} -> app_token_error(conn)
+    end
+  end
+
+  def conversation_eval_run(conn, %{"id" => id}) do
+    scope = conn.assigns.service_scope
+
+    with {:ok, app} <- require_app(conn),
+         %Flux.ConversationEvals.ConversationEval{app_id: app_id} <-
+           Flux.ConversationEvals.get_conversation_eval(scope, id),
+         true <- app_id == app.id || {:error, :not_found},
+         {:ok, ran} <- Flux.ConversationEvals.run_conversation_eval(scope, id) do
+      json(conn, conversation_eval_json(ran))
+    else
+      {:error, :no_app_token} -> app_token_error(conn)
+      {:error, :not_found} -> error(conn, 404, "not_found", "unknown conversation eval")
+      _other -> error(conn, 400, "invalid_param", "the conversation eval could not run")
+    end
+  end
+
+  def ab_stats(conn, _params) do
+    with {:ok, app} <- require_app(conn) do
+      stats = Flux.Chat.app_ab_stats(conn.assigns.service_scope, app.id)
+
+      json(conn, %{
+        split: app.ab_split,
+        challenger: (app.ab_split > 0 && "#{app.ab_provider_plugin_id}/#{app.ab_model}") || nil,
+        data: stats
+      })
+    else
+      {:error, :no_app_token} -> app_token_error(conn)
+    end
+  end
+
+  defp conversation_eval_json(eval) do
+    %{
+      id: eval.id,
+      name: eval.name,
+      turns: length(eval.turns),
+      expectation: eval.expectation,
+      schedule: eval.schedule,
+      last_score: eval.last_score,
+      last_reason: eval.last_reason,
+      last_run_at: eval.last_run_at && DateTime.to_unix(eval.last_run_at)
+    }
+  end
+
+  defp require_app(conn) do
+    case conn.assigns[:service_app] do
+      nil -> {:error, :no_app_token}
+      app -> {:ok, app}
+    end
+  end
+
+  defp app_token_error(conn) do
+    error(conn, 403, "wrong_token", "this endpoint needs an app-… token")
+  end
+
   defp require_workflow(conn) do
     case conn.assigns[:service_workflow] do
       nil -> {:error, :no_workflow_token}

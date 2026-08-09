@@ -745,6 +745,74 @@ defmodule FluxWeb.V1.ApiSpec do
       })
     end
 
+    defmodule ConversationEval do
+      @moduledoc false
+      require OpenApiSpex
+
+      OpenApiSpex.schema(%{
+        title: "ConversationEval",
+        type: :object,
+        properties: %{
+          id: %Schema{type: :string, format: :uuid},
+          name: %Schema{type: :string},
+          turns: %Schema{type: :integer},
+          expectation: %Schema{type: :string},
+          schedule: %Schema{type: :string, nullable: true},
+          last_score: %Schema{type: :number, nullable: true},
+          last_reason: %Schema{type: :string, nullable: true},
+          last_run_at: %Schema{type: :integer, nullable: true}
+        },
+        required: [:id, :name, :turns, :expectation],
+        additionalProperties: false
+      })
+    end
+
+    defmodule ConversationEvalList do
+      @moduledoc false
+      require OpenApiSpex
+
+      OpenApiSpex.schema(%{
+        title: "ConversationEvalList",
+        type: :object,
+        properties: %{
+          data: %Schema{type: :array, items: ConversationEval}
+        },
+        required: [:data],
+        additionalProperties: false
+      })
+    end
+
+    defmodule ABStats do
+      @moduledoc false
+      require OpenApiSpex
+
+      OpenApiSpex.schema(%{
+        title: "ABStats",
+        description: "Per-variant reply/feedback/token counts for a chat app's model A/B",
+        type: :object,
+        properties: %{
+          split: %Schema{type: :integer},
+          challenger: %Schema{type: :string, nullable: true},
+          data: %Schema{
+            type: :object,
+            additionalProperties: %Schema{
+              type: :object,
+              properties: %{
+                replies: %Schema{type: :integer},
+                likes: %Schema{type: :integer},
+                dislikes: %Schema{type: :integer},
+                tokens: %Schema{type: :integer}
+              },
+              required: [:replies, :likes, :dislikes, :tokens],
+              additionalProperties: false
+            }
+          }
+        },
+        required: [:split, :data],
+        additionalProperties: false
+      })
+    end
+
     defmodule ProviderModelList do
       @moduledoc false
       require OpenApiSpex
@@ -943,6 +1011,9 @@ defmodule FluxWeb.V1.ApiSpec do
     Schemas.LabelingLabeled,
     Schemas.ModelList,
     Schemas.ProviderModelList,
+    Schemas.ConversationEval,
+    Schemas.ConversationEvalList,
+    Schemas.ABStats,
     Schemas.ModelRegistered,
     Schemas.NotificationList,
     Schemas.RetrievalCaseList,
@@ -1000,6 +1071,10 @@ defmodule FluxWeb.V1.ApiSpec do
       {:post, "Register a stored file as a model", "ModelRegistered", 201}
     ],
     "/notifications" => {:get, "Workspace notification feed", "NotificationList"},
+    "/conversation-evals" => {:get, "List the app's conversation evals", "ConversationEvalList"},
+    "/conversation-evals/{id}/run" =>
+      {:post, "Replay and judge a scripted dialogue (blocking)", "ConversationEval"},
+    "/ab-stats" => {:get, "Model A/B per-variant stats", "ABStats"},
     "/datasets/{id}/retrieval-cases" => [
       {:get, "List golden retrieval cases", "RetrievalCaseList"},
       {:post, "Add a golden retrieval case", "RetrievalCaseCreated", 201}

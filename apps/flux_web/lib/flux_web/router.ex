@@ -81,6 +81,9 @@ defmodule FluxWeb.Router do
     get "/registry/models", QualityController, :models
     post "/registry/models", QualityController, :model_register
     get "/notifications", QualityController, :notifications
+    get "/conversation-evals", QualityController, :conversation_evals
+    post "/conversation-evals/:id/run", QualityController, :conversation_eval_run
+    get "/ab-stats", QualityController, :ab_stats
     get "/datasets/:id/retrieval-cases", QualityController, :retrieval_cases
     post "/datasets/:id/retrieval-cases", QualityController, :retrieval_case_create
     post "/datasets/:id/retrieval-eval", QualityController, :retrieval_eval
