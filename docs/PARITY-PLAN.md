@@ -1031,3 +1031,35 @@ console layout). Two migrations (conversation_evals.schedule,
 rag_documents.enabled — the banner needed none). Correction mid-batch: the
 LLM-node edit initially left a stray brace block — the batch-22
 "replace the whole expression" lesson applied within the hour.
+
+**48. Batch 24 — the surface grows sideways.** **OpenAI-compat tool
+calling** (the plugin layer always spoke tools — ToolDefs in, ToolCalls
+out — so /v1/chat/completions now normalizes OpenAI function
+definitions, tool-role messages, and replayed assistant tool_calls
+(JSON-string arguments decoded), passes them through
+stateless_completion's new opts, and answers finish_reason
+"tool_calls" blocking or as one whole delta in a stream; chatflows
+refuse tools with a 400 that says why — they run their own; the echo
+plugin and FakeRuntime answer a deterministic call when the prompt
+literally asks to "call the tool"); **workspace environment
+variables** (workspace_env_vars table, values encrypted with the
+workspace DEK, secrets write-only in the listing; the runner merges
+the resolved map UNDER the flux's own graph env, so {{env.NAME}}
+reaches every template with flux-local values winning; the round-trip
+test caught two real bugs — the `&& nil ||` masking idiom fell
+through to decrypt, and blanks weren't trimmed); **dataset content
+search** (escaped-ILIKE over segments joined to documents, a search
+box atop the Documents card); **annotation import/export** (a CSV
+kind on the monitor-export controller and a paste-box import through
+create_annotation, malformed rows skipping); **knowledge webhook
+events** (document.indexed / document.failed on the index worker's
+two exits, dataset.synced after datasource sync — and the endpoint
+event whitelist had to learn them, which the test caught);
+**editor shortcuts overlay** (a "?" keypress or toolbar button flips
+a modal listing palette/find/undo/copy/zoom bindings that all
+predate their discoverability); and the **quality API round-out**
+(GET /v1/conversation-evals, POST .../:id/run blocking, GET
+/v1/ab-stats on app- tokens with spec schemas — CI can now drive the
+batch-22 dialogue evals and read A/B verdicts). One migration
+(workspace_env_vars). Custom domains, Japanese, and 2FA remain the
+standing bench.

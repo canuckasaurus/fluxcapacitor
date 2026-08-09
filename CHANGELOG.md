@@ -13,6 +13,28 @@ at `docs/PARITY-PLAN.md`.
   OpenAI's list shape (the workspace's provider models, the app's bound
   model first) so OpenAI SDKs and gateways autodiscover.
 
+### Batch 24
+- OpenAI-compat tool calling: `POST /v1/chat/completions` passes
+  `tools` through to the app's model and answers `tool_calls`
+  (blocking and streaming); `tool`-role messages and replayed
+  assistant `tool_calls` round-trip, so function-calling loops work
+  against a base-URL swap. Chatflow apps refuse tools honestly — they
+  run their own.
+- Workspace environment variables: an encrypted store reachable as
+  `{{env.NAME}}` from every flux; secret values are write-only; a
+  flux's own env wins on collisions.
+- Dataset content search: a search box over a dataset's segments in
+  the knowledge browser.
+- Annotation import/export: CSV out from monitoring, CSV paste-in for
+  bulk curation.
+- Knowledge webhook events: `document.indexed`, `document.failed`,
+  and `dataset.synced` join the signed-webhook catalog.
+- Editor shortcuts overlay: press `?` on the canvas for the keyboard
+  cheat sheet.
+- Quality API: `GET /v1/conversation-evals`,
+  `POST /v1/conversation-evals/:id/run`, and `GET /v1/ab-stats` on
+  `app-` tokens — CI drives scripted dialogues and reads A/B results.
+
 ### Batch 23
 - Sub-flux call node: run a published flux as a single node — inputs
   map from templates (`name = {{ref}}` per line), the sub-flux's end

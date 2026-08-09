@@ -51,7 +51,9 @@ hole in the reply.
 
 Every operational event lands in the in-console feed (filterable by
 kind, per-item or bulk mark-read) and can route to signed webhooks:
-endpoints subscribe per event (`run.*`, `notification.*`, …), payloads
+endpoints subscribe per event (`run.*`, `notification.*`,
+`document.indexed`/`document.failed`/`dataset.synced` for knowledge
+ingestion, …), payloads
 are HMAC-SHA256 signed (`x-flux-signature`), deliveries are logged
 with per-attempt outcomes and manual retry, and the **Send test**
 button fires a `webhook.test` event so you can verify a receiver

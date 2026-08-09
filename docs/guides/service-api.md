@@ -49,6 +49,9 @@ final `message_end` carrying usage. Quota-exceeded apps return 429 with
 | `GET /v1/models` | OpenAI-compatible model list (provider models; an `app-` token's bound model first) — SDK autodiscovery |
 | `GET /v1/registry/models` · `POST /v1/registry/models` | List / register model-registry entries (`name`, `file_id`, optional `metrics`; versions auto-increment). **Moved from `/v1/models` in v0.5.0** |
 | `GET /v1/notifications` | The workspace notification feed (`?limit=`) |
+| `GET /v1/conversation-evals` | The app's scripted-dialogue evals with last scores (`app-` token) |
+| `POST /v1/conversation-evals/:id/run` | Replay and judge one dialogue, blocking (`app-` token) |
+| `GET /v1/ab-stats` | Model A/B per-variant replies, feedback, tokens (`app-` token) |
 | `GET/POST /v1/datasets/:id/retrieval-cases` | List / add golden retrieval cases (`question`, `expected`) |
 | `POST /v1/datasets/:id/retrieval-eval` | Score retrieval: hit rate, MRR, per-case ranks |
 

@@ -23,7 +23,9 @@ orchestrator, no queue infrastructure beyond Postgres.
   extractors, **timed delays** (seconds or until a timestamp, for pacing
   rate-limited APIs), and more) with
   retries, error branches, **parallel branch fan-out**, model fallback chains,
-  environment/conversation variables, versioning, and rollback. Template nodes
+  environment/conversation variables — plus **workspace-wide
+  environment variables** (`{{env.NAME}}`, encrypted, secrets
+  write-only, shared by every flux) — versioning, and rollback. Template nodes
   render simple `{{refs}}`, a **Jinja subset** (filters, conditionals, loops),
   or reusable **doc templates** from a workspace library. **Document
   assembly**, docassemble-style: upload Word templates with Jinja tags, run
@@ -121,12 +123,15 @@ orchestrator, no queue infrastructure beyond Postgres.
   per app**) — including an
   **OpenAI-compatible `POST /v1/chat/completions`** (blocking and
   streaming) that reaches **chatflow apps too** (bridged through their
-  flux), plus **OpenAI-compatible `/v1/embeddings`** and a
+  flux), speaks **function calling** (`tools` pass through to the
+  app's model, `tool_calls` come back, tool results round-trip — on
+  direct-model apps), plus **OpenAI-compatible `/v1/embeddings`** and a
   **`GET /v1/models` listing** for SDK autodiscovery, so any OpenAI SDK
   talks to apps and embedding models with a base-URL swap. Monitoring pages
   track usage, feedback and quality trends, **topic clusters** of what
   people actually ask, and **annotation replies** promote
-  liked answers into canonical responses (exact + embedding-fuzzy matched).
+  liked answers into canonical responses (exact + embedding-fuzzy
+  matched) — importable and exportable as **CSV** for bulk curation.
   Assistant replies **render markdown** (safely — escape-first, no raw
   HTML) in both the console and public sites — **streamed chunks render
   live**, not just the finished reply — with a **Regenerate button**, a
@@ -246,7 +251,9 @@ orchestrator, no queue infrastructure beyond Postgres.
   transcribe through the provider into searchable documents. The
   dataset browser takes **bulk document operations** — multi-select to
   enable/disable (disabled documents stay indexed but retrieval skips
-  them), tag, or delete several at once. Site
+  them), tag, or delete several at once — plus a **content search box**
+  over the dataset's segments, and ingestion fires **webhook events**
+  (`document.indexed`, `document.failed`, `dataset.synced`). Site
   visitors can **ask for a human** — the
   conversation flags into a console queue and a teammate's reply lands
   in the visitor's chat live — and conversations take **labels** for
