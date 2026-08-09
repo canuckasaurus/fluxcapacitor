@@ -98,19 +98,40 @@ defmodule Flux.Plugins.Echo do
           nil
       end)
 
-    reply = "You said: #{last_user}"
+    # Deterministic function calling for tests: with tools present and a
+    # prompt that literally asks to "call the tool", answer a tool call
+    # for the first tool instead of text.
+    if request.tools != [] and String.contains?(last_user, "call the tool") do
+      [tool | _rest] = request.tools
 
-    for word <- String.split(reply, " ") do
-      emit.(%Chunk{delta: word <> " "})
-      Process.sleep(10)
+      {:ok,
+       %Result{
+         content: "",
+         finish_reason: :tool_calls,
+         tool_calls: [
+           %Flux.Plugin.ModelProvider.ToolCall{
+             id: "call_echo_1",
+             name: tool.name,
+             arguments: %{"echo" => last_user}
+           }
+         ],
+         usage: %{input_tokens: div(byte_size(last_user), 4), output_tokens: 5}
+       }}
+    else
+      reply = "You said: #{last_user}"
+
+      for word <- String.split(reply, " ") do
+        emit.(%Chunk{delta: word <> " "})
+        Process.sleep(10)
+      end
+
+      {:ok,
+       %Result{
+         content: reply <> " ",
+         finish_reason: :stop,
+         usage: %{input_tokens: div(byte_size(last_user), 4), output_tokens: 12}
+       }}
     end
-
-    {:ok,
-     %Result{
-       content: reply <> " ",
-       finish_reason: :stop,
-       usage: %{input_tokens: div(byte_size(last_user), 4), output_tokens: 12}
-     }}
   end
 
   @impl Flux.Plugin.ModelProvider

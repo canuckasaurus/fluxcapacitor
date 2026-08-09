@@ -25,14 +25,31 @@ defmodule FluxWeb.V1.OpenAIController do
 
       true ->
         with {:ok, messages} <- normalize_messages(params["messages"]),
+             {:ok, tools} <- normalize_tools(params["tools"], app),
              :ok <- guard_input(app, messages) do
-          respond(conn, app, messages, params["stream"] == true)
+          respond(conn, app, messages, params["stream"] == true, tools)
         else
           {:error, :bad_messages} ->
             openai_error(
               conn,
               400,
               "messages must be a non-empty array.",
+              "invalid_request_error"
+            )
+
+          {:error, :tools_need_direct_model} ->
+            openai_error(
+              conn,
+              400,
+              "Tool calling needs a direct-model app — chatflow apps run their own tools.",
+              "invalid_request_error"
+            )
+
+          {:error, :bad_tools} ->
+            openai_error(
+              conn,
+              400,
+              "tools must be an array of function definitions.",
               "invalid_request_error"
             )
 
@@ -135,30 +152,25 @@ defmodule FluxWeb.V1.OpenAIController do
     end
   end
 
-  # Chatflow apps bridge through their flux; direct-model apps call the
-  # provider — same OpenAI contract either way.
-  defp completion_fun(%{mode: :advanced_chat}),
-    do: &Chat.stateless_chatflow_completion/3
+  # Tools only reach direct-model apps; the chatflow bridge runs its
+  # own tools inside the flux.
+  defp invoke_completion(%{mode: :advanced_chat} = app, messages, emit, _tools),
+    do: Chat.stateless_chatflow_completion(app, messages, emit)
 
-  defp completion_fun(_direct_model), do: &Chat.stateless_completion/3
+  defp invoke_completion(app, messages, emit, tools),
+    do: Chat.stateless_completion(app, messages, emit, tools: tools)
 
   ## Blocking
 
-  defp respond(conn, app, messages, false) do
-    case completion_fun(app).(app, messages, fn _chunk -> :ok end) do
+  defp respond(conn, app, messages, false, tools) do
+    case invoke_completion(app, messages, fn _chunk -> :ok end, tools) do
       {:ok, result, model_used} ->
         json(conn, %{
           "id" => completion_id(),
           "object" => "chat.completion",
           "created" => System.system_time(:second),
           "model" => model_used,
-          "choices" => [
-            %{
-              "index" => 0,
-              "message" => %{"role" => "assistant", "content" => result.content},
-              "finish_reason" => "stop"
-            }
-          ],
+          "choices" => [choice(result)],
           "usage" => usage(result)
         })
 
@@ -169,7 +181,7 @@ defmodule FluxWeb.V1.OpenAIController do
 
   ## Streaming
 
-  defp respond(conn, app, messages, true) do
+  defp respond(conn, app, messages, true, tools) do
     parent = self()
     id = completion_id()
     created = System.system_time(:second)
@@ -177,7 +189,7 @@ defmodule FluxWeb.V1.OpenAIController do
     Task.Supervisor.start_child(Flux.GenerationSupervisor, fn ->
       emit = fn %{delta: delta} -> send(parent, {:delta, delta}) end
 
-      case completion_fun(app).(app, messages, emit) do
+      case invoke_completion(app, messages, emit, tools) do
         {:ok, result, model_used} -> send(parent, {:finished, result, model_used})
         {:error, reason} -> send(parent, {:failed, reason})
       end
@@ -199,7 +211,27 @@ defmodule FluxWeb.V1.OpenAIController do
         end
 
       {:finished, result, model_used} ->
-        {_, conn} = sse(conn, chunk_frame(id, created, model_used, %{}, "stop", usage(result)))
+        conn =
+          case Map.get(result, :tool_calls, []) do
+            [] ->
+              {_, conn} =
+                sse(conn, chunk_frame(id, created, model_used, %{}, "stop", usage(result)))
+
+              conn
+
+            calls ->
+              # Tool calls arrive whole in one delta (not argument
+              # fragments) — SDKs accumulate deltas, so a single
+              # complete one parses fine.
+              delta = %{"role" => "assistant", "tool_calls" => encode_tool_calls(calls)}
+              {_, conn} = sse(conn, chunk_frame(id, created, model_used, delta, nil))
+
+              {_, conn} =
+                sse(conn, chunk_frame(id, created, model_used, %{}, "tool_calls", usage(result)))
+
+              conn
+          end
+
         {_, conn} = chunk(conn, "data: [DONE]\n\n")
         conn
 
@@ -233,21 +265,119 @@ defmodule FluxWeb.V1.OpenAIController do
 
   defp sse(conn, payload), do: chunk(conn, "data: " <> Jason.encode!(payload) <> "\n\n")
 
+  defp choice(result) do
+    case Map.get(result, :tool_calls, []) do
+      [] ->
+        %{
+          "index" => 0,
+          "message" => %{"role" => "assistant", "content" => result.content},
+          "finish_reason" => "stop"
+        }
+
+      calls ->
+        %{
+          "index" => 0,
+          "message" => %{
+            "role" => "assistant",
+            "content" => presence(result.content),
+            "tool_calls" => encode_tool_calls(calls)
+          },
+          "finish_reason" => "tool_calls"
+        }
+    end
+  end
+
+  defp encode_tool_calls(calls) do
+    for call <- calls do
+      %{
+        "id" => call.id || "call_" <> Base.url_encode64(:crypto.strong_rand_bytes(9)),
+        "type" => "function",
+        "function" => %{
+          "name" => call.name,
+          "arguments" => Jason.encode!(call.arguments || %{})
+        }
+      }
+    end
+  end
+
+  defp presence(""), do: nil
+  defp presence(content), do: content
+
   ## Request plumbing
 
   defp normalize_messages(messages) when is_list(messages) and messages != [] do
     normalized =
-      for %{"role" => role, "content" => content} <- messages,
-          role in ["system", "user", "assistant"],
-          text = content_text(content),
-          is_binary(text) do
-        %{role: String.to_existing_atom(role), content: text}
-      end
+      messages
+      |> Enum.map(&normalize_message/1)
+      |> Enum.reject(&is_nil/1)
 
     if normalized == [], do: {:error, :bad_messages}, else: {:ok, normalized}
   end
 
   defp normalize_messages(_other), do: {:error, :bad_messages}
+
+  # Tool results feed the follow-up round of a function-calling loop.
+  defp normalize_message(%{"role" => "tool", "tool_call_id" => call_id} = message) do
+    %{
+      role: :tool,
+      tool_call_id: to_string(call_id),
+      name: message["name"],
+      content: content_text(message["content"]) || ""
+    }
+  end
+
+  # Assistant turns replaying earlier tool_calls (arguments arrive as
+  # JSON strings on the wire; the plugins want maps).
+  defp normalize_message(%{"role" => "assistant", "tool_calls" => [_call | _] = calls} = message) do
+    %{
+      role: :assistant,
+      content: content_text(message["content"]) || "",
+      tool_calls:
+        for %{"function" => function} = call <- calls do
+          %Flux.Plugin.ModelProvider.ToolCall{
+            id: call["id"],
+            name: function["name"],
+            arguments:
+              case Jason.decode(to_string(function["arguments"] || "{}")) do
+                {:ok, %{} = arguments} -> arguments
+                _invalid -> %{}
+              end
+          }
+        end
+    }
+  end
+
+  defp normalize_message(%{"role" => role, "content" => content})
+       when role in ["system", "user", "assistant"] do
+    case content_text(content) do
+      text when is_binary(text) -> %{role: String.to_existing_atom(role), content: text}
+      _no_text -> nil
+    end
+  end
+
+  defp normalize_message(_other), do: nil
+
+  # OpenAI tool definitions → the plugin layer's ToolDef structs.
+  defp normalize_tools(nil, _app), do: {:ok, []}
+  defp normalize_tools([], _app), do: {:ok, []}
+
+  defp normalize_tools([_tool | _] = tools, %{mode: :advanced_chat}) when is_list(tools),
+    do: {:error, :tools_need_direct_model}
+
+  defp normalize_tools(tools, _app) when is_list(tools) do
+    normalized =
+      for %{"type" => "function", "function" => %{"name" => name} = function} <- tools do
+        %Flux.Plugin.ModelProvider.ToolDef{
+          name: name,
+          description: function["description"] || "",
+          parameters: function["parameters"] || %{"type" => "object", "properties" => %{}}
+        }
+      end
+
+    if length(normalized) == length(tools), do: {:ok, normalized}, else: {:error, :bad_tools}
+  end
+
+  defp normalize_tools(_other, _app), do: {:error, :bad_tools}
 
   # Content is a string, or OpenAI content-part arrays (text parts kept).
   defp content_text(content) when is_binary(content), do: content

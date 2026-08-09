@@ -73,13 +73,32 @@ defmodule Flux.FakeRuntime do
           nil
       end)
 
-    reply = "You said: #{last_user}"
+    # Mirrors the real echo plugin: tools + a "call the tool" prompt
+    # answer a deterministic tool call instead of text.
+    if Map.get(request, :tools, []) != [] and String.contains?(last_user, "call the tool") do
+      [tool | _rest] = request.tools
 
-    for word <- String.split(reply, " ") do
-      emit.(%Chunk{delta: word <> " "})
+      {:ok,
+       %Result{
+         content: "",
+         tool_calls: [
+           %Flux.Plugin.ModelProvider.ToolCall{
+             id: "call_echo_1",
+             name: tool.name,
+             arguments: %{"echo" => last_user}
+           }
+         ],
+         usage: %{input_tokens: 3, output_tokens: 5}
+       }}
+    else
+      reply = "You said: #{last_user}"
+
+      for word <- String.split(reply, " ") do
+        emit.(%Chunk{delta: word <> " "})
+      end
+
+      {:ok, %Result{content: reply <> " ", usage: %{input_tokens: 3, output_tokens: 12}}}
     end
-
-    {:ok, %Result{content: reply <> " ", usage: %{input_tokens: 3, output_tokens: 12}}}
   end
 
   # Sleeps mid-invocation so tests can exercise stopping an in-flight run.

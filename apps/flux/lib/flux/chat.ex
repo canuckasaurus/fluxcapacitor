@@ -821,6 +821,32 @@ defmodule Flux.Chat do
   end
 
   @doc """
+  Bulk-imports annotations from `[question, answer]` rows (the CSV
+  paste box on monitoring). Returns `{:ok, imported_count}` — blank or
+  malformed rows skip rather than failing the batch.
+  """
+  def import_annotations(%Scope{} = scope, %App{} = app, rows) when is_list(rows) do
+    with :ok <- RBAC.authorize(scope, :app_edit) do
+      imported =
+        Enum.count(rows, fn
+          [question, answer | _rest] ->
+            match?(
+              {:ok, _annotation},
+              create_annotation(scope, app, %{
+                question: to_string(question),
+                answer: to_string(answer)
+              })
+            )
+
+          _short_row ->
+            false
+        end)
+
+      {:ok, imported}
+    end
+  end
+
+  @doc """
   Exports an app's curated conversations as OpenAI chat-format JSONL for
   fine-tuning: one `{"messages": [...]}` object per line, built from
   liked assistant replies (`filter: :liked`, the default) or every
@@ -1806,7 +1832,9 @@ defmodule Flux.Chat do
   apply; provider health records both sides. Returns
   `{:ok, result, model_used}` or `{:error, reason}`.
   """
-  def stateless_completion(%App{} = app, messages, emit) when is_list(messages) do
+  def stateless_completion(app, messages, emit, opts \\ [])
+
+  def stateless_completion(%App{} = app, messages, emit, opts) when is_list(messages) do
     messages =
       case {app.system_prompt, messages} do
         {prompt, [%{role: :system} | _rest]} when is_binary(prompt) ->
@@ -1822,7 +1850,10 @@ defmodule Flux.Chat do
     request = %Flux.Plugin.ModelProvider.Request{
       model: app.model,
       messages: messages,
-      params: atomize_params(app.params)
+      params: atomize_params(app.params),
+      # OpenAI-compat function calling: caller-supplied tool definitions
+      # pass straight through; any tool_calls come back on the result.
+      tools: Keyword.get(opts, :tools, [])
     }
 
     case invoke_with_credentials(app.workspace_id, app.provider_plugin_id, request, emit) do
