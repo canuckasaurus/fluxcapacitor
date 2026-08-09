@@ -19,7 +19,8 @@ defmodule Flux.Webhooks do
 
   @run_events ~w(run.succeeded run.failed run.paused run.stopped)
   @other_events ~w(batch.completed eval.completed feedback.created
-                   labeling.task_labeled labeling.project_completed)
+                   labeling.task_labeled labeling.project_completed
+                   document.indexed document.failed dataset.synced)
 
   def run_events, do: @run_events
 

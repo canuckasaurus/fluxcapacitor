@@ -40,6 +40,7 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
        documents: [],
        url_sources: [],
        selected_doc_ids: MapSet.new(),
+       doc_search_results: nil,
        expanded_document_id: nil,
        editing_segment_id: nil,
        segments: [],
@@ -440,6 +441,22 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
 
   def handle_event("refresh", _params, socket) do
     {:noreply, refresh_documents(socket)}
+  end
+
+  def handle_event("search_dataset", %{"query" => query}, socket) do
+    results =
+      case {socket.assigns.selected, String.trim(query)} do
+        {nil, _query} ->
+          nil
+
+        {_dataset, ""} ->
+          nil
+
+        {dataset, trimmed} ->
+          RAG.search_dataset(socket.assigns.current_scope, dataset.id, trimmed)
+      end
+
+    {:noreply, assign(socket, doc_search_results: results)}
   end
 
   def handle_event("toggle_doc_select", %{"document-id" => id}, socket) do
@@ -1033,6 +1050,40 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
 
           <div class="card border border-base-200 p-4 space-y-2">
             <p class="text-sm font-semibold">Documents</p>
+
+            <form phx-submit="search_dataset" class="flex gap-2" id="dataset-search-form">
+              <input
+                type="text"
+                name="query"
+                placeholder="Search this dataset's content…"
+                class="input input-bordered input-sm flex-1 max-w-md"
+              />
+              <button class="btn btn-outline btn-sm">Search</button>
+            </form>
+
+            <p :if={@doc_search_results == []} class="text-sm opacity-60">
+              No segments matched.
+            </p>
+
+            <div
+              :for={hit <- @doc_search_results || []}
+              class="rounded-box border border-base-200 p-3 space-y-1"
+            >
+              <div class="flex items-center gap-2 text-xs opacity-60">
+                <span class="font-semibold">{hit.document_name}</span>
+                <span>segment {hit.segment.position}</span>
+                <button
+                  class="btn btn-ghost btn-xs ml-auto"
+                  phx-click="expand_document"
+                  phx-value-document-id={hit.document_id}
+                >
+                  View document
+                </button>
+              </div>
+              <p class="text-sm whitespace-pre-wrap break-words max-h-16 overflow-y-auto">
+                {hit.segment.content}
+              </p>
+            </div>
 
             <p :if={@documents == []} class="text-sm opacity-60">Nothing indexed yet.</p>
 

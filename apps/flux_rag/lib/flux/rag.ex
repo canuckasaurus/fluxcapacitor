@@ -434,7 +434,16 @@ defmodule Flux.RAG do
               end
             end
 
-          {:ok, Enum.sum(added)}
+          count = Enum.sum(added)
+
+          Flux.Webhooks.dispatch(dataset.workspace_id, "dataset.synced", %{
+            "dataset_id" => dataset.id,
+            "name" => dataset.name,
+            "plugin_id" => plugin_id,
+            "documents_added" => count
+          })
+
+          {:ok, count}
         end
     end
   end
@@ -455,6 +464,30 @@ defmodule Flux.RAG do
            Repo.one(Repo.scoped(where(Document, id: ^document_id), scope)) ||
              {:error, :not_found} do
       Repo.delete(document)
+    end
+  end
+
+  @doc """
+  Case-insensitive content search across a dataset's segments (the
+  knowledge browser's search box). Returns `%{segment, document_id,
+  document_name}` rows, document order then position.
+  """
+  def search_dataset(%Scope{} = scope, dataset_id, q, limit \\ 20) do
+    case String.trim(to_string(q)) do
+      "" ->
+        []
+
+      trimmed ->
+        pattern = "%" <> String.replace(trimmed, ["\\", "%", "_"], &("\\" <> &1)) <> "%"
+
+        Segment
+        |> Repo.scoped(scope)
+        |> where([s], s.dataset_id == ^dataset_id and ilike(s.content, ^pattern))
+        |> join(:inner, [s], d in Document, on: s.document_id == d.id)
+        |> order_by([s, d], asc: d.name, asc: s.position)
+        |> limit(^limit)
+        |> select([s, d], %{segment: s, document_id: d.id, document_name: d.name})
+        |> Repo.all()
     end
   end
 
@@ -646,12 +679,26 @@ defmodule Flux.RAG do
         |> Ecto.Changeset.change(status: :ready, segment_count: length(segments), error: nil)
         |> Repo.update!()
 
+        Flux.Webhooks.dispatch(document.workspace_id, "document.indexed", %{
+          "document_id" => document.id,
+          "name" => document.name,
+          "dataset_id" => dataset.id,
+          "segments" => length(segments)
+        })
+
         :ok
 
       {:error, reason} ->
         document
         |> Ecto.Changeset.change(status: :error, error: format_error(reason))
         |> Repo.update!()
+
+        Flux.Webhooks.dispatch(document.workspace_id, "document.failed", %{
+          "document_id" => document.id,
+          "name" => document.name,
+          "dataset_id" => dataset.id,
+          "error" => format_error(reason)
+        })
 
         {:error, reason}
     end
