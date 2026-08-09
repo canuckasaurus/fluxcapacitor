@@ -54,7 +54,8 @@ defmodule Flux.Engine.Runner do
             end)
 
           pool = %{
-            "env" => graph.env,
+            # Workspace-wide vars underlay the flux's own env (flux wins).
+            "env" => Map.merge(Keyword.get(opts, :env, %{}), graph.env),
             "sys" => Keyword.get(opts, :sys, %{}),
             "conversation" =>
               Map.merge(conversation_defaults, Keyword.get(opts, :conversation, %{}))

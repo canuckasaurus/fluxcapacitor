@@ -1481,6 +1481,7 @@ defmodule Flux.Workflows do
       )
       |> track_llm_usage(usage_acc)
 
+    run_opts = Keyword.put_new(run_opts, :env, Flux.WorkspaceEnv.resolve(workspace_id))
     result = Engine.run(graph, inputs, host, run_opts)
     usage = collect_usage(run, usage_acc)
 
@@ -1974,7 +1975,10 @@ defmodule Flux.Workflows do
         sub_host = build_host(workspace_id, fn _event -> :ok end, depth + 1)
         {inputs, sys} = subflux_run_inputs(request)
 
-        case Engine.run(graph, inputs, sub_host, sys: sys) do
+        case Engine.run(graph, inputs, sub_host,
+               sys: sys,
+               env: Flux.WorkspaceEnv.resolve(workspace_id)
+             ) do
           {:ok, result} -> {:ok, result.outputs}
           {:paused, _paused} -> {:error, "sub-fluxes cannot pause for human input"}
           {:error, failure} -> {:error, failure.error}

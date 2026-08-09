@@ -22,7 +22,7 @@ defmodule Flux.Repo do
                       labeling_projects labeling_tasks labeling_task_votes batch_schedules
                       model_artifacts notifications retrieval_cases webhook_deliveries
                       workflow_templates dataset_url_sources prompt_snippets mcp_servers
-                      conversation_evals)
+                      conversation_evals workspace_env_vars)
                  )
 
   @doc """

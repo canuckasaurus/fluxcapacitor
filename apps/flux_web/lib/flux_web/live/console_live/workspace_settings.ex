@@ -37,6 +37,8 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
        can_api_keys: RBAC.can?(scope, :app_create_and_management),
        ws_tokens: Chat.list_workspace_tokens(scope),
        new_ws_token: nil,
+       can_env: RBAC.can?(scope, :credential_manage),
+       env_vars: Flux.WorkspaceEnv.list(scope),
        can_scim: RBAC.can?(scope, :workspace_member_manage),
        scim_enabled: Accounts.scim_enabled?(scope),
        scim_token: nil,
@@ -229,6 +231,43 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
       {:error, :unauthorized} ->
         {:noreply, put_flash(socket, :error, "You don't have permission to change retention.")}
     end
+  end
+
+  def handle_event("put_env_var", params, socket) do
+    scope = socket.assigns.current_scope
+
+    case Flux.WorkspaceEnv.put(
+           scope,
+           params["name"],
+           params["value"],
+           params["is_secret"] == "on"
+         ) do
+      :ok ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Saved — reachable as {{env.#{String.trim(params["name"] || "")}}}.")
+         |> assign(env_vars: Flux.WorkspaceEnv.list(scope))}
+
+      {:error, :bad_name} ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           "Names are letters, digits, and underscores (no leading digit)."
+         )}
+
+      {:error, :blank_value} ->
+        {:noreply, put_flash(socket, :error, "The value cannot be blank.")}
+
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "You don't have permission to manage credentials.")}
+    end
+  end
+
+  def handle_event("delete_env_var", %{"name" => name}, socket) do
+    scope = socket.assigns.current_scope
+    Flux.WorkspaceEnv.delete(scope, name)
+    {:noreply, assign(socket, env_vars: Flux.WorkspaceEnv.list(scope))}
   end
 
   def handle_event("set_plan", %{"plan" => plan}, socket) do
@@ -603,6 +642,65 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
             class="textarea textarea-bordered textarea-sm w-full max-w-md font-mono"
           >{Enum.map_join(@pricing_overrides, "\n", fn {model, [input, output]} -> "#{model} #{input} #{output}" end)}</textarea>
           <button class="btn btn-primary btn-sm">Save prices</button>
+        </form>
+      </div>
+
+      <div :if={@can_env} class="card border border-base-200 p-6 space-y-3" id="env-vars-card">
+        <h2 class="font-semibold">Environment variables</h2>
+        <p class="text-sm opacity-70">
+          Workspace-wide values every flux reaches as <span class="font-mono">{"{{env.NAME}}"}</span>
+          — API keys and shared config live once. Encrypted at rest; <b>secret</b>
+          values never display again. A flux's own env wins
+          on name collisions.
+        </p>
+
+        <table :if={@env_vars != []} class="table table-xs max-w-2xl">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Value</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={var <- @env_vars} id={"env-var-#{var.name}"}>
+              <td class="font-mono">{var.name}</td>
+              <td class="font-mono">
+                {(var.is_secret && "••••••") || var.value}
+              </td>
+              <td>
+                <button
+                  class="btn btn-ghost btn-xs text-error"
+                  phx-click="delete_env_var"
+                  phx-value-name={var.name}
+                  data-confirm={"Delete {{env.#{var.name}}}? Fluxes using it will render blanks."}
+                >
+                  ✕
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <form phx-submit="put_env_var" id="env-var-form" class="flex flex-wrap items-center gap-2">
+          <input
+            type="text"
+            name="name"
+            placeholder="API_BASE"
+            class="input input-bordered input-sm w-40 font-mono"
+            required
+          />
+          <input
+            type="text"
+            name="value"
+            placeholder="value"
+            class="input input-bordered input-sm w-64 font-mono"
+            required
+          />
+          <label class="flex items-center gap-1 text-xs">
+            <input type="checkbox" name="is_secret" class="checkbox checkbox-xs" /> secret
+          </label>
+          <button class="btn btn-primary btn-sm">Save</button>
         </form>
       </div>
 
