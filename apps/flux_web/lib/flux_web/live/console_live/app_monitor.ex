@@ -20,6 +20,8 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
          handoffs: Chat.handoff_queue(scope, app.id),
          ab_stats: (app.ab_split > 0 && Chat.app_ab_stats(scope, app.id)) || nil,
          conversation_evals: Flux.ConversationEvals.list_conversation_evals(scope, app.id),
+         trashed_conversations: Chat.list_trashed_conversations(scope, app.id),
+         visitor_stats: Chat.visitor_stats(scope, app.id),
          all_labels: Chat.conversation_labels(scope, app.id),
          label_filter: nil,
          usage: Chat.usage_stats(scope, app.id),
@@ -145,6 +147,24 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
 
       _error ->
         {:noreply, put_flash(socket, :error, "Could not queue the reply for labeling.")}
+    end
+  end
+
+  def handle_event("restore_conversation", %{"conversation-id" => id}, socket) do
+    scope = socket.assigns.current_scope
+
+    case Chat.restore_conversation(scope, id) do
+      {:ok, _conversation} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Conversation restored.")
+         |> assign(
+           conversations: Chat.list_conversations(scope, socket.assigns.app.id, 50),
+           trashed_conversations: Chat.list_trashed_conversations(scope, socket.assigns.app.id)
+         )}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not restore the conversation.")}
     end
   end
 
@@ -733,6 +753,67 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
             <button class="btn btn-primary btn-sm">Send</button>
           </form>
         </div>
+      </div>
+
+      <div
+        :if={@visitor_stats != []}
+        class="card border border-base-200 p-4 space-y-2"
+        id="visitor-stats"
+      >
+        <h2 class="font-semibold text-sm">
+          <.icon name="hero-users" class="size-4 inline" /> Visitors
+        </h2>
+        <table class="table table-xs max-w-3xl">
+          <thead>
+            <tr>
+              <th>Visitor</th>
+              <th>Conversations</th>
+              <th>Messages</th>
+              <th>Tokens</th>
+              <th>👍</th>
+              <th>👎</th>
+              <th>Last seen</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={visitor <- @visitor_stats}>
+              <td class="font-mono">{visitor.ref}</td>
+              <td>{visitor.conversations}</td>
+              <td>{visitor.messages}</td>
+              <td class="font-mono">{visitor.tokens}</td>
+              <td>{visitor.likes}</td>
+              <td>{visitor.dislikes}</td>
+              <td class="text-xs opacity-60">
+                {visitor.last_seen && Calendar.strftime(visitor.last_seen, "%Y-%m-%d %H:%M")}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div
+        :if={@trashed_conversations != []}
+        class="card border border-base-200 p-4 space-y-2"
+        id="conversation-trash"
+      >
+        <h2 class="font-semibold text-sm">
+          <.icon name="hero-trash" class="size-4 inline" />
+          Trash ({length(@trashed_conversations)}) — purged after 30 days
+        </h2>
+        <p :for={conversation <- @trashed_conversations} class="text-sm flex items-center gap-2">
+          <span>{conversation.title || "Untitled conversation"}</span>
+          <span class="text-xs opacity-50">
+            deleted {Calendar.strftime(conversation.deleted_at, "%Y-%m-%d %H:%M")}
+          </span>
+          <button
+            :if={@can_edit}
+            class="btn btn-ghost btn-xs"
+            phx-click="restore_conversation"
+            phx-value-conversation-id={conversation.id}
+          >
+            Restore
+          </button>
+        </p>
       </div>
 
       <p :if={@conversations == []} class="text-sm opacity-60">No conversations yet.</p>

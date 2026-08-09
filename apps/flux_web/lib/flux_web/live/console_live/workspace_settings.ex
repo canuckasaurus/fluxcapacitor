@@ -24,6 +24,7 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
        token_budget: Accounts.token_budget(scope),
        llm_cache_minutes: Accounts.llm_cache_minutes(scope),
        cache_stats: Flux.LLMCache.stats(),
+       embedding_cache_stats: Flux.EmbeddingCache.stats(),
        pricing_overrides:
          Flux.Pricing.overrides(Flux.Accounts.Scope.workspace_id(scope)) |> Enum.sort(),
        max_concurrent_runs: Accounts.max_concurrent_runs(scope),
@@ -623,6 +624,10 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
                                                                                                                                                                         1 &&
                                                                                                                                                                         "y") ||
             "ies"} held.
+        </p>
+
+        <p class="text-xs opacity-60" id="embedding-cache-stats">
+          Embedding cache (always on, 24h TTL): {@embedding_cache_stats.hits} hits / {@embedding_cache_stats.misses} misses ({@embedding_cache_stats.hit_rate}% hit rate), {@embedding_cache_stats.entries} vectors held.
         </p>
 
         <div class="divider my-1" />

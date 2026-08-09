@@ -965,10 +965,10 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     {:noreply, socket}
   end
 
-  def handle_event("publish", _params, socket) do
+  def handle_event("publish", params, socket) do
     scope = socket.assigns.current_scope
 
-    case Workflows.publish(scope, socket.assigns.workflow) do
+    case Workflows.publish(scope, socket.assigns.workflow, params["note"]) do
       {:ok, version} ->
         {:noreply,
          socket
@@ -3092,14 +3092,28 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
             >
               <.icon name="hero-globe-alt" class="size-4" /> Site
             </button>
-            <button
-              :if={@can_publish}
-              class="btn btn-sm btn-outline"
-              phx-click="publish"
-              title="Snapshot the draft as the live version"
-            >
-              <.icon name="hero-rocket-launch" class="size-4" /> Publish
-            </button>
+            <details :if={@can_publish} class="dropdown dropdown-end" id="publish-dropdown">
+              <summary
+                class="btn btn-sm btn-outline"
+                title="Snapshot the draft as the live version"
+              >
+                <.icon name="hero-rocket-launch" class="size-4" /> Publish
+              </summary>
+              <form
+                phx-submit="publish"
+                class="dropdown-content z-40 card bg-base-100 border border-base-300 p-3 w-64 space-y-2 shadow-lg"
+                id="publish-form"
+              >
+                <input
+                  type="text"
+                  name="note"
+                  placeholder="Release note (optional)"
+                  class="input input-sm w-full"
+                  autocomplete="off"
+                />
+                <button class="btn btn-primary btn-sm w-full">Publish now</button>
+              </form>
+            </details>
             <button
               :if={@can_run}
               class="btn btn-sm btn-primary"
@@ -5746,6 +5760,9 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
             </span>
             <span class="text-xs opacity-60">
               {length(version.graph["nodes"] || [])} nodes
+            </span>
+            <span :if={version.note} class="text-xs italic truncate max-w-48" title={version.note}>
+              “{version.note}”
             </span>
             <button
               class="btn btn-ghost btn-xs ml-auto"
