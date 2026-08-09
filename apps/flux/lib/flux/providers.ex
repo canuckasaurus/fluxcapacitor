@@ -311,11 +311,48 @@ defmodule Flux.Providers do
   `{:ok, [[float]]}` in input order.
   """
   def embed_texts(workspace_id, plugin_id, model, texts) when is_list(texts) do
+    # Deterministic outputs cache per text — only misses hit the provider.
+    keyed =
+      for text <- texts do
+        key = Flux.EmbeddingCache.key(plugin_id, model, text)
+
+        case Flux.EmbeddingCache.get(key) do
+          {:ok, vector} -> {:hit, vector}
+          :miss -> {:miss, key, text}
+        end
+      end
+
+    misses = for {:miss, key, text} <- keyed, do: {key, text}
+
+    with {:ok, fresh} <- embed_uncached(workspace_id, plugin_id, model, misses) do
+      fresh_by_key =
+        for {{key, _text}, vector} <- Enum.zip(misses, fresh), into: %{} do
+          Flux.EmbeddingCache.put(key, vector)
+          {key, vector}
+        end
+
+      vectors =
+        for entry <- keyed do
+          case entry do
+            {:hit, vector} -> vector
+            {:miss, key, _text} -> Map.fetch!(fresh_by_key, key)
+          end
+        end
+
+      {:ok, vectors}
+    end
+  end
+
+  defp embed_uncached(_workspace_id, _plugin_id, _model, []), do: {:ok, []}
+
+  defp embed_uncached(workspace_id, plugin_id, model, misses) do
     credentials =
       case fetch_config(workspace_id, plugin_id) do
         {:ok, config} -> config
         {:error, :not_configured} -> %{}
       end
+
+    texts = Enum.map(misses, fn {_key, text} -> text end)
 
     case runtime().invoke_embeddings(plugin_id, credentials, model, texts) do
       {:ok, %{vectors: vectors}} -> {:ok, vectors}
