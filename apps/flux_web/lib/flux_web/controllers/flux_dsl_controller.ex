@@ -279,6 +279,14 @@ defmodule FluxWeb.FluxDslController do
       %Flux.Chat.App{} = app ->
         {rows, name} =
           case params["kind"] do
+            "annotations" ->
+              rows =
+                for annotation <- Flux.Chat.list_annotations(scope, app.id) do
+                  [annotation.question, annotation.answer]
+                end
+
+              {[["question", "answer"] | rows], "annotations"}
+
             "usage" ->
               rows =
                 for day <- Flux.Chat.usage_stats(scope, app.id, 90) do

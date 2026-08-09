@@ -148,6 +148,27 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
     end
   end
 
+  def handle_event("import_annotations", %{"csv" => csv}, socket) do
+    scope = socket.assigns.current_scope
+
+    rows =
+      case Flux.CSV.parse(csv) do
+        [["question", "answer" | _rest] | data] -> data
+        data -> data
+      end
+
+    case Chat.import_annotations(scope, socket.assigns.app, rows) do
+      {:ok, imported} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Imported #{imported} annotations.")
+         |> assign(annotations: Chat.list_annotations(scope, socket.assigns.app.id))}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not import the annotations.")}
+    end
+  end
+
   def handle_event("delete_annotation", %{"annotation-id" => id}, socket) do
     scope = socket.assigns.current_scope
     Chat.delete_annotation(scope, id)
@@ -461,10 +482,31 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
           <span class="text-xs opacity-60">
             Matching questions answer instantly without calling the model.
           </span>
+          <a
+            :if={@annotations != []}
+            href={~p"/console/apps/#{@app.id}/monitor-export?kind=annotations"}
+            class="btn btn-ghost btn-xs ml-auto"
+          >
+            <.icon name="hero-arrow-down-tray" class="size-3" /> CSV
+          </a>
         </div>
         <p :if={@annotations == []} class="text-sm opacity-60">
           No annotations yet — save a liked reply from the feedback list above.
         </p>
+        <form
+          :if={@can_edit}
+          phx-submit="import_annotations"
+          class="space-y-2"
+          id="import-annotations-form"
+        >
+          <textarea
+            name="csv"
+            rows="2"
+            placeholder={"Paste CSV to import — question,answer per line\n\"How do I reset?\",\"Settings → Reset.\""}
+            class="textarea textarea-bordered textarea-sm w-full font-mono"
+          ></textarea>
+          <button class="btn btn-outline btn-xs">Import CSV</button>
+        </form>
         <div
           :for={annotation <- @annotations}
           class="rounded-box border border-base-200 p-3 space-y-1"
