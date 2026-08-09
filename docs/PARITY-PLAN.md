@@ -1063,3 +1063,30 @@ predate their discoverability); and the **quality API round-out**
 batch-22 dialogue evals and read A/B verdicts). One migration
 (workspace_env_vars). Custom domains, Japanese, and 2FA remain the
 standing bench.
+
+**49. Batch 25 — polish with teeth.** **Compat structured outputs**
+(response_format json_schema on /v1/chat/completions forces the same
+respond-tool machinery the LLM node uses — SchemaCheck validation, one
+corrective retry quoting the errors back, honest 502 when the model
+still can't; json_object injects an instruction; combining with tools
+or chatflows refuses with a 400 that says why; streaming delivers the
+validated JSON as one delta); **conversation trash** (the last
+hard-deleting object gains deleted_at + restore + the cleanup worker's
+30-day purge; every visitor/console listing filters it, a Trash card
+on monitoring restores); **embedding cache** (per-text sha keys over
+{plugin, model, text}, always on with a 24h TTL, partial hits — only
+misses reach the provider; stats beside the LLM cache's on settings);
+**visitor analytics** (one grouped query rolls conversations,
+messages, tokens — jsonb sums via fragment — likes/dislikes with
+filtered counts, and last-seen per end_user_ref); **publish notes**
+(workflow_versions.note through a publish-button dropdown form,
+italicized beside each version row); **URL fetch-now** (the nightly
+sweep's per-source body extracted into fetch_url_source_now behind a
+button); and **prompt snippet versioning** (edits archive the previous
+content into prompt_snippet_versions, history + restore in the tools
+page — and the fix that mattered: the upsert's on_conflict insert
+returned a phantom id until returning: true, which the round-trip test
+caught, along with a batch-24-style `&& nil ||` near-miss avoided by
+inspection). Three migrations (conversations.deleted_at,
+workflow_versions.note, prompt_snippet_versions). The bench holds:
+custom domains, Japanese, 2FA.

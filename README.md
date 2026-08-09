@@ -55,8 +55,10 @@ orchestrator, no queue infrastructure beyond Postgres.
   records **token usage and an estimated cost** (per-model breakdown;
   dashboard rollups and a workspace-wide **runs page** with filters,
   cost totals, and **one-click re-runs**). A **monthly token budget**
-  warns at 80% and refuses runs past the cap, and an opt-in **LLM
-  response cache** answers identical prompts from memory at zero cost.
+  warns at 80% and refuses runs past the cap, an opt-in **LLM
+  response cache** answers identical prompts from memory at zero cost,
+  and an always-on **embedding cache** does the same for vectors — so
+  re-indexing never pays for unchanged text twice.
   Published versions **diff structurally** against the draft (nodes
   added/removed/changed, edges rewired) right in the versions modal, and
   an **A/B split** sends a share of live traffic (chatflows, sites, API,
@@ -79,8 +81,10 @@ orchestrator, no queue infrastructure beyond Postgres.
   Grafana dashboard.
   **Guardrails** (regex deny patterns) block or flag inputs and flag
   outputs, a **weekly digest** rolls up each workspace's activity, and
-  datasets and labeling projects get the same **30-day trash** as fluxes
-  and apps. Liked replies and annotations export as **fine-tune
+  datasets, labeling projects, and **conversations** get the same
+  **30-day trash** as fluxes and apps. Published versions take an
+  optional **release note**, shown beside each entry in the versions
+  modal. Liked replies and annotations export as **fine-tune
   JSONL**, and **native data labeling** closes the custom model loop:
   labeling projects with a tagging queue (single/multi choice or free-text
   correction, keyboard shortcuts, multi-labeler claims and per-labeler
@@ -125,11 +129,14 @@ orchestrator, no queue infrastructure beyond Postgres.
   streaming) that reaches **chatflow apps too** (bridged through their
   flux), speaks **function calling** (`tools` pass through to the
   app's model, `tool_calls` come back, tool results round-trip — on
-  direct-model apps), plus **OpenAI-compatible `/v1/embeddings`** and a
+  direct-model apps) and **structured outputs** (`response_format`
+  with a JSON schema — forced, validated, one corrective retry), plus **OpenAI-compatible `/v1/embeddings`** and a
   **`GET /v1/models` listing** for SDK autodiscovery, so any OpenAI SDK
   talks to apps and embedding models with a base-URL swap. Monitoring pages
   track usage, feedback and quality trends, **topic clusters** of what
-  people actually ask, and **annotation replies** promote
+  people actually ask, a **per-visitor rollup** (conversations,
+  messages, tokens, feedback per `end_user_ref`), and **annotation
+  replies** promote
   liked answers into canonical responses (exact + embedding-fuzzy
   matched) — importable and exportable as **CSV** for bulk curation.
   Assistant replies **render markdown** (safely — escape-first, no raw
@@ -182,7 +189,8 @@ orchestrator, no queue infrastructure beyond Postgres.
   retrieval (vector cosine + Postgres full-text + **entity mentions**, merged
   by reciprocal rank fusion), optional reranking, URL ingestion (with a
   **depth-1 crawl** of same-site links, and **remembered sources
-  re-fetched nightly**, replacing their documents in place), **PDF and
+  re-fetched nightly** — or on demand with a **fetch-now button** —
+  replacing their documents in place), **PDF and
   Office uploads** extracted through Tika right in the console,
   datasource auto-sync, multi-dataset queries, per-dataset retrieval settings
   (including **markdown-aware chunking**, **parent-child chunking** —
@@ -222,8 +230,10 @@ orchestrator, no queue infrastructure beyond Postgres.
   (Streamable HTTP, encrypted auth headers) and its tools join the picker
   for tool and agent nodes — and FluxCapacitor is itself an MCP server at
   `POST /mcp`, advertising every published flux as a callable tool
-  (input schema derived from its start variables), the **prompt library
-  as MCP prompts**, and **dataset documents as MCP resources** —
+  (input schema derived from its start variables), the **prompt
+  library** (named snippets inserted from LLM/agent panels — now
+  **versioned**, edits archive and history restores) exposed
+  **as MCP prompts**, and **dataset documents as MCP resources** —
   authenticated with a workspace `ws-` key, so Claude and any other MCP
   client can run your fluxes and read your knowledge directly. Agent
   nodes attach **several toolsets at once** (OpenAPI + plugin + MCP

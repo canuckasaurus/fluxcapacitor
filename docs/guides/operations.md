@@ -99,6 +99,17 @@ bound flux runs with the last user message as the query and earlier
 turns as `{{sys.history}}`. Quotas, guardrails, moderation, and the
 app's own rate limit all apply.
 
+Direct-model apps also speak **function calling** (`tools` pass
+through; `tool_calls` answer with `finish_reason: "tool_calls"`;
+`tool`-role results round-trip) and **structured outputs**
+(`response_format` `json_schema` — forced via a respond tool,
+validated against the schema with one corrective retry, honest 502
+when the model can't comply; `json_object` injects an instruction).
+The two cannot be combined on one request, and chatflow apps refuse
+both — their flux runs its own tools. `GET /v1/models` lists provider
+models (the app's bound model first) for SDK autodiscovery, and
+`POST /v1/embeddings` covers embedding models.
+
 ## Status page
 
 - `GET /status` (public, no login): component health from the doctor

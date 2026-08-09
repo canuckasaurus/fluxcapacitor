@@ -13,6 +13,23 @@ at `docs/PARITY-PLAN.md`.
   OpenAI's list shape (the workspace's provider models, the app's bound
   model first) so OpenAI SDKs and gateways autodiscover.
 
+### Batch 25
+- Compat structured outputs: `response_format` with `json_schema` on
+  `POST /v1/chat/completions` forces and validates JSON (one
+  corrective retry, honest 502 on failure); `json_object` works too.
+- Conversation trash: deletes are soft (30-day purge, restorable from
+  monitoring) — the last hard-deleting object gains trash parity.
+- Embedding cache: identical texts reuse their vectors (always on,
+  24h TTL, partial hits) — re-indexing stops paying twice; stats
+  beside the LLM cache's.
+- Visitor analytics: per-`end_user_ref` rollup on monitoring —
+  conversations, messages, tokens, feedback, last seen.
+- Publish notes: releases take an optional note, shown in the
+  versions modal.
+- URL sources take a "fetch now" button beside the nightly sweep.
+- Prompt library versioning: edits archive the previous content;
+  history lists and restores per snippet.
+
 ### Batch 24
 - OpenAI-compat tool calling: `POST /v1/chat/completions` passes
   `tools` through to the app's model and answers `tool_calls`
