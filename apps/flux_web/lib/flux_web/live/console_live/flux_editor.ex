@@ -262,6 +262,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
            ab_stats: [],
            versions: [],
            show_variables: false,
+           show_shortcuts: false,
            show_ai_edit: false,
            ai_edit_busy: false,
            env_rows: [],
@@ -679,6 +680,10 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
       _empty ->
         {:noreply, socket}
     end
+  end
+
+  def handle_event("toggle_shortcuts", _params, socket) do
+    {:noreply, assign(socket, show_shortcuts: not socket.assigns.show_shortcuts)}
   end
 
   def handle_event("undo", _params, socket) do
@@ -2923,6 +2928,47 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                 phx-hook="CanvasFind"
               />
             </form>
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm btn-square"
+              phx-click="toggle_shortcuts"
+              title="Keyboard shortcuts (?)"
+              id="shortcuts-button"
+            >
+              <.icon name="hero-question-mark-circle" class="size-4" />
+            </button>
+            <div
+              :if={@show_shortcuts}
+              class="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+              phx-click="toggle_shortcuts"
+              id="shortcuts-overlay"
+            >
+              <div class="card bg-base-100 border border-base-300 p-6 w-96 space-y-2 shadow-xl">
+                <h3 class="font-semibold text-sm">Keyboard shortcuts</h3>
+                <table class="table table-xs">
+                  <tbody>
+                    <tr :for={
+                      {keys, action} <- [
+                        {"Ctrl/⌘ K", "Command palette — jump anywhere"},
+                        {"Ctrl/⌘ F", "Find a node on the canvas"},
+                        {"Ctrl/⌘ Z", "Undo"},
+                        {"Ctrl/⌘ ⇧ Z or Ctrl/⌘ Y", "Redo"},
+                        {"Ctrl/⌘ C", "Copy the selected nodes"},
+                        {"Ctrl/⌘ V", "Paste (fresh ids)"},
+                        {"Delete / Backspace", "Delete the selection"},
+                        {"Shift + drag", "Multi-select nodes"},
+                        {"Ctrl + scroll", "Zoom the canvas"},
+                        {"?", "This overlay"}
+                      ]
+                    }>
+                      <td class="font-mono whitespace-nowrap">{keys}</td>
+                      <td>{action}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <p class="text-xs opacity-60">Click anywhere to close.</p>
+              </div>
+            </div>
             <button
               :if={@can_edit}
               class="btn btn-sm btn-ghost"
@@ -6303,6 +6349,8 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                 this.pushEvent("paste_clipboard", {})
               } else if (e.key === "Delete" || e.key === "Backspace") {
                 this.pushEvent("delete_selection", {})
+              } else if (e.key === "?" && !mod) {
+                this.pushEvent("toggle_shortcuts", {})
               }
             }
 
