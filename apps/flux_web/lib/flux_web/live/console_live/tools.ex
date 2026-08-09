@@ -21,6 +21,8 @@ defmodule FluxWeb.ConsoleLive.Tools do
        importing: false,
        expanded_id: nil,
        snippets: Flux.Prompts.list(scope),
+       history_snippet_id: nil,
+       snippet_versions: [],
        can_manage: RBAC.can?(scope, :tool_manage),
        can_mcp: RBAC.can?(scope, :mcp_manage),
        mcp_servers: Flux.MCP.list_servers(scope)
@@ -54,6 +56,40 @@ defmodule FluxWeb.ConsoleLive.Tools do
   def handle_event("delete_snippet", %{"snippet-id" => snippet_id}, socket) do
     Flux.Prompts.delete(socket.assigns.current_scope, snippet_id)
     {:noreply, assign(socket, snippets: Flux.Prompts.list(socket.assigns.current_scope))}
+  end
+
+  def handle_event("toggle_snippet_history", %{"snippet-id" => snippet_id}, socket) do
+    if socket.assigns.history_snippet_id == snippet_id do
+      {:noreply, assign(socket, history_snippet_id: nil, snippet_versions: [])}
+    else
+      {:noreply,
+       assign(socket,
+         history_snippet_id: snippet_id,
+         snippet_versions: Flux.Prompts.versions(socket.assigns.current_scope, snippet_id)
+       )}
+    end
+  end
+
+  def handle_event(
+        "restore_snippet_version",
+        %{"snippet-id" => snippet_id, "version" => version},
+        socket
+      ) do
+    scope = socket.assigns.current_scope
+
+    case Flux.Prompts.restore_version(scope, snippet_id, String.to_integer(version)) do
+      {:ok, _snippet} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Restored v#{version}.")
+         |> assign(
+           snippets: Flux.Prompts.list(scope),
+           snippet_versions: Flux.Prompts.versions(scope, snippet_id)
+         )}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not restore that version.")}
+    end
   end
 
   def handle_event("add_mcp_server", params, socket) do
@@ -519,7 +555,14 @@ defmodule FluxWeb.ConsoleLive.Tools do
             <tr :for={snippet <- @snippets} id={"snippet-#{snippet.id}"}>
               <td class="font-mono text-xs">{snippet.name}</td>
               <td class="text-xs opacity-70 max-w-md truncate">{snippet.content}</td>
-              <td class="text-right">
+              <td class="text-right whitespace-nowrap">
+                <button
+                  class="btn btn-ghost btn-xs"
+                  phx-click="toggle_snippet_history"
+                  phx-value-snippet-id={snippet.id}
+                >
+                  {(@history_snippet_id == snippet.id && "Hide history") || "History"}
+                </button>
                 <button
                   :if={@can_manage}
                   class="btn btn-ghost btn-xs text-error"
@@ -533,6 +576,37 @@ defmodule FluxWeb.ConsoleLive.Tools do
             </tr>
           </tbody>
         </table>
+        <div
+          :if={@history_snippet_id && @snippet_versions != []}
+          class="rounded-box border border-base-200 p-3 space-y-2"
+          id="snippet-history"
+        >
+          <p class="text-xs font-semibold opacity-70">
+            Earlier versions (edits archive the previous content)
+          </p>
+          <div :for={version <- @snippet_versions} class="flex items-center gap-2 text-xs">
+            <span class="badge badge-ghost badge-sm">v{version.version}</span>
+            <span class="opacity-60">
+              {Calendar.strftime(version.inserted_at, "%Y-%m-%d %H:%M")}
+            </span>
+            <span class="opacity-70 max-w-md truncate">{version.content}</span>
+            <button
+              :if={@can_manage}
+              class="btn btn-outline btn-xs ml-auto"
+              phx-click="restore_snippet_version"
+              phx-value-snippet-id={@history_snippet_id}
+              phx-value-version={version.version}
+            >
+              Restore
+            </button>
+          </div>
+        </div>
+        <p
+          :if={@history_snippet_id && @snippet_versions == []}
+          class="text-xs opacity-60"
+        >
+          No earlier versions — edits archive the previous content here.
+        </p>
         <p :if={@snippets == []} class="text-sm opacity-60">No snippets yet.</p>
       </div>
     </Layouts.console>
