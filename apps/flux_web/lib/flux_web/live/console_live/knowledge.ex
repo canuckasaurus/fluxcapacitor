@@ -128,6 +128,19 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
   end
 
   @impl true
+  def handle_event("fetch_url_source", %{"source-id" => source_id}, socket) do
+    case RAG.fetch_url_source_now(socket.assigns.current_scope, source_id) do
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "The fetch failed — check the URL.")}
+
+      _fetched ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Fetched — indexing runs in the background.")
+         |> refresh_documents()}
+    end
+  end
+
   def handle_event("delete_url_source", %{"source-id" => source_id}, socket) do
     RAG.delete_url_source(socket.assigns.current_scope, source_id)
     {:noreply, refresh_documents(socket)}
@@ -977,6 +990,14 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                       "fetched " <> Calendar.strftime(source.last_fetched_at, "%b %d %H:%M")) ||
                     "not fetched yet"}
                 </span>
+                <button
+                  class="btn btn-ghost btn-xs"
+                  phx-click="fetch_url_source"
+                  phx-value-source-id={source.id}
+                  title="Re-fetch this source now instead of waiting for the nightly sweep"
+                >
+                  Fetch now
+                </button>
                 <button
                   class="btn btn-ghost btn-xs text-error"
                   phx-click="delete_url_source"

@@ -326,6 +326,29 @@ defmodule Flux.RAG do
     end
   end
 
+  @doc """
+  Re-fetches one remembered URL source immediately (the "fetch now"
+  button) — same replace-in-place semantics as the nightly sweep.
+  """
+  def fetch_url_source_now(%Scope{} = scope, source_id) do
+    with :ok <- RBAC.authorize(scope, :dataset_edit),
+         %Flux.RAG.UrlSource{} = source <-
+           Repo.one(Repo.scoped(where(Flux.RAG.UrlSource, id: ^source_id), scope)) ||
+             {:error, :not_found},
+         %Dataset{} = dataset <- get_dataset(scope, source.dataset_id) do
+      result =
+        if source.crawl,
+          do: crawl_from_url(scope, dataset, source.url),
+          else: add_document_from_url(scope, dataset, source.url)
+
+      source
+      |> Ecto.Changeset.change(last_fetched_at: DateTime.utc_now(:second))
+      |> Repo.update()
+
+      result
+    end
+  end
+
   defp url_source_scope(workspace_id) do
     %Scope{
       workspace: %Flux.Accounts.Workspace{id: workspace_id},
