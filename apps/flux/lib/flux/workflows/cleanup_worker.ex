@@ -93,6 +93,9 @@ defmodule Flux.Workflows.CleanupWorker do
     from(a in Flux.Chat.App, where: a.deleted_at < ^cutoff)
     |> Repo.delete_all(skip_workspace_guard: true)
 
+    from(c in Flux.Chat.Conversation, where: c.deleted_at < ^cutoff)
+    |> Repo.delete_all(skip_workspace_guard: true)
+
     # Trashed datasets purge with their vector index; labeling projects
     # cascade their tasks/votes. Schemaless queries keep flux free of a
     # compile dependency on flux_rag (dependency direction).

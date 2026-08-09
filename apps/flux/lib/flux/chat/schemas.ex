@@ -107,6 +107,8 @@ defmodule Flux.Chat.Conversation do
     # outgrows the token window; `summarized_seq` is the last folded turn.
     field :summary, :string
     field :summarized_seq, :integer
+    # Trash: soft-deleted, restorable for 30 days, then purged.
+    field :deleted_at, :utc_datetime
 
     timestamps(type: :utc_datetime)
   end

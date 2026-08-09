@@ -176,6 +176,7 @@ defmodule Flux.Chat do
     Conversation
     |> Repo.scoped(scope)
     |> where([c], c.app_id == ^app_id and c.end_user_ref == ^end_user_ref)
+    |> where([c], is_nil(c.deleted_at))
     |> order_by([c], desc: c.inserted_at, desc: c.id)
     |> limit(1)
     |> Repo.one()
@@ -191,6 +192,7 @@ defmodule Flux.Chat do
     Conversation
     |> Repo.scoped(scope)
     |> where([c], c.app_id == ^app_id and c.end_user_ref == ^end_user_ref)
+    |> where([c], is_nil(c.deleted_at))
     |> order_by([c], desc: c.inserted_at, desc: c.id)
     |> limit(^limit)
     |> Repo.all()
@@ -349,11 +351,41 @@ defmodule Flux.Chat do
     end
   end
 
+  @doc """
+  Per-visitor rollup for the monitoring page: conversations, messages,
+  tokens, and feedback per `end_user_ref`, most recently seen first.
+  """
+  def visitor_stats(%Scope{} = scope, app_id, limit \\ 20) do
+    Conversation
+    |> Repo.scoped(scope)
+    |> where([c], c.app_id == ^app_id and not is_nil(c.end_user_ref) and is_nil(c.deleted_at))
+    |> join(:left, [c], m in Message, on: m.conversation_id == c.id)
+    |> group_by([c], c.end_user_ref)
+    |> select([c, m], %{
+      ref: c.end_user_ref,
+      conversations: count(c.id, :distinct),
+      messages: count(m.id),
+      tokens:
+        fragment(
+          "coalesce(sum(coalesce((? ->> 'input_tokens')::bigint, 0) + coalesce((? ->> 'output_tokens')::bigint, 0)), 0)",
+          m.usage,
+          m.usage
+        ),
+      likes: fragment("count(*) filter (where ? = 'like')", m.feedback),
+      dislikes: fragment("count(*) filter (where ? = 'dislike')", m.feedback),
+      last_seen: max(m.inserted_at)
+    })
+    |> order_by([c, m], desc: max(m.inserted_at))
+    |> limit(^limit)
+    |> Repo.all()
+  end
+
   @doc "Conversations currently waiting on a human, oldest wait first."
   def handoff_queue(%Scope{} = scope, app_id) do
     Conversation
     |> Repo.scoped(scope)
     |> where([c], c.app_id == ^app_id and not is_nil(c.handoff_requested_at))
+    |> where([c], is_nil(c.deleted_at))
     |> order_by([c], asc: c.handoff_requested_at)
     |> Repo.all()
   end
@@ -368,6 +400,7 @@ defmodule Flux.Chat do
     Conversation
     |> Repo.scoped(scope)
     |> where([c], c.app_id == ^app_id and is_nil(c.end_user_ref))
+    |> where([c], is_nil(c.deleted_at))
     |> order_by([c], desc: c.inserted_at, desc: c.id)
     |> limit(^limit)
     |> Repo.all()
@@ -386,7 +419,7 @@ defmodule Flux.Chat do
 
     Conversation
     |> Repo.scoped(scope)
-    |> where([c], c.app_id == ^app_id and is_nil(c.end_user_ref))
+    |> where([c], c.app_id == ^app_id and is_nil(c.end_user_ref) and is_nil(c.deleted_at))
     |> where([c], ilike(c.title, ^pattern) or c.id in subquery(matching))
     |> order_by([c], desc: c.inserted_at, desc: c.id)
     |> limit(^limit)
@@ -396,7 +429,7 @@ defmodule Flux.Chat do
   def list_conversations(%Scope{} = scope, app_id, limit \\ 20) do
     Conversation
     |> Repo.scoped(scope)
-    |> where([c], c.app_id == ^app_id)
+    |> where([c], c.app_id == ^app_id and is_nil(c.deleted_at))
     |> order_by([c], desc: c.inserted_at)
     |> limit(^limit)
     |> Repo.all()
@@ -409,10 +442,40 @@ defmodule Flux.Chat do
     end
   end
 
+  @doc "Soft delete: the conversation moves to the trash (30-day purge, restorable)."
   def delete_conversation(%Scope{} = scope, conversation_id) do
+    Conversation
+    |> Repo.scoped(scope)
+    |> where([c], c.id == ^conversation_id and is_nil(c.deleted_at))
+    |> Repo.one()
+    |> case do
+      nil ->
+        {:error, :not_found}
+
+      conversation ->
+        conversation
+        |> Ecto.Changeset.change(deleted_at: DateTime.utc_now(:second))
+        |> Repo.update()
+    end
+  end
+
+  @doc "Trashed conversations for an app, newest deletion first."
+  def list_trashed_conversations(%Scope{} = scope, app_id, limit \\ 20) do
+    Conversation
+    |> Repo.scoped(scope)
+    |> where([c], c.app_id == ^app_id and not is_nil(c.deleted_at))
+    |> order_by([c], desc: c.deleted_at)
+    |> limit(^limit)
+    |> Repo.all()
+  end
+
+  def restore_conversation(%Scope{} = scope, conversation_id) do
     case Repo.one(Repo.scoped(where(Conversation, id: ^conversation_id), scope)) do
-      nil -> {:error, :not_found}
-      conversation -> Repo.delete(conversation)
+      nil ->
+        {:error, :not_found}
+
+      conversation ->
+        conversation |> Ecto.Changeset.change(deleted_at: nil) |> Repo.update()
     end
   end
 
