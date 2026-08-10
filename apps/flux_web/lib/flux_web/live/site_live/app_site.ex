@@ -146,6 +146,29 @@ defmodule FluxWeb.SiteLive.AppSite do
     handle_event("send", %{"content" => question}, socket)
   end
 
+  def handle_event("rate", %{"message-id" => message_id, "rating" => rating}, socket)
+      when rating in ["like", "dislike"] do
+    scope = socket.assigns.site_scope
+    rating = String.to_existing_atom(rating)
+
+    # Clicking the active rating clears it.
+    current = Enum.find(socket.assigns.messages, &(&1.id == message_id))
+    new_rating = if current && current.feedback == rating, do: nil, else: rating
+
+    case Chat.set_feedback(scope, message_id, new_rating) do
+      {:ok, updated} ->
+        messages =
+          Enum.map(socket.assigns.messages, fn message ->
+            (message.id == updated.id && updated) || message
+          end)
+
+        {:noreply, assign(socket, messages: messages)}
+
+      _error ->
+        {:noreply, socket}
+    end
+  end
+
   def handle_event("request_handoff", _params, socket) do
     %{app: app, site_scope: scope} = socket.assigns
 
@@ -429,6 +452,26 @@ defmodule FluxWeb.SiteLive.AppSite do
                   aria-label="Read this reply aloud"
                 >
                   <.icon name="hero-speaker-wave" class="size-3" /> Listen
+                </button>
+                <button
+                  type="button"
+                  class={["btn btn-ghost btn-xs", message.feedback == :like && "text-success"]}
+                  phx-click="rate"
+                  phx-value-message-id={message.id}
+                  phx-value-rating="like"
+                  aria-label="Good reply"
+                >
+                  👍
+                </button>
+                <button
+                  type="button"
+                  class={["btn btn-ghost btn-xs", message.feedback == :dislike && "text-error"]}
+                  phx-click="rate"
+                  phx-value-message-id={message.id}
+                  phx-value-rating="dislike"
+                  aria-label="Bad reply"
+                >
+                  👎
                 </button>
               </div>
             </div>
