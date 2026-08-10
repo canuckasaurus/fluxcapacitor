@@ -48,6 +48,73 @@ defmodule FluxWeb.V1.WorkflowRunController do
     end
   end
 
+  @doc """
+  Run status by id (`?trace=true` adds per-node executions) — the
+  polling companion to `response_mode: "blocking"`.
+  """
+  def show(conn, %{"id" => run_id} = params) do
+    with {:ok, workflow} <- require_workflow_token(conn),
+         {:ok, run} <- fetch_workflow_run(conn, workflow, run_id) do
+      json(conn, run_status_json(run, params["trace"] in ["true", "1"]))
+    else
+      {:error, :no_workflow_token} ->
+        error(conn, 403, "invalid_token_kind", "This endpoint requires a flux- workflow token")
+
+      {:error, :not_found} ->
+        error(conn, 404, "not_found", "unknown run")
+    end
+  end
+
+  @doc "Stops a running run in place (the API twin of the console button)."
+  def stop(conn, %{"id" => run_id}) do
+    with {:ok, workflow} <- require_workflow_token(conn),
+         {:ok, _run} <- fetch_workflow_run(conn, workflow, run_id) do
+      case Workflows.stop_run(conn.assigns.service_scope, run_id) do
+        {:ok, stopped} -> json(conn, run_status_json(stopped, false))
+        _not_running -> error(conn, 409, "not_running", "the run is not running")
+      end
+    else
+      {:error, :no_workflow_token} ->
+        error(conn, 403, "invalid_token_kind", "This endpoint requires a flux- workflow token")
+
+      {:error, :not_found} ->
+        error(conn, 404, "not_found", "unknown run")
+    end
+  end
+
+  defp require_workflow_token(conn) do
+    case conn.assigns[:service_workflow] do
+      nil -> {:error, :no_workflow_token}
+      workflow -> {:ok, workflow}
+    end
+  end
+
+  defp fetch_workflow_run(conn, workflow, run_id) do
+    case Workflows.get_run(conn.assigns.service_scope, run_id) do
+      %{workflow_id: workflow_id} = run when workflow_id == workflow.id -> {:ok, run}
+      _other -> {:error, :not_found}
+    end
+  end
+
+  defp run_status_json(run, trace?) do
+    base = %{
+      id: run.id,
+      workflow_id: run.workflow_id,
+      status: run.status,
+      outputs: run.outputs,
+      error: run.error,
+      elapsed_ms: run.elapsed_ms,
+      usage: run.usage,
+      created_at: DateTime.to_unix(run.inserted_at)
+    }
+
+    if trace? do
+      Map.put(base, :node_executions, run.node_executions)
+    else
+      base
+    end
+  end
+
   @doc "Resumes a paused run (`human_input` node) with the caller's input."
   def resume(conn, %{"id" => run_id} = params) do
     case conn.assigns[:service_workflow] do
