@@ -326,6 +326,106 @@ defmodule Flux.RAG do
     end
   end
 
+  @settings_fields ~w(embedding_plugin_id embedding_model chunk_size chunk_overlap
+                      split_markdown parent_child query_expansion retrieval_top_k
+                      score_threshold)a
+
+  @doc """
+  A portable single-dataset archive: settings, documents (content, tags,
+  metadata, enabled), golden retrieval cases, and remembered URL
+  sources — everything needed to rebuild the dataset elsewhere.
+  Embeddings are not exported; the import re-indexes.
+  """
+  def export_dataset(%Scope{} = scope, dataset_id) do
+    with %Dataset{} = dataset <- get_dataset(scope, dataset_id) do
+      {:ok,
+       %{
+         "format" => "flux-dataset/v1",
+         "name" => dataset.name,
+         "description" => dataset.description,
+         "settings" =>
+           Map.new(@settings_fields, fn field ->
+             {to_string(field), Map.get(dataset, field)}
+           end),
+         "documents" =>
+           for document <- list_documents(scope, dataset.id),
+               is_binary(document.content) and document.content != "" do
+             %{
+               "name" => document.name,
+               "content" => document.content,
+               "tags" => document.tags,
+               "metadata" => document.metadata,
+               "enabled" => document.enabled
+             }
+           end,
+         "retrieval_cases" =>
+           for retrieval_case <- list_retrieval_cases(scope, dataset.id) do
+             %{"question" => retrieval_case.question, "expected" => retrieval_case.expected}
+           end,
+         "url_sources" =>
+           for source <- list_url_sources(scope, dataset.id) do
+             %{"url" => source.url, "crawl" => source.crawl}
+           end
+       }}
+    end
+  end
+
+  @doc """
+  Rebuilds a dataset from an archive map (the export's JSON, decoded).
+  Documents queue for indexing; returns `{:ok, dataset, counts}`.
+  """
+  def import_dataset(%Scope{} = scope, %{"format" => "flux-dataset/v1"} = archive) do
+    settings = archive["settings"] || %{}
+
+    attrs =
+      settings
+      |> Map.take(Enum.map(@settings_fields, &to_string/1))
+      |> Map.merge(%{
+        "name" => to_string(archive["name"] || "Imported dataset"),
+        "description" => archive["description"]
+      })
+
+    with {:ok, dataset} <- create_dataset(scope, attrs) do
+      documents =
+        for %{"name" => name, "content" => content} = document <- archive["documents"] || [],
+            is_binary(content) and content != "" do
+          {:ok, created} = add_document(scope, dataset, %{name: name, content: content})
+
+          if document["tags"] not in [nil, []],
+            do: set_document_tags(scope, created.id, document["tags"])
+
+          if is_map(document["metadata"]) and document["metadata"] != %{},
+            do: set_document_metadata(scope, created.id, document["metadata"])
+
+          if document["enabled"] == false, do: set_documents_enabled(scope, [created.id], false)
+
+          created
+        end
+
+      cases =
+        for %{"question" => question, "expected" => expected} <- archive["retrieval_cases"] || [] do
+          {:ok, created} =
+            add_retrieval_case(scope, dataset, %{"question" => question, "expected" => expected})
+
+          created
+        end
+
+      sources =
+        for %{"url" => url} = source <- archive["url_sources"] || [] do
+          remember_url_source(scope, dataset, url, source["crawl"] == true)
+        end
+
+      {:ok, dataset,
+       %{
+         documents: length(documents),
+         retrieval_cases: length(cases),
+         url_sources: length(sources)
+       }}
+    end
+  end
+
+  def import_dataset(%Scope{}, _archive), do: {:error, :unrecognized_archive}
+
   @doc """
   Re-fetches one remembered URL source immediately (the "fetch now"
   button) — same replace-in-place semantics as the nightly sweep.

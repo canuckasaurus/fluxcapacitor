@@ -46,6 +46,11 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
        segments: [],
        hits: nil
      )
+     |> allow_upload(:dataset_archive,
+       accept: ~w(.json),
+       max_entries: 1,
+       max_file_size: 50_000_000
+     )
      |> allow_upload(:document,
        accept: ~w(.txt .md .markdown .csv .json .html .htm .pdf .docx .doc .xlsx .pptx
             .png .jpg .jpeg .gif .webp .mp3 .wav .webm),
@@ -456,6 +461,37 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
     {:noreply, refresh_documents(socket)}
   end
 
+  def handle_event("validate_dataset_archive", _params, socket), do: {:noreply, socket}
+
+  def handle_event("import_dataset", _params, socket) do
+    results =
+      consume_uploaded_entries(socket, :dataset_archive, fn %{path: path}, _entry ->
+        with {:ok, archive} <- Jason.decode(File.read!(path)),
+             {:ok, dataset, counts} <-
+               RAG.import_dataset(socket.assigns.current_scope, archive) do
+          {:ok, {:imported, dataset, counts}}
+        else
+          _bad -> {:ok, :failed}
+        end
+      end)
+
+    case results do
+      [{:imported, dataset, counts}] ->
+        {:noreply,
+         socket
+         |> put_flash(
+           :info,
+           "Imported \"#{dataset.name}\": #{counts.documents} documents, " <>
+             "#{counts.retrieval_cases} retrieval cases — indexing runs in the background."
+         )
+         |> assign(datasets: RAG.list_datasets(socket.assigns.current_scope))}
+
+      _failed_or_empty ->
+        {:noreply,
+         put_flash(socket, :error, "Could not import — is that a flux-dataset/v1 archive?")}
+    end
+  end
+
   def handle_event("search_dataset", %{"query" => query}, socket) do
     results =
       case {socket.assigns.selected, String.trim(query)} do
@@ -690,6 +726,19 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
           </p>
         </div>
 
+        <form
+          :if={@can_create}
+          phx-submit="import_dataset"
+          phx-change="validate_dataset_archive"
+          class="flex items-center gap-2"
+          id="dataset-import-form"
+        >
+          <.live_file_input upload={@uploads.dataset_archive} class="file-input file-input-sm" />
+          <button class="btn btn-outline btn-sm" title="Import a dataset archive (.json)">
+            <.icon name="hero-arrow-up-tray" class="size-4" /> Import
+          </button>
+        </form>
+
         <button :if={@can_create and not @creating} class="btn btn-primary" phx-click="new">
           <.icon name="hero-plus" class="size-4" /> {gettext("New dataset")}
         </button>
@@ -908,6 +957,13 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                 </span>
               </label>
               <button class="btn btn-primary btn-sm">Save</button>
+              <a
+                href={~p"/console/knowledge/#{@selected.id}/export"}
+                class="btn btn-outline btn-sm"
+                title="Download a portable archive of this dataset"
+              >
+                <.icon name="hero-arrow-down-tray" class="size-4" /> Export
+              </a>
               <button
                 type="button"
                 class="btn btn-outline btn-sm"

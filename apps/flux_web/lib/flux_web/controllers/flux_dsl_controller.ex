@@ -271,6 +271,24 @@ defmodule FluxWeb.FluxDslController do
     end
   end
 
+  @doc "Downloads a portable dataset archive (documents, cases, sources)."
+  def dataset_export(conn, %{"id" => dataset_id}) do
+    scope = conn.assigns.current_scope
+
+    case Flux.RAG.export_dataset(scope, dataset_id) do
+      {:ok, archive} ->
+        send_download(
+          conn,
+          {:binary, Jason.encode!(archive, pretty: true)},
+          filename: "#{archive["name"]}-dataset.json",
+          content_type: "application/json"
+        )
+
+      _not_found ->
+        conn |> put_flash(:error, "Dataset not found.") |> redirect(to: ~p"/console/knowledge")
+    end
+  end
+
   @doc "Monitoring tables as CSV: ?kind=feedback (rated replies) or usage (daily stats)."
   def monitor_export(conn, %{"id" => app_id} = params) do
     scope = conn.assigns.current_scope
