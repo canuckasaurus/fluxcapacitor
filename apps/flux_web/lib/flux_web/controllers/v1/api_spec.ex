@@ -745,6 +745,81 @@ defmodule FluxWeb.V1.ApiSpec do
       })
     end
 
+    defmodule TranscriptionResult do
+      @moduledoc false
+      require OpenApiSpex
+
+      OpenApiSpex.schema(%{
+        title: "TranscriptionResult",
+        description: "OpenAI-compatible POST /v1/audio/transcriptions response",
+        type: :object,
+        properties: %{text: %Schema{type: :string}},
+        required: [:text],
+        additionalProperties: false
+      })
+    end
+
+    defmodule AnthropicMessage do
+      @moduledoc false
+      require OpenApiSpex
+
+      OpenApiSpex.schema(%{
+        title: "AnthropicMessage",
+        description: "Anthropic-compatible POST /v1/messages response (text only)",
+        type: :object,
+        properties: %{
+          id: %Schema{type: :string},
+          type: %Schema{type: :string, enum: ["message"]},
+          role: %Schema{type: :string, enum: ["assistant"]},
+          model: %Schema{type: :string},
+          content: %Schema{
+            type: :array,
+            items: %Schema{
+              type: :object,
+              properties: %{
+                type: %Schema{type: :string, enum: ["text"]},
+                text: %Schema{type: :string}
+              },
+              required: [:type, :text],
+              additionalProperties: false
+            }
+          },
+          stop_reason: %Schema{type: :string, nullable: true},
+          stop_sequence: %Schema{type: :string, nullable: true},
+          usage: %Schema{type: :object}
+        },
+        required: [:id, :type, :role, :content],
+        additionalProperties: false
+      })
+    end
+
+    defmodule RunDetail do
+      @moduledoc false
+      require OpenApiSpex
+
+      OpenApiSpex.schema(%{
+        title: "RunDetail",
+        description: "GET /v1/workflows/runs/{id} (?trace=true adds node_executions)",
+        type: :object,
+        properties: %{
+          id: %Schema{type: :string, format: :uuid},
+          workflow_id: %Schema{type: :string, format: :uuid},
+          status: %Schema{
+            type: :string,
+            enum: ["succeeded", "failed", "stopped", "running", "paused"]
+          },
+          outputs: %Schema{type: :object, nullable: true},
+          error: %Schema{type: :string, nullable: true},
+          elapsed_ms: %Schema{type: :integer, nullable: true},
+          usage: %Schema{type: :object, nullable: true},
+          created_at: %Schema{type: :integer},
+          node_executions: %Schema{type: :array, items: %Schema{type: :object}}
+        },
+        required: [:id, :workflow_id, :status, :created_at],
+        additionalProperties: false
+      })
+    end
+
     defmodule ConversationEval do
       @moduledoc false
       require OpenApiSpex
@@ -1014,6 +1089,9 @@ defmodule FluxWeb.V1.ApiSpec do
     Schemas.ConversationEval,
     Schemas.ConversationEvalList,
     Schemas.ABStats,
+    Schemas.TranscriptionResult,
+    Schemas.AnthropicMessage,
+    Schemas.RunDetail,
     Schemas.ModelRegistered,
     Schemas.NotificationList,
     Schemas.RetrievalCaseList,
@@ -1071,6 +1149,11 @@ defmodule FluxWeb.V1.ApiSpec do
       {:post, "Register a stored file as a model", "ModelRegistered", 201}
     ],
     "/notifications" => {:get, "Workspace notification feed", "NotificationList"},
+    "/audio/transcriptions" =>
+      {:post, "OpenAI-compatible speech-to-text (multipart file)", "TranscriptionResult"},
+    "/messages" => {:post, "Anthropic-compatible completion (app- tokens)", "AnthropicMessage"},
+    "/workflows/runs/{id}" => {:get, "Run status (?trace=true adds nodes)", "RunDetail"},
+    "/workflows/runs/{id}/stop" => {:post, "Stop a running run", "RunDetail"},
     "/conversation-evals" => {:get, "List the app's conversation evals", "ConversationEvalList"},
     "/conversation-evals/{id}/run" =>
       {:post, "Replay and judge a scripted dialogue (blocking)", "ConversationEval"},

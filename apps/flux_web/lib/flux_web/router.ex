@@ -42,10 +42,15 @@ defmodule FluxWeb.Router do
     post "/chat/completions", OpenAIController, :create
     post "/embeddings", OpenAIController, :embeddings
     get "/models", OpenAIController, :models
+    post "/audio/transcriptions", OpenAIController, :transcriptions
+    post "/audio/speech", OpenAIController, :speech
+    post "/messages", AnthropicController, :create
 
     post "/chat-messages", ChatMessageController, :create
     post "/workflows/run", WorkflowRunController, :create
     post "/workflows/runs/:id/resume", WorkflowRunController, :resume
+    get "/workflows/runs/:id", WorkflowRunController, :show
+    post "/workflows/runs/:id/stop", WorkflowRunController, :stop
 
     post "/completion-messages", ChatMessageController, :completion
     post "/files/upload", AppResourceController, :upload_file
@@ -294,6 +299,7 @@ defmodule FluxWeb.Router do
     get "/apps/:id/conversations/:conversation_id/export", FluxDslController, :conversation_export
     get "/apps/:id/finetune-export", FluxDslController, :finetune_export
     get "/apps/:id/monitor-export", FluxDslController, :monitor_export
+    get "/knowledge/:id/export", FluxDslController, :dataset_export
     get "/labeling/:id/export", FluxDslController, :labeling_export
     get "/templates/:id/file", DocTemplateController, :file
     post "/templates/:id/test-render", DocTemplateController, :test_render
