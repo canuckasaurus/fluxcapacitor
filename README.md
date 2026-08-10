@@ -116,7 +116,8 @@ orchestrator, no queue infrastructure beyond Postgres.
   on the canvas **extracts into a new flux** (outside references become
   start variables), any node can carry its own **timeout**, and
   **Ctrl/Cmd-F finds nodes on the canvas** by title, type, or id
-  (matches highlight, the view jumps to the first). Workspace
+  (matches highlight, the view jumps to the first), and the run panel
+  keeps **named input presets** so test values load in one click. Workspace
   export archives carry the whole quality loop — eval sets, labeling
   projects with labels and gold standards, retrieval cases — so backups
   restore it intact.
@@ -132,10 +133,16 @@ orchestrator, no queue infrastructure beyond Postgres.
   direct-model apps) and **structured outputs** (`response_format`
   with a JSON schema — forced, validated, one corrective retry), plus **OpenAI-compatible `/v1/embeddings`** and a
   **`GET /v1/models` listing** for SDK autodiscovery, so any OpenAI SDK
-  talks to apps and embedding models with a base-URL swap. Monitoring pages
+  talks to apps and embedding models with a base-URL swap — plus
+  **OpenAI-shaped audio endpoints** (`/v1/audio/transcriptions`,
+  `/v1/audio/speech`) and an **Anthropic-compatible `POST
+  /v1/messages`** (blocking and streaming), so Claude SDKs point at
+  apps the same way. Runs are fully API-drivable too: start, resume,
+  **inspect with a per-node trace**, and **stop**. Monitoring pages
   track usage, feedback and quality trends, **topic clusters** of what
   people actually ask, a **per-visitor rollup** (conversations,
-  messages, tokens, feedback per `end_user_ref`), and **annotation
+  messages, tokens, feedback per `end_user_ref` — and visitors rate
+  replies **👍/👎 right on the public site**), and **annotation
   replies** promote
   liked answers into canonical responses (exact + embedding-fuzzy
   matched) — importable and exportable as **CSV** for bulk curation.
@@ -262,8 +269,10 @@ orchestrator, no queue infrastructure beyond Postgres.
   dataset browser takes **bulk document operations** — multi-select to
   enable/disable (disabled documents stay indexed but retrieval skips
   them), tag, or delete several at once — plus a **content search box**
-  over the dataset's segments, and ingestion fires **webhook events**
-  (`document.indexed`, `document.failed`, `dataset.synced`). Site
+  over the dataset's segments, ingestion fires **webhook events**
+  (`document.indexed`, `document.failed`, `dataset.synced`), and whole
+  datasets **export/import as portable archives** (documents, tags,
+  metadata, retrieval cases — re-indexed on arrival). Site
   visitors can **ask for a human** — the
   conversation flags into a console queue and a teammate's reply lands
   in the visitor's chat live — and conversations take **labels** for
@@ -290,7 +299,9 @@ orchestrator, no queue infrastructure beyond Postgres.
   via **read-only share links**, the canvas exports as **SVG**,
   monitoring tables download as **CSV**, the LLM cache reports its
   **hit rate**, owners can **archive workspaces** instead of deleting,
-  a **monthly cost report** emails opted-in members on the 1st, and an
+  a **monthly cost report** emails opted-in members on the 1st, a
+  daily **cost-spike alert** flags a workspace whose spend suddenly
+  doubled its trailing average, and an
   instance-admin **announcement banner** tops every console page for
   maintenance windows and migration notices.
 

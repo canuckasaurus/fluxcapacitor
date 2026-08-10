@@ -1090,3 +1090,33 @@ caught, along with a batch-24-style `&& nil ||` near-miss avoided by
 inspection). Three migrations (conversations.deleted_at,
 workflow_versions.note, prompt_snippet_versions). The bench holds:
 custom domains, Japanese, 2FA.
+
+**50. Batch 26 — two more dialects and the missing knobs.**
+**Anthropic-compatible /v1/messages** (a second wire format beside the
+OpenAI one: content blocks in, content blocks out, msg_ ids,
+end_turn stop reasons, and the full streaming event sequence
+message_start → content_block_delta → message_stop; text-only by
+design, chatflows bridge the same way); **OpenAI-compat audio**
+(multipart /v1/audio/transcriptions and JSON /v1/audio/speech through
+the workspace default provider via a new Providers.speak beside
+transcribe — the capabilities existed since v0.3.0, only the HTTP
+shape was missing); **run API round-out** (GET
+/v1/workflows/runs/:id with ?trace=true exposing node_executions, and
+POST .../stop reusing the console's stop_run — runs could start and
+resume over the API but never be watched or killed); **dataset
+export/import** (a flux-dataset/v1 JSON archive of settings,
+documents with tags/metadata/enabled, retrieval cases, and URL
+sources; import rebuilds and re-indexes — embeddings deliberately
+stay out); **site visitor feedback** (👍/👎 on public chat through
+the unauthenticated site scope — the people actually using the apps
+finally feed the loop; toggling the active rating clears it);
+**editor input presets** (workflows.input_presets jsonb, save/load/
+delete on the run panel, 20 cap — the daily retype gone); and **cost
+spike alerts** (a grouped-by-day jsonb token sum over runs and
+messages, yesterday vs the trailing 7-day average, 2x + 100k floor →
+budget_warning at the 08:10 tick; the sum needed a ::bigint cast —
+Postgres sums bigints into numerics, which the test caught as a
+Decimal arithmetic crash). Two @doc-splitting near-repeats caught at
+compile time — the batch-19 lesson earns its ledger space annually.
+One migration (workflows.input_presets). The bench holds: custom
+domains, Japanese, 2FA.

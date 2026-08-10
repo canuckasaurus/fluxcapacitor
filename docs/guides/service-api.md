@@ -46,6 +46,9 @@ final `message_end` carrying usage. Quota-exceeded apps return 429 with
 
 | Endpoint | Purpose |
 |---|---|
+| `POST /v1/messages` | Anthropic-compatible completion on `app-` tokens (blocking + streaming, text-only) |
+| `POST /v1/audio/transcriptions` · `POST /v1/audio/speech` | OpenAI-shaped speech-to-text (multipart) / text-to-speech via the workspace default provider |
+| `GET /v1/workflows/runs/:id` · `POST /v1/workflows/runs/:id/stop` | Run status (`?trace=true` adds per-node executions) / stop a running run (`flux-` token) |
 | `GET /v1/models` | OpenAI-compatible model list (provider models; an `app-` token's bound model first) — SDK autodiscovery |
 | `GET /v1/registry/models` · `POST /v1/registry/models` | List / register model-registry entries (`name`, `file_id`, optional `metrics`; versions auto-increment). **Moved from `/v1/models` in v0.5.0** |
 | `GET /v1/notifications` | The workspace notification feed (`?limit=`) |

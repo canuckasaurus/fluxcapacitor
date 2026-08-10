@@ -13,6 +13,24 @@ at `docs/PARITY-PLAN.md`.
   OpenAI's list shape (the workspace's provider models, the app's bound
   model first) so OpenAI SDKs and gateways autodiscover.
 
+### Batch 26
+- Anthropic-compatible `POST /v1/messages` (blocking and streaming
+  with the full event sequence) — Claude SDKs point at apps with a
+  base-URL swap, beside the OpenAI surface.
+- OpenAI-compatible `POST /v1/audio/transcriptions` (multipart) and
+  `POST /v1/audio/speech` through the workspace default provider.
+- Run API round-out: `GET /v1/workflows/runs/:id` (with `?trace=true`
+  per-node executions) and `POST .../stop`.
+- Dataset export/import: a portable `flux-dataset/v1` JSON archive
+  (documents, tags, metadata, retrieval cases, URL sources) with an
+  Export button and an Import picker in the knowledge browser.
+- Site visitors rate replies: 👍/👎 on public chat, flowing into the
+  same feedback loop the console sees.
+- Editor input presets: save named sample inputs on the run panel and
+  reload them with one click (up to 20 per flux).
+- Cost spike alerts: a daily check flags workspaces whose yesterday
+  token spend more than doubled the trailing week's average.
+
 ### Batch 25
 - Compat structured outputs: `response_format` with `json_schema` on
   `POST /v1/chat/completions` forces and validates JSON (one
