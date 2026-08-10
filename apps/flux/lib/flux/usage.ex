@@ -210,6 +210,69 @@ defmodule Flux.Usage do
     :ok
   end
 
+  @spike_floor 100_000
+
+  @doc """
+  Daily 08:10 UTC tick: a workspace whose yesterday token spend more
+  than doubled its trailing 7-day average (and cleared a #{@spike_floor}
+  floor) gets a `budget_warning` notification — budgets catch slow
+  burn, this catches the sudden spike.
+  """
+  def check_cost_spikes(now \\ DateTime.utc_now(:second)) do
+    if now.hour == 8 and now.minute == 10 do
+      today = DateTime.to_date(now)
+      yesterday = Date.add(today, -1)
+      window_start = today |> Date.add(-8) |> DateTime.new!(~T[00:00:00])
+      today_start = DateTime.new!(today, ~T[00:00:00])
+
+      rows =
+        daily_tokens(Flux.Workflows.WorkflowRun, window_start, today_start) ++
+          daily_tokens(Flux.Chat.Message, window_start, today_start)
+
+      rows
+      |> Enum.group_by(fn {workspace_id, _date, _tokens} -> workspace_id end)
+      |> Enum.each(fn {workspace_id, entries} ->
+        by_date =
+          Enum.reduce(entries, %{}, fn {_ws, date, tokens}, acc ->
+            Map.update(acc, date, tokens, &(&1 + tokens))
+          end)
+
+        spent_yesterday = Map.get(by_date, yesterday, 0)
+        prior = by_date |> Map.delete(yesterday) |> Map.values() |> Enum.sum()
+        daily_average = max(div(prior, 7), 1)
+
+        if spent_yesterday >= @spike_floor and spent_yesterday > 2 * daily_average do
+          Flux.Notifications.notify(
+            workspace_id,
+            "budget_warning",
+            "Token spend spiked: #{spent_yesterday} tokens yesterday vs ~#{daily_average}/day " <>
+              "over the prior week.",
+            "/console"
+          )
+        end
+      end)
+    end
+
+    :ok
+  end
+
+  defp daily_tokens(schema, window_start, today_start) do
+    schema
+    |> where([x], x.inserted_at >= ^window_start and x.inserted_at < ^today_start)
+    |> where([x], not is_nil(x.usage))
+    |> group_by([x], [x.workspace_id, fragment("date(?)", x.inserted_at)])
+    |> select(
+      [x],
+      {x.workspace_id, fragment("date(?)", x.inserted_at),
+       fragment(
+         "(coalesce(sum(coalesce((? ->> 'input_tokens')::bigint, 0) + coalesce((? ->> 'output_tokens')::bigint, 0)), 0))::bigint",
+         x.usage,
+         x.usage
+       )}
+    )
+    |> Repo.all(skip_workspace_guard: true)
+  end
+
   @doc "This calendar month's run tokens for one flux (per-flux budgets)."
   def month_tokens_for_workflow(workflow_id) do
     month_start =

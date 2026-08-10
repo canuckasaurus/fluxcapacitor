@@ -47,6 +47,7 @@ defmodule Flux.Workflows.ScheduleWorker do
     Workflows.run_scheduled_batches(now)
     Flux.Export.run_scheduled(now)
     Flux.Usage.send_weekly_digests(now)
+    Flux.Usage.check_cost_spikes(now)
     Flux.Usage.send_monthly_cost_reports(now)
 
     # Remembered URL sources re-fetch nightly (runtime-resolved — flux
