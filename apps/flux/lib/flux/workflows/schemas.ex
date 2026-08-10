@@ -17,6 +17,8 @@ defmodule Flux.Workflows.Workflow do
     field :name, :string
     field :description, :string
     field :graph, :map, default: %{}
+    # Named sample inputs for the editor's run panel.
+    field :input_presets, :map, default: %{}
     field :site_token, :string
     field :site_enabled, :boolean, default: false
     field :site_theme, :map, default: %{}

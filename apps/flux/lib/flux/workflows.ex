@@ -290,6 +290,34 @@ defmodule Flux.Workflows do
     end
   end
 
+  @max_input_presets 20
+
+  @doc "Saves (or replaces) a named sample-input preset for the run panel."
+  def save_input_preset(%Scope{} = scope, %Workflow{} = workflow, name, inputs)
+      when is_map(inputs) do
+    name = name |> to_string() |> String.trim() |> String.slice(0, 80)
+
+    with :ok <- RBAC.authorize(scope, :app_edit),
+         :ok <- owned(scope, workflow),
+         true <- name != "" || {:error, :blank_name},
+         true <-
+           map_size(Map.put(workflow.input_presets, name, inputs)) <= @max_input_presets ||
+             {:error, :too_many_presets} do
+      workflow
+      |> Ecto.Changeset.change(input_presets: Map.put(workflow.input_presets, name, inputs))
+      |> Repo.update()
+    end
+  end
+
+  def delete_input_preset(%Scope{} = scope, %Workflow{} = workflow, name) do
+    with :ok <- RBAC.authorize(scope, :app_edit),
+         :ok <- owned(scope, workflow) do
+      workflow
+      |> Ecto.Changeset.change(input_presets: Map.delete(workflow.input_presets, to_string(name)))
+      |> Repo.update()
+    end
+  end
+
   defp presence_note(note) do
     case String.trim(to_string(note || "")) do
       "" -> nil

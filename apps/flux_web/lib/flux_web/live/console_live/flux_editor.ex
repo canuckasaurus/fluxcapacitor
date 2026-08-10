@@ -272,6 +272,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
            node_debug: nil,
            zoom: 100,
            find_query: "",
+           preset_values: %{},
            undo_stack: [],
            redo_stack: [],
            show_history: false,
@@ -939,6 +940,29 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
      )}
   end
 
+  def handle_event("start_run", %{"preset_action" => "save"} = params, socket) do
+    scope = socket.assigns.current_scope
+    name = String.trim(params["preset_name"] || "")
+    inputs = Map.get(params, "inputs", %{})
+
+    case Workflows.save_input_preset(scope, socket.assigns.workflow, name, inputs) do
+      {:ok, workflow} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Preset \"#{name}\" saved.")
+         |> assign(workflow: workflow, preset_values: inputs)}
+
+      {:error, :blank_name} ->
+        {:noreply, put_flash(socket, :error, "Give the preset a name first.")}
+
+      {:error, :too_many_presets} ->
+        {:noreply, put_flash(socket, :error, "Presets cap at 20 — delete one first.")}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not save the preset.")}
+    end
+  end
+
   def handle_event("start_run", params, socket) do
     if socket.assigns.can_run do
       scope = socket.assigns.current_scope
@@ -946,13 +970,36 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
 
       case Workflows.start_run(scope, socket.assigns.workflow, inputs) do
         {:ok, run} ->
-          {:noreply, assign(socket, run: run, node_states: %{}, run_text: "", agent_activity: [])}
+          {:noreply,
+           assign(socket,
+             run: run,
+             node_states: %{},
+             run_text: "",
+             agent_activity: [],
+             preset_values: inputs
+           )}
 
         {:error, {:invalid_graph, errors}} ->
           {:noreply, put_flash(socket, :error, "Fix the graph first: #{Enum.join(errors, "; ")}")}
       end
     else
       {:noreply, put_flash(socket, :error, "You don't have permission to run fluxes.")}
+    end
+  end
+
+  def handle_event("load_preset", %{"preset" => name}, socket) do
+    values = Map.get(socket.assigns.workflow.input_presets, name, %{})
+    {:noreply, assign(socket, preset_values: values)}
+  end
+
+  def handle_event("delete_preset", %{"preset" => name}, socket) do
+    case Workflows.delete_input_preset(
+           socket.assigns.current_scope,
+           socket.assigns.workflow,
+           name
+         ) do
+      {:ok, workflow} -> {:noreply, assign(socket, workflow: workflow)}
+      _error -> {:noreply, socket}
     end
   end
 
@@ -5167,7 +5214,21 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
               </button>
             </div>
 
-            <form phx-submit="start_run" class="space-y-3">
+            <form
+              :if={@workflow.input_presets != %{}}
+              phx-change="load_preset"
+              id="preset-picker"
+              class="flex items-center gap-1"
+            >
+              <select name="preset" class="select select-bordered select-xs flex-1">
+                <option value="">Load a preset…</option>
+                <option :for={{name, _inputs} <- Enum.sort(@workflow.input_presets)} value={name}>
+                  {name}
+                </option>
+              </select>
+            </form>
+
+            <form phx-submit="start_run" class="space-y-3" id="run-form">
               <div :for={variable <- start_variables(@graph)} class="space-y-1">
                 <label class="text-xs font-semibold opacity-70">
                   {variable["name"]}
@@ -5178,14 +5239,41 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                     name={"inputs[#{variable["name"]}]"}
                     rows="3"
                     class="textarea textarea-sm w-full"
-                  ></textarea>
+                  >{@preset_values[variable["name"]]}</textarea>
                 <% else %>
                   <input
                     type={(variable["type"] == "number" && "number") || "text"}
                     name={"inputs[#{variable["name"]}]"}
+                    value={@preset_values[variable["name"]]}
                     class="input input-sm w-full"
                   />
                 <% end %>
+              </div>
+              <div class="flex items-center gap-1">
+                <input
+                  type="text"
+                  name="preset_name"
+                  placeholder="preset name"
+                  class="input input-bordered input-xs w-28"
+                />
+                <button
+                  class="btn btn-ghost btn-xs"
+                  name="preset_action"
+                  value="save"
+                  title="Save the current inputs as a named preset"
+                >
+                  Save preset
+                </button>
+                <button
+                  :for={{name, _inputs} <- Enum.sort(@workflow.input_presets)}
+                  type="button"
+                  class="btn btn-ghost btn-xs text-error"
+                  phx-click="delete_preset"
+                  phx-value-preset={name}
+                  title={"Delete preset #{name}"}
+                >
+                  ✕ {name}
+                </button>
               </div>
               <div class="flex gap-2">
                 <button
