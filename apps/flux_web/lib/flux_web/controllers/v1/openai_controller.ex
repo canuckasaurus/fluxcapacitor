@@ -128,6 +128,99 @@ defmodule FluxWeb.V1.OpenAIController do
   end
 
   @doc """
+  OpenAI-compatible transcription: `POST /v1/audio/transcriptions`
+  (multipart, `file` + optional `model`) through the workspace default
+  provider's speech-to-text. Answers `{"text": ...}`.
+  """
+  def transcriptions(conn, params) do
+    scope = conn.assigns[:service_scope]
+    workspace_id = Flux.Accounts.Scope.workspace_id(scope)
+
+    case params["file"] do
+      %Plug.Upload{path: path, filename: filename, content_type: content_type} ->
+        audio = File.read!(path)
+
+        opts =
+          %{filename: filename, content_type: content_type || "audio/mpeg"}
+          |> then(fn opts ->
+            case to_string(params["model"] || "") do
+              "" -> opts
+              model -> Map.put(opts, :model, model)
+            end
+          end)
+
+        case Flux.Providers.transcribe(workspace_id, audio, opts) do
+          {:ok, %{text: text}} ->
+            json(conn, %{"text" => text})
+
+          {:error, :not_supported} ->
+            openai_error(
+              conn,
+              400,
+              "The workspace default provider cannot transcribe audio.",
+              "invalid_request_error"
+            )
+
+          {:error, reason} ->
+            openai_error(conn, 502, "The provider errored: #{inspect(reason)}", "api_error")
+        end
+
+      _no_file ->
+        openai_error(conn, 400, "Send a multipart `file` field.", "invalid_request_error")
+    end
+  end
+
+  @doc """
+  OpenAI-compatible speech: `POST /v1/audio/speech` (`input`, optional
+  `voice`/`model`) through the workspace default provider's
+  text-to-speech. Answers the audio bytes.
+  """
+  def speech(conn, params) do
+    scope = conn.assigns[:service_scope]
+    workspace_id = Flux.Accounts.Scope.workspace_id(scope)
+    input = to_string(params["input"] || "")
+
+    opts =
+      %{}
+      |> then(fn opts ->
+        case to_string(params["voice"] || "") do
+          "" -> opts
+          voice -> Map.put(opts, :voice, voice)
+        end
+      end)
+      |> then(fn opts ->
+        case to_string(params["model"] || "") do
+          "" -> opts
+          model -> Map.put(opts, :model, model)
+        end
+      end)
+
+    cond do
+      input == "" ->
+        openai_error(conn, 400, "input must be a non-empty string.", "invalid_request_error")
+
+      true ->
+        case Flux.Providers.speak(workspace_id, input, opts) do
+          {:ok, %{audio: audio, content_type: content_type}} ->
+            conn
+            |> put_resp_content_type(content_type)
+            |> send_resp(200, audio)
+
+          {:error, :not_supported} ->
+            openai_error(
+              conn,
+              400,
+              "The workspace default provider cannot synthesize speech.",
+              "invalid_request_error"
+            )
+
+          {:error, reason} ->
+            openai_error(conn, 502, "The provider errored: #{inspect(reason)}", "api_error")
+        end
+    end
+  end
+
+  @doc """
   OpenAI-compatible embeddings: `POST /v1/embeddings` with any service
   token. The `model` field names a configured embedding model; `input`
   is a string or array of strings.

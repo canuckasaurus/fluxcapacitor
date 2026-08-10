@@ -99,6 +99,28 @@ defmodule Flux.Providers do
   end
 
   @doc """
+  Text-to-speech through the workspace default model's provider (the
+  OpenAI-compat `/v1/audio/speech` endpoint). `opts` may carry `:model`
+  and `:voice`. `{:error, :not_supported}` when no default is set or
+  the provider has no speech endpoint.
+  """
+  def speak(workspace_id, text, opts \\ %{}) when is_binary(text) do
+    case default_model_for_workspace(workspace_id) do
+      %{"provider_plugin_id" => plugin_id} when is_binary(plugin_id) and plugin_id != "" ->
+        credentials =
+          case fetch_config(workspace_id, plugin_id) do
+            {:ok, config} -> config
+            {:error, :not_configured} -> %{}
+          end
+
+        runtime().invoke_speech(plugin_id, credentials, text, opts)
+
+      _no_default ->
+        {:error, :not_supported}
+    end
+  end
+
+  @doc """
   Generates an image through the workspace default model's provider
   (the `builtin:images` tool). `opts` may carry `"model"` and `"size"`.
   `{:error, :not_supported}` when no default is set or the provider has
