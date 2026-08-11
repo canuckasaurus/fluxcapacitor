@@ -841,11 +841,21 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               :if={message.role == :assistant and message.citations != []}
               class="chat-footer opacity-60 text-xs mt-0.5"
             >
-              <.icon name="hero-book-open-micro" class="size-3 inline" />
-              Sources: {message.citations
-              |> Enum.map(& &1["document"])
-              |> Enum.uniq()
-              |> Enum.join(", ")}
+              <.icon name="hero-book-open-micro" class="size-3 inline" /> Sources:
+              <span :for={citation <- Enum.uniq_by(message.citations, & &1["document"])}>
+                <%= if citation["dataset_id"] && citation["document_id"] do %>
+                  <.link
+                    navigate={
+                      ~p"/console/knowledge?dataset=#{citation["dataset_id"]}&document=#{citation["document_id"]}"
+                    }
+                    class="link"
+                  >
+                    {citation["document"]}
+                  </.link>
+                <% else %>
+                  {citation["document"]}
+                <% end %>
+              </span>
             </div>
           </div>
           <div :if={@streaming_id} class="chat chat-start" id="streaming-bubble">

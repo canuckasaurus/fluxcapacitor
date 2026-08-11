@@ -134,6 +134,43 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
   end
 
   @impl true
+  # Deep links (?dataset=…&document=…) from chat citations select the
+  # dataset and expand the cited document.
+  def handle_params(%{"dataset" => dataset_id} = params, _uri, socket) do
+    case RAG.get_dataset(socket.assigns.current_scope, dataset_id) do
+      {:error, :not_found} ->
+        {:noreply, socket}
+
+      dataset ->
+        socket =
+          socket
+          |> assign(
+            selected: dataset,
+            hits: nil,
+            expanded_document_id: nil,
+            segments: [],
+            retrieval_cases: RAG.list_retrieval_cases(socket.assigns.current_scope, dataset.id),
+            retrieval_summary: nil
+          )
+          |> refresh_documents()
+
+        case params["document"] do
+          nil ->
+            {:noreply, socket}
+
+          document_id ->
+            {:noreply,
+             assign(socket,
+               expanded_document_id: document_id,
+               segments: RAG.list_segments(socket.assigns.current_scope, document_id, 50)
+             )}
+        end
+    end
+  end
+
+  def handle_params(_params, _uri, socket), do: {:noreply, socket}
+
+  @impl true
   def handle_event("fetch_url_source", %{"source-id" => source_id}, socket) do
     case RAG.fetch_url_source_now(socket.assigns.current_scope, source_id) do
       {:error, _reason} ->
@@ -297,6 +334,21 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
        )}
     else
       _error -> {:noreply, put_flash(socket, :error, "Could not delete that dataset.")}
+    end
+  end
+
+  def handle_event("purge_dataset", %{"dataset-id" => id}, socket) do
+    scope = socket.assigns.current_scope
+
+    case RAG.purge_dataset(scope, id) do
+      {:ok, dataset} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "\"#{dataset.name}\" permanently deleted.")
+         |> assign(trashed_datasets: RAG.list_trashed_datasets(scope))}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not purge that dataset.")}
     end
   end
 
@@ -1559,6 +1611,15 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
               phx-value-dataset-id={dataset.id}
             >
               Restore
+            </button>
+            <button
+              :if={@can_edit}
+              class="btn btn-ghost btn-xs text-error"
+              phx-click="purge_dataset"
+              phx-value-dataset-id={dataset.id}
+              data-confirm={"Permanently delete \"#{dataset.name}\" now? No undo."}
+            >
+              Purge now
             </button>
           </div>
         </div>
