@@ -380,6 +380,54 @@ defmodule Flux.Chat do
     |> Repo.all()
   end
 
+  @doc """
+  GDPR forget: hard-deletes everything for one visitor — conversations
+  (messages cascade), their uploaded files (storage included) — and
+  writes an audit entry. Returns `{:ok, conversations_deleted}`.
+  """
+  def forget_visitor(%Scope{} = scope, %App{} = app, end_user_ref)
+      when is_binary(end_user_ref) and end_user_ref != "" do
+    with :ok <- RBAC.authorize(scope, :app_edit),
+         true <- app.workspace_id == Scope.workspace_id(scope) || {:error, :not_found} do
+      conversation_ids =
+        Conversation
+        |> Repo.scoped(scope)
+        |> where([c], c.app_id == ^app.id and c.end_user_ref == ^end_user_ref)
+        |> select([c], c.id)
+        |> Repo.all()
+
+      file_ids =
+        Message
+        |> Repo.scoped(scope)
+        |> where([m], m.conversation_id in ^conversation_ids)
+        |> select([m], m.files)
+        |> Repo.all()
+        |> List.flatten()
+        |> Enum.map(& &1["id"])
+        |> Enum.reject(&is_nil/1)
+
+      for file_id <- file_ids,
+          file = Repo.get(Flux.Chat.UploadedFile, file_id, skip_workspace_guard: true),
+          file != nil do
+        Flux.Storage.delete(file.key)
+        Repo.delete(file)
+      end
+
+      {deleted, _} =
+        Conversation
+        |> Repo.scoped(scope)
+        |> where([c], c.id in ^conversation_ids)
+        |> Repo.delete_all()
+
+      Flux.Audit.record(scope, "visitor.forget",
+        resource: app,
+        metadata: %{"end_user_ref" => end_user_ref, "conversations" => deleted}
+      )
+
+      {:ok, deleted}
+    end
+  end
+
   @doc "Conversations currently waiting on a human, oldest wait first."
   def handoff_queue(%Scope{} = scope, app_id) do
     Conversation
