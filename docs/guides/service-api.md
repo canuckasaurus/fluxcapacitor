@@ -80,6 +80,7 @@ final `message_end` carrying usage. Quota-exceeded apps return 429 with
 | `GET /v1/datasets/:id/documents` · `DELETE …/documents/:document_id` | List / delete documents |
 | `GET …/documents/:document_id/segments` | Browse indexed segments |
 | `POST /v1/datasets/:id/retrieve` | Hybrid retrieval (`query`, optional `top_k`; defers to dataset settings) |
+| `GET /v1/datasets/:id/export` · `POST /v1/datasets/import` | Portable `flux-dataset/v1` archive out / rebuild a dataset from one (201 + counts) |
 
 ## Adjacent HTTP surfaces
 

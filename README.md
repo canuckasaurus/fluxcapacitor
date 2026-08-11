@@ -62,7 +62,9 @@ orchestrator, no queue infrastructure beyond Postgres.
   Published versions **diff structurally** against the draft (nodes
   added/removed/changed, edges rewired) right in the versions modal, and
   an **A/B split** sends a share of live traffic (chatflows, sites, API,
-  triggers) to a second published version with per-arm run stats. Run
+  triggers) to a second published version with per-arm run stats — and
+  an explicit **serving pin** freezes production on a chosen version
+  until you unpin, so publishing stops meaning deploying. Run
   drill-ins render a **timeline waterfall** per node with **per-node
   token attribution**, any **two runs compare side by side** (status,
   I/O, per-node timings and tokens aligned by node), any node can
@@ -74,7 +76,8 @@ orchestrator, no queue infrastructure beyond Postgres.
   log** with manual retry, and `FLUX_ADMIN_EMAILS` unlocks an
   **instance admin panel** with a **per-provider health table** (calls,
   errors, error rate since boot). The Fluxes index shows **7-day health
-  badges** per flux, the dashboard carries a live-refreshing **activity
+  badges** per flux (success ratio, tokens, and **p50/p95 latency** —
+  averages hide the tail), the dashboard carries a live-refreshing **activity
   feed**, and the canvas shows **who else is editing** via presence
   avatars. Run counts, durations, **tokens, and
   estimated cost** all export as Prometheus metrics onto the provisioned
@@ -256,6 +259,9 @@ orchestrator, no queue infrastructure beyond Postgres.
   workspace export/import archives with a **rehearsed restore
   runbook**, and per-account **session management** (see every signed-in
   device **with its IP and browser**, revoke one, or log out everywhere).
+  A one-click **visitor forget** hard-deletes everything an
+  `end_user_ref` ever sent — conversations, messages, uploads — with an
+  audit entry: the GDPR answer.
   Costs stay honest with **workspace price overrides** (self-hosted and
   fine-tuned models priced per million tokens), **per-flux monthly
   budgets** beside the workspace one, and same-named document re-uploads
@@ -304,7 +310,8 @@ orchestrator, no queue infrastructure beyond Postgres.
   a **monthly cost report** emails opted-in members on the 1st, a
   daily **cost-spike alert** flags a workspace whose spend suddenly
   doubled its trailing average, a **schedule watchdog** flags automation
-  that silently stopped firing, the admin health table keeps a **recent
+  that silently stopped firing (mutable per trigger), **paused runs
+  waiting over a day get counted out loud**, the admin health table keeps a **recent
   provider-call log** (model, latency, outcome), and an
   instance-admin **announcement banner** tops every console page for
   maintenance windows and migration notices.

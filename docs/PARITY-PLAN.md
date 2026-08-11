@@ -1147,3 +1147,28 @@ tokens with a spec schema). Also flushed out: batch 26's duplicate
 overridden under incremental compile — merged into a method list the
 moment a clean build surfaced the warning. No migrations. The bench
 holds: custom domains, Japanese, 2FA.
+
+**52. Batch 28 — control levers.** **Serving pin**
+(workflows.pinned_version resolves first in serving_version — before
+the A/B split — so a pin is an honest rollback lever that survives
+new publishes; pin/unpin buttons on the versions modal with a
+serving-pinned badge; the first validate_pin draft trusted
+get_version's truthiness and an error TUPLE passed for a version —
+the struct match the test forced is the honest check); **paused-run
+reminders** (08:30 daily: one notification per workspace counting
+runs paused >24h — human-input work stops waiting in silence);
+**visitor forget** (hard-deletes a ref's conversations with message
+cascade, chases message-attached uploads into storage, audits
+visitor.forget — the GDPR answer, wired to a Forget button with a
+no-undo confirm on the visitors table); **dataset archives over the
+API** (GET /v1/datasets/:id/export + POST /v1/datasets/import with
+spec schemas — batch 26's portability, scriptable); **latency
+percentiles** (nearest-rank p50/p95 over the last 100 timed runs on
+the fluxes-index health badges — averages hide the tail); **bulk
+conversation ops** (multi-select label/delete on monitoring, riding
+the existing per-conversation functions); and **watchdog mute**
+(workflow_triggers.watchdog_muted filters the batch-27 sweep, toggle
++ badge on the triggers panel — a known-stalled schedule stops
+crying wolf daily). One migration (workflows.pinned_version +
+workflow_triggers.watchdog_muted). The bench holds: custom domains,
+Japanese, 2FA.

@@ -13,6 +13,23 @@ at `docs/PARITY-PLAN.md`.
   OpenAI's list shape (the workspace's provider models, the app's bound
   model first) so OpenAI SDKs and gateways autodiscover.
 
+### Batch 28
+- Serving pin: freeze a flux's serving version explicitly — new
+  publishes stop deploying until you unpin (wins over the A/B split;
+  the rollback lever that survives releases).
+- Paused-run reminders: a daily notification counts runs that have
+  sat waiting for input over 24 hours.
+- Visitor forget (GDPR): one action hard-deletes a visitor's
+  conversations, messages, and uploads, with an audit entry.
+- Dataset archives over the API: `GET /v1/datasets/:id/export` and
+  `POST /v1/datasets/import`.
+- Latency percentiles: p50/p95 run duration on the fluxes index
+  health badges.
+- Bulk conversation operations: multi-select label and delete on the
+  monitoring page.
+- Watchdog mute: silence the schedule watchdog per trigger for
+  known-stalled schedules.
+
 ### Batch 27
 - Schedule watchdog: a daily check flags enabled schedules that
   haven't fired within twice their expected period — the dead-man's
