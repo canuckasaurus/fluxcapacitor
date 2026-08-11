@@ -41,6 +41,7 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
        url_sources: [],
        selected_doc_ids: MapSet.new(),
        doc_search_results: nil,
+       chunk_preview: nil,
        expanded_document_id: nil,
        editing_segment_id: nil,
        segments: [],
@@ -489,6 +490,33 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
       _failed_or_empty ->
         {:noreply,
          put_flash(socket, :error, "Could not import — is that a flux-dataset/v1 archive?")}
+    end
+  end
+
+  def handle_event("preview_chunks", %{"text" => text}, socket) do
+    case {socket.assigns.selected, String.trim(text)} do
+      {nil, _text} ->
+        {:noreply, socket}
+
+      {_dataset, ""} ->
+        {:noreply, assign(socket, chunk_preview: nil)}
+
+      {dataset, trimmed} ->
+        chunk_opts = [
+          max_chars: dataset.chunk_size || 1000,
+          overlap: dataset.chunk_overlap || 120,
+          markdown: dataset.split_markdown || false
+        ]
+
+        chunks =
+          if dataset.parent_child do
+            for {child, _parent} <- Flux.RAG.Chunker.split_parent_child(trimmed, chunk_opts),
+                do: child
+          else
+            Flux.RAG.Chunker.split(trimmed, chunk_opts)
+          end
+
+        {:noreply, assign(socket, chunk_preview: chunks)}
     end
   end
 
@@ -973,6 +1001,39 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                 <.icon name="hero-arrow-path" class="size-4" /> Re-index all
               </button>
             </form>
+          </div>
+
+          <div :if={@can_edit} class="card border border-base-200 p-4 space-y-2">
+            <p class="text-sm font-semibold">Chunk preview</p>
+            <p class="text-xs opacity-60">
+              See what the current chunking settings produce before
+              re-indexing everything — paste sample text below.
+            </p>
+            <form phx-submit="preview_chunks" id="chunk-preview-form" class="space-y-2">
+              <textarea
+                name="text"
+                rows="3"
+                placeholder="Paste text to chunk…"
+                class="textarea textarea-bordered textarea-sm w-full"
+              ></textarea>
+              <button class="btn btn-outline btn-sm">Preview chunks</button>
+            </form>
+            <div :if={@chunk_preview} class="space-y-1" id="chunk-preview-results">
+              <p class="text-xs font-semibold opacity-70">
+                {length(@chunk_preview)} chunk{(length(@chunk_preview) == 1 && "") || "s"}
+              </p>
+              <div
+                :for={{chunk, index} <- Enum.with_index(@chunk_preview, 1)}
+                class="rounded-box border border-base-200 p-2"
+              >
+                <p class="text-[10px] opacity-50">
+                  #{index} — {String.length(chunk)} chars
+                </p>
+                <p class="text-xs whitespace-pre-wrap break-words max-h-20 overflow-y-auto">
+                  {chunk}
+                </p>
+              </div>
+            </div>
           </div>
 
           <div :if={@can_edit and @fluxes != []} class="card border border-base-200 p-4 space-y-2">
