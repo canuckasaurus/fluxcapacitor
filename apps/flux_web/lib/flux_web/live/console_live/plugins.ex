@@ -120,6 +120,19 @@ defmodule FluxWeb.ConsoleLive.Plugins do
     end
   end
 
+  def handle_event("revalidate", %{"credential-id" => id}, socket) do
+    case Providers.validate_credential(socket.assigns.current_scope, id) do
+      {:ok, _credential} ->
+        {:noreply, socket |> put_flash(:info, "The key works — validated just now.") |> refresh()}
+
+      {:error, {:invalid_credentials, reason}} ->
+        {:noreply, put_flash(socket, :error, "The provider rejected the key: #{reason}")}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not test that key.")}
+    end
+  end
+
   def handle_event("make_default", %{"credential-id" => id}, socket) do
     case Providers.set_default_credential(socket.assigns.current_scope, id) do
       :ok -> {:noreply, socket |> put_flash(:info, "Default credential set.") |> refresh()}
@@ -261,6 +274,14 @@ defmodule FluxWeb.ConsoleLive.Plugins do
                 validated {Calendar.strftime(credential.validated_at, "%Y-%m-%d")}
               </span>
               <div :if={@can_manage} class="ml-auto flex gap-1">
+                <button
+                  class="btn btn-ghost btn-xs"
+                  phx-click="revalidate"
+                  phx-value-credential-id={credential.id}
+                  title="Test this key against the provider right now"
+                >
+                  Test
+                </button>
                 <button
                   :if={not credential.is_default}
                   class="btn btn-ghost btn-xs"

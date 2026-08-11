@@ -306,6 +306,26 @@ defmodule Flux.Providers do
   end
 
   @doc """
+  Re-validates a saved credential against its provider on demand — keys
+  expire between saves, and without this they only surface as cryptic
+  run failures. Refreshes `validated_at` on success.
+  """
+  def validate_credential(%Scope{} = scope, credential_id) do
+    workspace_id = Scope.workspace_id(scope)
+
+    with :ok <- RBAC.authorize(scope, :plugin_model_config),
+         %ProviderCredential{} = credential <-
+           Repo.one(Repo.scoped(where(ProviderCredential, id: ^credential_id), scope)) ||
+             {:error, :not_found},
+         {:ok, json} <- Crypto.decrypt(workspace_id, credential.encrypted_config),
+         :ok <- validate_with_plugin(credential.plugin_id, Jason.decode!(json)) do
+      credential
+      |> Ecto.Changeset.change(validated_at: DateTime.utc_now(:second))
+      |> Repo.update()
+    end
+  end
+
+  @doc """
   Models available to the workspace: every configured plugin's catalog, plus
   keyless plugins (empty credential schema, e.g. the Echo dev provider).
   """
