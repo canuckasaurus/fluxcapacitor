@@ -26,6 +26,7 @@ defmodule FluxWeb.ConsoleLive.FluxBatches do
            batches: Workflows.list_batches(scope, workflow.id),
            schedules: Workflows.list_batch_schedules(scope, workflow.id),
            labeling_projects: Flux.Labeling.list_projects(scope),
+           datasets: Flux.RAG.list_datasets(scope),
            selected_labeling_project:
              scope |> Flux.Labeling.list_projects() |> List.first() |> then(&(&1 && &1.id))
          )
@@ -41,6 +42,25 @@ defmodule FluxWeb.ConsoleLive.FluxBatches do
 
   @impl true
   def handle_event("validate", _params, socket), do: {:noreply, socket}
+
+  def handle_event(
+        "batch_to_dataset",
+        %{"batch-id" => batch_id, "dataset-id" => dataset_id},
+        socket
+      ) do
+    case Workflows.export_batch_to_dataset(socket.assigns.current_scope, batch_id, dataset_id) do
+      {:ok, count} ->
+        {:noreply,
+         put_flash(
+           socket,
+           :info,
+           "#{count} rows landed as documents — indexing runs in the background."
+         )}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not export the batch to that dataset.")}
+    end
+  end
 
   def handle_event("run_batch", params, socket) do
     scope = socket.assigns.current_scope
@@ -341,6 +361,23 @@ defmodule FluxWeb.ConsoleLive.FluxBatches do
                     title="Cron expression — saves this batch's rows as a recurring schedule"
                   />
                   <button class="btn btn-ghost btn-xs">Repeat</button>
+                </form>
+                <form
+                  :if={batch.status == :completed and @datasets != []}
+                  phx-submit="batch_to_dataset"
+                  class="inline-flex gap-1"
+                  id={"batch-to-dataset-#{batch.id}"}
+                >
+                  <input type="hidden" name="batch-id" value={batch.id} />
+                  <select name="dataset-id" class="select select-bordered select-xs w-32">
+                    <option :for={dataset <- @datasets} value={dataset.id}>{dataset.name}</option>
+                  </select>
+                  <button
+                    class="btn btn-ghost btn-xs"
+                    title="Land the successful rows' outputs as documents in this dataset"
+                  >
+                    To dataset
+                  </button>
                 </form>
               </td>
             </tr>
