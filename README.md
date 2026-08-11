@@ -179,7 +179,8 @@ orchestrator, no queue infrastructure beyond Postgres.
   when the provider has a speech endpoint, browser voices otherwise.
   Guardrails gain **model-backed moderation** — the workspace default
   model judges content against your policy alongside the regex
-  patterns. Chat apps run **model A/B tests**: a challenger model takes
+  patterns — and a **workspace system prompt** bakes org-wide rules
+  into every app's model calls, written once in settings. Chat apps run **model A/B tests**: a challenger model takes
   a chosen share of conversations (stable per conversation) and the
   monitoring page compares replies, feedback, and tokens per variant —
   and **conversation-level evals** replay scripted multi-turn dialogues
@@ -208,7 +209,8 @@ orchestrator, no queue infrastructure beyond Postgres.
   small child chunks embedded for precise matching, the enclosing
   parent section returned for context — model-backed **query
   expansion**, and **document tags** the knowledge node filters by), and
-  citations that flow onto chat answers. Similarity ranks in-BEAM by default, in SQL with the
+  citations that flow onto chat answers — and **deep-link into the
+  knowledge browser** from the console, straight to the cited document. Similarity ranks in-BEAM by default, in SQL with the
   **pgvector backend** (`FLUX_VECTOR_BACKEND=pgvector`, HNSW-indexed with
   `FLUX_VECTOR_DIMS`) or in AQL with the **Arango vector backend**, and
   the **ArangoDB entity graph** (`FLUX_ARANGO_URL`) upgrades
@@ -257,10 +259,12 @@ orchestrator, no queue infrastructure beyond Postgres.
   every query against tenant tables, per-workspace encryption keys, an
   append-only audit trail (**date-filterable, exports as CSV**),
   workspace export/import archives with a **rehearsed restore
-  runbook**, and per-account **session management** (see every signed-in
+  runbook** (plus `mix flux.backup` dumping **every workspace's
+  archive** in one cron-ready task), and per-account **session management** (see every signed-in
   device **with its IP and browser**, revoke one, or log out everywhere).
   A one-click **visitor forget** hard-deletes everything an
-  `end_user_ref` ever sent — conversations, messages, uploads — with an
+  `end_user_ref` ever sent — and visitors **download their own
+  transcript** right from the public chat — conversations, messages, uploads — with an
   audit entry: the GDPR answer.
   Costs stay honest with **workspace price overrides** (self-hosted and
   fine-tuned models priced per million tokens), **per-flux monthly
@@ -312,7 +316,10 @@ orchestrator, no queue infrastructure beyond Postgres.
   doubled its trailing average, a **schedule watchdog** flags automation
   that silently stopped firing (mutable per trigger), **paused runs
   waiting over a day get counted out loud**, the admin health table keeps a **recent
-  provider-call log** (model, latency, outcome), and an
+  provider-call log** (model, latency, outcome), saved provider keys
+  **re-validate on demand** (a Test button instead of cryptic run
+  failures), the dashboard projects **month-end token spend against
+  the budget**, and an
   instance-admin **announcement banner** tops every console page for
   maintenance windows and migration notices.
 

@@ -1172,3 +1172,29 @@ the existing per-conversation functions); and **watchdog mute**
 crying wolf daily). One migration (workflows.pinned_version +
 workflow_triggers.watchdog_muted). The bench holds: custom domains,
 Japanese, 2FA.
+
+**53. Batch 29 — the once-per-org batch.** **Workspace system prompt**
+(a custom_config entry combined ahead of each app's own prompt in
+build_prompt and stateless_completion — compliance boilerplate written
+once; a settings card manages it; verified end-to-end by a capturing
+fake runtime asserting the joined system message); **mix flux.backup**
+(iterates every workspace with a synthetic owner scope through
+Export.workspace, one JSON per workspace named slug+id-prefix,
+non-zero exit on any failure — the instance-wide disaster-recovery
+dump the per-workspace console button couldn't be); **citation
+deep-links** (knowledge_retrieval citations now carry dataset_id +
+document_id, console chat sources render as links, and the knowledge
+LiveView grew handle_params for ?dataset&document — inserted mid-group
+at first, the perennial clause-grouping warning caught at compile);
+**cost forecast** (straight-line month-end projection beside the usage
+stats, red past 100% of the budget); **visitor transcript** (a public
+/site/:token/transcript/:id route reusing the console's Markdown
+renderer, authorized by site token + session visitor ref — and the
+controller's module-level RequirePermission plug had to learn an
+`action not in` exemption, which the 302-to-console test caught);
+**credential re-validate** (decrypt → validate_with_plugin → refresh
+validated_at behind a Test button — expired keys stop masquerading as
+run failures); and **trash purge parity** (purge_dataset +
+purge_conversation with purge-now buttons — every trashed object can
+now leave early). No migrations. The bench holds: custom domains,
+Japanese, 2FA.

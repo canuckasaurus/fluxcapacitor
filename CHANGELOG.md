@@ -13,6 +13,23 @@ at `docs/PARITY-PLAN.md`.
   OpenAI's list shape (the workspace's provider models, the app's bound
   model first) so OpenAI SDKs and gateways autodiscover.
 
+### Batch 29
+- Workspace system prompt: an org-wide prefix baked into every chat
+  app's model calls — compliance boilerplate and tone rules live once.
+- `mix flux.backup`: one task dumps every workspace's export archive
+  to a directory (exits non-zero on failure — cron-ready).
+- Citation deep-links: console chat sources link into the knowledge
+  browser (dataset selected, document expanded).
+- Cost forecast: a month-end token projection on the dashboard,
+  colored against the budget — the 80% warning tells you when it
+  happened; this tells you it's coming.
+- Visitor transcript download: site visitors download their own
+  conversation as Markdown (session-ref authorized).
+- Credential re-validate: a Test button on saved provider keys —
+  expired keys stop surfacing as cryptic run failures.
+- Trash purge parity: datasets and conversations gain the purge-now
+  buttons fluxes and apps already had.
+
 ### Batch 28
 - Serving pin: freeze a flux's serving version explicitly — new
   publishes stop deploying until you unpin (wins over the A/B split;
