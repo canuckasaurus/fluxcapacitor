@@ -22,6 +22,7 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
          conversation_evals: Flux.ConversationEvals.list_conversation_evals(scope, app.id),
          trashed_conversations: Chat.list_trashed_conversations(scope, app.id),
          visitor_stats: Chat.visitor_stats(scope, app.id),
+         selected_conversation_ids: MapSet.new(),
          all_labels: Chat.conversation_labels(scope, app.id),
          label_filter: nil,
          usage: Chat.usage_stats(scope, app.id),
@@ -147,6 +148,73 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
 
       _error ->
         {:noreply, put_flash(socket, :error, "Could not queue the reply for labeling.")}
+    end
+  end
+
+  def handle_event("toggle_conversation_select", %{"conversation-id" => id}, socket) do
+    selected = socket.assigns.selected_conversation_ids
+
+    selected =
+      if MapSet.member?(selected, id),
+        do: MapSet.delete(selected, id),
+        else: MapSet.put(selected, id)
+
+    {:noreply, assign(socket, selected_conversation_ids: selected)}
+  end
+
+  def handle_event("clear_conversation_selection", _params, socket) do
+    {:noreply, assign(socket, selected_conversation_ids: MapSet.new())}
+  end
+
+  def handle_event("bulk_label_conversations", %{"labels" => labels}, socket) do
+    scope = socket.assigns.current_scope
+    ids = MapSet.to_list(socket.assigns.selected_conversation_ids)
+
+    for id <- ids do
+      Chat.set_conversation_labels(scope, id, String.split(labels, ","))
+    end
+
+    {:noreply,
+     socket
+     |> put_flash(:info, "Labeled #{length(ids)} conversations.")
+     |> assign(
+       conversations: Chat.list_conversations(scope, socket.assigns.app.id, 50),
+       all_labels: Chat.conversation_labels(scope, socket.assigns.app.id),
+       selected_conversation_ids: MapSet.new()
+     )}
+  end
+
+  def handle_event("bulk_delete_conversations", _params, socket) do
+    scope = socket.assigns.current_scope
+    ids = MapSet.to_list(socket.assigns.selected_conversation_ids)
+
+    for id <- ids, do: Chat.delete_conversation(scope, id)
+
+    {:noreply,
+     socket
+     |> put_flash(:info, "Moved #{length(ids)} conversations to the trash.")
+     |> assign(
+       conversations: Chat.list_conversations(scope, socket.assigns.app.id, 50),
+       trashed_conversations: Chat.list_trashed_conversations(scope, socket.assigns.app.id),
+       selected_conversation_ids: MapSet.new()
+     )}
+  end
+
+  def handle_event("forget_visitor", %{"ref" => ref}, socket) do
+    scope = socket.assigns.current_scope
+
+    case Chat.forget_visitor(scope, socket.assigns.app, ref) do
+      {:ok, count} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Forgot #{ref}: #{count} conversations and their files removed.")
+         |> assign(
+           conversations: Chat.list_conversations(scope, socket.assigns.app.id, 50),
+           visitor_stats: Chat.visitor_stats(scope, socket.assigns.app.id)
+         )}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not forget that visitor.")}
     end
   end
 
@@ -773,6 +841,7 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
               <th>👍</th>
               <th>👎</th>
               <th>Last seen</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -785,6 +854,17 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
               <td>{visitor.dislikes}</td>
               <td class="text-xs opacity-60">
                 {visitor.last_seen && Calendar.strftime(visitor.last_seen, "%Y-%m-%d %H:%M")}
+              </td>
+              <td>
+                <button
+                  :if={@can_edit}
+                  class="btn btn-ghost btn-xs text-error"
+                  phx-click="forget_visitor"
+                  phx-value-ref={visitor.ref}
+                  data-confirm={"Permanently delete every conversation, message, and upload for #{visitor.ref}? This is the GDPR forget — no trash, no undo."}
+                >
+                  Forget
+                </button>
               </td>
             </tr>
           </tbody>
@@ -828,36 +908,76 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
       </form>
 
       <div
+        :if={@can_edit and @selected_conversation_ids != MapSet.new()}
+        class="flex flex-wrap items-center gap-2 rounded-box bg-base-200/60 px-3 py-2"
+        id="bulk-conversation-bar"
+      >
+        <span class="text-xs font-semibold">
+          {MapSet.size(@selected_conversation_ids)} selected
+        </span>
+        <form phx-submit="bulk_label_conversations" class="flex gap-1" id="bulk-label-form">
+          <input
+            type="text"
+            name="labels"
+            placeholder="labels, comma-separated"
+            class="input input-bordered input-xs w-48"
+          />
+          <button class="btn btn-outline btn-xs">Label</button>
+        </form>
+        <button
+          class="btn btn-outline btn-xs text-error"
+          phx-click="bulk_delete_conversations"
+          data-confirm="Move the selected conversations to the trash?"
+        >
+          Delete
+        </button>
+        <button class="btn btn-ghost btn-xs" phx-click="clear_conversation_selection">
+          Clear
+        </button>
+      </div>
+
+      <div
         :for={conversation <- @conversations}
         :if={@label_filter == nil or @label_filter in conversation.labels}
         class="card border border-base-200"
       >
-        <button
-          type="button"
-          class="flex items-center gap-3 px-4 py-3 text-left hover:bg-base-200/60"
-          phx-click="select"
-          phx-value-conversation-id={conversation.id}
-        >
-          <span class="font-semibold text-sm">
-            {conversation.title || "Untitled conversation"}
-          </span>
-          <span :if={conversation.end_user_ref} class="badge badge-ghost badge-sm font-mono">
-            {conversation.end_user_ref}
-          </span>
-          <span :for={label <- conversation.labels} class="badge badge-outline badge-sm">
-            {label}
-          </span>
-          <span
-            :if={conversation.handoff_requested_at}
-            class="badge badge-warning badge-sm"
-            title="Visitor asked for a human"
+        <div class="flex items-center">
+          <input
+            :if={@can_edit}
+            type="checkbox"
+            class="checkbox checkbox-xs ml-3"
+            checked={MapSet.member?(@selected_conversation_ids, conversation.id)}
+            phx-click="toggle_conversation_select"
+            phx-value-conversation-id={conversation.id}
+            id={"conversation-select-#{conversation.id}"}
+          />
+          <button
+            type="button"
+            class="flex-1 flex items-center gap-3 px-4 py-3 text-left hover:bg-base-200/60 min-w-0"
+            phx-click="select"
+            phx-value-conversation-id={conversation.id}
           >
-            handoff
-          </span>
-          <span class="ml-auto text-xs opacity-60">
-            {Calendar.strftime(conversation.inserted_at, "%Y-%m-%d %H:%M")}
-          </span>
-        </button>
+            <span class="font-semibold text-sm">
+              {conversation.title || "Untitled conversation"}
+            </span>
+            <span :if={conversation.end_user_ref} class="badge badge-ghost badge-sm font-mono">
+              {conversation.end_user_ref}
+            </span>
+            <span :for={label <- conversation.labels} class="badge badge-outline badge-sm">
+              {label}
+            </span>
+            <span
+              :if={conversation.handoff_requested_at}
+              class="badge badge-warning badge-sm"
+              title="Visitor asked for a human"
+            >
+              handoff
+            </span>
+            <span class="ml-auto text-xs opacity-60">
+              {Calendar.strftime(conversation.inserted_at, "%Y-%m-%d %H:%M")}
+            </span>
+          </button>
+        </div>
 
         <div :if={@selected_id == conversation.id} class="border-t border-base-200 p-4 space-y-2">
           <div
