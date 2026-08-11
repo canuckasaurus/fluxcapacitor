@@ -745,6 +745,38 @@ defmodule FluxWeb.V1.ApiSpec do
       })
     end
 
+    defmodule VisitorStatsList do
+      @moduledoc false
+      require OpenApiSpex
+
+      OpenApiSpex.schema(%{
+        title: "VisitorStatsList",
+        description: "Per-visitor rollup for an app (GET /v1/visitors, app- tokens)",
+        type: :object,
+        properties: %{
+          data: %Schema{
+            type: :array,
+            items: %Schema{
+              type: :object,
+              properties: %{
+                ref: %Schema{type: :string},
+                conversations: %Schema{type: :integer},
+                messages: %Schema{type: :integer},
+                tokens: %Schema{type: :integer},
+                likes: %Schema{type: :integer},
+                dislikes: %Schema{type: :integer},
+                last_seen: %Schema{type: :integer, nullable: true}
+              },
+              required: [:ref, :conversations, :messages, :tokens, :likes, :dislikes],
+              additionalProperties: false
+            }
+          }
+        },
+        required: [:data],
+        additionalProperties: false
+      })
+    end
+
     defmodule TranscriptionResult do
       @moduledoc false
       require OpenApiSpex
@@ -1089,6 +1121,7 @@ defmodule FluxWeb.V1.ApiSpec do
     Schemas.ConversationEval,
     Schemas.ConversationEvalList,
     Schemas.ABStats,
+    Schemas.VisitorStatsList,
     Schemas.TranscriptionResult,
     Schemas.AnthropicMessage,
     Schemas.RunDetail,
@@ -1126,7 +1159,10 @@ defmodule FluxWeb.V1.ApiSpec do
     "/workflows/runs/{id}/resume" => {:post, "Resume a paused run", "WorkflowRun"},
     "/parameters" => {:get, "App configuration for clients", "Parameters"},
     "/conversations" => {:get, "List conversations", "ConversationList"},
-    "/messages" => {:get, "List a conversation's messages", "MessageList"},
+    "/messages" => [
+      {:get, "List a conversation's messages", "MessageList"},
+      {:post, "Anthropic-compatible completion (app- tokens)", "AnthropicMessage"}
+    ],
     "/files/upload" => {:post, "Upload a file", "FileUpload"},
     "/meta" => {:get, "Tool metadata", "Meta"},
     "/conversations/{id}/name" => {:post, "Rename a conversation", "ConversationRenamed"},
@@ -1151,13 +1187,13 @@ defmodule FluxWeb.V1.ApiSpec do
     "/notifications" => {:get, "Workspace notification feed", "NotificationList"},
     "/audio/transcriptions" =>
       {:post, "OpenAI-compatible speech-to-text (multipart file)", "TranscriptionResult"},
-    "/messages" => {:post, "Anthropic-compatible completion (app- tokens)", "AnthropicMessage"},
     "/workflows/runs/{id}" => {:get, "Run status (?trace=true adds nodes)", "RunDetail"},
     "/workflows/runs/{id}/stop" => {:post, "Stop a running run", "RunDetail"},
     "/conversation-evals" => {:get, "List the app's conversation evals", "ConversationEvalList"},
     "/conversation-evals/{id}/run" =>
       {:post, "Replay and judge a scripted dialogue (blocking)", "ConversationEval"},
     "/ab-stats" => {:get, "Model A/B per-variant stats", "ABStats"},
+    "/visitors" => {:get, "Per-visitor rollup (app- tokens)", "VisitorStatsList"},
     "/datasets/{id}/retrieval-cases" => [
       {:get, "List golden retrieval cases", "RetrievalCaseList"},
       {:post, "Add a golden retrieval case", "RetrievalCaseCreated", 201}

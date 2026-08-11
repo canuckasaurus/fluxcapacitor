@@ -524,6 +524,27 @@ defmodule FluxWeb.V1.QualityController do
     end
   end
 
+  def visitors(conn, _params) do
+    with {:ok, app} <- require_app(conn) do
+      data =
+        for visitor <- Flux.Chat.visitor_stats(conn.assigns.service_scope, app.id) do
+          %{
+            ref: visitor.ref,
+            conversations: visitor.conversations,
+            messages: visitor.messages,
+            tokens: visitor.tokens,
+            likes: visitor.likes,
+            dislikes: visitor.dislikes,
+            last_seen: visitor.last_seen && DateTime.to_unix(visitor.last_seen)
+          }
+        end
+
+      json(conn, %{data: data})
+    else
+      {:error, :no_app_token} -> app_token_error(conn)
+    end
+  end
+
   defp conversation_eval_json(eval) do
     %{
       id: eval.id,

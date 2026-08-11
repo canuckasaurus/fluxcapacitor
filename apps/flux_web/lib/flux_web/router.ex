@@ -89,6 +89,7 @@ defmodule FluxWeb.Router do
     get "/conversation-evals", QualityController, :conversation_evals
     post "/conversation-evals/:id/run", QualityController, :conversation_eval_run
     get "/ab-stats", QualityController, :ab_stats
+    get "/visitors", QualityController, :visitors
     get "/datasets/:id/retrieval-cases", QualityController, :retrieval_cases
     post "/datasets/:id/retrieval-cases", QualityController, :retrieval_case_create
     post "/datasets/:id/retrieval-eval", QualityController, :retrieval_eval
