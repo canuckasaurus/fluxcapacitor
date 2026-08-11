@@ -17,7 +17,7 @@ defmodule Flux.Workflows do
   alias Flux.Providers
   alias Flux.RBAC
   alias Flux.Repo
-  alias Flux.Workflows.{Workflow, WorkflowBatch, WorkflowRun, WorkflowVersion}
+  alias Flux.Workflows.{Trigger, Workflow, WorkflowBatch, WorkflowRun, WorkflowVersion}
 
   defp runtime, do: Application.get_env(:flux, :plugin_runtime, Flux.PluginRuntime)
 
@@ -289,6 +289,127 @@ defmodule Flux.Workflows do
       {:error, reason} -> {:error, reason}
     end
   end
+
+  @doc """
+  Daily 08:20 UTC tick: enabled schedule triggers that haven't fired
+  within twice their expected period raise a `run_failed` notification —
+  the dead-man's switch for automation. A silently broken schedule
+  otherwise stays silent forever.
+  """
+  def check_schedule_watchdog(now \\ DateTime.utc_now(:second)) do
+    if now.hour == 8 and now.minute == 20 do
+      triggers =
+        Repo.all(
+          from(t in Trigger, where: t.enabled and t.type == :schedule),
+          skip_workspace_guard: true
+        )
+
+      for trigger <- triggers,
+          period = expected_period_minutes(trigger),
+          is_integer(period),
+          stalled?(trigger, period, now) do
+        workflow = Repo.get(Workflow, trigger.workflow_id, skip_workspace_guard: true)
+
+        Flux.Notifications.notify(
+          trigger.workspace_id,
+          "run_failed",
+          "Schedule watchdog: \"#{(workflow && workflow.name) || "flux"}\" hasn't run in over " <>
+            "#{2 * period} minutes — its schedule may be broken.",
+          "/console/fluxes/#{trigger.workflow_id}"
+        )
+      end
+    end
+
+    :ok
+  end
+
+  defp expected_period_minutes(%Trigger{interval_minutes: minutes})
+       when is_integer(minutes) and minutes > 0,
+       do: minutes
+
+  defp expected_period_minutes(%Trigger{cron: cron}) when is_binary(cron) do
+    with {:ok, expression} <- Oban.Cron.Expression.parse(cron),
+         %DateTime{} = first <- next_cron_fire(expression, DateTime.utc_now(:second)),
+         %DateTime{} = second <- next_cron_fire(expression, first) do
+      max(DateTime.diff(second, first, :minute), 1)
+    else
+      _unparseable_or_never -> nil
+    end
+  end
+
+  defp expected_period_minutes(_trigger), do: nil
+
+  # Minute-scan up to a week out — same approach as the cron previews.
+  defp next_cron_fire(expression, from) do
+    start = %{from | second: 0}
+
+    Enum.find_value(1..10_080, fn minutes ->
+      candidate = DateTime.add(start, minutes, :minute)
+      if Oban.Cron.Expression.now?(expression, candidate), do: candidate
+    end)
+  end
+
+  defp stalled?(trigger, period_minutes, now) do
+    threshold = DateTime.add(now, -2 * period_minutes, :minute)
+    reference = trigger.last_run_at || trigger.inserted_at
+    DateTime.compare(reference, threshold) == :lt
+  end
+
+  @doc """
+  Lands a completed batch's successful rows as documents in a dataset —
+  the reverse of run-a-flux-over-a-dataset: generate, then index. Row
+  outputs become document content (named after the batch and row);
+  same-named documents replace. Returns `{:ok, count}`.
+  """
+  def export_batch_to_dataset(%Scope{} = scope, batch_id, dataset_id) do
+    rag = Application.get_env(:flux, :rag_module, Flux.RAG)
+
+    with %WorkflowBatch{} = batch <-
+           Repo.one(Repo.scoped(where(WorkflowBatch, id: ^batch_id), scope)) ||
+             {:error, :not_found},
+         %{} = dataset <- rag.get_dataset(scope, dataset_id) do
+      runs =
+        WorkflowRun
+        |> Repo.scoped(scope)
+        |> where([r], r.batch_id == ^batch.id and r.status == :succeeded)
+        |> order_by([r], asc: r.inserted_at)
+        |> Repo.all()
+
+      documents =
+        for {run, index} <- Enum.with_index(runs, 1),
+            text = primary_output_text(run.outputs),
+            text != "" do
+          {:ok, _document} =
+            rag.add_document(
+              scope,
+              dataset,
+              %{name: "#{batch.name} — row #{index}", content: text},
+              replace: true
+            )
+
+          index
+        end
+
+      {:ok, length(documents)}
+    end
+  end
+
+  defp primary_output_text(outputs) when is_map(outputs) do
+    preferred = outputs["answer"] || outputs["text"] || outputs["result"] || outputs["output"]
+
+    cond do
+      is_binary(preferred) and String.trim(preferred) != "" ->
+        preferred
+
+      true ->
+        case Enum.find(outputs, fn {_key, value} -> is_binary(value) and value != "" end) do
+          {_key, value} -> value
+          nil -> (outputs == %{} && "") || Jason.encode!(outputs)
+        end
+    end
+  end
+
+  defp primary_output_text(_outputs), do: ""
 
   @max_input_presets 20
 
