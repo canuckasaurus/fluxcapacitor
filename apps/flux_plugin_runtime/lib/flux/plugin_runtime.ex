@@ -133,7 +133,21 @@ defmodule Flux.PluginRuntime do
   """
   def invoke_llm(plugin_id, credentials, request, emit) do
     with {:ok, module} <- fetch_plugin(plugin_id) do
-      run_supervised(fn -> module.invoke_llm(credentials, request, emit) end, @invoke_timeout)
+      {elapsed_us, result} =
+        :timer.tc(fn ->
+          run_supervised(fn -> module.invoke_llm(credentials, request, emit) end, @invoke_timeout)
+        end)
+
+      outcome = (match?({:ok, _reply}, result) && :ok) || :error
+
+      Flux.ProviderHealth.log_call(
+        plugin_id,
+        Map.get(request, :model),
+        div(elapsed_us, 1000),
+        outcome
+      )
+
+      result
     end
   end
 

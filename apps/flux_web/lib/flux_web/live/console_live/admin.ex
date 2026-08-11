@@ -16,6 +16,7 @@ defmodule FluxWeb.ConsoleLive.Admin do
          page_title: "Instance admin",
          overview: Accounts.instance_overview(),
          provider_health: Flux.ProviderHealth.stats(),
+         recent_calls: Flux.ProviderHealth.recent(),
          queue_stats: Flux.Jobs.queue_stats(),
          problem_jobs: Flux.Jobs.problem_jobs(),
          archived: Accounts.archived_workspaces(),
@@ -193,6 +194,39 @@ defmodule FluxWeb.ConsoleLive.Admin do
             </tr>
           </tbody>
         </table>
+
+        <details :if={@recent_calls != []} id="recent-provider-calls">
+          <summary class="text-xs opacity-60 cursor-pointer">
+            Recent calls ({length(@recent_calls)})
+          </summary>
+          <table class="table table-xs max-w-2xl mt-2">
+            <thead>
+              <tr>
+                <th>When</th>
+                <th>Provider</th>
+                <th>Model</th>
+                <th>Latency</th>
+                <th>Outcome</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :for={call <- @recent_calls}>
+                <td class="text-xs opacity-60">{Calendar.strftime(call.at, "%H:%M:%S")}</td>
+                <td class="font-mono text-xs">{call.provider}</td>
+                <td class="font-mono text-xs">{call.model}</td>
+                <td class="font-mono text-xs">{call.latency_ms}ms</td>
+                <td>
+                  <span class={[
+                    "badge badge-sm",
+                    (call.outcome == :ok && "badge-success") || "badge-error"
+                  ]}>
+                    {call.outcome}
+                  </span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </details>
       </div>
       <div class="card border border-base-200 p-6 space-y-2" id="status-note-card">
         <h2 class="font-semibold">Status page incident note</h2>

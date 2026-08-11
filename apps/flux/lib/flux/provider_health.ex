@@ -8,13 +8,49 @@ defmodule Flux.ProviderHealth do
 
   @table :flux_provider_health
 
+  @recent_cap 100
+
   def start_link(_opts), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
 
   @impl true
   def init(_arg) do
     :ets.new(@table, [:named_table, :public, :set])
-    {:ok, nil}
+    {:ok, []}
   end
+
+  @doc """
+  Appends one call to the recent-calls ring (provider, model, latency,
+  outcome — the last #{@recent_cap} kept). Fire-and-forget; safe before
+  boot.
+  """
+  def log_call(provider, model, latency_ms, outcome) do
+    GenServer.cast(__MODULE__, {
+      :log,
+      %{
+        provider: to_string(provider),
+        model: to_string(model || ""),
+        latency_ms: latency_ms,
+        outcome: outcome,
+        at: DateTime.utc_now(:second)
+      }
+    })
+  end
+
+  @doc "The last #{@recent_cap} provider calls, newest first."
+  def recent do
+    case GenServer.whereis(__MODULE__) do
+      nil -> []
+      pid -> GenServer.call(pid, :recent)
+    end
+  end
+
+  @impl true
+  def handle_cast({:log, entry}, recent) do
+    {:noreply, Enum.take([entry | recent], @recent_cap)}
+  end
+
+  @impl true
+  def handle_call(:recent, _from, recent), do: {:reply, recent, recent}
 
   @doc "Counts one provider call outcome. Safe to call before boot."
   def record(provider, outcome) when outcome in [:ok, :error] do
