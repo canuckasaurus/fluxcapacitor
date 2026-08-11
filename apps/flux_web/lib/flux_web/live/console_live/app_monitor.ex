@@ -218,6 +218,23 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
     end
   end
 
+  def handle_event("purge_conversation", %{"conversation-id" => id}, socket) do
+    scope = socket.assigns.current_scope
+
+    case Chat.purge_conversation(scope, id) do
+      {:ok, _conversation} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Conversation permanently deleted.")
+         |> assign(
+           trashed_conversations: Chat.list_trashed_conversations(scope, socket.assigns.app.id)
+         )}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not purge that conversation.")}
+    end
+  end
+
   def handle_event("restore_conversation", %{"conversation-id" => id}, socket) do
     scope = socket.assigns.current_scope
 
@@ -892,6 +909,15 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
             phx-value-conversation-id={conversation.id}
           >
             Restore
+          </button>
+          <button
+            :if={@can_edit}
+            class="btn btn-ghost btn-xs text-error"
+            phx-click="purge_conversation"
+            phx-value-conversation-id={conversation.id}
+            data-confirm="Permanently delete this conversation now? No undo."
+          >
+            Purge now
           </button>
         </p>
       </div>

@@ -54,6 +54,25 @@ defmodule Flux.RAG do
     end
   end
 
+  @doc "Hard-deletes a trashed dataset now instead of waiting 30 days."
+  def purge_dataset(%Scope{} = scope, dataset_id) do
+    with :ok <- RBAC.authorize(scope, :dataset_delete),
+         %Dataset{deleted_at: %DateTime{}} = dataset <-
+           Repo.one(Repo.scoped(where(Dataset, id: ^dataset_id), scope)) ||
+             {:error, :not_found},
+         {:ok, deleted} <- Repo.delete(dataset) do
+      Flux.Audit.record(scope, "dataset.purge",
+        resource: dataset,
+        metadata: %{"name" => dataset.name}
+      )
+
+      {:ok, deleted}
+    else
+      %Dataset{} -> {:error, :not_trashed}
+      error -> error
+    end
+  end
+
   def get_dataset(%Scope{} = scope, id) do
     Dataset
     |> where([d], d.id == ^id and is_nil(d.deleted_at))
