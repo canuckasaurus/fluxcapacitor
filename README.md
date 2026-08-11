@@ -200,7 +200,8 @@ orchestrator, no queue infrastructure beyond Postgres.
   replacing their documents in place), **PDF and
   Office uploads** extracted through Tika right in the console,
   datasource auto-sync, multi-dataset queries, per-dataset retrieval settings
-  (including **markdown-aware chunking**, **parent-child chunking** —
+  (with a **chunk preview** that dry-runs the settings on pasted text,
+  including **markdown-aware chunking**, **parent-child chunking** —
   small child chunks embedded for precise matching, the enclosing
   parent section returned for context — model-backed **query
   expansion**, and **document tags** the knowledge node filters by), and
@@ -264,7 +265,8 @@ orchestrator, no queue infrastructure beyond Postgres.
   document** that retrieval and the knowledge node filter on, and a
   **run-a-flux-over-this-dataset** button that turns every document
   into a batch row (batches run rows **in parallel** when asked, up to
-  8 at once), and **audio uploads** (voice memos, meeting recordings)
+  8 at once — and completed batches **land their outputs back into a
+  dataset**, closing the generate→index circle), and **audio uploads** (voice memos, meeting recordings)
   transcribe through the provider into searchable documents. The
   dataset browser takes **bulk document operations** — multi-select to
   enable/disable (disabled documents stay indexed but retrieval skips
@@ -301,7 +303,9 @@ orchestrator, no queue infrastructure beyond Postgres.
   **hit rate**, owners can **archive workspaces** instead of deleting,
   a **monthly cost report** emails opted-in members on the 1st, a
   daily **cost-spike alert** flags a workspace whose spend suddenly
-  doubled its trailing average, and an
+  doubled its trailing average, a **schedule watchdog** flags automation
+  that silently stopped firing, the admin health table keeps a **recent
+  provider-call log** (model, latency, outcome), and an
   instance-admin **announcement banner** tops every console page for
   maintenance windows and migration notices.
 

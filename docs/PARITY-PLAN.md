@@ -1120,3 +1120,30 @@ Decimal arithmetic crash). Two @doc-splitting near-repeats caught at
 compile time — the batch-19 lesson earns its ledger space annually.
 One migration (workflows.input_presets). The bench holds: custom
 domains, Japanese, 2FA.
+
+**51. Batch 27 — the operator's batch.** **Schedule watchdog** (daily
+08:20: enabled schedule triggers whose last_run_at predates twice
+their expected period notify run_failed; interval triggers read the
+period directly, cron triggers estimate it by scanning the next two
+fires with the preview's minute-scan; the test's first draft backdated
+against real time while faking the tick hour — relative to the fake
+now is the honest clock); **chunk preview** (the Chunker dry-runs
+paste-in text with the dataset's live settings — parent-child shows
+the child chunks that would embed); **batch outputs → dataset**
+(export_batch_to_dataset walks the batch's succeeded runs oldest
+first, picks answer/text/result/output or the first binary output,
+and add_documents with replace into the chosen dataset — the reverse
+of run-a-flux-over-a-dataset closes the generate→index circle);
+**provider call log** (a 100-entry newest-first ring in the
+ProviderHealth GenServer, fed by a :timer.tc wrap in
+PluginRuntime.invoke_llm so every provider path is timed at the one
+choke point; an expandable table under the admin health counters);
+**rolling summary in the monitor** (drill-ins show conversation.summary
+— operators finally see what the model believes the thread is about);
+**sub-flux navigation** ("Open flux ↗" on subflux/iteration/loop
+panels); and **GET /v1/visitors** (the batch-25 rollup on app-
+tokens with a spec schema). Also flushed out: batch 26's duplicate
+"/messages" spec key (GET list vs POST Anthropic) had silently
+overridden under incremental compile — merged into a method list the
+moment a clean build surfaced the warning. No migrations. The bench
+holds: custom domains, Japanese, 2FA.

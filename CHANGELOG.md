@@ -13,6 +13,21 @@ at `docs/PARITY-PLAN.md`.
   OpenAI's list shape (the workspace's provider models, the app's bound
   model first) so OpenAI SDKs and gateways autodiscover.
 
+### Batch 27
+- Schedule watchdog: a daily check flags enabled schedules that
+  haven't fired within twice their expected period — the dead-man's
+  switch for automation.
+- Chunk preview: paste sample text in dataset settings and see the
+  chunks the current settings produce before re-indexing.
+- Batch outputs → dataset: a completed batch's successful rows land
+  as documents in a chosen dataset (generate → index in one motion).
+- Provider call log: the admin health table gains a recent-calls ring
+  (provider, model, latency, outcome — last 100).
+- Conversation drill-ins show the rolling-memory summary the model
+  carries forward.
+- "Open flux ↗" links on subflux, iteration, and loop panels.
+- `GET /v1/visitors`: the per-visitor rollup over the API.
+
 ### Batch 26
 - Anthropic-compatible `POST /v1/messages` (blocking and streaming
   with the full event sequence) — Claude SDKs point at apps with a

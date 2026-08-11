@@ -232,5 +232,7 @@ measured on the dev workstation, echo provider:
 | URL source re-fetch | 03:00 UTC daily | Knowledge → re-fetch nightly |
 | Trash purge & log sweeps | nightly | automatic |
 | Weekly digest | Monday 08:00 UTC | automatic |
+| Cost-spike check | 08:10 UTC daily | automatic |
+| Schedule watchdog | 08:20 UTC daily | automatic |
 
 Cron fields show a **next fire** preview wherever you enter them.
