@@ -176,6 +176,8 @@ defmodule FluxWeb.Router do
       live "/flux/:token", SiteLive.FluxSite, :show
       live "/:token", SiteLive.AppSite, :show
     end
+
+    get "/:token/transcript/:conversation_id", FluxDslController, :site_transcript
   end
 
   # FluxCapacitor as an MCP server: published fluxes are callable tools.

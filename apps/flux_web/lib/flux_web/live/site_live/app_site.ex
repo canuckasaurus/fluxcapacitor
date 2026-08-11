@@ -547,6 +547,15 @@ defmodule FluxWeb.SiteLive.AppSite do
             >
               <.icon name="hero-arrow-path" class="size-4" />
             </button>
+            <a
+              :if={@conversation != nil}
+              href={~p"/site/#{@app.site_token}/transcript/#{@conversation.id}"}
+              class="btn btn-ghost"
+              title="Download this conversation as Markdown"
+              download
+            >
+              <.icon name="hero-arrow-down-tray" class="size-4" />
+            </a>
             <button
               :if={
                 @conversation != nil and @conversation.handoff_requested_at == nil and

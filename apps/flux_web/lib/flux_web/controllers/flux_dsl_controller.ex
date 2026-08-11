@@ -5,7 +5,10 @@ defmodule FluxWeb.FluxDslController do
   alias Flux.Workflows
   alias Flux.Workflows.Workflow
 
-  plug FluxWeb.Plugs.RequirePermission, :app_import_export_dsl
+  # The visitor transcript is public-site territory — the site token +
+  # session visitor ref authorize it, not a console permission.
+  plug FluxWeb.Plugs.RequirePermission,
+       :app_import_export_dsl when action not in [:site_transcript]
 
   def export(conn, %{"id" => id}) do
     scope = conn.assigns.current_scope
@@ -337,6 +340,34 @@ defmodule FluxWeb.FluxDslController do
 
       {:error, :not_found} ->
         conn |> put_flash(:error, "App not found.") |> redirect(to: ~p"/console/apps")
+    end
+  end
+
+  @doc """
+  A visitor downloads their own transcript (Markdown): the site token
+  authorizes the app; the session visitor ref must own the conversation.
+  """
+  def site_transcript(conn, %{"token" => token, "conversation_id" => conversation_id}) do
+    visitor_ref = get_session(conn, "site_visitor")
+
+    with {:ok, app} <- Flux.Chat.get_app_by_site_token(token),
+         scope = Flux.Chat.site_scope(app),
+         %Flux.Chat.Conversation{} = conversation <-
+           Flux.Chat.get_conversation(scope, conversation_id),
+         true <-
+           (conversation.app_id == app.id and is_binary(visitor_ref) and
+              conversation.end_user_ref == visitor_ref) || :not_yours do
+      messages = Flux.Chat.list_messages(scope, conversation.id)
+      {body, content_type} = render_conversation(conversation, messages, "md")
+
+      send_download(
+        conn,
+        {:binary, body},
+        filename: "conversation-#{String.slice(conversation.id, 0, 8)}.md",
+        content_type: content_type
+      )
+    else
+      _denied -> send_resp(conn, 404, "not found")
     end
   end
 
