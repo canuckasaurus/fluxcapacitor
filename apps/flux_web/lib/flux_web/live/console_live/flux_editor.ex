@@ -3985,6 +3985,13 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                       </option>
                     </select>
                   </label>
+                  <.link
+                    :if={node["config"]["workflow_id"] not in [nil, ""]}
+                    navigate={~p"/console/fluxes/#{node["config"]["workflow_id"]}"}
+                    class="btn btn-ghost btn-xs w-fit"
+                  >
+                    Open flux <.icon name="hero-arrow-top-right-on-square" class="size-3" />
+                  </.link>
                   <label class="floating-label">
                     <span>Inputs — one per line, name = template</span>
                     <textarea
@@ -4864,6 +4871,13 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                       </option>
                     </select>
                   </label>
+                  <.link
+                    :if={node["config"]["workflow_id"] not in [nil, ""]}
+                    navigate={~p"/console/fluxes/#{node["config"]["workflow_id"]}"}
+                    class="btn btn-ghost btn-xs w-fit"
+                  >
+                    Open flux <.icon name="hero-arrow-top-right-on-square" class="size-3" />
+                  </.link>
                   <label class="floating-label">
                     <span>Max items (1–200)</span>
                     <input
@@ -4908,6 +4922,13 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                       </option>
                     </select>
                   </label>
+                  <.link
+                    :if={node["config"]["workflow_id"] not in [nil, ""]}
+                    navigate={~p"/console/fluxes/#{node["config"]["workflow_id"]}"}
+                    class="btn btn-ghost btn-xs w-fit"
+                  >
+                    Open flux <.icon name="hero-arrow-top-right-on-square" class="size-3" />
+                  </.link>
                   <label class="floating-label">
                     <span>Initial item (template; round 1's {"{{sys.item}}"})</span>
                     <input
