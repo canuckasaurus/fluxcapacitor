@@ -291,6 +291,100 @@ defmodule Flux.Workflows do
   end
 
   @doc """
+  p50/p95 run duration over the last `limit` finished runs — averages
+  hide the tail. Returns `%{count, p50_ms, p95_ms}` or nil when no
+  timed runs exist.
+  """
+  def latency_stats(%Scope{} = scope, workflow_id, limit \\ 100) do
+    durations =
+      WorkflowRun
+      |> Repo.scoped(scope)
+      |> where([r], r.workflow_id == ^workflow_id and not is_nil(r.elapsed_ms))
+      |> order_by([r], desc: r.inserted_at)
+      |> limit(^limit)
+      |> select([r], r.elapsed_ms)
+      |> Repo.all()
+
+    case Enum.sort(durations) do
+      [] ->
+        nil
+
+      sorted ->
+        %{
+          count: length(sorted),
+          p50_ms: percentile(sorted, 0.5),
+          p95_ms: percentile(sorted, 0.95)
+        }
+    end
+  end
+
+  # Nearest-rank percentile on a pre-sorted list.
+  defp percentile(sorted, p) do
+    index = max(ceil(p * length(sorted)) - 1, 0)
+    Enum.at(sorted, index)
+  end
+
+  @doc """
+  Pins serving to a published version (nil unpins back to latest).
+  """
+  def set_serving_pin(%Scope{} = scope, %Workflow{} = workflow, version) do
+    with :ok <- RBAC.authorize(scope, :app_release_and_version),
+         :ok <- owned(scope, workflow),
+         :ok <- validate_pin(scope, workflow, version) do
+      with {:ok, updated} <-
+             workflow |> Ecto.Changeset.change(pinned_version: version) |> Repo.update() do
+        Flux.Audit.record(scope, "workflow.serving_pin",
+          resource: workflow,
+          metadata: %{"version" => version}
+        )
+
+        {:ok, updated}
+      end
+    end
+  end
+
+  defp validate_pin(_scope, _workflow, nil), do: :ok
+
+  defp validate_pin(scope, workflow, version) when is_integer(version) do
+    case get_version(scope, workflow.id, version) do
+      %WorkflowVersion{} -> :ok
+      _missing -> {:error, :version_not_found}
+    end
+  end
+
+  defp validate_pin(_scope, _workflow, _version), do: {:error, :version_not_found}
+
+  @doc """
+  Daily 08:30 UTC tick: one notification per workspace counting runs
+  that have sat paused (human input, tool approval) for over 24 hours —
+  paused work otherwise waits in silence.
+  """
+  def check_paused_runs(now \\ DateTime.utc_now(:second)) do
+    if now.hour == 8 and now.minute == 30 do
+      cutoff = DateTime.add(now, -24, :hour)
+
+      stale =
+        WorkflowRun
+        |> where([r], r.status == :paused and r.updated_at < ^cutoff)
+        |> group_by([r], r.workspace_id)
+        |> select([r], {r.workspace_id, count(r.id)})
+        |> Repo.all(skip_workspace_guard: true)
+
+      for {workspace_id, count} <- stale do
+        Flux.Notifications.notify(
+          workspace_id,
+          "run_failed",
+          "#{count} run#{(count == 1 && "") || "s"} #{(count == 1 && "has") || "have"} been " <>
+            "paused for over 24 hours waiting for input.",
+          "/console/runs"
+        )
+      end
+    end
+
+    :ok
+  end
+
+  @doc """
   Daily 08:20 UTC tick: enabled schedule triggers that haven't fired
   within twice their expected period raise a `run_failed` notification —
   the dead-man's switch for automation. A silently broken schedule
@@ -300,7 +394,9 @@ defmodule Flux.Workflows do
     if now.hour == 8 and now.minute == 20 do
       triggers =
         Repo.all(
-          from(t in Trigger, where: t.enabled and t.type == :schedule),
+          from(t in Trigger,
+            where: t.enabled and t.type == :schedule and not t.watchdog_muted
+          ),
           skip_workspace_guard: true
         )
 
@@ -531,6 +627,18 @@ defmodule Flux.Workflows do
   arms compare on the runs data.
   """
   def serving_version(%Scope{} = scope, %Workflow{} = workflow) do
+    # An explicit pin freezes serving (and bypasses the A/B split) —
+    # the rollback lever that survives new publishes.
+    pinned =
+      workflow.pinned_version && get_version(scope, workflow.id, workflow.pinned_version)
+
+    case pinned do
+      %WorkflowVersion{} = version -> version
+      _no_pin -> serving_version_unpinned(scope, workflow)
+    end
+  end
+
+  defp serving_version_unpinned(%Scope{} = scope, %Workflow{} = workflow) do
     latest = latest_version(scope, workflow.id)
 
     with %WorkflowVersion{} <- latest,
@@ -1376,6 +1484,16 @@ defmodule Flux.Workflows do
       case Repo.one(Repo.scoped(where(Flux.Workflows.Trigger, id: ^trigger_id), scope)) do
         nil -> {:error, :not_found}
         trigger -> trigger |> Ecto.Changeset.change(enabled: enabled) |> Repo.update()
+      end
+    end
+  end
+
+  @doc "Silences (or unsilences) the schedule watchdog for one trigger."
+  def set_trigger_watchdog_muted(%Scope{} = scope, trigger_id, muted) when is_boolean(muted) do
+    with :ok <- RBAC.authorize(scope, :app_edit) do
+      case Repo.one(Repo.scoped(where(Flux.Workflows.Trigger, id: ^trigger_id), scope)) do
+        nil -> {:error, :not_found}
+        trigger -> trigger |> Ecto.Changeset.change(watchdog_muted: muted) |> Repo.update()
       end
     end
   end
