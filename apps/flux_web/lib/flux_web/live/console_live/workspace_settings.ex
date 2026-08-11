@@ -38,6 +38,7 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
        can_api_keys: RBAC.can?(scope, :app_create_and_management),
        ws_tokens: Chat.list_workspace_tokens(scope),
        new_ws_token: nil,
+       workspace_system_prompt: Accounts.workspace_system_prompt(scope),
        can_env: RBAC.can?(scope, :credential_manage),
        env_vars: Flux.WorkspaceEnv.list(scope),
        can_scim: RBAC.can?(scope, :workspace_member_manage),
@@ -231,6 +232,28 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
 
       {:error, :unauthorized} ->
         {:noreply, put_flash(socket, :error, "You don't have permission to change retention.")}
+    end
+  end
+
+  def handle_event("set_system_prompt", %{"prompt" => prompt}, socket) do
+    case Accounts.set_workspace_system_prompt(socket.assigns.current_scope, prompt) do
+      {:ok, _workspace} ->
+        trimmed = String.trim(prompt)
+
+        {:noreply,
+         socket
+         |> put_flash(
+           :info,
+           (trimmed == "" && "Workspace prompt cleared.") ||
+             "Saved — it now prefixes every chat app's system prompt."
+         )
+         |> assign(workspace_system_prompt: (trimmed == "" && nil) || trimmed)}
+
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "You don't have permission to change this.")}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not save the workspace prompt.")}
     end
   end
 
@@ -647,6 +670,28 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
             class="textarea textarea-bordered textarea-sm w-full max-w-md font-mono"
           >{Enum.map_join(@pricing_overrides, "\n", fn {model, [input, output]} -> "#{model} #{input} #{output}" end)}</textarea>
           <button class="btn btn-primary btn-sm">Save prices</button>
+        </form>
+      </div>
+
+      <div
+        :if={@can_rename}
+        class="card border border-base-200 p-6 space-y-3"
+        id="workspace-prompt-card"
+      >
+        <h2 class="font-semibold">Workspace system prompt</h2>
+        <p class="text-sm opacity-70">
+          An org-wide prefix baked into every chat app's model calls —
+          compliance boilerplate and tone rules live once instead of
+          per app. Blank disables.
+        </p>
+        <form phx-submit="set_system_prompt" id="workspace-prompt-form" class="space-y-2">
+          <textarea
+            name="prompt"
+            rows="3"
+            placeholder="e.g. Never provide legal advice. Answer in the customer's language."
+            class="textarea textarea-bordered textarea-sm w-full max-w-xl"
+          >{@workspace_system_prompt}</textarea>
+          <button class="btn btn-primary btn-sm">Save</button>
         </form>
       </div>
 

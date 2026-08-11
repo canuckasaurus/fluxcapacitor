@@ -654,6 +654,45 @@ defmodule Flux.Accounts do
     end
   end
 
+  @doc """
+  Sets (or with blank, clears) the workspace system prompt — an
+  org-wide prefix baked into every chat app's model calls (compliance
+  boilerplate, tone rules) so apps stop repeating it by hand.
+  """
+  def set_workspace_system_prompt(%Scope{} = scope, prompt) do
+    with :ok <- Flux.RBAC.authorize(scope, :customization_manage),
+         %Workspace{} = workspace <- Repo.get(Workspace, Scope.workspace_id(scope)) do
+      trimmed = String.trim(to_string(prompt || ""))
+
+      custom_config =
+        if trimmed == "" do
+          Map.delete(workspace.custom_config || %{}, "system_prompt")
+        else
+          Map.put(
+            workspace.custom_config || %{},
+            "system_prompt",
+            String.slice(trimmed, 0, 4_000)
+          )
+        end
+
+      workspace |> Ecto.Changeset.change(custom_config: custom_config) |> Repo.update()
+    end
+  end
+
+  def workspace_system_prompt(%Scope{} = scope),
+    do: system_prompt_for_workspace(Scope.workspace_id(scope))
+
+  @doc "Worker-safe read of the org-wide system prompt (nil when unset)."
+  def system_prompt_for_workspace(workspace_id) do
+    case Repo.get(Workspace, workspace_id) do
+      %{custom_config: %{"system_prompt" => prompt}} when is_binary(prompt) and prompt != "" ->
+        prompt
+
+      _none ->
+        nil
+    end
+  end
+
   def retention_days(%Scope{} = scope) do
     case Repo.get(Workspace, Scope.workspace_id(scope)) do
       %{custom_config: %{"retention_days" => days}} -> days

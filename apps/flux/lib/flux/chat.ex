@@ -517,6 +517,18 @@ defmodule Flux.Chat do
     |> Repo.all()
   end
 
+  @doc "Hard-deletes a trashed conversation now instead of waiting 30 days."
+  def purge_conversation(%Scope{} = scope, conversation_id) do
+    Conversation
+    |> Repo.scoped(scope)
+    |> where([c], c.id == ^conversation_id and not is_nil(c.deleted_at))
+    |> Repo.one()
+    |> case do
+      nil -> {:error, :not_found}
+      conversation -> Repo.delete(conversation)
+    end
+  end
+
   def restore_conversation(%Scope{} = scope, conversation_id) do
     case Repo.one(Repo.scoped(where(Conversation, id: ^conversation_id), scope)) do
       nil ->
@@ -1947,7 +1959,7 @@ defmodule Flux.Chat do
 
   def stateless_completion(%App{} = app, messages, emit, opts) when is_list(messages) do
     messages =
-      case {app.system_prompt, messages} do
+      case {combined_system_prompt(app), messages} do
         {prompt, [%{role: :system} | _rest]} when is_binary(prompt) ->
           messages
 
@@ -2124,7 +2136,7 @@ defmodule Flux.Chat do
 
   defp build_prompt(app, history) do
     system =
-      case app.system_prompt do
+      case combined_system_prompt(app) do
         prompt when is_binary(prompt) and prompt != "" -> [%{role: :system, content: prompt}]
         _ -> []
       end
@@ -2159,6 +2171,20 @@ defmodule Flux.Chat do
   # Stop killed the task mid-stream; the stream buffer holds every delta
   # emitted so far, so the persisted message keeps the streamed prefix.
   defp current_broadcast_content(message), do: Flux.StreamBuffers.get(message.id)
+
+  # The workspace-wide system prompt (compliance boilerplate, tone
+  # rules) prefixes each app's own prompt on every model call.
+  defp combined_system_prompt(app) do
+    workspace_prompt = Flux.Accounts.system_prompt_for_workspace(app.workspace_id)
+    app_prompt = app.system_prompt
+
+    [workspace_prompt, app_prompt]
+    |> Enum.filter(&(is_binary(&1) and &1 != ""))
+    |> case do
+      [] -> nil
+      parts -> Enum.join(parts, "\n\n")
+    end
+  end
 
   defp atomize_params(params) do
     for {key, value} <- params, key in ~w(temperature max_tokens top_p), into: %{} do
