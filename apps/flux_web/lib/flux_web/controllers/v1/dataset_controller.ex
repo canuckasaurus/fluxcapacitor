@@ -50,6 +50,39 @@ defmodule FluxWeb.V1.DatasetController do
 
   def create(conn, _params), do: error(conn, 400, "invalid_param", "name is required")
 
+  @doc "The portable flux-dataset/v1 archive as JSON."
+  def export(conn, %{"id" => dataset_id}) do
+    case Flux.RAG.export_dataset(conn.assigns.service_scope, dataset_id) do
+      {:ok, archive} -> json(conn, archive)
+      _not_found -> error(conn, 404, "not_found", "unknown dataset")
+    end
+  end
+
+  @doc "Rebuilds a dataset from an archive body; 201 with counts."
+  def import(conn, params) do
+    case Flux.RAG.import_dataset(conn.assigns.service_scope, params) do
+      {:ok, dataset, counts} ->
+        conn
+        |> put_status(201)
+        |> json(%{
+          id: dataset.id,
+          name: dataset.name,
+          documents: counts.documents,
+          retrieval_cases: counts.retrieval_cases,
+          url_sources: counts.url_sources
+        })
+
+      {:error, :unrecognized_archive} ->
+        error(conn, 400, "invalid_param", "expected a flux-dataset/v1 archive")
+
+      {:error, %Ecto.Changeset{}} ->
+        error(conn, 422, "invalid_param", "the archive's dataset settings are invalid")
+
+      _error ->
+        error(conn, 400, "invalid_param", "could not import the archive")
+    end
+  end
+
   def create_by_text(conn, %{"id" => dataset_id, "name" => name, "text" => text})
       when is_binary(text) do
     scope = conn.assigns.service_scope

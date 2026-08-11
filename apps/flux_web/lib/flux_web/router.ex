@@ -98,6 +98,8 @@ defmodule FluxWeb.Router do
     delete "/datasets/:id/documents/:document_id", DatasetController, :delete_document
     get "/datasets/:id/documents/:document_id/segments", DatasetController, :segments
     post "/datasets/:id/retrieve", DatasetController, :retrieve
+    get "/datasets/:id/export", DatasetController, :export
+    post "/datasets/import", DatasetController, :import
   end
 
   scope "/", FluxWeb do

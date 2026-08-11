@@ -745,6 +745,48 @@ defmodule FluxWeb.V1.ApiSpec do
       })
     end
 
+    defmodule DatasetArchive do
+      @moduledoc false
+      require OpenApiSpex
+
+      OpenApiSpex.schema(%{
+        title: "DatasetArchive",
+        description: "Portable flux-dataset/v1 archive (GET /v1/datasets/{id}/export)",
+        type: :object,
+        properties: %{
+          format: %Schema{type: :string, enum: ["flux-dataset/v1"]},
+          name: %Schema{type: :string},
+          description: %Schema{type: :string, nullable: true},
+          settings: %Schema{type: :object},
+          documents: %Schema{type: :array, items: %Schema{type: :object}},
+          retrieval_cases: %Schema{type: :array, items: %Schema{type: :object}},
+          url_sources: %Schema{type: :array, items: %Schema{type: :object}}
+        },
+        required: [:format, :name, :settings, :documents],
+        additionalProperties: false
+      })
+    end
+
+    defmodule DatasetImported do
+      @moduledoc false
+      require OpenApiSpex
+
+      OpenApiSpex.schema(%{
+        title: "DatasetImported",
+        description: "201 response of POST /v1/datasets/import",
+        type: :object,
+        properties: %{
+          id: %Schema{type: :string, format: :uuid},
+          name: %Schema{type: :string},
+          documents: %Schema{type: :integer},
+          retrieval_cases: %Schema{type: :integer},
+          url_sources: %Schema{type: :integer}
+        },
+        required: [:id, :name, :documents],
+        additionalProperties: false
+      })
+    end
+
     defmodule VisitorStatsList do
       @moduledoc false
       require OpenApiSpex
@@ -1121,6 +1163,8 @@ defmodule FluxWeb.V1.ApiSpec do
     Schemas.ConversationEval,
     Schemas.ConversationEvalList,
     Schemas.ABStats,
+    Schemas.DatasetArchive,
+    Schemas.DatasetImported,
     Schemas.VisitorStatsList,
     Schemas.TranscriptionResult,
     Schemas.AnthropicMessage,
@@ -1199,7 +1243,9 @@ defmodule FluxWeb.V1.ApiSpec do
       {:post, "Add a golden retrieval case", "RetrievalCaseCreated", 201}
     ],
     "/datasets/{id}/retrieval-eval" =>
-      {:post, "Score retrieval (hit rate + MRR)", "RetrievalEvalResult"}
+      {:post, "Score retrieval (hit rate + MRR)", "RetrievalEvalResult"},
+    "/datasets/{id}/export" => {:get, "Portable dataset archive", "DatasetArchive"},
+    "/datasets/import" => {:post, "Rebuild a dataset from an archive", "DatasetImported", 201}
   }
 
   @impl OpenApiSpex.OpenApi
