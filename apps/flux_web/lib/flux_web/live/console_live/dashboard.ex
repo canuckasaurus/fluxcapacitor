@@ -22,8 +22,29 @@ defmodule FluxWeb.ConsoleLive.Dashboard do
       usage: Flux.Usage.workspace_summary(scope),
       quality: Flux.Usage.quality_summary(scope),
       onboarding: Flux.Usage.onboarding(scope),
-      activity: Flux.Audit.list(scope, 8)
+      activity: Flux.Audit.list(scope, 8),
+      forecast: month_forecast(scope)
     )
+  end
+
+  # Straight-line month-end projection: tokens so far ÷ days elapsed ×
+  # days in month, against the budget when one is set — the 80% warning
+  # tells you when it happened; this tells you it's coming.
+  defp month_forecast(scope) do
+    workspace_id = Flux.Accounts.Scope.workspace_id(scope)
+    spent = Flux.Usage.month_tokens(workspace_id)
+    today = Date.utc_today()
+    days_elapsed = max(today.day, 1)
+    days_in_month = Date.days_in_month(today)
+    projected = div(spent * days_in_month, days_elapsed)
+    budget = Flux.Accounts.token_budget(scope)
+
+    %{
+      spent: spent,
+      projected: projected,
+      budget: budget,
+      budget_pct: budget && budget > 0 && div(projected * 100, budget)
+    }
   end
 
   defp onboarding_step(:provider), do: {"Connect a model provider", ~p"/console/plugins"}
@@ -113,6 +134,19 @@ defmodule FluxWeb.ConsoleLive.Dashboard do
             <div class="stat-title text-xs">{gettext("Tokens out")}</div>
             <div class="stat-value text-lg circuit-value circuit-red">
               {@usage.tokens.output}
+            </div>
+          </div>
+          <div class="stat py-2 px-4" id="cost-forecast">
+            <div class="stat-title text-xs">{gettext("Month-end projection")}</div>
+            <div class={[
+              "stat-value text-lg circuit-value",
+              (@forecast.budget_pct && @forecast.budget_pct > 100 && "circuit-red") ||
+                "circuit-cyan"
+            ]}>
+              ~{@forecast.projected} tok
+            </div>
+            <div class="stat-desc">
+              {@forecast.spent} so far<span :if={@forecast.budget}> · {@forecast.budget_pct}% of the {@forecast.budget} budget</span>
             </div>
           </div>
           <div class="stat py-2 px-4">
