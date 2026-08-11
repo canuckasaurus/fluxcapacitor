@@ -31,6 +31,10 @@ defmodule FluxWeb.ConsoleLive.Fluxes do
       workflows: Workflows.list_workflows(scope),
       versions: Workflows.latest_versions(scope),
       health: Workflows.flux_health(scope),
+      latency:
+        Map.new(Workflows.list_workflows(scope), fn workflow ->
+          {workflow.id, Workflows.latency_stats(scope, workflow.id)}
+        end),
       trashed: Workflows.list_trashed_workflows(scope),
       workspace_templates: Workflows.list_workspace_templates(scope)
     )
@@ -502,7 +506,9 @@ defmodule FluxWeb.ConsoleLive.Fluxes do
                 ]}
                 title="Runs over the last 7 days"
               >
-                {health.succeeded}/{health.runs} ok · {health.tokens} tok (7d)
+                {health.succeeded}/{health.runs} ok · {health.tokens} tok (7d)<span :if={
+                  latency = @latency[workflow.id]
+                }> · p50 {latency.p50_ms}ms / p95 {latency.p95_ms}ms</span>
               </span>
             <% end %>
           </p>

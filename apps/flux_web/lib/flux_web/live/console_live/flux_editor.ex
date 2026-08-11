@@ -683,6 +683,36 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     end
   end
 
+  def handle_event("pin_version", %{"version" => version}, socket) do
+    scope = socket.assigns.current_scope
+
+    case Workflows.set_serving_pin(scope, socket.assigns.workflow, String.to_integer(version)) do
+      {:ok, workflow} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Serving pinned to v#{version}.")
+         |> assign(workflow: workflow)}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not pin serving to that version.")}
+    end
+  end
+
+  def handle_event("unpin_version", _params, socket) do
+    scope = socket.assigns.current_scope
+
+    case Workflows.set_serving_pin(scope, socket.assigns.workflow, nil) do
+      {:ok, workflow} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Unpinned — serving the latest published version.")
+         |> assign(workflow: workflow)}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not unpin.")}
+    end
+  end
+
   def handle_event("toggle_shortcuts", _params, socket) do
     {:noreply, assign(socket, show_shortcuts: not socket.assigns.show_shortcuts)}
   end
@@ -1398,6 +1428,18 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
   def handle_event("toggle_trigger", %{"trigger-id" => trigger_id, "enabled" => enabled}, socket) do
     scope = socket.assigns.current_scope
     Workflows.set_trigger_enabled(scope, trigger_id, enabled == "true")
+
+    {:noreply,
+     assign(socket, triggers: Workflows.list_triggers(scope, socket.assigns.workflow.id))}
+  end
+
+  def handle_event(
+        "toggle_watchdog_mute",
+        %{"trigger-id" => trigger_id, "muted" => muted},
+        socket
+      ) do
+    scope = socket.assigns.current_scope
+    Workflows.set_trigger_watchdog_muted(scope, trigger_id, muted == "true")
 
     {:noreply,
      assign(socket, triggers: Workflows.list_triggers(scope, socket.assigns.workflow.id))}
@@ -5873,6 +5915,30 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
             <span :if={version.note} class="text-xs italic truncate max-w-48" title={version.note}>
               “{version.note}”
             </span>
+            <span
+              :if={@workflow.pinned_version == version.version}
+              class="badge badge-warning badge-sm"
+              title="Serving is pinned to this version"
+            >
+              serving (pinned)
+            </span>
+            <button
+              :if={@can_edit and @workflow.pinned_version != version.version}
+              class="btn btn-ghost btn-xs"
+              phx-click="pin_version"
+              phx-value-version={version.version}
+              title="Freeze serving to this version (wins over new publishes and the A/B split)"
+            >
+              Pin serving
+            </button>
+            <button
+              :if={@can_edit and @workflow.pinned_version == version.version}
+              class="btn btn-ghost btn-xs"
+              phx-click="unpin_version"
+              title="Back to serving the latest published version"
+            >
+              Unpin
+            </button>
             <button
               class="btn btn-ghost btn-xs ml-auto"
               phx-click="diff_version"
@@ -6087,6 +6153,19 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
               >
                 {(trigger.enabled && "Disable") || "Enable"}
               </button>
+              <button
+                :if={trigger.type == :schedule}
+                class="btn btn-ghost btn-xs"
+                phx-click="toggle_watchdog_mute"
+                phx-value-trigger-id={trigger.id}
+                phx-value-muted={to_string(not trigger.watchdog_muted)}
+                title="The watchdog notifies daily when a schedule stops firing; mute silences it for this trigger"
+              >
+                {(trigger.watchdog_muted && "Unmute watchdog") || "Mute watchdog"}
+              </button>
+              <span :if={trigger.watchdog_muted} class="badge badge-ghost badge-sm">
+                watchdog muted
+              </span>
               <button
                 class="btn btn-ghost btn-xs text-error"
                 phx-click="delete_trigger"
