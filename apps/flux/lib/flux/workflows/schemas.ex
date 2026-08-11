@@ -19,6 +19,9 @@ defmodule Flux.Workflows.Workflow do
     field :graph, :map, default: %{}
     # Named sample inputs for the editor's run panel.
     field :input_presets, :map, default: %{}
+    # Freezes serving to this published version (nil = latest); wins
+    # over the A/B split so pinning is an honest rollback lever.
+    field :pinned_version, :integer
     field :site_token, :string
     field :site_enabled, :boolean, default: false
     field :site_theme, :map, default: %{}

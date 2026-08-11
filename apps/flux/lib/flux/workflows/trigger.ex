@@ -27,6 +27,8 @@ defmodule Flux.Workflows.Trigger do
     field :webhook_secret, :string, redact: true
     field :inputs, :map, default: %{}
     field :enabled, :boolean, default: true
+    # Silences the schedule watchdog for a known-stalled schedule.
+    field :watchdog_muted, :boolean, default: false
     field :last_run_at, :utc_datetime
 
     timestamps(type: :utc_datetime)
@@ -40,6 +42,7 @@ defmodule Flux.Workflows.Trigger do
       :cron,
       :inputs,
       :enabled,
+      :watchdog_muted,
       :plugin_id,
       :webhook_secret
     ])
