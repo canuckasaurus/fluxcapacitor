@@ -860,6 +860,17 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
         </button>
 
         <div :if={@selected_id == conversation.id} class="border-t border-base-200 p-4 space-y-2">
+          <div
+            :if={conversation.summary}
+            class="rounded-box bg-base-200/60 p-3 text-sm"
+            id={"summary-#{conversation.id}"}
+          >
+            <p class="text-xs font-semibold opacity-70 mb-1">
+              <.icon name="hero-book-open" class="size-3 inline" />
+              Rolling memory (what the model carries forward)
+            </p>
+            <p class="whitespace-pre-wrap">{conversation.summary}</p>
+          </div>
           <form
             :if={@can_edit}
             phx-submit="set_labels"
