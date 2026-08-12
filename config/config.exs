@@ -88,7 +88,7 @@ config :flux_web,
 
 # Symlinking node_modules requires elevated privileges on Windows; we don't
 # import from assets/node_modules in hooks, so the warning is noise.
-config :phoenix_live_view, :colocated_js, disable_symlink_warning: true
+config :phoenix_live_view, :colocated_assets, disable_symlink_warning: true
 
 # Configures the endpoint
 config :flux_web, FluxWeb.Endpoint,
