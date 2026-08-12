@@ -33,8 +33,9 @@ defmodule FluxWeb.AppSiteLiveTest do
     {:ok, published} = Chat.enable_site(scope, app)
     {:ok, disabled} = Chat.disable_site(scope, published)
 
+    # Disabled (not deleted) shows the maintenance page since batch 30.
     {:ok, _lv, html} = live(conn, ~p"/site/#{disabled.site_token}")
-    assert html =~ "This app is not available."
+    assert html =~ "site-maintenance"
   end
 
   test "published chat app works anonymously and tags the end user", %{
