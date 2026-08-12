@@ -71,8 +71,21 @@ defmodule FluxWeb.SiteLive.AppSite do
            streaming_text: ""
          )}
 
+      {:error, {:maintenance, app}} ->
+        {:ok,
+         assign(socket,
+           page_title: "#{app.name} — back soon",
+           app: nil,
+           maintenance: %{
+             name: app.name,
+             message:
+               (app.site_theme || %{})["maintenance_message"] ||
+                 "We're doing a little maintenance — back soon."
+           }
+         )}
+
       {:error, :not_found} ->
-        {:ok, assign(socket, page_title: "Not found", app: nil)}
+        {:ok, assign(socket, page_title: "Not found", app: nil, maintenance: nil)}
     end
   end
 
@@ -306,6 +319,19 @@ defmodule FluxWeb.SiteLive.AppSite do
   end
 
   @impl true
+  def render(%{app: nil, maintenance: %{}} = assigns) do
+    ~H"""
+    <main class="min-h-screen flex items-center justify-center p-6" id="site-maintenance">
+      <div class="text-center space-y-2">
+        <.icon name="hero-wrench-screwdriver" class="size-10 opacity-40 mx-auto" />
+        <h1 class="font-semibold text-lg">{@maintenance.name}</h1>
+        <p class="text-sm opacity-70">{@maintenance.message}</p>
+        <p class="text-xs opacity-40">Your conversation is safe — check back shortly.</p>
+      </div>
+    </main>
+    """
+  end
+
   def render(%{app: nil} = assigns) do
     ~H"""
     <main class="min-h-screen flex items-center justify-center p-6">
