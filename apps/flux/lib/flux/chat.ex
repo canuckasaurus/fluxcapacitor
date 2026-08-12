@@ -140,7 +140,10 @@ defmodule Flux.Chat do
   def get_app_by_site_token("site_" <> _rest = token) do
     case Repo.get_by(App, [site_token: token], skip_workspace_guard: true) do
       %App{site_enabled: true, deleted_at: nil} = app -> {:ok, app}
-      _disabled_trashed_or_missing -> {:error, :not_found}
+      # Disabled (not trashed) shows a friendly maintenance page instead
+      # of hard-404ing visitors mid-conversation.
+      %App{site_enabled: false, deleted_at: nil} = app -> {:error, {:maintenance, app}}
+      _trashed_or_missing -> {:error, :not_found}
     end
   end
 
@@ -2187,7 +2190,9 @@ defmodule Flux.Chat do
   end
 
   defp atomize_params(params) do
-    for {key, value} <- params, key in ~w(temperature max_tokens top_p), into: %{} do
+    for {key, value} <- params,
+        key in ~w(temperature max_tokens top_p stop frequency_penalty presence_penalty top_k seed),
+        into: %{} do
       {String.to_existing_atom(key), value}
     end
   end

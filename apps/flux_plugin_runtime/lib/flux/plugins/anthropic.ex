@@ -67,7 +67,15 @@ defmodule Flux.Plugins.Anthropic do
           Map.put(body, :tools, Enum.map(request.tools, &encode_tool/1))
         end
       end)
-      |> Map.merge(Map.take(request.params, [:temperature, :top_p]))
+      |> Map.merge(Map.take(request.params, [:temperature, :top_p, :top_k]))
+      |> then(fn body ->
+        # OpenAI-style `stop` maps to Anthropic's stop_sequences.
+        case request.params[:stop] do
+          stops when is_list(stops) and stops != [] -> Map.put(body, :stop_sequences, stops)
+          stop when is_binary(stop) and stop != "" -> Map.put(body, :stop_sequences, [stop])
+          _none -> body
+        end
+      end)
 
     acc = %{content: "", usage: %{input_tokens: 0, output_tokens: 0}, finish: :stop, calls: %{}}
 

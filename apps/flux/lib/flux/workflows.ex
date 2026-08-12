@@ -1740,9 +1740,43 @@ defmodule Flux.Workflows do
         "flux.version" => run.version
       }
     } do
-      do_execute(run, graph, inputs, workspace_id, run_opts)
+      result = do_execute(run, graph, inputs, workspace_id, run_opts)
+      maybe_auto_retry(result, run, graph, inputs, workspace_id, run_opts)
     end
   end
+
+  # One whole-run retry for transient failures when the flux opts in —
+  # never for batches (they retry their own rows) and never for a run
+  # that already is a retry.
+  defp maybe_auto_retry(
+         {:ok, %WorkflowRun{status: :failed} = failed},
+         run,
+         graph,
+         inputs,
+         workspace_id,
+         run_opts
+       ) do
+    workflow = Repo.get(Workflow, run.workflow_id, skip_workspace_guard: true)
+
+    if workflow && workflow.auto_retry and run.source != :batch and is_nil(run.retry_of_id) do
+      retry =
+        Repo.insert!(%WorkflowRun{
+          workspace_id: run.workspace_id,
+          workflow_id: run.workflow_id,
+          status: :running,
+          source: run.source,
+          version: run.version,
+          inputs: inputs,
+          retry_of_id: run.id
+        })
+
+      do_execute(retry, graph, inputs, workspace_id, run_opts)
+    else
+      {:ok, failed}
+    end
+  end
+
+  defp maybe_auto_retry(result, _run, _graph, _inputs, _workspace_id, _run_opts), do: result
 
   defp do_execute(run, graph, inputs, workspace_id, run_opts) do
     {:ok, usage_acc} = Agent.start_link(fn -> %{models: %{}, nodes: %{}} end)
@@ -2504,7 +2538,9 @@ defmodule Flux.Workflows do
   defp cast_method(method), do: {:error, "unsupported HTTP method #{method}"}
 
   defp atomize_params(params) when is_map(params) do
-    for {key, value} <- params, key in ~w(temperature max_tokens top_p), into: %{} do
+    for {key, value} <- params,
+        key in ~w(temperature max_tokens top_p stop frequency_penalty presence_penalty top_k seed),
+        into: %{} do
       {String.to_existing_atom(key), value}
     end
   end

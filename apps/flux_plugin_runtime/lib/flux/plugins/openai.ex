@@ -245,7 +245,19 @@ defmodule Flux.Plugins.OpenAI do
         Map.put(body, :tools, Enum.map(request.tools, &encode_tool/1))
       end
 
-    body = Map.merge(body, Map.take(request.params, [:temperature, :max_tokens, :top_p]))
+    body =
+      Map.merge(
+        body,
+        Map.take(request.params, [
+          :temperature,
+          :max_tokens,
+          :top_p,
+          :stop,
+          :frequency_penalty,
+          :presence_penalty,
+          :seed
+        ])
+      )
 
     acc = %{content: "", usage: %{input_tokens: 0, output_tokens: 0}, finish: :stop, calls: %{}}
 
