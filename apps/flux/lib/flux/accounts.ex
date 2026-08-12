@@ -766,6 +766,13 @@ defmodule Flux.Accounts do
       |> Repo.all(skip_workspace_guard: true)
       |> Enum.group_by(& &1.workspace_id)
 
+    storage =
+      Flux.Chat.UploadedFile
+      |> group_by([f], f.workspace_id)
+      |> select([f], {f.workspace_id, fragment("coalesce(sum(?), 0)::bigint", f.size)})
+      |> Repo.all(skip_workspace_guard: true)
+      |> Map.new()
+
     for workspace <- Repo.all(order_by(Workspace, asc: :inserted_at)) do
       workspace_runs = Map.get(runs, workspace.id, [])
 
@@ -778,7 +785,8 @@ defmodule Flux.Accounts do
           Enum.sum(
             for run <- workspace_runs,
                 do: (run.usage["input_tokens"] || 0) + (run.usage["output_tokens"] || 0)
-          )
+          ),
+        storage_bytes: Map.get(storage, workspace.id, 0)
       }
     end
   end

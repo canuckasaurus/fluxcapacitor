@@ -112,6 +112,13 @@ defmodule FluxWeb.ConsoleLive.Admin do
     )
   end
 
+  defp format_bytes(bytes) when bytes >= 1_073_741_824,
+    do: "#{Float.round(bytes / 1_073_741_824, 1)} GB"
+
+  defp format_bytes(bytes) when bytes >= 1_048_576, do: "#{Float.round(bytes / 1_048_576, 1)} MB"
+  defp format_bytes(bytes) when bytes >= 1_024, do: "#{div(bytes, 1024)} KB"
+  defp format_bytes(bytes), do: "#{bytes} B"
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -137,6 +144,7 @@ defmodule FluxWeb.ConsoleLive.Admin do
               <th>Members</th>
               <th>Runs (30d)</th>
               <th>Tokens (30d)</th>
+              <th>Storage</th>
               <th>Created</th>
             </tr>
           </thead>
@@ -156,6 +164,7 @@ defmodule FluxWeb.ConsoleLive.Admin do
               <td class="text-xs">{row.members}</td>
               <td class="text-xs">{row.runs_30d}</td>
               <td class="font-mono text-xs">{row.tokens_30d}</td>
+              <td class="font-mono text-xs">{format_bytes(row.storage_bytes)}</td>
               <td class="text-xs opacity-70">
                 {Calendar.strftime(row.workspace.inserted_at, "%Y-%m-%d")}
               </td>
