@@ -1198,3 +1198,30 @@ run failures); and **trash purge parity** (purge_dataset +
 purge_conversation with purge-now buttons — every trashed object can
 now leave early). No migrations. The bench holds: custom domains,
 Japanese, 2FA.
+
+**54. Batch 30 — seven features and a new engine block.** **Model
+params round-out** (the whitelist grows stop/frequency_penalty/
+presence_penalty/top_k/seed; OpenAI-shape plugins pass them through,
+Anthropic maps stop → stop_sequences and takes top_k — verified by a
+params-capturing fake); **failed-run auto-retry** (workflows.auto_retry
++ workflow_runs.retry_of_id; maybe_auto_retry wraps the executor —
+one second attempt, never for batches, never for a retry; the test
+learned the retry broadcasts on its own run topic and polls the DB
+instead); **audit webhook events** (audit.recorded on every
+Audit.record — the SIEM feed); **storage rollup** (a bigint-cast sum
+of uploaded_files per workspace on the admin table, human-formatted);
+**eval set copy** (set + cases + weights onto another flux);
+**single-run JSON export** (a download beside Share trace);
+**site maintenance page** (get_app_by_site_token returns
+{:maintenance, app} for disabled-not-trashed and the site LiveView
+renders a friendly back-soon page — the old hard-404 test updated
+deliberately). Then the **toolchain**: every dependency updated
+(Phoenix 1.8.10, LiveView 1.1→1.2 with the colocated_js →
+colocated_assets rename, Req 0.5→0.7, Oban, Sobelow, Swoosh), the
+LiveView bump surfacing one real latent bug (`nil and` in a new :if —
+BadBooleanError under 1.2's stricter diffing) — and the release image
+moves from Elixir 1.16.2/OTP 26 to **1.20.3/OTP 28.5**. The local
+Windows toolchain stays 1.16 (installer-based, needs the GUI
+installer — flagged blocked-on-user); mix.exs keeps ~> 1.16 so both
+build. One migration (auto_retry + retry_of_id). The bench holds:
+custom domains, Japanese, 2FA.

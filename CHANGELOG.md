@@ -13,6 +13,27 @@ at `docs/PARITY-PLAN.md`.
   OpenAI's list shape (the workspace's provider models, the app's bound
   model first) so OpenAI SDKs and gateways autodiscover.
 
+### Batch 30
+- Toolchain: the release image now builds on **Elixir 1.20.3 /
+  OTP 28.5** (from 1.16.2 / OTP 26); all dependencies updated
+  (Phoenix 1.8.10, LiveView 1.2, Req 0.7, Oban 2.23.1, Sobelow 0.15,
+  Swoosh 1.27, and friends).
+- Model params round-out: `stop`, `frequency_penalty`,
+  `presence_penalty`, `top_k`, and `seed` pass through to providers
+  (mapped to `stop_sequences`/`top_k` on Anthropic).
+- Failed-run auto-retry: a per-flux toggle gives failed runs one
+  automatic second attempt (linked via `retry_of`); batches keep
+  their own row retry.
+- Audit webhook events: `audit.recorded` joins the signed fan-out —
+  SIEMs ingest the trail live.
+- Storage rollup: per-workspace stored bytes on the admin panel.
+- Eval set copy: duplicate a set (cases and weights) onto another
+  flux.
+- Single-run JSON export: a download button on the runs drill-in
+  (inputs, outputs, per-node trace).
+- Site maintenance page: disabling a site shows a friendly "back
+  soon" page instead of hard-404ing visitors mid-conversation.
+
 ### Batch 29
 - Workspace system prompt: an org-wide prefix baked into every chat
   app's model calls — compliance boilerplate and tone rules live once.

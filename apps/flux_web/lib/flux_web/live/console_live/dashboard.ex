@@ -93,8 +93,7 @@ defmodule FluxWeb.ConsoleLive.Dashboard do
             value={Enum.count(@onboarding, & &1.done)}
             max={length(@onboarding)}
             aria-label={gettext("Getting started progress")}
-          >
-          </progress>
+          ></progress>
           <span class="text-xs opacity-60">
             {Enum.count(@onboarding, & &1.done)}/{length(@onboarding)}
           </span>
