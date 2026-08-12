@@ -274,6 +274,43 @@ defmodule FluxWeb.FluxDslController do
     end
   end
 
+  @doc "One run as JSON: inputs, outputs, usage, and the per-node trace."
+  def run_export(conn, %{"run_id" => run_id}) do
+    scope = conn.assigns.current_scope
+
+    case Flux.Workflows.get_run(scope, run_id) do
+      %Flux.Workflows.WorkflowRun{} = run ->
+        body =
+          Jason.encode!(
+            %{
+              "id" => run.id,
+              "workflow_id" => run.workflow_id,
+              "status" => run.status,
+              "source" => run.source,
+              "version" => run.version,
+              "inputs" => run.inputs,
+              "outputs" => run.outputs,
+              "error" => run.error,
+              "usage" => run.usage,
+              "elapsed_ms" => run.elapsed_ms,
+              "started_at" => run.inserted_at,
+              "node_executions" => run.node_executions
+            },
+            pretty: true
+          )
+
+        send_download(
+          conn,
+          {:binary, body},
+          filename: "run-#{String.slice(run.id, 0, 8)}.json",
+          content_type: "application/json"
+        )
+
+      _missing ->
+        conn |> put_flash(:error, "Run not found.") |> redirect(to: ~p"/console/runs")
+    end
+  end
+
   @doc "Downloads a portable dataset archive (documents, cases, sources)."
   def dataset_export(conn, %{"id" => dataset_id}) do
     scope = conn.assigns.current_scope

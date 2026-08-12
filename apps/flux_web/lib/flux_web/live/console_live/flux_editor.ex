@@ -1227,6 +1227,20 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
      )}
   end
 
+  def handle_event("toggle_auto_retry", _params, socket) do
+    workflow = socket.assigns.workflow
+
+    case Workflows.update_workflow(socket.assigns.current_scope, workflow, %{
+           "auto_retry" => not workflow.auto_retry
+         }) do
+      {:ok, updated} ->
+        {:noreply, assign(socket, workflow: updated)}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not change auto-retry.")}
+    end
+  end
+
   def handle_event("set_flux_budget", %{"tokens" => tokens}, socket) do
     parsed =
       case Integer.parse(tokens) do
@@ -3364,8 +3378,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                     data-node-id={node["id"]}
                     class="absolute -left-1.5 top-[22px] size-3 rounded-full bg-base-content/40 hover:bg-primary hover:scale-125 transition-transform"
                     title="Input"
-                  >
-                  </span>
+                  ></span>
 
                   <span
                     :if={node["type"] not in ["end", "if_else", "question_classifier"]}
@@ -3374,8 +3387,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                     data-handle="default"
                     class="absolute -right-1.5 top-[22px] size-3 rounded-full bg-primary/70 hover:bg-primary hover:scale-125 transition-transform cursor-crosshair"
                     title="Drag to connect"
-                  >
-                  </span>
+                  ></span>
 
                   <%= if node["type"] == "question_classifier" do %>
                     <span
@@ -3390,8 +3402,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                       class="absolute -right-1.5 size-3 rounded-full bg-warning hover:scale-125 transition-transform cursor-crosshair"
                       style={"top: #{22 + index * 28}px"}
                       title={"Branch: #{class["id"]}"}
-                    >
-                    </span>
+                    ></span>
                   <% end %>
 
                   <span
@@ -3406,8 +3417,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                         "top: 50px"
                     }
                     title="Error branch"
-                  >
-                  </span>
+                  ></span>
 
                   <%= if node["type"] == "if_else" do %>
                     <span
@@ -3418,8 +3428,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                       class="absolute -right-1.5 size-3 rounded-full bg-success hover:scale-125 transition-transform cursor-crosshair"
                       style={"top: #{22 + index * 28}px"}
                       title={"Case: #{kase["id"]}"}
-                    >
-                    </span>
+                    ></span>
                     <span
                       data-out-port
                       data-node-id={node["id"]}
@@ -3427,8 +3436,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                       class="absolute -right-1.5 size-3 rounded-full bg-error hover:scale-125 transition-transform cursor-crosshair"
                       style={"top: #{22 + length(if_else_cases(node["config"])) * 28}px"}
                       title="ELSE branch"
-                    >
-                    </span>
+                    ></span>
                     <div class="absolute -right-8 top-[16px] text-[10px] text-success font-bold">
                       T
                     </div>
@@ -5650,6 +5658,19 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
             /> <span class="text-sm opacity-70">tokens / month (this flux)</span>
             <button class="btn btn-outline btn-sm">Save budget</button>
           </form>
+          <label
+            :if={@can_manage_tokens}
+            class="flex items-center gap-2 text-sm"
+            id="auto-retry-toggle"
+          >
+            <input
+              type="checkbox"
+              class="checkbox checkbox-sm"
+              checked={@workflow.auto_retry}
+              phx-click="toggle_auto_retry"
+              title="Failed runs get one automatic second attempt (transient provider errors); batches keep their own row retry"
+            /> Retry failed runs once
+          </label>
           <div :if={@new_token_raw} class="alert alert-success text-sm">
             <div>
               <p class="font-semibold">Copy this key now — it won't be shown again:</p>

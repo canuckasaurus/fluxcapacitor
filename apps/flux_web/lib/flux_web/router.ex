@@ -305,6 +305,7 @@ defmodule FluxWeb.Router do
     get "/apps/:id/finetune-export", FluxDslController, :finetune_export
     get "/apps/:id/monitor-export", FluxDslController, :monitor_export
     get "/knowledge/:id/export", FluxDslController, :dataset_export
+    get "/runs/:run_id/export", FluxDslController, :run_export
     get "/labeling/:id/export", FluxDslController, :labeling_export
     get "/templates/:id/file", DocTemplateController, :file
     post "/templates/:id/test-render", DocTemplateController, :test_render

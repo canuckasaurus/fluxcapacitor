@@ -472,6 +472,13 @@ defmodule FluxWeb.ConsoleLive.Runs do
                     >
                       <.icon name="hero-link" class="size-3" /> Share trace
                     </button>
+                    <a
+                      href={~p"/console/runs/#{run.id}/export"}
+                      class="btn btn-ghost btn-xs"
+                      title="Download this run as JSON (inputs, outputs, per-node trace)"
+                    >
+                      <.icon name="hero-arrow-down-tray" class="size-3" /> JSON
+                    </a>
                     <input
                       :if={@share_url && @expanded_run == run.id}
                       type="text"
