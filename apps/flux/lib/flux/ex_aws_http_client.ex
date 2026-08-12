@@ -9,15 +9,19 @@ defmodule Flux.ExAwsHttpClient do
   def request(method, url, body \\ "", headers \\ [], http_opts \\ []) do
     opts = Keyword.get(http_opts, :req_opts, [])
 
+    # Req 0.7 infers POST whenever a :body option is present — even an empty
+    # string with an explicit :method — which turns S3 GET/DELETE into POST.
+    # Only pass :body when there is one.
+    body_opts = if body in [nil, ""], do: [], else: [body: body]
+
     case Req.request(
            [
              method: method,
              url: url,
-             body: body,
              headers: headers,
              decode_body: false,
              retry: false
-           ] ++ opts
+           ] ++ body_opts ++ opts
          ) do
       {:ok, %Req.Response{status: status, headers: resp_headers, body: resp_body}} ->
         flat_headers =

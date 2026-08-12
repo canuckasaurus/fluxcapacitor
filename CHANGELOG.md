@@ -17,7 +17,11 @@ at `docs/PARITY-PLAN.md`.
 - Toolchain: the release image now builds on **Elixir 1.20.3 /
   OTP 28.5** (from 1.16.2 / OTP 26); all dependencies updated
   (Phoenix 1.8.10, LiveView 1.2, Req 0.7, Oban 2.23.1, Sobelow 0.15,
-  Swoosh 1.27, and friends).
+  Swoosh 1.27, and friends). Two upgrade fallouts fixed: the heroicons
+  git dep dropped `depth: 1` (Elixir 1.20 validates it against a lock
+  written by 1.16), and the ExAws Req adapter no longer passes empty
+  bodies — Req 0.7 turns any request carrying a `:body` option into a
+  POST, which broke S3 GET/DELETE against MinIO.
 - Model params round-out: `stop`, `frequency_penalty`,
   `presence_penalty`, `top_k`, and `seed` pass through to providers
   (mapped to `stop_sequences`/`top_k` on Anthropic).
