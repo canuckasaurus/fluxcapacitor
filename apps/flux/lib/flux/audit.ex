@@ -42,13 +42,25 @@ defmodule Flux.Audit do
   def record(%Scope{} = scope, action, opts \\ []) when is_binary(action) do
     {resource_type, resource_id} = resource_ref(opts)
 
+    workspace_id = Scope.workspace_id(scope)
+
     Repo.insert(%Entry{
-      workspace_id: Scope.workspace_id(scope),
+      workspace_id: workspace_id,
       actor_id: Scope.account_id(scope),
       action: action,
       resource_type: resource_type,
       resource_id: resource_id,
       metadata: Keyword.get(opts, :metadata, %{})
+    })
+
+    # SIEMs subscribe to audit.recorded and ingest the trail live
+    # instead of polling the CSV export.
+    Flux.Webhooks.dispatch(workspace_id, "audit.recorded", %{
+      "action" => action,
+      "resource_type" => resource_type,
+      "resource_id" => resource_id,
+      "actor_id" => Scope.account_id(scope),
+      "metadata" => Keyword.get(opts, :metadata, %{})
     })
 
     :ok
