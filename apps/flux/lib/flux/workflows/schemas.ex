@@ -22,6 +22,8 @@ defmodule Flux.Workflows.Workflow do
     # Freezes serving to this published version (nil = latest); wins
     # over the A/B split so pinning is an honest rollback lever.
     field :pinned_version, :integer
+    # One whole-run retry on failure (transient provider errors).
+    field :auto_retry, :boolean, default: false
     field :site_token, :string
     field :site_enabled, :boolean, default: false
     field :site_theme, :map, default: %{}
@@ -37,7 +39,7 @@ defmodule Flux.Workflows.Workflow do
 
   def changeset(workflow, attrs) do
     workflow
-    |> cast(attrs, [:name, :description, :monthly_token_budget])
+    |> cast(attrs, [:name, :description, :monthly_token_budget, :auto_retry])
     |> validate_required([:name])
     |> validate_length(:name, min: 1, max: 255)
     |> validate_number(:monthly_token_budget, greater_than: 0)
@@ -196,6 +198,8 @@ defmodule Flux.Workflows.WorkflowRun do
 
     field :source, Ecto.Enum, values: [:draft, :api, :batch, :eval], default: :draft
     belongs_to :batch, Flux.Workflows.WorkflowBatch
+    # Set when this run is the automatic second attempt after a failure.
+    belongs_to :retry_of, Flux.Workflows.WorkflowRun
     field :inputs, :map, default: %{}
     field :outputs, :map, default: %{}
     field :error, :string
