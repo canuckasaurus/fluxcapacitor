@@ -29,6 +29,7 @@ defmodule FluxWeb.ConsoleLive.FluxEvals do
            models: Flux.Providers.available_models(scope),
            sets: sets,
            selected_set: List.first(sets),
+           copy_targets: Enum.reject(Workflows.list_workflows(scope), &(&1.id == workflow.id)),
            expanded_eval: nil
          )
          |> assign_set_data()
@@ -98,6 +99,23 @@ defmodule FluxWeb.ConsoleLive.FluxEvals do
 
   def handle_event("select_set", %{"id" => id}, socket) do
     {:noreply, socket |> assign(expanded_eval: nil) |> reload_sets(id)}
+  end
+
+  def handle_event("copy_set", %{"target-id" => target_id}, socket) do
+    case Evals.copy_set(socket.assigns.current_scope, socket.assigns.selected_set.id, target_id) do
+      {:ok, copied} ->
+        target = Enum.find(socket.assigns.copy_targets, &(&1.id == target_id))
+
+        {:noreply,
+         put_flash(
+           socket,
+           :info,
+           "Copied to \"#{(target && target.name) || "flux"}\" as \"#{copied.name}\"."
+         )}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not copy the set.")}
+    end
   end
 
   def handle_event("delete_set", %{"id" => id}, socket) do
@@ -354,6 +372,19 @@ defmodule FluxWeb.ConsoleLive.FluxEvals do
               title="Runs against the latest published version on this cron schedule; blank clears it."
             />
             <button class="btn btn-ghost btn-sm">Schedule</button>
+          </form>
+          <form
+            :if={@selected_set != nil and @copy_targets != []}
+            phx-submit="copy_set"
+            class="flex items-center gap-1"
+            id="copy-set-form"
+          >
+            <select name="target-id" class="select select-bordered select-sm w-40">
+              <option :for={flux <- @copy_targets} value={flux.id}>{flux.name}</option>
+            </select>
+            <button class="btn btn-ghost btn-sm" title="Copy this set and its cases to another flux">
+              Copy to
+            </button>
           </form>
           <button
             :if={@selected_set}

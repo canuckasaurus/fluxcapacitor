@@ -167,6 +167,33 @@ defmodule Flux.Evals do
     %{targets: targets, sets: scored_rows}
   end
 
+  @doc """
+  Copies a set (name + every case with weights) onto another flux —
+  golden cases stop getting rebuilt by hand when a flux is split.
+  """
+  def copy_set(%Scope{} = scope, set_id, target_workflow_id) do
+    with %EvalSet{} = set <- get_set(scope, set_id),
+         %Flux.Workflows.Workflow{} = target <-
+           Flux.Workflows.get_workflow(scope, target_workflow_id),
+         {:ok, copied} <-
+           create_set(scope, target, %{"name" => set.name <> " (copy)"}) do
+      for eval_case <- list_cases(scope, set.id) do
+        {:ok, _case} =
+          add_case(scope, copied, %{
+            "inputs" => eval_case.inputs,
+            "expected" => eval_case.expected,
+            "weight" => eval_case.weight
+          })
+      end
+
+      {:ok, copied}
+    else
+      nil -> {:error, :not_found}
+      {:error, reason} -> {:error, reason}
+      _missing -> {:error, :not_found}
+    end
+  end
+
   def delete_set(%Scope{} = scope, set_id) do
     with :ok <- RBAC.authorize(scope, :app_edit),
          %EvalSet{} = set <- get_set(scope, set_id) do
