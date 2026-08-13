@@ -1,0 +1,28 @@
+defmodule FluxWeb.SitePasscodeController do
+  @moduledoc """
+  Verifies a public-site passcode and remembers the pass in the signed
+  session cookie (`site_pass:<app_id>`), then sends the visitor back to
+  the site. Wrong codes bounce back with a flash the LiveView shows.
+  """
+  use FluxWeb, :controller
+
+  alias Flux.Chat
+
+  def verify(conn, %{"token" => token} = params) do
+    case Chat.get_app_by_site_token(token) do
+      {:ok, app} ->
+        if Chat.site_passcode_ok?(app, params["passcode"]) do
+          conn
+          |> put_session("site_pass:#{app.id}", true)
+          |> redirect(to: ~p"/site/#{token}")
+        else
+          conn
+          |> put_flash(:error, "That passcode didn't match.")
+          |> redirect(to: ~p"/site/#{token}")
+        end
+
+      _maintenance_or_missing ->
+        redirect(conn, to: ~p"/site/#{token}")
+    end
+  end
+end

@@ -13,63 +13,23 @@ defmodule FluxWeb.SiteLive.AppSite do
   @impl true
   def mount(%{"token" => token}, session, socket) do
     case Chat.get_app_by_site_token(token) do
+      # Passcode-protected sites challenge before anything loads; the
+      # controller-set session flag is the pass.
+      {:ok, %App{site_passcode_hash: hash} = app} when is_binary(hash) ->
+        if session["site_pass:#{app.id}"] == true do
+          mount_site(app, session, socket)
+        else
+          {:ok,
+           assign(socket,
+             page_title: app.name,
+             app: nil,
+             maintenance: nil,
+             locked: %{token: token, name: app.name}
+           )}
+        end
+
       {:ok, %App{} = app} ->
-        scope = Chat.site_scope(app)
-
-        end_user_ref =
-          session["site_visitor"] ||
-            "web_" <> Base.url_encode64(:crypto.strong_rand_bytes(9), padding: false)
-
-        # Returning visitors resume their last conversation (chat modes).
-        {conversation, messages} =
-          if app.mode in [:chat, :advanced_chat] do
-            case Chat.latest_conversation(scope, app.id, end_user_ref) do
-              nil ->
-                {nil, []}
-
-              conversation ->
-                messages =
-                  scope
-                  |> Chat.list_messages(conversation.id)
-                  |> Enum.filter(&(&1.status in [:completed, :error] or &1.role == :user))
-
-                {conversation, messages}
-            end
-          else
-            {nil, []}
-          end
-
-        # Human replies arrive on the conversation topic while the tab
-        # is open — the handoff loop closes live.
-        if connected?(socket) && conversation, do: Chat.subscribe_conversation(conversation.id)
-
-        {:ok,
-         socket
-         |> allow_upload(:image,
-           accept: ~w(.png .jpg .jpeg .gif .webp),
-           max_entries: 3,
-           max_file_size: 15_000_000
-         )
-         |> assign(
-           page_title: app.name,
-           # Shared links unfurl with the app's identity, not the platform's.
-           page_meta: %{
-             title: app.site_theme["title"] || app.name,
-             description: app.description || "Chat with #{app.name}",
-             image: app.site_theme["logo_url"],
-             favicon: app.site_theme["logo_url"]
-           },
-           app: app,
-           visitor_ip: FluxWeb.SiteRateLimit.visitor_ip(socket),
-           site_scope: scope,
-           end_user_ref: end_user_ref,
-           conversation: conversation,
-           conversations: Chat.visitor_conversations(scope, app.id, end_user_ref),
-           messages: messages,
-           followups: [],
-           streaming_id: nil,
-           streaming_text: ""
-         )}
+        mount_site(app, session, socket)
 
       {:error, {:maintenance, app}} ->
         {:ok,
@@ -87,6 +47,65 @@ defmodule FluxWeb.SiteLive.AppSite do
       {:error, :not_found} ->
         {:ok, assign(socket, page_title: "Not found", app: nil, maintenance: nil)}
     end
+  end
+
+  defp mount_site(app, session, socket) do
+    scope = Chat.site_scope(app)
+
+    end_user_ref =
+      session["site_visitor"] ||
+        "web_" <> Base.url_encode64(:crypto.strong_rand_bytes(9), padding: false)
+
+    # Returning visitors resume their last conversation (chat modes).
+    {conversation, messages} =
+      if app.mode in [:chat, :advanced_chat] do
+        case Chat.latest_conversation(scope, app.id, end_user_ref) do
+          nil ->
+            {nil, []}
+
+          conversation ->
+            messages =
+              scope
+              |> Chat.list_messages(conversation.id)
+              |> Enum.filter(&(&1.status in [:completed, :error] or &1.role == :user))
+
+            {conversation, messages}
+        end
+      else
+        {nil, []}
+      end
+
+    # Human replies arrive on the conversation topic while the tab
+    # is open — the handoff loop closes live.
+    if connected?(socket) && conversation, do: Chat.subscribe_conversation(conversation.id)
+
+    {:ok,
+     socket
+     |> allow_upload(:image,
+       accept: ~w(.png .jpg .jpeg .gif .webp),
+       max_entries: 3,
+       max_file_size: 15_000_000
+     )
+     |> assign(
+       page_title: app.name,
+       # Shared links unfurl with the app's identity, not the platform's.
+       page_meta: %{
+         title: app.site_theme["title"] || app.name,
+         description: app.description || "Chat with #{app.name}",
+         image: app.site_theme["logo_url"],
+         favicon: app.site_theme["logo_url"]
+       },
+       app: app,
+       visitor_ip: FluxWeb.SiteRateLimit.visitor_ip(socket),
+       site_scope: scope,
+       end_user_ref: end_user_ref,
+       conversation: conversation,
+       conversations: Chat.visitor_conversations(scope, app.id, end_user_ref),
+       messages: messages,
+       followups: [],
+       streaming_id: nil,
+       streaming_text: ""
+     )}
   end
 
   @impl true
@@ -319,6 +338,32 @@ defmodule FluxWeb.SiteLive.AppSite do
   end
 
   @impl true
+  def render(%{app: nil, locked: %{}} = assigns) do
+    ~H"""
+    <main class="min-h-screen flex items-center justify-center p-6" id="site-passcode">
+      <div class="text-center space-y-3 w-full max-w-xs">
+        <.icon name="hero-lock-closed" class="size-10 opacity-40 mx-auto" />
+        <h1 class="font-semibold text-lg">{@locked.name}</h1>
+        <p class="text-sm opacity-70">This app is passcode-protected.</p>
+        <p :if={error = Phoenix.Flash.get(@flash, :error)} class="text-sm text-error">{error}</p>
+        <form action={~p"/site/#{@locked.token}/passcode"} method="post" class="space-y-2">
+          <input type="hidden" name="_csrf_token" value={Phoenix.Controller.get_csrf_token()} />
+          <input
+            type="password"
+            name="passcode"
+            placeholder="Passcode"
+            autocomplete="off"
+            class="input input-bordered w-full"
+            required
+            autofocus
+          />
+          <button class="btn btn-primary w-full">Enter</button>
+        </form>
+      </div>
+    </main>
+    """
+  end
+
   def render(%{app: nil, maintenance: %{}} = assigns) do
     ~H"""
     <main class="min-h-screen flex items-center justify-center p-6" id="site-maintenance">

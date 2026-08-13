@@ -478,6 +478,21 @@ defmodule FluxWeb.ConsoleLive.AppChat do
     end
   end
 
+  def handle_event("set_site_passcode", %{"passcode" => passcode}, socket) do
+    case Chat.set_site_passcode(socket.assigns.current_scope, socket.assigns.app, passcode) do
+      {:ok, app} ->
+        info =
+          if app.site_passcode_hash,
+            do: "Passcode set — visitors are asked once per browser session.",
+            else: "Passcode removed — the site is open again."
+
+        {:noreply, socket |> put_flash(:info, info) |> assign(app: app)}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not update the passcode.")}
+    end
+  end
+
   def handle_event("create-token", params, socket) do
     expires_in_days =
       case Integer.parse(to_string(params["lifetime"] || "")) do
@@ -485,8 +500,15 @@ defmodule FluxWeb.ConsoleLive.AppChat do
         _perpetual -> nil
       end
 
+    rate_limit =
+      case Integer.parse(to_string(params["rate_limit"] || "")) do
+        {n, ""} when n > 0 -> n
+        _default -> nil
+      end
+
     case Chat.create_api_token(socket.assigns.current_scope, socket.assigns.app,
-           expires_in_days: expires_in_days
+           expires_in_days: expires_in_days,
+           rate_limit_per_minute: rate_limit
          ) do
       {:ok, _token, raw} ->
         {:noreply,
@@ -1261,6 +1283,27 @@ defmodule FluxWeb.ConsoleLive.AppChat do
             </label>
             <button class="btn btn-primary btn-sm">Save theme</button>
           </form>
+          <form
+            phx-submit="set_site_passcode"
+            id="site-passcode-form"
+            class="flex items-end gap-2 flex-wrap border-t border-base-200 pt-3"
+          >
+            <label class="form-control">
+              <span class="label-text text-xs opacity-70 mb-1">
+                Passcode {(@app.site_passcode_hash && "(set)") || "(off)"}
+              </span>
+              <input
+                type="text"
+                name="passcode"
+                placeholder={(@app.site_passcode_hash && "leave blank to remove") || "optional"}
+                autocomplete="off"
+                class="input input-bordered input-sm w-44"
+              />
+            </label>
+            <button class="btn btn-sm">
+              {(@app.site_passcode_hash && "Update passcode") || "Set passcode"}
+            </button>
+          </form>
         </div>
       </div>
 
@@ -1274,6 +1317,15 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               <option value="90">Expires in 90 days</option>
               <option value="365">Expires in 1 year</option>
             </select>
+            <input
+              type="number"
+              name="rate_limit"
+              min="1"
+              max="10000"
+              placeholder="req/min"
+              title="Optional per-key rate limit; blank uses the app or pipeline default"
+              class="input input-bordered input-sm w-28"
+            />
             <button class="btn btn-sm">Create key</button>
           </form>
         </div>

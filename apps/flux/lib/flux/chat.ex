@@ -136,6 +136,42 @@ defmodule Flux.Chat do
     end
   end
 
+  @doc """
+  Sets (or with a blank passcode clears) the passcode gate on the app's
+  public site. Visitors enter it once per browser session.
+  """
+  def set_site_passcode(%Scope{} = scope, %App{} = app, passcode) do
+    with :ok <- RBAC.authorize(scope, :app_create_and_management),
+         true <- app.workspace_id == Scope.workspace_id(scope) || {:error, :not_found} do
+      hash =
+        case String.trim(to_string(passcode)) do
+          "" -> nil
+          passcode -> hash_passcode(passcode)
+        end
+
+      with {:ok, updated} <-
+             app |> Ecto.Changeset.change(site_passcode_hash: hash) |> Repo.update() do
+        Flux.Audit.record(scope, "app.site_passcode",
+          resource: app,
+          metadata: %{"set" => hash != nil}
+        )
+
+        {:ok, updated}
+      end
+    end
+  end
+
+  @doc "Whether the visitor-typed passcode opens this app's site."
+  def site_passcode_ok?(%App{site_passcode_hash: hash}, passcode) when is_binary(hash) do
+    :crypto.hash_equals(hash, hash_passcode(String.trim(to_string(passcode))))
+  end
+
+  def site_passcode_ok?(_app, _passcode), do: false
+
+  defp hash_passcode(passcode) do
+    :sha256 |> :crypto.hash(passcode) |> Base.encode16(case: :lower)
+  end
+
   @doc "Resolves a public site token to its app; the token is the authorization."
   def get_app_by_site_token("site_" <> _rest = token) do
     case Repo.get_by(App, [site_token: token], skip_workspace_guard: true) do
@@ -707,7 +743,9 @@ defmodule Flux.Chat do
 
     # Untitled conversations take their first question as the title
     # (manual renames are never overwritten).
-    if conversation.title in [nil, ""] do
+    first_exchange? = conversation.title in [nil, ""]
+
+    if first_exchange? do
       from(c in Conversation,
         where: c.id == ^conversation.id and c.workspace_id == ^workspace_id and is_nil(c.title)
       )
@@ -736,9 +774,53 @@ defmodule Flux.Chat do
         else
           generate(app, history, assistant_message)
         end
+
+        # After the first reply lands, upgrade the truncated-question
+        # title to a model-written one (best effort, never blocking the
+        # reply itself).
+        if first_exchange?, do: auto_title(workspace_id, conversation.id, content)
       end)
 
     {:ok, user_message, assistant_message}
+  end
+
+  # Replaces the derived first-question title with a short LLM-written
+  # one — but only while the title still IS the derived one, so a manual
+  # rename in the meantime wins. No model (or a failed call) keeps the
+  # derived title; tests inject `config :flux, :title_generator`.
+  defp auto_title(workspace_id, conversation_id, first_message) do
+    generator =
+      Application.get_env(:flux, :title_generator) ||
+        fn content ->
+          prompt = """
+          Write a short title (3 to 6 words, no quotes, no trailing
+          punctuation) for a conversation that starts with this message:
+
+          #{String.slice(content, 0, 2_000)}
+          """
+
+          case Flux.Workflows.invoke_default_llm_for_workspace(workspace_id, [
+                 %{role: :user, content: prompt}
+               ]) do
+            {:ok, title} when is_binary(title) -> title
+            _error_or_no_model -> nil
+          end
+        end
+
+    with title when is_binary(title) <- generator.(first_message),
+         title = title |> String.trim() |> String.trim("\"") |> String.slice(0, 80),
+         false <- title == "" do
+      derived = derive_title(first_message)
+
+      from(c in Conversation,
+        where:
+          c.id == ^conversation_id and c.workspace_id == ^workspace_id and
+            c.title == ^derived
+      )
+      |> Repo.update_all(set: [title: title])
+    end
+
+    :ok
   end
 
   @doc """
@@ -1351,7 +1433,8 @@ defmodule Flux.Chat do
           app_id: app.id,
           token_hash: :crypto.hash(:sha256, raw),
           prefix: String.slice(raw, 0, 12) <> "…",
-          expires_at: token_expiry(opts[:expires_in_days])
+          expires_at: token_expiry(opts[:expires_in_days]),
+          rate_limit_per_minute: token_rate_limit(opts[:rate_limit_per_minute])
         })
 
       Flux.Audit.record(scope, "api_token.create",
@@ -1368,6 +1451,12 @@ defmodule Flux.Chat do
 
   def token_expiry(days) when is_integer(days) and days > 0,
     do: DateTime.add(DateTime.utc_now(:second), days, :day)
+
+  @doc false
+  def token_rate_limit(limit) when is_integer(limit) and limit > 0 and limit <= 10_000,
+    do: limit
+
+  def token_rate_limit(_off_or_invalid), do: nil
 
   @doc false
   def token_expired?(%ApiToken{expires_at: nil}), do: false
@@ -1410,7 +1499,8 @@ defmodule Flux.Chat do
           workspace_id: Scope.workspace_id(scope),
           token_hash: :crypto.hash(:sha256, raw),
           prefix: String.slice(raw, 0, 11) <> "…",
-          expires_at: token_expiry(opts[:expires_in_days])
+          expires_at: token_expiry(opts[:expires_in_days]),
+          rate_limit_per_minute: token_rate_limit(opts[:rate_limit_per_minute])
         })
 
       Flux.Audit.record(scope, "api_token.create",

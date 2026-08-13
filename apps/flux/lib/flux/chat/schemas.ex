@@ -35,6 +35,9 @@ defmodule Flux.Chat.App do
     field :site_theme, :map, default: %{}
     field :site_token, :string
     field :site_enabled, :boolean, default: false
+    # Optional gate on the public site: visitors enter the passcode once
+    # per session. Set via Chat.set_site_passcode/3, never cast.
+    field :site_passcode_hash, :string, redact: true
     field :deleted_at, :utc_datetime
 
     timestamps(type: :utc_datetime)
@@ -193,6 +196,8 @@ defmodule Flux.Chat.ApiToken do
     field :last_used_at, :utc_datetime
     # NULL = perpetual — both lifetimes are first-class choices.
     field :expires_at, :utc_datetime
+    # NULL = the app/pipeline default; set, it caps THIS key's requests.
+    field :rate_limit_per_minute, :integer
 
     timestamps(type: :utc_datetime)
   end
