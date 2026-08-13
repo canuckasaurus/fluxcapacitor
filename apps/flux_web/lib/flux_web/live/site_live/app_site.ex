@@ -407,6 +407,9 @@ defmodule FluxWeb.SiteLive.AppSite do
             alt=""
             class="h-9 w-9 rounded object-contain"
           />
+          <span :if={@app.icon && !@app.site_theme["logo_url"]} class="text-3xl" aria-hidden="true">
+            {@app.icon}
+          </span>
           <div>
             <h1 class="text-xl font-bold">{@app.site_theme["title"] || @app.name}</h1>
             <p :if={@app.description} class="text-sm opacity-70">{@app.description}</p>

@@ -1416,6 +1416,51 @@ defmodule Flux.Chat do
     end
   end
 
+  @doc "Flips a message's pin. Pinned messages surface in the console strip."
+  def toggle_pin_message(%Scope{} = scope, message_id) do
+    case Repo.one(Repo.scoped(where(Message, id: ^message_id), scope)) do
+      nil ->
+        {:error, :not_found}
+
+      message ->
+        message |> Ecto.Changeset.change(pinned: not message.pinned) |> Repo.update()
+    end
+  end
+
+  @doc "The conversation's pinned messages, oldest first."
+  def pinned_messages(%Scope{} = scope, conversation_id) do
+    Message
+    |> Repo.scoped(scope)
+    |> where([m], m.conversation_id == ^conversation_id and m.pinned)
+    |> order_by([m], asc: m.seq)
+    |> Repo.all()
+  end
+
+  @doc """
+  Every completed message of every live (non-trashed) conversation of the
+  app, flattened for the monitor's bulk CSV export — newest conversation
+  first, messages in order within it. Capped at 10k rows.
+  """
+  def conversations_csv_rows(%Scope{} = scope, app_id) do
+    Message
+    |> Repo.scoped(scope)
+    |> join(:inner, [m], c in Conversation, on: m.conversation_id == c.id)
+    |> where([m, c], c.app_id == ^app_id and is_nil(c.deleted_at))
+    |> where([m], m.status in [:completed, :stopped])
+    |> order_by([m, c], desc: c.inserted_at, asc: m.seq)
+    |> limit(10_000)
+    |> select([m, c], %{
+      conversation_id: c.id,
+      title: c.title,
+      end_user_ref: c.end_user_ref,
+      role: m.role,
+      content: m.content,
+      feedback: m.feedback,
+      inserted_at: m.inserted_at
+    })
+    |> Repo.all()
+  end
+
   ## API tokens
 
   @doc """
@@ -1645,7 +1690,11 @@ defmodule Flux.Chat do
     request = %Flux.Plugin.ModelProvider.Request{
       model: app.model,
       messages: inject_summary(build_prompt(app, history), summary),
-      params: atomize_params(app.params)
+      params:
+        Map.merge(
+          Flux.Accounts.default_model_params(app.workspace_id),
+          atomize_params(app.params)
+        )
     }
 
     emit = fn %{delta: delta} ->
@@ -2066,7 +2115,11 @@ defmodule Flux.Chat do
     request = %Flux.Plugin.ModelProvider.Request{
       model: app.model,
       messages: messages,
-      params: atomize_params(app.params),
+      params:
+        Map.merge(
+          Flux.Accounts.default_model_params(app.workspace_id),
+          atomize_params(app.params)
+        ),
       # OpenAI-compat function calling: caller-supplied tool definitions
       # pass straight through; any tool_calls come back on the result.
       tools: Keyword.get(opts, :tools, [])

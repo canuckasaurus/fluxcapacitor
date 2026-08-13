@@ -280,7 +280,9 @@ defmodule FluxWeb.ConsoleLive.Apps do
           id={"app-#{app.id}"}
         >
           <div class="flex items-start justify-between">
-            <h2 class="font-semibold">{app.name}</h2>
+            <h2 class="font-semibold">
+              <span :if={app.icon} class="mr-1">{app.icon}</span>{app.name}
+            </h2>
             <button
               :if={@can_create}
               class="btn btn-ghost btn-xs text-error"

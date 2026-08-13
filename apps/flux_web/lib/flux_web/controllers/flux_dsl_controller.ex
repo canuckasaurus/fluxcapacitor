@@ -353,6 +353,33 @@ defmodule FluxWeb.FluxDslController do
 
               {[["day", "messages", "input_tokens", "output_tokens"] | rows], "usage"}
 
+            "conversations" ->
+              rows =
+                for row <- Flux.Chat.conversations_csv_rows(scope, app.id) do
+                  [
+                    row.conversation_id,
+                    row.title || "",
+                    row.end_user_ref || "",
+                    to_string(row.role),
+                    row.content,
+                    to_string(row.feedback || ""),
+                    Calendar.strftime(row.inserted_at, "%Y-%m-%d %H:%M:%S")
+                  ]
+                end
+
+              {[
+                 [
+                   "conversation_id",
+                   "title",
+                   "end_user_ref",
+                   "role",
+                   "content",
+                   "feedback",
+                   "at"
+                 ]
+                 | rows
+               ], "conversations"}
+
             _feedback ->
               rows =
                 for %{message: message, question: question} <-

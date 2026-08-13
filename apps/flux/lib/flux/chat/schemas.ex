@@ -12,6 +12,8 @@ defmodule Flux.Chat.App do
 
     field :name, :string
     field :description, :string
+    # A short emoji avatar for console cards and the site header.
+    field :icon, :string
     field :mode, Ecto.Enum, values: [:chat, :completion, :advanced_chat], default: :chat
     belongs_to :workflow, Flux.Workflows.Workflow
     field :provider_plugin_id, :string
@@ -48,6 +50,7 @@ defmodule Flux.Chat.App do
     |> cast(attrs, [
       :name,
       :description,
+      :icon,
       :mode,
       :workflow_id,
       :provider_plugin_id,
@@ -78,6 +81,7 @@ defmodule Flux.Chat.App do
     )
     |> validate_required([:name])
     |> validate_length(:name, min: 1, max: 255)
+    |> validate_length(:icon, max: 16)
     |> validate_mode_requirements()
   end
 
@@ -142,6 +146,9 @@ defmodule Flux.Chat.Message do
     field :citations, {:array, :map}, default: []
     field :files, {:array, :map}, default: []
     field :feedback, Ecto.Enum, values: [:like, :dislike]
+    # Console-side bookmark: pinned messages surface in a strip above
+    # the thread for quick reference.
+    field :pinned, :boolean, default: false
 
     timestamps(type: :utc_datetime)
   end

@@ -193,6 +193,22 @@ defmodule FluxWeb.ConsoleLive.AppChat do
     {:noreply, socket}
   end
 
+  def handle_event("toggle_pin", %{"id" => message_id}, socket) do
+    case Chat.toggle_pin_message(socket.assigns.current_scope, message_id) do
+      {:ok, updated} ->
+        messages =
+          Enum.map(socket.assigns.messages, fn
+            %{id: id} when id == updated.id -> updated
+            message -> message
+          end)
+
+        {:noreply, assign(socket, messages: messages)}
+
+      _error ->
+        {:noreply, socket}
+    end
+  end
+
   def handle_event("regenerate", _params, socket) do
     scope = socket.assigns.current_scope
 
@@ -434,6 +450,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
       end
 
     case Chat.update_app(scope, socket.assigns.app, %{
+           "icon" => presence(params["icon"]),
            "opening_statement" => params["opening_statement"],
            "suggested_questions" => questions,
            "daily_token_limit" => presence(params["daily_token_limit"]),
@@ -462,7 +479,9 @@ defmodule FluxWeb.ConsoleLive.AppChat do
       %{
         "accent" => presence(params["accent"]),
         "title" => presence(params["title"]),
-        "logo_url" => presence(params["logo_url"])
+        "logo_url" => presence(params["logo_url"]),
+        "bubble_position" => (params["bubble_position"] == "left" && "left") || nil,
+        "bubble_greeting" => presence(params["bubble_greeting"])
       }
       |> Enum.reject(fn {_key, value} -> value == nil end)
       |> Map.new()
@@ -626,8 +645,21 @@ defmodule FluxWeb.ConsoleLive.AppChat do
     ~s(<iframe src="#{url(~p"/site/#{app.site_token}")}"\n  style="width: 100%; height: 640px; border: 0; border-radius: 12px;"\n  allow="clipboard-write"></iframe>)
   end
 
-  defp bubble_snippet(site_token) do
-    ~s(<script src="#{url(~p"/embed.js")}"\n  data-flux-site="#{url(~p"/site/#{site_token}")}" defer></script>)
+  # The snippet carries the app's theming so the on-page bubble matches
+  # the site: accent color, icon, corner, and an optional greeting tip.
+  defp bubble_snippet(app) do
+    attrs =
+      [
+        {"data-flux-site", url(~p"/site/#{app.site_token}")},
+        {"data-flux-color", app.site_theme["accent"]},
+        {"data-flux-icon", app.icon},
+        {"data-flux-position", app.site_theme["bubble_position"]},
+        {"data-flux-greeting", app.site_theme["bubble_greeting"]}
+      ]
+      |> Enum.reject(fn {_name, value} -> value in [nil, ""] end)
+      |> Enum.map_join("\n  ", fn {name, value} -> ~s(#{name}="#{value}") end)
+
+    ~s(<script src="#{url(~p"/embed.js")}"\n  #{attrs} defer></script>)
   end
 
   defp completion_output(messages) do
@@ -782,6 +814,31 @@ defmodule FluxWeb.ConsoleLive.AppChat do
         :if={@app.mode in [:chat, :advanced_chat]}
         class="card border border-base-200 p-6 space-y-4"
       >
+        <div
+          :if={Enum.any?(@messages, & &1.pinned)}
+          class="rounded-box border border-primary/30 bg-primary/5 p-3 space-y-1"
+          id="pinned-messages"
+        >
+          <p class="text-xs font-semibold opacity-70">
+            <.icon name="hero-bookmark" class="size-3 inline" /> Pinned
+          </p>
+          <div
+            :for={message <- Enum.filter(@messages, & &1.pinned)}
+            class="flex items-start gap-2 text-sm"
+            id={"pinned-#{message.id}"}
+          >
+            <span class="line-clamp-2 whitespace-pre-wrap">{message.content}</span>
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs ml-auto"
+              phx-click="toggle_pin"
+              phx-value-id={message.id}
+              aria-label="Unpin"
+            >
+              <.icon name="hero-x-mark" class="size-3" />
+            </button>
+          </div>
+        </div>
         <div id="chat-messages" class="space-y-3 max-h-[28rem] overflow-y-auto">
           <p :if={@messages == [] and @streaming_id == nil} class="text-sm opacity-60">
             Say something to start the conversation.
@@ -835,6 +892,17 @@ defmodule FluxWeb.ConsoleLive.AppChat do
                 aria-label="Regenerate this reply"
               >
                 <.icon name="hero-arrow-path" class="size-3" /> Regenerate
+              </button>
+              <button
+                type="button"
+                class="btn btn-ghost btn-xs"
+                phx-click="toggle_pin"
+                phx-value-id={message.id}
+                title={(message.pinned && "Unpin this reply") || "Pin this reply for quick reference"}
+                aria-label={(message.pinned && "Unpin this reply") || "Pin this reply"}
+              >
+                <.icon name="hero-bookmark" class={["size-3", message.pinned && "text-primary"]} />
+                {(message.pinned && "Unpin") || "Pin"}
               </button>
             </div>
             <div
@@ -965,6 +1033,19 @@ defmodule FluxWeb.ConsoleLive.AppChat do
       >
         <h2 class="font-semibold">Chat settings</h2>
         <form id="chat-settings-form" phx-submit="save_chat_settings" class="space-y-3">
+          <label class="form-control block">
+            <span class="label-text text-sm mb-1">
+              Icon (an emoji for the app card and site header)
+            </span>
+            <input
+              type="text"
+              name="icon"
+              value={@app.icon}
+              placeholder="⚡"
+              maxlength="16"
+              class="input input-bordered input-sm w-24"
+            />
+          </label>
           <label class="form-control block">
             <span class="label-text text-sm mb-1">
               Opening statement (shown before the first message)
@@ -1246,7 +1327,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
           <p class="text-xs opacity-60">Embed it on any page:</p>
           <pre class="rounded-box bg-base-200 p-3 text-xs overflow-x-auto">{embed_snippet(@app)}</pre>
           <p class="text-xs opacity-60">Or as a floating chat bubble:</p>
-          <pre class="rounded-box bg-base-200 p-3 text-xs overflow-x-auto">{bubble_snippet(@app.site_token)}</pre>
+          <pre class="rounded-box bg-base-200 p-3 text-xs overflow-x-auto">{bubble_snippet(@app)}</pre>
           <form
             phx-submit="save_theme"
             id="site-theme-form"
@@ -1279,6 +1360,28 @@ defmodule FluxWeb.ConsoleLive.AppChat do
                 value={@app.site_theme["logo_url"]}
                 placeholder="https://…/logo.png"
                 class="input input-bordered input-sm w-full"
+              />
+            </label>
+            <label class="form-control">
+              <span class="label-text text-xs opacity-70 mb-1">Bubble corner</span>
+              <select name="bubble_position" class="select select-bordered select-sm w-28">
+                <option value="right" selected={@app.site_theme["bubble_position"] != "left"}>
+                  right
+                </option>
+                <option value="left" selected={@app.site_theme["bubble_position"] == "left"}>
+                  left
+                </option>
+              </select>
+            </label>
+            <label class="form-control">
+              <span class="label-text text-xs opacity-70 mb-1">Bubble greeting (optional)</span>
+              <input
+                type="text"
+                name="bubble_greeting"
+                value={@app.site_theme["bubble_greeting"]}
+                placeholder="Hi! Need a hand?"
+                maxlength="120"
+                class="input input-bordered input-sm w-44"
               />
             </label>
             <button class="btn btn-primary btn-sm">Save theme</button>

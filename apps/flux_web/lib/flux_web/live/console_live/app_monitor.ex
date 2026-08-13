@@ -393,6 +393,13 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
           >
             <.icon name="hero-arrow-down-tray" class="size-4" /> Feedback CSV
           </.link>
+          <.link
+            href={~p"/console/apps/#{@app.id}/monitor-export?kind=conversations"}
+            class="btn btn-sm btn-ghost"
+            title="Every conversation's messages as CSV (up to 10k rows)"
+          >
+            <.icon name="hero-arrow-down-tray" class="size-4" /> Conversations CSV
+          </.link>
           <.link navigate={~p"/console/apps/#{@app.id}"} class="btn btn-sm btn-ghost">
             &larr; Back to app
           </.link>
