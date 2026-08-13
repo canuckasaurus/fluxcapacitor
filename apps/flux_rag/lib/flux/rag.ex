@@ -1255,22 +1255,46 @@ defmodule Flux.RAG do
       # contribute their own rankings to the RRF fusion.
       queries = [query | expand_query(scope, dataset, query)]
 
+      # Retrieval mode picks the sources; each ranking carries the
+      # weight its RRF contributions are scaled by. In hybrid mode
+      # `semantic_weight` skews the fusion (×2w semantic, ×2(1−w)
+      # keyword/entity — 0.5 or nil is plain RRF); single-source modes
+      # are always unweighted.
+      {semantic_scale, lexical_scale} =
+        case dataset.semantic_weight do
+          weight when is_float(weight) -> {2 * weight, 2 * (1.0 - weight)}
+          _neutral -> {1.0, 1.0}
+        end
+
       rankings =
         Enum.flat_map(queries, fn variant ->
-          [
-            semantic_hits(dataset, variant, top_k * 3),
-            keyword_hits(scope, dataset_id, variant, top_k * 3),
-            entity_hits(scope, dataset_id, variant, top_k * 3)
-          ]
+          case dataset.retrieval_mode do
+            :semantic ->
+              [{semantic_hits(dataset, variant, top_k * 3), 1.0}]
+
+            :keyword ->
+              [
+                {keyword_hits(scope, dataset_id, variant, top_k * 3), 1.0},
+                {entity_hits(scope, dataset_id, variant, top_k * 3), 1.0}
+              ]
+
+            _hybrid ->
+              [
+                {semantic_hits(dataset, variant, top_k * 3), semantic_scale},
+                {keyword_hits(scope, dataset_id, variant, top_k * 3), lexical_scale},
+                {entity_hits(scope, dataset_id, variant, top_k * 3), lexical_scale}
+              ]
+          end
         end)
 
       ranked =
         rankings
-        |> Enum.reduce(%{}, fn hits, acc ->
+        |> Enum.reduce(%{}, fn {hits, scale}, acc ->
           hits
           |> Enum.with_index(1)
           |> Enum.reduce(acc, fn {segment_id, rank}, acc ->
-            Map.update(acc, segment_id, 1 / (@rrf_k + rank), &(&1 + 1 / (@rrf_k + rank)))
+            contribution = scale / (@rrf_k + rank)
+            Map.update(acc, segment_id, contribution, &(&1 + contribution))
           end)
         end)
         |> Enum.sort_by(fn {_segment_id, score} -> score end, :desc)

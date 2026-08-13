@@ -18,6 +18,12 @@ defmodule Flux.RAG.Dataset do
     field(:split_markdown, :boolean, default: false)
     field(:parent_child, :boolean, default: false)
     field(:query_expansion, :boolean, default: false)
+    # How retrieve/4 ranks: :hybrid fuses semantic + keyword + entity
+    # rankings (RRF); the single-source modes skip the others entirely.
+    field(:retrieval_mode, Ecto.Enum, values: [:hybrid, :semantic, :keyword], default: :hybrid)
+    # Hybrid only: skews RRF contributions toward semantic (→1.0) or
+    # keyword/entity (→0.0). nil or 0.5 is the neutral fusion.
+    field(:semantic_weight, :float)
     field(:rerank_plugin_id, :string)
     field(:rerank_model, :string)
     field(:sync_plugin_id, :string)
@@ -50,6 +56,8 @@ defmodule Flux.RAG.Dataset do
       :split_markdown,
       :parent_child,
       :query_expansion,
+      :retrieval_mode,
+      :semantic_weight,
       :rerank_plugin_id,
       :rerank_model,
       :sync_plugin_id,
@@ -66,6 +74,10 @@ defmodule Flux.RAG.Dataset do
     |> validate_number(:sync_interval_minutes, greater_than_or_equal_to: 5)
     |> validate_number(:retrieval_top_k, greater_than_or_equal_to: 1, less_than_or_equal_to: 20)
     |> validate_number(:score_threshold,
+      greater_than_or_equal_to: 0.0,
+      less_than_or_equal_to: 1.0
+    )
+    |> validate_number(:semantic_weight,
       greater_than_or_equal_to: 0.0,
       less_than_or_equal_to: 1.0
     )

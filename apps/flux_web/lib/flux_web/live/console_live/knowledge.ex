@@ -711,6 +711,8 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
              "split_markdown" => params["split_markdown"] == "on",
              "parent_child" => params["parent_child"] == "on",
              "query_expansion" => params["query_expansion"] == "on",
+             "retrieval_mode" => params["retrieval_mode"],
+             "semantic_weight" => presence(params["semantic_weight"]),
              "retrieval_top_k" => params["retrieval_top_k"],
              "score_threshold" => params["score_threshold"],
              "entity_plugin_id" => entity_plugin,
@@ -972,6 +974,32 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                     title="Rephrase each query with the workspace model and fuse all rankings â€” better recall, one extra model call per retrieval"
                   /> <span class="text-xs opacity-70">rephrase queries</span>
                 </label>
+              </label>
+              <label class="form-control">
+                <span class="label-text text-xs opacity-70 mb-1">Retrieval mode</span>
+                <select name="retrieval_mode" class="select select-bordered select-sm w-40">
+                  <option
+                    :for={mode <- ~w(hybrid semantic keyword)}
+                    value={mode}
+                    selected={to_string(@selected.retrieval_mode) == mode}
+                  >
+                    {mode}
+                  </option>
+                </select>
+              </label>
+              <label class="form-control">
+                <span class="label-text text-xs opacity-70 mb-1">Semantic weight (0 to 1)</span>
+                <input
+                  type="number"
+                  name="semantic_weight"
+                  value={@selected.semantic_weight}
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  placeholder="0.5"
+                  title="Hybrid mode only: skew fusion toward semantic (1.0) or keyword (0.0) rankings; blank is the neutral fusion"
+                  class="input input-bordered input-sm w-28"
+                />
               </label>
               <label class="form-control">
                 <span class="label-text text-xs opacity-70 mb-1">Top K (default 4)</span>
