@@ -1225,3 +1225,34 @@ Windows toolchain stays 1.16 (installer-based, needs the GUI
 installer — flagged blocked-on-user); mix.exs keeps ~> 1.16 so both
 build. One migration (auto_retry + retry_of_id). The bench holds:
 custom domains, Japanese, 2FA.
+
+**55. Batch 31 — retrieval dials and the security batch.** Two
+proposal items dissolved on grep contact — hybrid retrieval and
+annotation auto-reply both already existed (keyword_hits was
+full-text ts_rank all along; match_annotation already
+embedding-matches) — so the real gaps shipped instead. **Retrieval
+modes** (datasets pick hybrid/semantic/keyword; hybrid takes a
+semantic_weight that scales RRF contributions ×2w vs ×2(1−w) — 0.5 is
+plain RRF — and the full-text source got a GIN expression index
+matching keyword_hits exactly); **TOTP 2FA** (NimbleTOTP + eqrcode:
+settings-page enrollment with QR + manual key, confirm-to-enable,
+eight hashed one-time recovery codes, password logins park in the
+session as totp_pending and detour through /accounts/totp — magic
+link and SSO stay direct); **site passcodes** (sha256 hash on the
+app, a locked LiveView gate posting to a session-setting controller,
+asked once per browser session); **conversation auto-titles** (after
+the first exchange the workspace model writes 3-6 words; update_all
+guarded on title == derived so manual renames win; tests inject
+:title_generator); **/v1/moderations** (OpenAI shape over
+Guardrails.review — patterns + LLM policy as the category set);
+**per-key rate limits** (api_tokens.rate_limit_per_minute, its own
+token: bucket, key > app > pipeline default precedence, input on all
+three mint forms); **run comments** (run_comments tenant table,
+author-or-owner delete, inline on the runs drill-in); **workspace IP
+allowlist** (Flux.IPAllowlist parses CIDRs natively with Bitwise
+prefix compare; ServiceAuth 403s ip_forbidden and audits
+api.ip_rejected; configure refuses any unparseable line — a typo
+that allowed nobody would be a lockout). One migration (datasets
+mode/weight, accounts totp trio, apps passcode, api_tokens limit,
+run_comments, the GIN index). 940 tests. The bench holds: custom
+domains, Japanese locale.

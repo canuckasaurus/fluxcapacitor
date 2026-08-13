@@ -70,8 +70,9 @@ orchestrator, no queue infrastructure beyond Postgres.
   I/O, per-node timings and tokens aligned by node), any node can
   **replay a finished run from that point** — upstream outputs are
   reused, not re-paid — batches **retry only their failed rows**, runs
-  are **text-searchable** by content and **export as JSONL** with full
-  per-node traces, deterministic nodes opt into **output caching**
+  are **text-searchable** by content, **export as JSONL** with full
+  per-node traces, and carry **team comments** (author + timestamp,
+  right in the run drill-in), deterministic nodes opt into **output caching**
   (`cache_minutes` skips identical calls), webhooks keep a **delivery
   log** with manual retry, and `FLUX_ADMIN_EMAILS` unlocks an
   **instance admin panel** with a **per-provider health table** (calls,
@@ -159,9 +160,13 @@ orchestrator, no queue infrastructure beyond Postgres.
   threads** (titles and message bodies), and **renames or deletes**
   them from the switcher, same as public sites do for visitors.
   Published sites carry **OpenGraph/meta tags and a favicon** from the
-  app's theme, so shared links unfurl with the app's identity. API
+  app's theme, so shared links unfurl with the app's identity, and can
+  be **passcode-protected** (asked once per browser session).
+  Conversations get **model-written titles** after the first exchange
+  (manual renames always win). API
   tokens are **perpetual or expiring by choice** (30/90/365 days),
-  show **expiry and last-used**, revoke in one click, and expired ones
+  show **expiry and last-used**, revoke in one click, carry an
+  optional **per-key rate limit**, and expired ones
   answer `401 token_expired` — with **workspace-level `ws-` keys**
   (minted on the settings page) alongside per-app and per-flux ones.
   Apps and fluxes **duplicate in one click** (config and draft graph
@@ -197,8 +202,10 @@ orchestrator, no queue infrastructure beyond Postgres.
   copy-pasteable curl example per endpoint** — sits alongside the
   guides at /console/docs.
 - **Knowledge (RAG)** — datasets → documents → embedded segments, hybrid
-  retrieval (vector cosine + Postgres full-text + **entity mentions**, merged
-  by reciprocal rank fusion), optional reranking, URL ingestion (with a
+  retrieval (vector cosine + GIN-indexed Postgres full-text + **entity
+  mentions**, merged by reciprocal rank fusion — with per-dataset
+  **retrieval modes** and a **semantic weight** to skew or single-source
+  the fusion), optional reranking, URL ingestion (with a
   **depth-1 crawl** of same-site links, and **remembered sources
   re-fetched nightly** — or on demand with a **fetch-now button** —
   replacing their documents in place), **PDF and
@@ -260,8 +267,12 @@ orchestrator, no queue infrastructure beyond Postgres.
   append-only audit trail (**date-filterable, exports as CSV**),
   workspace export/import archives with a **rehearsed restore
   runbook** (plus `mix flux.backup` dumping **every workspace's
-  archive** in one cron-ready task), and per-account **session management** (see every signed-in
-  device **with its IP and browser**, revoke one, or log out everywhere).
+  archive** in one cron-ready task), per-account **session management** (see every signed-in
+  device **with its IP and browser**, revoke one, or log out everywhere),
+  **TOTP two-factor authentication** (QR enrollment, one-time recovery
+  codes, a code challenge on password logins), a **workspace API IP
+  allowlist** (CIDRs gating all of `/v1`, rejections audited), and
+  **per-key rate limits** on any API key.
   A one-click **visitor forget** hard-deletes everything an
   `end_user_ref` ever sent — and visitors **download their own
   transcript** right from the public chat — conversations, messages, uploads — with an
@@ -477,7 +488,7 @@ scratch drive, and a labeling project wired to the Model trainer flux
 ## Testing
 
 ```bash
-mix test                             # full umbrella suite (~720 tests), hermetic
+mix test                             # full umbrella suite (~940 tests), hermetic
 ```
 
 The suite runs with no network: providers stub through `Req.Test` or the

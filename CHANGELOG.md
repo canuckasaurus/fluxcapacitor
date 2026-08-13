@@ -7,6 +7,32 @@ at `docs/PARITY-PLAN.md`.
 
 ## Unreleased
 
+### Batch 31
+- Retrieval modes: datasets choose `hybrid` (default), `semantic`, or
+  `keyword` ranking, and hybrid takes an optional semantic weight that
+  skews the RRF fusion toward either side. The full-text source got a
+  GIN expression index so keyword ranking is an index scan.
+- TOTP two-factor authentication: enroll from account settings (QR code
+  + manual key), confirm with a first code, get eight one-time recovery
+  codes. Password logins detour through a code challenge; magic links
+  and SSO are unaffected (the IdP owns those factors).
+- Site passcodes: a public app site can require a passcode once per
+  browser session — softer than turning the site off, stronger than
+  security-by-URL.
+- Conversation auto-titles: after the first exchange the workspace
+  model writes a short title, replacing the truncated first question
+  (manual renames always win; no model keeps the old behavior).
+- OpenAI-compatible `POST /v1/moderations`: judges input against the
+  workspace guardrails (deny patterns + the LLM moderation policy) and
+  answers in the OpenAI moderation shape.
+- Per-key rate limits: any API key can carry its own requests/minute
+  cap (its own bucket, shown in the key tables); key limit beats app
+  limit beats pipeline default.
+- Run comments: team notes on any workflow run from the runs page —
+  author, timestamp, author-or-owner delete.
+- Workspace IP allowlist: optional CIDR list gating the entire `/v1`
+  service API; rejected calls get 403 and land in the audit trail.
+
 ### Breaking
 - The model-registry API moved from `GET/POST /v1/models` to
   `GET/POST /v1/registry/models`. `GET /v1/models` now answers in

@@ -108,7 +108,10 @@ when the model can't comply; `json_object` injects an instruction).
 The two cannot be combined on one request, and chatflow apps refuse
 both — their flux runs its own tools. `GET /v1/models` lists provider
 models (the app's bound model first) for SDK autodiscovery, and
-`POST /v1/embeddings` covers embedding models.
+`POST /v1/embeddings` covers embedding models. `POST /v1/moderations`
+answers in the OpenAI moderation shape, judged by the workspace
+guardrails (deny patterns + the LLM moderation policy) — the
+simplified category set is `pattern` and `policy`.
 
 ## Status page
 
@@ -157,6 +160,29 @@ Point the IdP at `<base>/sso/sp/metadata/idp` for SP metadata; it
 POSTs assertions to `<base>/sso/sp/consume/idp`. The email attribute
 (`email`, `mail`, the OID form, or the XML-SOAP claim — the subject as
 a fallback) provisions or resolves an account exactly like OIDC.
+
+## Account security
+
+- **TOTP 2FA**: every account can enroll from Account settings — scan
+  the QR (or type the base32 key) into any authenticator app, confirm
+  with a first code, and store the eight one-time recovery codes.
+  Password logins then detour through a code challenge; magic-link,
+  OIDC, and SAML logins are unaffected (those factors belong to the
+  mailbox/IdP). Turning 2FA off discards the secret and codes.
+- **API IP allowlist** (Settings → API IP allowlist): one address or
+  CIDR per line; when set, `/v1` calls from anywhere else answer 403
+  `ip_forbidden` even with a valid key, and the attempt lands in the
+  audit trail as `api.ip_rejected`. The check runs on the socket's
+  remote address — behind a reverse proxy, forward the client address
+  (or the list ends up describing your proxy).
+- **Per-key rate limits**: any API key (app, flux, or workspace kind)
+  can carry its own requests/minute cap, set when minting. A capped
+  key gets its own bucket; key limit beats the app's chat-settings
+  limit beats the pipeline default (60/min).
+- **Site passcodes**: a published app site can require a passcode
+  (App → Site → Passcode) — visitors enter it once per browser
+  session. It's a share-gate, not authentication: rotate it by saving
+  a new one, remove it by saving blank.
 
 ## Backups & retention
 
