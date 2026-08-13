@@ -797,6 +797,12 @@ defmodule Flux.RAG do
         for chunk <- Chunker.split(document.content || "", chunk_opts), do: {chunk, nil}
       end
 
+    # Q&A indexing rides the same parent-promotion rails: each chunk
+    # becomes one segment per generated question, with the original
+    # passage as parent_content. A chunk whose generation comes back
+    # empty stays as itself — indexing must not lose content.
+    pairs = if dataset.qa_indexing, do: qa_pairs(document.workspace_id, pairs), else: pairs
+
     case embed(dataset, Enum.map(pairs, fn {chunk, _parent} -> chunk end)) do
       {:ok, vectors} ->
         segments =
@@ -844,6 +850,45 @@ defmodule Flux.RAG do
 
         {:error, reason}
     end
+  end
+
+  # Q&A transform: up to three model-written questions per chunk, each
+  # becoming a {question, passage} pair. Best-effort per chunk — a
+  # failed or empty generation keeps the original pair. Tests inject
+  # `config :flux, :qa_generator`.
+  defp qa_pairs(workspace_id, pairs) do
+    generator =
+      Application.get_env(:flux, :qa_generator) ||
+        fn chunk ->
+          prompt = """
+          Write up to three standalone questions this passage answers —
+          questions a user might actually type. One per line, nothing else.
+
+          Passage:
+          #{String.slice(chunk, 0, 6_000)}
+          """
+
+          case Flux.Workflows.invoke_default_llm_for_workspace(workspace_id, [
+                 %{role: :user, content: prompt}
+               ]) do
+            {:ok, content} when is_binary(content) ->
+              content
+              |> String.split(~r/\r?\n/, trim: true)
+              |> Enum.map(&String.trim(String.trim(&1), "- "))
+              |> Enum.reject(&(&1 == "" or String.length(&1) > 500))
+              |> Enum.take(3)
+
+            _error_or_no_model ->
+              []
+          end
+        end
+
+    Enum.flat_map(pairs, fn {chunk, parent} ->
+      case generator.(chunk) do
+        [] -> [{chunk, parent}]
+        questions -> for question <- questions, do: {question, parent || chunk}
+      end
+    end)
   end
 
   # GraphRAG groundwork: every segment's extracted entities land in

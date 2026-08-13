@@ -711,6 +711,7 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
              "split_markdown" => params["split_markdown"] == "on",
              "parent_child" => params["parent_child"] == "on",
              "query_expansion" => params["query_expansion"] == "on",
+             "qa_indexing" => params["qa_indexing"] == "on",
              "retrieval_mode" => params["retrieval_mode"],
              "semantic_weight" => presence(params["semantic_weight"]),
              "retrieval_top_k" => params["retrieval_top_k"],
@@ -973,6 +974,18 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                     class="checkbox checkbox-xs"
                     title="Rephrase each query with the workspace model and fuse all rankings â€” better recall, one extra model call per retrieval"
                   /> <span class="text-xs opacity-70">rephrase queries</span>
+                </label>
+              </label>
+              <label class="form-control">
+                <span class="label-text text-xs opacity-70 mb-1">Q&amp;A indexing</span>
+                <label class="label cursor-pointer justify-start gap-2 py-1">
+                  <input
+                    type="checkbox"
+                    name="qa_indexing"
+                    checked={@selected.qa_indexing}
+                    class="checkbox checkbox-xs"
+                    title="Index model-generated questions instead of raw chunks — queries match questions better than prose; the original passage is what retrieval returns. Re-index to apply; one model call per chunk."
+                  /> <span class="text-xs opacity-70">index questions, return passages</span>
                 </label>
               </label>
               <label class="form-control">

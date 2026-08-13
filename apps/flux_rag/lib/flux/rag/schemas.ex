@@ -17,6 +17,10 @@ defmodule Flux.RAG.Dataset do
     field(:chunk_overlap, :integer, default: 120)
     field(:split_markdown, :boolean, default: false)
     field(:parent_child, :boolean, default: false)
+    # Q&A indexing: chunks become model-generated questions (embedded and
+    # full-text searched) whose parent_content is the original passage —
+    # queries match questions far better than prose.
+    field(:qa_indexing, :boolean, default: false)
     field(:query_expansion, :boolean, default: false)
     # How retrieve/4 ranks: :hybrid fuses semantic + keyword + entity
     # rankings (RRF); the single-source modes skip the others entirely.
@@ -55,6 +59,7 @@ defmodule Flux.RAG.Dataset do
       :chunk_overlap,
       :split_markdown,
       :parent_child,
+      :qa_indexing,
       :query_expansion,
       :retrieval_mode,
       :semantic_weight,
