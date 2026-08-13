@@ -196,6 +196,7 @@ defmodule FluxWeb.Router do
     pipe_through :api
 
     post "/webhook/:token", TriggerController, :webhook
+    post "/email/:token", TriggerController, :email
   end
 
   # SCIM 2.0 provisioning (IdP-driven); the bearer token names the workspace.

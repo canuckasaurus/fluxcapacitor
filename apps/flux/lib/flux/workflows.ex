@@ -865,6 +865,7 @@ defmodule Flux.Workflows do
             status: :running,
             source: Keyword.get(opts, :source, :draft),
             version: Keyword.get(opts, :version),
+            tags: normalize_run_tags(Keyword.get(opts, :tags, [])),
             inputs: inputs
           })
 
@@ -1261,6 +1262,12 @@ defmodule Flux.Workflows do
           )
       end
     end)
+    |> then(fn q ->
+      case String.trim(to_string(filters[:tag] || "")) do
+        "" -> q
+        tag -> where(q, [r], ^tag in r.tags)
+      end
+    end)
   end
 
   @doc "The workspace's fluxes as {name, id} options (runs page filter)."
@@ -1314,8 +1321,15 @@ defmodule Flux.Workflows do
          :ok <- owned(scope, workflow),
          :ok <- verify_trigger_plugin(workflow.workspace_id, attrs) do
       token =
-        if attrs["type"] in [:webhook, "webhook"] do
-          "wht_" <> Base.url_encode64(:crypto.strong_rand_bytes(18), padding: false)
+        cond do
+          attrs["type"] in [:webhook, "webhook"] ->
+            "wht_" <> Base.url_encode64(:crypto.strong_rand_bytes(18), padding: false)
+
+          attrs["type"] in [:email, "email"] ->
+            "emt_" <> Base.url_encode64(:crypto.strong_rand_bytes(18), padding: false)
+
+          true ->
+            nil
         end
 
       with {:ok, trigger} <-
@@ -1498,7 +1512,8 @@ defmodule Flux.Workflows do
     end
   end
 
-  def fetch_trigger_by_token("wht_" <> _rest = token) do
+  def fetch_trigger_by_token(<<prefix::binary-size(4), _rest::binary>> = token)
+      when prefix in ["wht_", "emt_"] do
     case Repo.get_by(Flux.Workflows.Trigger, [token: token], skip_workspace_guard: true) do
       %Flux.Workflows.Trigger{enabled: true} = trigger -> {:ok, trigger}
       _disabled_or_missing -> {:error, :not_found}
@@ -1594,6 +1609,28 @@ defmodule Flux.Workflows do
 
   def list_api_tokens(%Scope{} = scope, workflow_id) do
     ApiToken |> Repo.scoped(scope) |> where([t], t.workflow_id == ^workflow_id) |> Repo.all()
+  end
+
+  ## Run tags
+
+  @doc "Replaces a run's tags (normalized, capped at ten of fifty chars)."
+  def set_run_tags(%Scope{} = scope, run_id, tags) do
+    with :ok <- RBAC.authorize(scope, :app_log_and_annotation),
+         %WorkflowRun{} = run <- get_run(scope, run_id) do
+      run
+      |> Ecto.Changeset.change(tags: normalize_run_tags(tags))
+      |> Repo.update()
+    end
+  end
+
+  @doc false
+  def normalize_run_tags(tags) do
+    tags
+    |> List.wrap()
+    |> Enum.map(&(&1 |> to_string() |> String.trim()))
+    |> Enum.reject(&(&1 == "" or String.length(&1) > 50))
+    |> Enum.uniq()
+    |> Enum.take(10)
   end
 
   ## Run comments
@@ -2537,7 +2574,11 @@ defmodule Flux.Workflows do
     provider_request = %Flux.Plugin.ModelProvider.Request{
       model: request.model,
       messages: request.messages,
-      params: atomize_params(request.params),
+      params:
+        Map.merge(
+          Flux.Accounts.default_model_params(workspace_id),
+          atomize_params(request.params)
+        ),
       tools: tools
     }
 

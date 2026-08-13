@@ -203,6 +203,8 @@ defmodule Flux.Workflows.WorkflowRun do
     field :inputs, :map, default: %{}
     field :outputs, :map, default: %{}
     field :error, :string
+    # Free-form labels for filtering run history (manual or API-set).
+    field :tags, {:array, :string}, default: []
     field :node_executions, {:array, :map}, default: []
     field :elapsed_ms, :integer
     field :usage, :map, default: %{}

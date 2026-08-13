@@ -64,6 +64,7 @@ defmodule FluxWeb.ConsoleLive.Runs do
       |> put_filter(:from, parse_date(params["from"]))
       |> put_filter(:to, parse_date(params["to"]))
       |> put_filter(:q, String.trim(to_string(params["q"] || "")))
+      |> put_filter(:tag, String.trim(to_string(params["tag"] || "")))
 
     {:noreply,
      socket
@@ -84,6 +85,21 @@ defmodule FluxWeb.ConsoleLive.Runs do
        share_url: nil,
        run_comments: load_comments(socket, expanded)
      )}
+  end
+
+  def handle_event("set_tags", %{"run_id" => run_id, "tags" => tags_text}, socket) do
+    tags = tags_text |> to_string() |> String.split(",")
+
+    case Workflows.set_run_tags(socket.assigns.current_scope, run_id, tags) do
+      {:ok, _run} ->
+        {:noreply, load_runs(socket)}
+
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "You don't have permission to tag runs.")}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not save the tags.")}
+    end
   end
 
   def handle_event("post_comment", %{"run_id" => run_id, "body" => body}, socket) do
@@ -323,6 +339,14 @@ defmodule FluxWeb.ConsoleLive.Runs do
               value={@filters[:q]}
               placeholder="search inputs/outputs…"
               class="input input-bordered input-sm w-48"
+              phx-debounce="400"
+            />
+            <input
+              type="search"
+              name="tag"
+              value={@filters[:tag]}
+              placeholder="tag"
+              class="input input-bordered input-sm w-28"
               phx-debounce="400"
             />
           </form>
@@ -610,6 +634,24 @@ defmodule FluxWeb.ConsoleLive.Runs do
                         </tr>
                       </tbody>
                     </table>
+
+                    <form
+                      phx-submit="set_tags"
+                      id={"run-tags-form-#{run.id}"}
+                      class="flex gap-2 items-center flex-wrap"
+                    >
+                      <input type="hidden" name="run_id" value={run.id} />
+                      <span :for={tag <- run.tags} class="badge badge-outline badge-sm">{tag}</span>
+                      <input
+                        type="text"
+                        name="tags"
+                        value={Enum.join(run.tags, ", ")}
+                        placeholder="tags, comma-separated"
+                        autocomplete="off"
+                        class="input input-bordered input-xs w-56"
+                      />
+                      <button class="btn btn-ghost btn-xs">Save tags</button>
+                    </form>
 
                     <div
                       class="border-t border-base-300 pt-2 space-y-1 max-w-2xl"

@@ -34,6 +34,58 @@ defmodule FluxWeb.TriggerController do
     end
   end
 
+  @doc """
+  Inbound-mail trigger: `POST /triggers/email/:token` with a
+  Mailgun/SES-style form or JSON body. `from`/`sender`, `subject`, and
+  `body-plain`/`text`/`stripped-text` map to run inputs (the body doubles
+  as `query` so knowledge-flux starts work unmodified).
+  """
+  def email(conn, %{"token" => "emt_" <> _rest = token} = params) do
+    with {:ok, %{type: :email} = trigger} <- Workflows.fetch_trigger_by_token(token),
+         :ok <- verify_secret(conn, trigger),
+         {:ok, run} <- Workflows.run_from_trigger(trigger, email_inputs(params)) do
+      conn |> put_status(202) |> json(%{workflow_run_id: run.id, status: "running"})
+    else
+      {:ok, %{type: _not_email}} ->
+        conn |> put_status(404) |> json(%{code: "not_found", message: "Unknown trigger"})
+
+      {:error, :bad_secret} ->
+        conn
+        |> put_status(401)
+        |> json(%{code: "invalid_secret", message: "x-flux-token does not match"})
+
+      {:error, :not_found} ->
+        conn |> put_status(404) |> json(%{code: "not_found", message: "Unknown trigger"})
+
+      {:error, :not_published} ->
+        conn
+        |> put_status(400)
+        |> json(%{code: "workflow_not_published", message: "Publish this flux first"})
+
+      {:error, {:invalid_graph, errors}} ->
+        conn
+        |> put_status(400)
+        |> json(%{code: "invalid_graph", message: Enum.join(errors, "; ")})
+    end
+  end
+
+  def email(conn, _params) do
+    conn |> put_status(404) |> json(%{code: "not_found", message: "Unknown trigger"})
+  end
+
+  defp email_inputs(params) do
+    body =
+      params["body-plain"] || params["stripped-text"] || params["text"] ||
+        params["body"] || ""
+
+    %{
+      "from" => params["from"] || params["sender"] || "",
+      "subject" => params["subject"] || "",
+      "body" => body,
+      "query" => body
+    }
+  end
+
   # A configured trigger secret must arrive as x-flux-token (constant-time
   # compared); triggers without one keep the token-in-URL contract.
   defp verify_secret(conn, trigger) do

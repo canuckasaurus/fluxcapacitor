@@ -1,7 +1,9 @@
 defmodule Flux.Workflows.Trigger do
   @moduledoc """
   Starts published runs from the outside: `:webhook` (POST
-  /triggers/webhook/:token), `:schedule` (every `interval_minutes` or a
+  /triggers/webhook/:token), `:email` (POST /triggers/email/:token from
+  a Mailgun/SES-style inbound-mail webhook — from/subject/body become
+  inputs), `:schedule` (every `interval_minutes` or a
   cron expression), or `:plugin` (an installed trigger plugin polled
   every `interval_minutes`; each event it returns becomes one run). All
   scheduled/polled types are driven by `Flux.Workflows.ScheduleWorker`.
@@ -18,7 +20,7 @@ defmodule Flux.Workflows.Trigger do
     belongs_to :workspace, Flux.Accounts.Workspace
     belongs_to :workflow, Flux.Workflows.Workflow
 
-    field :type, Ecto.Enum, values: [:webhook, :schedule, :plugin]
+    field :type, Ecto.Enum, values: [:webhook, :schedule, :plugin, :email]
     field :token, :string
     field :interval_minutes, :integer
     field :cron, :string

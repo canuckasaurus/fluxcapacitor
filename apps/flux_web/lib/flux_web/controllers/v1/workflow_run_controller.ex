@@ -34,7 +34,8 @@ defmodule FluxWeb.V1.WorkflowRunController do
         case Workflows.start_run(scope, workflow, inputs,
                source: :api,
                graph: version.graph,
-               version: version.version
+               version: version.version,
+               tags: List.wrap(params["tags"])
              ) do
           {:ok, run} ->
             case Map.get(params, "response_mode", "streaming") do
