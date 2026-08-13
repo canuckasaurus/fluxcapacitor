@@ -44,7 +44,10 @@ defmodule Flux.Batch28Test do
     } do
       {:ok, workflow} = Workflows.create_workflow(scope, %{"name" => "Paused Flux"})
 
-      stale = DateTime.utc_now(:second) |> DateTime.add(-30, :hour)
+      # Backdate relative to the FAKE 08:30 clock the check runs on —
+      # anchoring to the real clock makes this fail after 14:30 UTC.
+      now = DateTime.utc_now(:second) |> Map.merge(%{hour: 8, minute: 30})
+      stale = DateTime.add(now, -30, :hour)
 
       for _n <- 1..2 do
         Flux.Repo.insert!(%Workflows.WorkflowRun{
@@ -56,7 +59,6 @@ defmodule Flux.Batch28Test do
         })
       end
 
-      now = DateTime.utc_now(:second) |> Map.merge(%{hour: 8, minute: 30})
       assert :ok = Workflows.check_paused_runs(now)
 
       titles = Enum.map(Flux.Notifications.list(scope), & &1.title)
