@@ -899,6 +899,58 @@ defmodule Flux.Accounts do
     end
   end
 
+  @doc """
+  Workspace-wide default model params: applied wherever an app or LLM
+  node doesn't set its own. Only temperature and max_tokens — the two
+  worth defaulting globally. Both blank turns the defaults off.
+  """
+  def set_default_model_params(%Scope{} = scope, temperature, max_tokens) do
+    params =
+      %{}
+      |> then(fn params ->
+        case parse_float_in(temperature, 0.0, 2.0) do
+          nil -> params
+          value -> Map.put(params, "temperature", value)
+        end
+      end)
+      |> then(fn params ->
+        case parse_int_in(max_tokens, 1, 1_000_000) do
+          nil -> params
+          value -> Map.put(params, "max_tokens", value)
+        end
+      end)
+
+    update_custom_config(scope, "default_params", (params == %{} && nil) || params)
+  end
+
+  @doc "The configured defaults as an atom-keyed map (empty when off)."
+  def default_model_params(workspace_id) do
+    case Repo.get(Workspace, workspace_id) do
+      %{custom_config: %{"default_params" => %{} = params}} ->
+        for {key, value} <- params,
+            key in ["temperature", "max_tokens"],
+            into: %{},
+            do: {String.to_existing_atom(key), value}
+
+      _off ->
+        %{}
+    end
+  end
+
+  defp parse_float_in(value, min, max) do
+    case Float.parse(to_string(value || "")) do
+      {float, ""} when float >= min and float <= max -> float
+      _blank_or_invalid -> nil
+    end
+  end
+
+  defp parse_int_in(value, min, max) do
+    case Integer.parse(to_string(value || "")) do
+      {int, ""} when int >= min and int <= max -> int
+      _blank_or_invalid -> nil
+    end
+  end
+
   @doc "Sets the max simultaneous interactive runs (nil = unlimited)."
   def set_max_concurrent_runs(%Scope{} = scope, cap)
       when is_nil(cap) or (is_integer(cap) and cap in 1..1000) do

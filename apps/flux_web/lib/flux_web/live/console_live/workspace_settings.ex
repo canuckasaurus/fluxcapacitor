@@ -23,6 +23,8 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
        export_schedule: Accounts.export_schedule(scope),
        token_budget: Accounts.token_budget(scope),
        llm_cache_minutes: Accounts.llm_cache_minutes(scope),
+       default_model_params:
+         Accounts.default_model_params(Flux.Accounts.Scope.workspace_id(scope)),
        cache_stats: Flux.LLMCache.stats(),
        embedding_cache_stats: Flux.EmbeddingCache.stats(),
        pricing_overrides:
@@ -84,6 +86,25 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
 
       {:error, :unauthorized} ->
         {:noreply, put_flash(socket, :error, "You don't have permission to set the default.")}
+    end
+  end
+
+  def handle_event(
+        "set_default_params",
+        %{"temperature" => temperature, "max_tokens" => max_tokens},
+        socket
+      ) do
+    case Accounts.set_default_model_params(socket.assigns.current_scope, temperature, max_tokens) do
+      {:ok, _workspace} ->
+        workspace_id = Flux.Accounts.Scope.workspace_id(socket.assigns.current_scope)
+
+        {:noreply,
+         socket
+         |> put_flash(:info, "Default model params saved.")
+         |> assign(default_model_params: Accounts.default_model_params(workspace_id))}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not save the defaults.")}
     end
   end
 
@@ -595,6 +616,43 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
               {pname} — {m.label}
             </option>
           </select>
+        </form>
+
+        <p class="text-sm opacity-70 pt-2">
+          Default params: applied wherever an app or LLM node sets none of
+          its own (a node's own value always wins). Blank turns a default off.
+        </p>
+
+        <form
+          phx-submit="set_default_params"
+          id="default-params-form"
+          class="flex gap-2 items-end flex-wrap"
+        >
+          <label class="form-control">
+            <span class="label-text text-xs opacity-70 mb-1">Temperature (0 to 2)</span>
+            <input
+              type="number"
+              name="temperature"
+              value={@default_model_params[:temperature]}
+              min="0"
+              max="2"
+              step="0.05"
+              placeholder="provider default"
+              class="input input-bordered input-sm w-36"
+            />
+          </label>
+          <label class="form-control">
+            <span class="label-text text-xs opacity-70 mb-1">Max tokens</span>
+            <input
+              type="number"
+              name="max_tokens"
+              value={@default_model_params[:max_tokens]}
+              min="1"
+              placeholder="provider default"
+              class="input input-bordered input-sm w-36"
+            />
+          </label>
+          <button class="btn btn-primary btn-sm">Save defaults</button>
         </form>
       </div>
 

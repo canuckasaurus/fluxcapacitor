@@ -295,10 +295,69 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     end)
   end
 
+  def handle_event("node_moved", %{"id" => "frame:" <> frame_id, "x" => x, "y" => y}, socket) do
+    update_graph(socket, fn graph ->
+      update_frame_in(graph, frame_id, fn frame ->
+        frame
+        |> Map.put("x", max(round_num(x), 0))
+        |> Map.put("y", max(round_num(y), 0))
+      end)
+    end)
+  end
+
   def handle_event("node_moved", %{"id" => id, "x" => x, "y" => y}, socket) do
     update_graph(socket, fn graph ->
       update_node_in(graph, id, fn node ->
         Map.put(node, "position", %{"x" => max(round_num(x), 0), "y" => max(round_num(y), 0)})
+      end)
+    end)
+  end
+
+  def handle_event("add_frame", _params, socket) do
+    count = length(List.wrap(socket.assigns.graph["frames"]))
+
+    frame = %{
+      "id" => "f#{System.unique_integer([:positive])}",
+      "x" => 60 + rem(count, 3) * 80,
+      "y" => 30 + rem(count, 3) * 60,
+      "w" => 320,
+      "h" => 200,
+      "label" => ""
+    }
+
+    update_graph(socket, fn graph ->
+      Map.update(graph, "frames", [frame], &(&1 ++ [frame]))
+    end)
+  end
+
+  def handle_event("frame_label", %{"id" => frame_id, "value" => label}, socket) do
+    update_graph(socket, fn graph ->
+      update_frame_in(
+        graph,
+        frame_id,
+        &Map.put(&1, "label", String.slice(to_string(label), 0, 60))
+      )
+    end)
+  end
+
+  # Grow/shrink in 80px steps — bounded so a frame can't collapse or
+  # swallow the canvas.
+  def handle_event("frame_resize", %{"id" => frame_id, "dir" => dir}, socket) do
+    delta = if dir == "grow", do: 80, else: -80
+
+    update_graph(socket, fn graph ->
+      update_frame_in(graph, frame_id, fn frame ->
+        frame
+        |> Map.put("w", min(max((frame["w"] || 320) + delta, 160), 2_000))
+        |> Map.put("h", min(max((frame["h"] || 200) + div(delta, 2), 100), 1_500))
+      end)
+    end)
+  end
+
+  def handle_event("delete_frame", %{"id" => frame_id}, socket) do
+    update_graph(socket, fn graph ->
+      Map.update(graph, "frames", [], fn frames ->
+        Enum.reject(frames, &(&1["id"] == frame_id))
       end)
     end)
   end
@@ -1733,6 +1792,15 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     end)
   end
 
+  defp update_frame_in(graph, id, fun) do
+    Map.update(graph, "frames", [], fn frames ->
+      Enum.map(frames, fn
+        %{"id" => ^id} = frame -> fun.(frame)
+        frame -> frame
+      end)
+    end)
+  end
+
   defp update_note_in(graph, id, fun) do
     Map.update(graph, "notes", [], fn notes ->
       Enum.map(notes, fn
@@ -3156,6 +3224,14 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
               <.icon name="hero-pencil-square" class="size-4" /> Note
             </button>
             <button
+              :if={@can_edit}
+              class="btn btn-sm btn-ghost"
+              phx-click="add_frame"
+              title="Add a named frame to group nodes visually (saved with the graph)"
+            >
+              <.icon name="hero-rectangle-group" class="size-4" /> Frame
+            </button>
+            <button
               class="btn btn-sm btn-ghost"
               phx-click="toggle_history"
               title="Browse past runs of this flux"
@@ -3308,6 +3384,62 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                     </g>
                   <% end %>
                 </svg>
+
+                <div
+                  :for={frame <- @graph["frames"] || []}
+                  id={"frame-#{frame["id"]}"}
+                  data-node={"frame:" <> frame["id"]}
+                  class="absolute rounded-box border-2 border-dashed border-info/40 bg-info/5 select-none pointer-events-none"
+                  style={"left: #{frame["x"] || 0}px; top: #{frame["y"] || 0}px; width: #{frame["w"] || 320}px; height: #{frame["h"] || 200}px;"}
+                >
+                  <div
+                    data-drag-handle
+                    class="flex items-center gap-1 px-2 py-1 cursor-grab text-info pointer-events-auto"
+                  >
+                    <.icon name="hero-rectangle-group" class="size-3" />
+                    <input
+                      type="text"
+                      value={frame["label"]}
+                      placeholder="Frame"
+                      maxlength="60"
+                      class="input input-ghost input-xs font-semibold w-36 px-1"
+                      phx-blur="frame_label"
+                      phx-value-id={frame["id"]}
+                      disabled={not @can_edit}
+                    />
+                    <span :if={@can_edit} class="ml-auto flex items-center gap-1">
+                      <button
+                        class="opacity-40 hover:opacity-100"
+                        phx-click="frame_resize"
+                        phx-value-id={frame["id"]}
+                        phx-value-dir="grow"
+                        aria-label="Grow frame"
+                        title="Grow frame"
+                      >
+                        <.icon name="hero-plus" class="size-3" />
+                      </button>
+                      <button
+                        class="opacity-40 hover:opacity-100"
+                        phx-click="frame_resize"
+                        phx-value-id={frame["id"]}
+                        phx-value-dir="shrink"
+                        aria-label="Shrink frame"
+                        title="Shrink frame"
+                      >
+                        <.icon name="hero-minus" class="size-3" />
+                      </button>
+                      <button
+                        class="opacity-40 hover:opacity-100 text-error"
+                        phx-click="delete_frame"
+                        phx-value-id={frame["id"]}
+                        aria-label="Delete this frame"
+                        title="Delete this frame (nodes stay)"
+                      >
+                        <.icon name="hero-x-mark" class="size-3" />
+                      </button>
+                    </span>
+                  </div>
+                </div>
 
                 <div
                   :for={note <- @graph["notes"] || []}
@@ -6178,6 +6310,11 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
               class="rounded bg-base-200 p-2 text-xs overflow-x-auto"
             >POST {url(~p"/triggers/webhook/#{trigger.token}")}</pre>
             <pre
+              :if={trigger.type == :email}
+              class="rounded bg-base-200 p-2 text-xs overflow-x-auto"
+              title="Point your mail provider's inbound-mail webhook (Mailgun routes, SES, Postmark) here; from/subject/body become run inputs"
+            >POST {url(~p"/triggers/email/#{trigger.token}")}</pre>
+            <pre
               :if={trigger.inputs != %{}}
               class="rounded bg-base-200 p-2 text-xs overflow-x-auto"
             >{Jason.encode!(trigger.inputs)}</pre>
@@ -6224,6 +6361,7 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                 <span class="label-text text-xs opacity-70 mb-1">Type</span>
                 <select name="type" class="select select-bordered select-sm">
                   <option value="webhook" selected={@trigger_type == "webhook"}>Webhook</option>
+                  <option value="email" selected={@trigger_type == "email"}>Email (inbound)</option>
                   <option value="schedule" selected={@trigger_type == "schedule"}>Schedule</option>
                   <option
                     :if={@trigger_plugins != []}
