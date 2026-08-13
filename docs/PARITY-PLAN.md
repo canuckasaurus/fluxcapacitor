@@ -1256,3 +1256,32 @@ that allowed nobody would be a lockout). One migration (datasets
 mode/weight, accounts totp trio, apps passcode, api_tokens limit,
 run_comments, the GIN index). 940 tests. The bench holds: custom
 domains, Japanese locale.
+
+**56. Batch 32 — nine from the deep bench.** Two more proposal items
+dissolved on inspection (JS code nodes — the Deno runner had them all
+along; document metadata editing) and were re-scoped before selection.
+Shipped: **Q&A-format indexing** (dataset toggle; qa_pairs/2 turns each
+chunk into up to three model-written questions riding the
+parent-promotion rails — question embedded and full-text searched,
+passage returned; empty generation keeps the chunk; tests inject
+:qa_generator); **app icons** (apps.icon emoji on cards and the site
+header when no logo); **conversations CSV** (monitor kind=conversations
+— 10k-row flattened export); **run tags** (workflow_runs.tags + GIN,
+API tags param, drill-in editor, runs-page filter with `^tag in
+r.tags`); **bubble theming** (embed.js reads data-flux-color/icon/
+position/greeting; the snippet renders them from the app theme —
+greeting is a one-time tooltip); **inbound email trigger** (:email
+type, emt_ tokens, POST /triggers/email/:token maps Mailgun/SES field
+names to from/subject/body/query inputs; webhook tokens 404 on the
+email route); **canvas frames** ("frames" beside "notes" in the graph
+— named, movable via the frame: drag prefix, ±80px resize buttons,
+pointer-events-none body so nodes inside stay clickable); **message
+pinning** (messages.pinned, toggle + strip above the console thread);
+**workspace default model params** (custom_config default_params
+merged UNDER app/node params at all three request-build sites — a
+node's own value always wins). Also fixed batch 28's paused-run test:
+it backdated from the real clock against the fake-8:30 cutoff, so it
+only failed after 14:30 UTC — the batch-27 clock-drift lesson,
+recurring. One migration (qa_indexing, icon, tags+GIN, pinned). 952
+tests. The bench holds: custom domains, Japanese locale, and batch
+32's unpicked #20 (key-expiry warnings).

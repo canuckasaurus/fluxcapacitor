@@ -70,8 +70,9 @@ orchestrator, no queue infrastructure beyond Postgres.
   I/O, per-node timings and tokens aligned by node), any node can
   **replay a finished run from that point** — upstream outputs are
   reused, not re-paid — batches **retry only their failed rows**, runs
-  are **text-searchable** by content, **export as JSONL** with full
-  per-node traces, and carry **team comments** (author + timestamp,
+  are **text-searchable** by content and **taggable** (from the
+  drill-in or the API; the runs page filters by tag), **export as
+  JSONL** with full per-node traces, and carry **team comments** (author + timestamp,
   right in the run drill-in), deterministic nodes opt into **output caching**
   (`cache_minutes` skips identical calls), webhooks keep a **delivery
   log** with manual retry, and `FLUX_ADMIN_EMAILS` unlocks an
@@ -161,7 +162,11 @@ orchestrator, no queue infrastructure beyond Postgres.
   them from the switcher, same as public sites do for visitors.
   Published sites carry **OpenGraph/meta tags and a favicon** from the
   app's theme, so shared links unfurl with the app's identity, and can
-  be **passcode-protected** (asked once per browser session).
+  be **passcode-protected** (asked once per browser session); the
+  floating **chat-bubble embed themes itself** (color, corner, icon,
+  one-time greeting) from the app settings, apps carry an **emoji
+  icon**, and an **inbound email trigger** starts fluxes straight from
+  a Mailgun/SES-style mail webhook.
   Conversations get **model-written titles** after the first exchange
   (manual renames always win). API
   tokens are **perpetual or expiring by choice** (30/90/365 days),
@@ -203,7 +208,9 @@ orchestrator, no queue infrastructure beyond Postgres.
   guides at /console/docs.
 - **Knowledge (RAG)** — datasets → documents → embedded segments, hybrid
   retrieval (vector cosine + GIN-indexed Postgres full-text + **entity
-  mentions**, merged by reciprocal rank fusion — with per-dataset
+  mentions**, merged by reciprocal rank fusion, with opt-in **Q&A
+  indexing** — chunks index as model-generated questions carrying the
+  original passage — with per-dataset
   **retrieval modes** and a **semantic weight** to skew or single-source
   the fusion), optional reranking, URL ingestion (with a
   **depth-1 crawl** of same-site links, and **remembered sources
@@ -488,7 +495,7 @@ scratch drive, and a labeling project wired to the Model trainer flux
 ## Testing
 
 ```bash
-mix test                             # full umbrella suite (~940 tests), hermetic
+mix test                             # full umbrella suite (~950 tests), hermetic
 ```
 
 The suite runs with no network: providers stub through `Req.Test` or the

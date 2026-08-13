@@ -83,7 +83,10 @@ lands in the dev mailbox at `/dev/mailbox`).
    flux. Per-dataset settings cover chunk size/overlap,
    **markdown-aware splitting** (chunks keep their headings), and
    **query expansion** (the workspace model rephrases each query and all
-   rankings fuse — better recall for one extra model call), a
+   rankings fuse — better recall for one extra model call),
+   **Q&A indexing** (chunks index as model-generated questions carrying
+   the original passage — queries match questions better than prose;
+   one model call per chunk at index time), a
    **retrieval mode** (`hybrid` fuses semantic + keyword + entity
    rankings; `semantic`/`keyword` run one source alone) with an optional
    **semantic weight** skewing hybrid fusion, and
@@ -99,7 +102,7 @@ lands in the dev mailbox at `/dev/mailbox`).
 
 ## Testing
 
-`mix test` at the umbrella root runs everything (~940 tests) with no
+`mix test` at the umbrella root runs everything (~950 tests) with no
 network — fake providers, injected converters, temp-dir storage. To run
 a single app's tests, `cd` into the app first; `mix test apps/flux`
 from the root silently runs nothing. Golden replay fixtures, `/v1`

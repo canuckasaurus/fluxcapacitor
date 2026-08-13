@@ -35,7 +35,7 @@ final `message_end` carrying usage. Quota-exceeded apps return 429 with
 
 | Endpoint | Purpose |
 |---|---|
-| `POST /v1/workflows/run` | Run the latest published version. SSE by default (`workflow_started`, `node_started`, `text_chunk`, `node_finished`, `agent_part`, `workflow_finished`) or `response_mode: "blocking"`. Finished payloads carry `total_tokens` (input + output across every model call in the run) |
+| `POST /v1/workflows/run` | Run the latest published version. An optional `tags` array labels the run for the runs-page tag filter. SSE by default (`workflow_started`, `node_started`, `text_chunk`, `node_finished`, `agent_part`, `workflow_finished`) or `response_mode: "blocking"`. Finished payloads carry `total_tokens` (input + output across every model call in the run) |
 | `POST /v1/workflows/runs/:id/resume` | Answer a paused `human_input` node with `input` |
 | `POST /v1/workflows/batch` | Start a batch: `rows` (array of input objects, ≤ the CSV cap), optional `name` and `version` (defaults to the draft). 202 + `batch_id` |
 | `GET /v1/batches/:id` | Batch progress; `?include_results=true` adds per-row inputs/outputs |
@@ -91,6 +91,10 @@ final `message_end` carrying usage. Quota-exceeded apps return 429 with
 - `POST /triggers/webhook/:token` — start a run from a webhook trigger;
   202 + run id. If the trigger has a shared secret, send it as
   `x-flux-token`.
+- `POST /triggers/email/:token` — inbound-mail trigger: point a
+  Mailgun route / SES / Postmark inbound webhook here. `from`/`sender`,
+  `subject`, and `body-plain`/`stripped-text`/`text` become run inputs
+  (the body doubles as `query`). Same 202 + run id contract.
 - `/e/:installation-token/*path` — endpoint plugins (rate limited per
   token).
 - `/scim/v2/Users` — IdP provisioning with the workspace SCIM bearer

@@ -7,6 +7,31 @@ at `docs/PARITY-PLAN.md`.
 
 ## Unreleased
 
+### Batch 32
+- Q&A-format indexing: an opt-in dataset mode where chunks index as
+  model-generated questions (embedded and full-text searched) carrying
+  the original passage — retrieval matches how users actually ask and
+  still returns the prose. Rides the parent-promotion rails.
+- App icons: a per-app emoji shown on console cards and the public
+  site header (when no logo is set).
+- Conversations CSV: the monitor bulk-exports every conversation's
+  messages (id, title, visitor ref, role, content, feedback, time —
+  up to 10k rows).
+- Run tags: tag runs from the drill-in or the API's `tags` param;
+  the runs page filters by tag (GIN-indexed).
+- Chat-bubble theming: the embed snippet carries `data-flux-color`,
+  `data-flux-icon`, `data-flux-position`, and `data-flux-greeting`
+  (a one-time tooltip), wired to the app's theme settings.
+- Inbound email trigger: a new trigger kind with an `emt_` URL for
+  Mailgun/SES-style inbound-mail webhooks — from/subject/body arrive
+  as run inputs (body doubles as `query`).
+- Canvas frames: named, resizable group boxes on the flux canvas,
+  saved with the graph like sticky notes.
+- Message pinning: bookmark console chat messages; pinned ones sit in
+  a strip above the thread.
+- Workspace default model params: default temperature/max_tokens
+  applied wherever an app or LLM node sets none of its own.
+
 ### Batch 31
 - Retrieval modes: datasets choose `hybrid` (default), `semantic`, or
   `keyword` ranking, and hybrid takes an optional semantic weight that
