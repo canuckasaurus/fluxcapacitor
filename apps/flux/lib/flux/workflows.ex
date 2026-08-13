@@ -1579,7 +1579,8 @@ defmodule Flux.Workflows do
           workflow_id: workflow.id,
           token_hash: :crypto.hash(:sha256, raw),
           prefix: String.slice(raw, 0, 13) <> "…",
-          expires_at: Flux.Chat.token_expiry(opts[:expires_in_days])
+          expires_at: Flux.Chat.token_expiry(opts[:expires_in_days]),
+          rate_limit_per_minute: Flux.Chat.token_rate_limit(opts[:rate_limit_per_minute])
         })
 
       Flux.Audit.record(scope, "api_token.create",
@@ -1593,6 +1594,58 @@ defmodule Flux.Workflows do
 
   def list_api_tokens(%Scope{} = scope, workflow_id) do
     ApiToken |> Repo.scoped(scope) |> where([t], t.workflow_id == ^workflow_id) |> Repo.all()
+  end
+
+  ## Run comments
+
+  @doc "The run's comments, oldest first, with authors preloaded."
+  def list_run_comments(%Scope{} = scope, run_id) do
+    Flux.Workflows.RunComment
+    |> Repo.scoped(scope)
+    |> where([c], c.run_id == ^run_id)
+    |> order_by([c], asc: c.inserted_at, asc: c.id)
+    |> preload(:account)
+    |> Repo.all()
+  end
+
+  @doc "Adds a note to a run. The scope's account is the author."
+  def add_run_comment(%Scope{} = scope, run_id, body) do
+    body = body |> to_string() |> String.trim()
+
+    with :ok <- RBAC.authorize(scope, :app_log_and_annotation),
+         %WorkflowRun{} = run <- get_run(scope, run_id),
+         true <- body != "" || {:error, :empty},
+         true <- String.length(body) <= 2_000 || {:error, :too_long} do
+      comment =
+        Repo.insert!(%Flux.Workflows.RunComment{
+          workspace_id: Scope.workspace_id(scope),
+          run_id: run.id,
+          account_id: Scope.account_id(scope),
+          body: body
+        })
+
+      {:ok, %{comment | account: scope.account}}
+    else
+      nil -> {:error, :not_found}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc "Deletes a comment — its author or a workspace owner only."
+  def delete_run_comment(%Scope{} = scope, comment_id) do
+    case Repo.one(Repo.scoped(where(Flux.Workflows.RunComment, id: ^comment_id), scope)) do
+      nil ->
+        {:error, :not_found}
+
+      comment ->
+        owner? = match?(%{membership: %{role: :owner}}, scope)
+
+        if comment.account_id == Scope.account_id(scope) or owner? do
+          Repo.delete(comment)
+        else
+          {:error, :unauthorized}
+        end
+    end
   end
 
   def revoke_api_token(%Scope{} = scope, token_id) do

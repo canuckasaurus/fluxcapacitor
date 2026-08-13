@@ -26,6 +26,7 @@ defmodule FluxWeb.ConsoleLive.Runs do
        statuses: @statuses,
        expanded_run: nil,
        share_url: nil,
+       run_comments: [],
        compare_ids: [],
        limit: @page_size,
        flux_costs: Flux.Usage.flux_costs(scope)
@@ -75,11 +76,41 @@ defmodule FluxWeb.ConsoleLive.Runs do
   end
 
   def handle_event("toggle_run", %{"id" => id}, socket) do
+    expanded = (socket.assigns.expanded_run == id && nil) || id
+
     {:noreply,
      assign(socket,
-       expanded_run: (socket.assigns.expanded_run == id && nil) || id,
-       share_url: nil
+       expanded_run: expanded,
+       share_url: nil,
+       run_comments: load_comments(socket, expanded)
      )}
+  end
+
+  def handle_event("post_comment", %{"run_id" => run_id, "body" => body}, socket) do
+    case Workflows.add_run_comment(socket.assigns.current_scope, run_id, body) do
+      {:ok, _comment} ->
+        {:noreply, assign(socket, run_comments: load_comments(socket, run_id))}
+
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "You don't have permission to comment on runs.")}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Could not post the comment.")}
+    end
+  end
+
+  def handle_event("delete_comment", %{"id" => id}, socket) do
+    case Workflows.delete_run_comment(socket.assigns.current_scope, id) do
+      {:ok, _deleted} ->
+        {:noreply,
+         assign(socket, run_comments: load_comments(socket, socket.assigns.expanded_run))}
+
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "Only the author or an owner can delete a comment.")}
+
+      {:error, _reason} ->
+        {:noreply, socket}
+    end
   end
 
   def handle_event("share_run", %{"id" => id}, socket) do
@@ -172,6 +203,11 @@ defmodule FluxWeb.ConsoleLive.Runs do
 
   # The waterfall: each node's bar scales to the slowest node (min 2% so
   # instant nodes stay visible).
+  defp load_comments(_socket, nil), do: []
+
+  defp load_comments(socket, run_id),
+    do: Workflows.list_run_comments(socket.assigns.current_scope, run_id)
+
   defp bar_width(node_execution, node_executions) do
     slowest =
       node_executions
@@ -574,6 +610,50 @@ defmodule FluxWeb.ConsoleLive.Runs do
                         </tr>
                       </tbody>
                     </table>
+
+                    <div
+                      class="border-t border-base-300 pt-2 space-y-1 max-w-2xl"
+                      id={"run-comments-#{run.id}"}
+                    >
+                      <p class="font-semibold">Comments</p>
+                      <div
+                        :for={comment <- @run_comments}
+                        class="flex items-start gap-2"
+                        id={"run-comment-#{comment.id}"}
+                      >
+                        <span class="opacity-60 shrink-0">
+                          {(comment.account && comment.account.email) || "removed account"} · {Calendar.strftime(
+                            comment.inserted_at,
+                            "%b %d %H:%M"
+                          )}
+                        </span>
+                        <span class="whitespace-pre-wrap break-words">{comment.body}</span>
+                        <button
+                          class="btn btn-ghost btn-xs text-error ml-auto"
+                          phx-click="delete_comment"
+                          phx-value-id={comment.id}
+                          aria-label="Delete comment"
+                        >
+                          <.icon name="hero-x-mark" class="size-3" />
+                        </button>
+                      </div>
+                      <form
+                        phx-submit="post_comment"
+                        id={"run-comment-form-#{run.id}"}
+                        class="flex gap-2 items-center"
+                      >
+                        <input type="hidden" name="run_id" value={run.id} />
+                        <input
+                          type="text"
+                          name="body"
+                          placeholder="Leave a note for the team…"
+                          autocomplete="off"
+                          class="input input-bordered input-xs flex-1"
+                          required
+                        />
+                        <button class="btn btn-primary btn-xs">Post</button>
+                      </form>
+                    </div>
                   </div>
                 </td>
               </tr>

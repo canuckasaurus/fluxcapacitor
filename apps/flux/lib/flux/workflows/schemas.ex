@@ -211,3 +211,21 @@ defmodule Flux.Workflows.WorkflowRun do
     timestamps(type: :utc_datetime)
   end
 end
+
+defmodule Flux.Workflows.RunComment do
+  @moduledoc "A team note pinned to one workflow run (debugging context, verdicts)."
+  use Ecto.Schema
+
+  @primary_key {:id, UUIDv7, autogenerate: true}
+  @foreign_key_type :binary_id
+
+  schema "run_comments" do
+    belongs_to :workspace, Flux.Accounts.Workspace
+    belongs_to :run, Flux.Workflows.WorkflowRun
+    belongs_to :account, Flux.Accounts.Account
+
+    field :body, :string
+
+    timestamps(type: :utc_datetime)
+  end
+end
