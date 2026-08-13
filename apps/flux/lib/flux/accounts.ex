@@ -176,6 +176,101 @@ defmodule Flux.Accounts do
 
   def sudo_mode?(_account, _minutes), do: false
 
+  ## TOTP two-factor authentication
+
+  @doc "Whether login requires a TOTP code for this account."
+  def totp_enabled?(%Account{totp_confirmed_at: confirmed_at}), do: confirmed_at != nil
+  def totp_enabled?(_account), do: false
+
+  @doc """
+  Starts TOTP enrollment: stores a fresh secret (unconfirmed — login is
+  unaffected until `confirm_totp/2`) and returns `{account, otpauth_uri}`
+  for the QR code / manual entry.
+  """
+  def init_totp(%Account{} = account) do
+    secret = NimbleTOTP.secret()
+
+    account =
+      account
+      |> Ecto.Changeset.change(totp_secret: secret, totp_confirmed_at: nil)
+      |> Repo.update!()
+
+    uri =
+      NimbleTOTP.otpauth_uri("FluxCapacitor:#{account.email}", secret, issuer: "FluxCapacitor")
+
+    {account, uri}
+  end
+
+  @doc """
+  Confirms enrollment with a code from the authenticator app. On success
+  2FA is on and the plaintext recovery codes are returned — this is the
+  only time they exist unhashed.
+  """
+  def confirm_totp(%Account{totp_secret: secret} = account, code) when is_binary(secret) do
+    if NimbleTOTP.valid?(secret, to_string(code)) do
+      recovery_codes =
+        for _n <- 1..8 do
+          Base.encode32(:crypto.strong_rand_bytes(5), case: :lower, padding: false)
+        end
+
+      account =
+        account
+        |> Ecto.Changeset.change(
+          totp_confirmed_at: DateTime.utc_now(:second),
+          totp_recovery_codes: Enum.map(recovery_codes, &hash_recovery_code/1)
+        )
+        |> Repo.update!()
+
+      {:ok, account, recovery_codes}
+    else
+      {:error, :invalid_code}
+    end
+  end
+
+  def confirm_totp(_account, _code), do: {:error, :not_enrolled}
+
+  @doc "Turns 2FA off and discards the secret and recovery codes."
+  def disable_totp(%Account{} = account) do
+    account
+    |> Ecto.Changeset.change(
+      totp_secret: nil,
+      totp_confirmed_at: nil,
+      totp_recovery_codes: []
+    )
+    |> Repo.update!()
+  end
+
+  @doc """
+  Verifies a login challenge: a current TOTP code, or one of the
+  recovery codes (which is consumed — each works exactly once).
+  """
+  def verify_totp(%Account{totp_secret: secret} = account, code) when is_binary(secret) do
+    code = code |> to_string() |> String.trim() |> String.downcase()
+
+    cond do
+      NimbleTOTP.valid?(secret, code) ->
+        {:ok, account}
+
+      hash_recovery_code(code) in account.totp_recovery_codes ->
+        account
+        |> Ecto.Changeset.change(
+          totp_recovery_codes: List.delete(account.totp_recovery_codes, hash_recovery_code(code))
+        )
+        |> Repo.update!()
+
+        {:ok, account}
+
+      true ->
+        {:error, :invalid_code}
+    end
+  end
+
+  def verify_totp(_account, _code), do: {:error, :not_enrolled}
+
+  defp hash_recovery_code(code) do
+    :sha256 |> :crypto.hash(code) |> Base.encode16(case: :lower)
+  end
+
   @doc """
   Returns an `%Ecto.Changeset{}` for changing the account email.
 

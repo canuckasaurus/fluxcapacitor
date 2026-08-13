@@ -56,6 +56,7 @@ defmodule FluxWeb.MixProject do
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
       {:gettext, "~> 1.0"},
+      {:eqrcode, "~> 0.2"},
       {:flux, in_umbrella: true},
       {:flux_engine, in_umbrella: true},
       {:flux_rag, in_umbrella: true},

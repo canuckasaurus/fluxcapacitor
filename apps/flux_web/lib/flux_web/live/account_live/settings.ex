@@ -100,6 +100,70 @@ defmodule FluxWeb.AccountLive.Settings do
 
       <div class="divider" />
 
+      <div class="space-y-2 text-left" id="totp-card">
+        <h2 class="font-semibold">Two-factor authentication</h2>
+
+        <div :if={@totp_enabled and @totp_recovery_codes == []} class="space-y-2">
+          <p class="text-sm">
+            <.icon name="hero-shield-check" class="size-4 text-success inline" />
+            2FA is on — login asks for a code from your authenticator app.
+          </p>
+          <button
+            class="btn btn-ghost btn-sm text-error"
+            phx-click="disable_totp"
+            data-confirm="Turn off two-factor authentication?"
+          >
+            Turn off 2FA
+          </button>
+        </div>
+
+        <div :if={@totp_recovery_codes != []} class="space-y-2">
+          <p class="text-sm font-semibold text-success">
+            2FA is on. Save these recovery codes now — each works once and
+            they won't be shown again:
+          </p>
+          <pre id="totp-recovery-codes" class="rounded-box bg-base-200 p-3 text-xs">{Enum.join(@totp_recovery_codes, "\n")}</pre>
+        </div>
+
+        <div :if={!@totp_enabled and @totp_enrollment == nil}>
+          <p class="text-sm opacity-70 mb-2">
+            Add a second factor: your password plus a six-digit code from
+            an authenticator app.
+          </p>
+          <button class="btn btn-primary btn-sm" phx-click="start_totp">
+            Set up 2FA
+          </button>
+        </div>
+
+        <div :if={@totp_enrollment != nil} class="space-y-2">
+          <p class="text-sm opacity-70">
+            Scan this with your authenticator app, then enter the code it
+            shows to finish:
+          </p>
+          <div class="bg-white p-2 rounded-box w-fit">{raw(@totp_enrollment.qr_svg)}</div>
+          <p class="text-xs opacity-60 break-all">
+            Manual entry: <code>{@totp_enrollment.secret_base32}</code>
+          </p>
+          <form phx-submit="confirm_totp" id="confirm-totp-form" class="flex gap-2 items-center">
+            <input
+              type="text"
+              name="code"
+              placeholder="123456"
+              autocomplete="one-time-code"
+              inputmode="numeric"
+              class="input input-bordered input-sm w-32"
+              required
+            />
+            <button class="btn btn-primary btn-sm">Confirm</button>
+            <button type="button" class="btn btn-ghost btn-sm" phx-click="cancel_totp">
+              Cancel
+            </button>
+          </form>
+        </div>
+      </div>
+
+      <div class="divider" />
+
       <div class="space-y-2 text-left" id="sessions-card">
         <div class="flex items-center justify-between">
           <h2 class="font-semibold">Active sessions</h2>
@@ -172,6 +236,9 @@ defmodule FluxWeb.AccountLive.Settings do
       |> assign(:current_session_token, session["account_token"])
       |> assign(:sessions, Accounts.list_session_tokens(account))
       |> assign(:email_kinds, account.notification_email_kinds || [])
+      |> assign(:totp_enabled, Accounts.totp_enabled?(account))
+      |> assign(:totp_enrollment, nil)
+      |> assign(:totp_recovery_codes, [])
       |> assign(:trigger_submit, false)
 
     {:ok, socket}
@@ -199,6 +266,50 @@ defmodule FluxWeb.AccountLive.Settings do
       _error ->
         {:noreply, put_flash(socket, :error, "Could not save the email preferences.")}
     end
+  end
+
+  def handle_event("start_totp", _params, socket) do
+    account = socket.assigns.current_scope.account
+    true = Accounts.sudo_mode?(account)
+    {account, uri} = Accounts.init_totp(account)
+
+    {:noreply,
+     assign(socket, :totp_enrollment, %{
+       account: account,
+       qr_svg: uri |> EQRCode.encode() |> EQRCode.svg(width: 180),
+       secret_base32: Base.encode32(account.totp_secret, padding: false)
+     })}
+  end
+
+  def handle_event("confirm_totp", %{"code" => code}, socket) do
+    case Accounts.confirm_totp(socket.assigns.totp_enrollment.account, code) do
+      {:ok, _account, recovery_codes} ->
+        {:noreply,
+         assign(socket,
+           totp_enabled: true,
+           totp_enrollment: nil,
+           totp_recovery_codes: recovery_codes
+         )}
+
+      {:error, _invalid} ->
+        {:noreply, put_flash(socket, :error, "That code didn't match — try the next one.")}
+    end
+  end
+
+  def handle_event("cancel_totp", _params, socket) do
+    Accounts.disable_totp(socket.assigns.totp_enrollment.account)
+    {:noreply, assign(socket, totp_enrollment: nil)}
+  end
+
+  def handle_event("disable_totp", _params, socket) do
+    account = socket.assigns.current_scope.account
+    true = Accounts.sudo_mode?(account)
+    Accounts.disable_totp(account)
+
+    {:noreply,
+     socket
+     |> put_flash(:info, "Two-factor authentication is off.")
+     |> assign(totp_enabled: false, totp_recovery_codes: [])}
   end
 
   def handle_event("revoke_session", %{"id" => id}, socket) do

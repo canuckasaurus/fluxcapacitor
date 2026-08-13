@@ -15,6 +15,12 @@ defmodule Flux.Accounts.Account do
     field :confirmed_at, :naive_datetime
     field :authenticated_at, :naive_datetime, virtual: true
 
+    # TOTP 2FA: the secret exists from enrollment start, but only a
+    # confirmed_at (set by a first valid code) makes login require it.
+    field :totp_secret, :binary, redact: true
+    field :totp_confirmed_at, :utc_datetime
+    field :totp_recovery_codes, {:array, :string}, default: [], redact: true
+
     timestamps()
   end
 

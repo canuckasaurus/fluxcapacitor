@@ -33,16 +33,56 @@ defmodule FluxWeb.AccountSessionController do
   defp create(conn, %{"account" => account_params}, info) do
     %{"email" => email, "password" => password} = account_params
 
-    if account = Accounts.get_account_by_email_and_password(email, password) do
-      conn
-      |> put_flash(:info, info)
-      |> AccountAuth.log_in_account(account, account_params)
-    else
-      # In order to prevent user enumeration attacks, don't disclose whether the email is registered.
-      conn
-      |> put_flash(:error, "Invalid email or password")
-      |> put_flash(:email, String.slice(email, 0, 160))
-      |> redirect(to: ~p"/accounts/log-in")
+    case Accounts.get_account_by_email_and_password(email, password) do
+      %{} = account ->
+        if Accounts.totp_enabled?(account) do
+          # Password checked out but 2FA is on: park the login in the
+          # session and challenge for a code before any log-in happens.
+          conn
+          |> put_session(:totp_pending, %{
+            "account_id" => account.id,
+            "remember_me" => account_params["remember_me"]
+          })
+          |> redirect(to: ~p"/accounts/totp")
+        else
+          conn
+          |> put_flash(:info, info)
+          |> AccountAuth.log_in_account(account, account_params)
+        end
+
+      nil ->
+        # In order to prevent user enumeration attacks, don't disclose whether the email is registered.
+        conn
+        |> put_flash(:error, "Invalid email or password")
+        |> put_flash(:email, String.slice(email, 0, 160))
+        |> redirect(to: ~p"/accounts/log-in")
+    end
+  end
+
+  # 2FA challenge: only reachable with a password-verified pending login
+  # in the session; a valid app or recovery code completes it.
+  def totp(conn, %{"account" => %{"code" => code}}) do
+    case get_session(conn, :totp_pending) do
+      %{"account_id" => account_id} = pending ->
+        account = Accounts.get_account!(account_id)
+
+        case Accounts.verify_totp(account, code) do
+          {:ok, account} ->
+            conn
+            |> delete_session(:totp_pending)
+            |> put_flash(:info, "Welcome back!")
+            |> AccountAuth.log_in_account(account, %{
+              "remember_me" => pending["remember_me"]
+            })
+
+          {:error, _invalid} ->
+            conn
+            |> put_flash(:error, "That code didn't work — try the next one.")
+            |> redirect(to: ~p"/accounts/totp")
+        end
+
+      _no_pending_login ->
+        redirect(conn, to: ~p"/accounts/log-in")
     end
   end
 

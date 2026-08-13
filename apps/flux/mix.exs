@@ -37,6 +37,7 @@ defmodule Flux.MixProject do
   defp deps do
     [
       {:pbkdf2_elixir, "~> 2.0"},
+      {:nimble_totp, "~> 1.0"},
       {:uuidv7, "~> 1.0"},
       {:oban, "~> 2.20"},
       {:ex_aws, "~> 2.5"},
