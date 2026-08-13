@@ -61,26 +61,37 @@ defmodule FluxWeb.Plugs.RateLimit do
     end
   end
 
+  # A key with its own limit gets its own bucket; otherwise keys pool
+  # into their app/flux principal as before.
   defp principal(conn, :service) do
-    case {conn.assigns[:service_app], conn.assigns[:service_workflow]} do
-      {%{id: id}, _workflow} -> "app:#{id}"
-      {_app, %{id: id}} -> "flux:#{id}"
+    case {token_limit(conn), conn.assigns[:service_app], conn.assigns[:service_workflow]} do
+      {limit, _app, _workflow} when is_integer(limit) -> "token:#{conn.assigns.service_token.id}"
+      {_none, %{id: id}, _workflow} -> "app:#{id}"
+      {_none, _app, %{id: id}} -> "flux:#{id}"
       _unauthenticated -> principal(conn, :ip)
     end
   end
 
   defp principal(conn, :ip), do: "ip:" <> to_string(:inet.ntoa(conn.remote_ip))
 
-  # Apps may set their own per-minute limit (Chat settings), overriding
-  # the pipeline default for their tokens only.
+  # Per-key limits (key settings) beat per-app limits (Chat settings)
+  # beat the pipeline default.
   defp app_override(conn, :service) do
-    case conn.assigns[:service_app] do
+    token_limit(conn) ||
+      case conn.assigns[:service_app] do
+        %{rate_limit_per_minute: limit} when is_integer(limit) and limit > 0 -> limit
+        _default -> nil
+      end
+  end
+
+  defp app_override(_conn, _by), do: nil
+
+  defp token_limit(conn) do
+    case conn.assigns[:service_token] do
       %{rate_limit_per_minute: limit} when is_integer(limit) and limit > 0 -> limit
       _default -> nil
     end
   end
-
-  defp app_override(_conn, _by), do: nil
 
   defp enabled?, do: Application.get_env(:flux_web, :rate_limit_enabled, true)
 end

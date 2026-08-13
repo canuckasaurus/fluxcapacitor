@@ -30,6 +30,7 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
        max_concurrent_runs: Accounts.max_concurrent_runs(scope),
        guardrails: Flux.Guardrails.config(Flux.Accounts.Scope.workspace_id(scope)),
        moderation: Flux.Guardrails.moderation_config(Flux.Accounts.Scope.workspace_id(scope)),
+       ip_allowlist: Flux.IPAllowlist.list(Flux.Accounts.Scope.workspace_id(scope)),
        alert_url: Accounts.alert_url(scope),
        alert_secret: Accounts.alert_secret(scope),
        can_webhooks: RBAC.can?(scope, :api_extension_manage),
@@ -120,6 +121,24 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
 
       _error ->
         {:noreply, put_flash(socket, :error, "Could not save the guardrails.")}
+    end
+  end
+
+  def handle_event("set_ip_allowlist", %{"cidrs" => cidrs}, socket) do
+    case Flux.IPAllowlist.configure(socket.assigns.current_scope, cidrs) do
+      {:ok, _workspace} ->
+        workspace_id = Flux.Accounts.Scope.workspace_id(socket.assigns.current_scope)
+
+        {:noreply,
+         socket
+         |> put_flash(:info, "IP allowlist saved.")
+         |> assign(ip_allowlist: Flux.IPAllowlist.list(workspace_id))}
+
+      {:error, {:invalid_cidr, entry}} ->
+        {:noreply, put_flash(socket, :error, "Not an address or CIDR: #{entry}")}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not save the allowlist.")}
     end
   end
 
@@ -310,15 +329,22 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
     end
   end
 
-  def handle_event("create_ws_token", %{"expires_in_days" => days}, socket) do
+  def handle_event("create_ws_token", %{"expires_in_days" => days} = params, socket) do
     expires_in_days =
       case Integer.parse(days) do
         {n, ""} when n > 0 -> n
         _never -> nil
       end
 
+    rate_limit =
+      case Integer.parse(to_string(params["rate_limit"] || "")) do
+        {n, ""} when n > 0 -> n
+        _default -> nil
+      end
+
     case Chat.create_workspace_token(socket.assigns.current_scope,
-           expires_in_days: expires_in_days
+           expires_in_days: expires_in_days,
+           rate_limit_per_minute: rate_limit
          ) do
       {:ok, _token, raw} ->
         {:noreply,
@@ -1009,6 +1035,7 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
               <th>Key</th>
               <th>Expires</th>
               <th>Last used</th>
+              <th>Limit</th>
               <th></th>
             </tr>
           </thead>
@@ -1021,6 +1048,9 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
               <td class="text-xs opacity-70">
                 {(token.last_used_at && Calendar.strftime(token.last_used_at, "%Y-%m-%d %H:%M")) ||
                   "—"}
+              </td>
+              <td class="text-xs opacity-70">
+                {(token.rate_limit_per_minute && "#{token.rate_limit_per_minute}/min") || "default"}
               </td>
               <td>
                 <button
@@ -1043,7 +1073,35 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
             <option value="90">Expires in 90 days</option>
             <option value="365">Expires in 365 days</option>
           </select>
+          <input
+            type="number"
+            name="rate_limit"
+            min="1"
+            max="10000"
+            placeholder="req/min (default)"
+            title="Optional per-key rate limit; blank uses the pipeline default"
+            class="input input-bordered input-sm w-36"
+          />
           <button class="btn btn-primary btn-sm">Mint API key</button>
+        </form>
+      </div>
+
+      <div :if={@can_rename} class="card border border-base-200 p-6 space-y-3" id="ip-allowlist-card">
+        <h2 class="font-semibold">API IP allowlist</h2>
+        <p class="text-sm opacity-70">
+          One address or CIDR per line (e.g. <code>203.0.113.0/24</code>).
+          When set, service-API calls from other addresses get 403 — even
+          with a valid key. Blank turns it off. Behind a reverse proxy,
+          make sure the client address reaches the app.
+        </p>
+        <form phx-submit="set_ip_allowlist" id="ip-allowlist-form" class="space-y-2">
+          <textarea
+            name="cidrs"
+            rows="3"
+            placeholder="203.0.113.0/24\n198.51.100.7"
+            class="textarea textarea-bordered w-full font-mono text-xs"
+          >{Enum.join(@ip_allowlist, "\n")}</textarea>
+          <button class="btn btn-primary btn-sm">Save allowlist</button>
         </form>
       </div>
 

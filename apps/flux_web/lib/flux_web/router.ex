@@ -41,6 +41,7 @@ defmodule FluxWeb.Router do
     # OpenAI-compatible: any OpenAI SDK with base_url swapped in.
     post "/chat/completions", OpenAIController, :create
     post "/embeddings", OpenAIController, :embeddings
+    post "/moderations", OpenAIController, :moderations
     get "/models", OpenAIController, :models
     post "/audio/transcriptions", OpenAIController, :transcriptions
     post "/audio/speech", OpenAIController, :speech
@@ -178,6 +179,7 @@ defmodule FluxWeb.Router do
     end
 
     get "/:token/transcript/:conversation_id", FluxDslController, :site_transcript
+    post "/:token/passcode", SitePasscodeController, :verify
   end
 
   # FluxCapacitor as an MCP server: published fluxes are callable tools.
@@ -373,9 +375,11 @@ defmodule FluxWeb.Router do
       live "/accounts/register", AccountLive.Registration, :new
       live "/accounts/log-in", AccountLive.Login, :new
       live "/accounts/log-in/:token", AccountLive.Confirmation, :new
+      live "/accounts/totp", AccountLive.Totp, :new
     end
 
     post "/accounts/log-in", AccountSessionController, :create
+    post "/accounts/totp", AccountSessionController, :totp
     delete "/accounts/log-out", AccountSessionController, :delete
 
     # OIDC single sign-on (no-ops unless FLUX_OIDC_* is configured).

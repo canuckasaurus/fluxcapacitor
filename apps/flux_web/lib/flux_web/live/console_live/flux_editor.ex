@@ -1080,8 +1080,15 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
         _perpetual -> nil
       end
 
+    rate_limit =
+      case Integer.parse(to_string(params["rate_limit"] || "")) do
+        {n, ""} when n > 0 -> n
+        _default -> nil
+      end
+
     case Workflows.create_api_token(scope, socket.assigns.workflow,
-           expires_in_days: expires_in_days
+           expires_in_days: expires_in_days,
+           rate_limit_per_minute: rate_limit
          ) do
       {:ok, _token, raw} ->
         {:noreply,
@@ -5732,6 +5739,15 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
               <option value="90">Expires in 90 days</option>
               <option value="365">Expires in 1 year</option>
             </select>
+            <input
+              type="number"
+              name="rate_limit"
+              min="1"
+              max="10000"
+              placeholder="req/min"
+              title="Optional per-key rate limit; blank uses the pipeline default"
+              class="input input-bordered input-sm w-28"
+            />
             <button class="btn btn-primary btn-sm">
               <.icon name="hero-plus" class="size-4" /> Create API key
             </button>
