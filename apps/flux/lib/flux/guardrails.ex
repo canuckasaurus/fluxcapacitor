@@ -262,6 +262,28 @@ defmodule Flux.Guardrails do
     end
   end
 
+  @doc """
+  Standalone verdict for the compat `/v1/moderations` endpoint: checks
+  the text against both the pattern guardrails and the LLM moderation
+  policy without notifying or blocking anything. Returns
+  `%{flagged: bool, pattern: matched | nil, policy_reason: reason | nil}`.
+  """
+  def review(workspace_id, text) when is_binary(text) do
+    pattern = violation(workspace_id, text)
+
+    policy_reason =
+      case moderation_verdict(workspace_id, text) do
+        {:deny, reason} -> reason
+        :ok -> nil
+      end
+
+    %{
+      flagged: pattern != nil or policy_reason != nil,
+      pattern: pattern,
+      policy_reason: policy_reason
+    }
+  end
+
   defp notify(workspace_id, pattern, context) do
     Flux.Notifications.notify(
       workspace_id,

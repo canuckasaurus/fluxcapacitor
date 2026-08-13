@@ -96,6 +96,34 @@ defmodule FluxWeb.V1.ApiSpec do
       })
     end
 
+    defmodule ModerationResult do
+      @moduledoc false
+      require OpenApiSpex
+
+      OpenApiSpex.schema(%{
+        title: "ModerationResult",
+        description: "OpenAI-compatible moderation response (POST /v1/moderations)",
+        type: :object,
+        properties: %{
+          id: %Schema{type: :string},
+          model: %Schema{type: :string},
+          results: %Schema{
+            type: :array,
+            items: %Schema{
+              type: :object,
+              properties: %{
+                flagged: %Schema{type: :boolean},
+                categories: %Schema{type: :object},
+                category_scores: %Schema{type: :object},
+                reason: %Schema{type: :string, nullable: true}
+              }
+            }
+          }
+        },
+        required: [:id, :results]
+      })
+    end
+
     defmodule ChatMessage do
       @moduledoc false
       require OpenApiSpex
@@ -1134,6 +1162,7 @@ defmodule FluxWeb.V1.ApiSpec do
     Schemas.Error,
     Schemas.ChatCompletion,
     Schemas.EmbeddingList,
+    Schemas.ModerationResult,
     Schemas.ChatMessage,
     Schemas.WorkflowRun,
     Schemas.Parameters,
@@ -1198,6 +1227,8 @@ defmodule FluxWeb.V1.ApiSpec do
     "/chat/completions" =>
       {:post, "OpenAI-compatible chat completion (any OpenAI SDK)", "ChatCompletion"},
     "/embeddings" => {:post, "OpenAI-compatible embeddings", "EmbeddingList"},
+    "/moderations" =>
+      {:post, "OpenAI-compatible moderation via workspace guardrails", "ModerationResult"},
     "/completion-messages" => {:post, "Run a completion app", "ChatMessage"},
     "/workflows/run" => {:post, "Run the token's published flux", "WorkflowRun"},
     "/workflows/runs/{id}/resume" => {:post, "Resume a paused run", "WorkflowRun"},

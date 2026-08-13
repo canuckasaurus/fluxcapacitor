@@ -221,6 +221,52 @@ defmodule FluxWeb.V1.OpenAIController do
   end
 
   @doc """
+  OpenAI-compatible moderations: `POST /v1/moderations` with any service
+  token. `input` (string or array) is judged by the workspace guardrails
+  — deny patterns and, when configured, the LLM moderation policy. The
+  simplified category set is `pattern` and `policy`.
+  """
+  def moderations(conn, params) do
+    scope = conn.assigns[:service_scope]
+    inputs = params["input"] |> List.wrap() |> Enum.map(&to_string/1)
+
+    if inputs == [] or Enum.all?(inputs, &(&1 == "")) do
+      openai_error(
+        conn,
+        400,
+        "input must be a non-empty string or array.",
+        "invalid_request_error"
+      )
+    else
+      workspace_id = Flux.Accounts.Scope.workspace_id(scope)
+
+      results =
+        for input <- inputs do
+          review = Flux.Guardrails.review(workspace_id, input)
+
+          %{
+            "flagged" => review.flagged,
+            "categories" => %{
+              "pattern" => review.pattern != nil,
+              "policy" => review.policy_reason != nil
+            },
+            "category_scores" => %{
+              "pattern" => if(review.pattern, do: 1.0, else: 0.0),
+              "policy" => if(review.policy_reason, do: 1.0, else: 0.0)
+            },
+            "reason" => review.policy_reason || review.pattern
+          }
+        end
+
+      json(conn, %{
+        "id" => "modr_" <> Base.url_encode64(:crypto.strong_rand_bytes(9), padding: false),
+        "model" => "flux-guardrails",
+        "results" => results
+      })
+    end
+  end
+
+  @doc """
   OpenAI-compatible embeddings: `POST /v1/embeddings` with any service
   token. The `model` field names a configured embedding model; `input`
   is a string or array of strings.
