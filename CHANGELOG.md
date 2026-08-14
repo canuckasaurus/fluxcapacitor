@@ -7,6 +7,35 @@ at `docs/PARITY-PLAN.md`.
 
 ## Unreleased
 
+### Batch 36 (mega)
+- Webhook secret rotation: one click regenerates an endpoint's
+  `whsec_` (shown once) with an audit entry.
+- App settings snapshots: named copies of an app's configuration with
+  restore — the undo app edits never had (capped at twenty).
+- Document revision history: replace-mode uploads keep the outgoing
+  content as a restorable revision (last five per name); restoring
+  stacks today's content as the newest revision, never destroying.
+- Quiet hours: per-account UTC window; notification emails inside it
+  defer to the window's end via a scheduled job (the feed is
+  unaffected).
+- Prompt A/B: test an alternative system prompt on a share of
+  conversations, with per-arm feedback stats beside the model A/B.
+- Favorites: star fluxes and apps (per account); starred float to the
+  top of their index pages.
+- Fallback chains: an ordered list of backup models tried in sequence
+  after the single fallback.
+- Conversation cost rollup: per-conversation tokens and estimated cost
+  in the monitor drill-in.
+- Handoff SLA: median time-to-first-human-reply (30 days) on the
+  monitor's handoff queue.
+- Import DSL from URL: paste a link to import a flux (SSRF-guarded).
+- Console branding: a workspace logo replaces the sidebar wordmark for
+  white-label deployments.
+- Dataset embedding meter: approximate embedded tokens per dataset
+  (chars/4 per indexing pass) — embedding spend was invisible.
+- Digest frequency: the activity digest becomes weekly, daily, or off
+  per workspace.
+
 ### Batch 35
 - Visitor identity capture: an optional pre-chat name/email form on
   public sites (per-app toggle), stored on the conversation and shown

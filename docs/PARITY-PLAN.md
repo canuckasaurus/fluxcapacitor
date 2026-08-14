@@ -1354,3 +1354,33 @@ deep links — ?conversation= selects, ?run= expands). One migration
 (collect flag, identity columns, assigned_account_id, publish_at,
 expires_at). 981 tests. The bench holds: custom domains, Japanese
 locale, require-2FA policy, member suspension.
+
+**60. Batch 36 (mega) — thirteen from the twenty-list.** The biggest
+selection yet. **Webhook secret rotation** (rotate_secret, audited,
+flash-once); **app snapshots** (app_snapshots tenant table, a
+@snapshot_fields whitelist captured/restored through update_app —
+apps finally have undo); **document revisions**
+(rag_document_revisions, retire_document on replace keeps five per
+name, restore is replace-mode so it stacks rather than destroys —
+and taught the one-second-timestamp-tie lesson: order by inserted_at
+AND id); **quiet hours** (accounts.quiet_hours_start/end, notify's
+fan-out defers in-window emails as EmailWorker Oban jobs scheduled at
+the window's end); **prompt A/B** (prompt_b/prompt_split, an
+independent phash2 salt so model and prompt arms don't correlate,
+usage records prompt_variant, prompt_ab_stats mirrors the model
+table); **favorites** (account_favorites, stars sort fluxes/apps
+first per account); **fallback chains** (apps.fallbacks list behind
+the legacy single fallback, try_fallbacks walks in order);
+**conversation cost** (conversation_usage sums assistant usage +
+Pricing.estimate on model_used); **handoff SLA**
+(handoff_first_reply_seconds recorded once in human_reply before the
+flag clears, median-over-30-days badge on the queue); **URL DSL
+import** (SSRF-guarded Req fetch into the existing import path);
+**console branding** (console_logo_url swaps the sidebar wordmark);
+**embedding meter** (datasets.embedded_tokens, chars/4 estimate per
+indexing pass — labeled as the estimate it is); **digest frequency**
+(weekly/daily/off; daily covers one day and fires any morning, weekly
+keeps Mondays; the sent-marker became period-keyed). One migration
+(three tables + seven columns). 995 tests. The bench holds: custom
+domains, Japanese locale, require-2FA, member suspension, visitor
+blocklist, API citations, /v1/usage.
