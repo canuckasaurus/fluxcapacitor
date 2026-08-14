@@ -1134,31 +1134,66 @@ defmodule Flux.Workflows do
       # completion doesn't matter — every row is independent.
       batch.rows
       |> Task.async_stream(
-        fn row -> perform_batch_row(batch, graph, row) end,
+        fn row ->
+          # A cancel lands between rows: everything not yet started is
+          # skipped, finished rows keep their runs.
+          if batch_canceled?(batch.id) do
+            :skipped
+          else
+            perform_batch_row(batch, graph, row)
+          end
+        end,
         max_concurrency: max(batch.concurrency || 1, 1),
         ordered: false,
         timeout: :infinity
       )
       |> Stream.run()
 
-      from(b in WorkflowBatch, where: b.id == ^batch.id)
+      # A canceled batch stays canceled — only a still-running one
+      # graduates to completed.
+      from(b in WorkflowBatch, where: b.id == ^batch.id and b.status == :running)
       |> Repo.update_all([set: [status: "completed"]], skip_workspace_guard: true)
 
       broadcast_batch(batch)
 
       finished = Repo.get(WorkflowBatch, batch.id, skip_workspace_guard: true)
 
-      Flux.Webhooks.dispatch(batch.workspace_id, "batch.completed", %{
-        "batch_id" => batch.id,
-        "workflow_id" => batch.workflow_id,
-        "name" => batch.name,
-        "total" => finished.total,
-        "succeeded" => finished.succeeded,
-        "failed" => finished.failed
-      })
+      if finished.status == :completed do
+        Flux.Webhooks.dispatch(batch.workspace_id, "batch.completed", %{
+          "batch_id" => batch.id,
+          "workflow_id" => batch.workflow_id,
+          "name" => batch.name,
+          "total" => finished.total,
+          "succeeded" => finished.succeeded,
+          "failed" => finished.failed
+        })
+      end
     end
 
     :ok
+  end
+
+  defp batch_canceled?(batch_id) do
+    from(b in WorkflowBatch, where: b.id == ^batch_id, select: b.status)
+    |> Repo.one(skip_workspace_guard: true) == :canceled
+  end
+
+  @doc """
+  Stops an in-flight batch: rows not yet started are skipped, finished
+  rows keep their runs, and the batch lands as `:canceled`.
+  """
+  def cancel_batch(%Scope{} = scope, batch_id) do
+    with :ok <- RBAC.authorize(scope, :app_test_and_run),
+         %WorkflowBatch{status: :running} = batch <- get_batch(scope, batch_id) do
+      with {:ok, canceled} <-
+             batch |> Ecto.Changeset.change(status: :canceled) |> Repo.update() do
+        broadcast_batch(canceled)
+        {:ok, canceled}
+      end
+    else
+      %WorkflowBatch{} -> {:error, :not_running}
+      other -> other
+    end
   end
 
   defp perform_batch_row(batch, graph, row) do
@@ -1422,18 +1457,55 @@ defmodule Flux.Workflows do
     end
   end
 
-  @doc "Saves the public form page's theme (accent/title/logo_url)."
+  @doc "Saves the public form page's theme (accent/title/logo_url/custom_css)."
   def set_site_theme(%Scope{} = scope, %Workflow{} = workflow, theme) when is_map(theme) do
     with :ok <- RBAC.authorize(scope, :app_edit),
          :ok <- owned(scope, workflow),
          {:ok, updated} <-
            workflow
-           |> Ecto.Changeset.change(site_theme: Map.take(theme, ~w(accent title logo_url)))
+           |> Ecto.Changeset.change(
+             site_theme: Map.take(theme, ~w(accent title logo_url custom_css))
+           )
            |> Repo.update() do
       Flux.Audit.record(scope, "workflow.site_theme", resource: workflow)
       {:ok, updated}
     end
   end
+
+  @doc """
+  Sets (blank clears) the passcode gate on the flux's public form page —
+  same contract as app sites: asked once per browser session.
+  """
+  def set_site_passcode(%Scope{} = scope, %Workflow{} = workflow, passcode) do
+    with :ok <- RBAC.authorize(scope, :app_edit),
+         :ok <- owned(scope, workflow) do
+      hash =
+        case String.trim(to_string(passcode)) do
+          "" -> nil
+          passcode -> :sha256 |> :crypto.hash(passcode) |> Base.encode16(case: :lower)
+        end
+
+      with {:ok, updated} <-
+             workflow |> Ecto.Changeset.change(site_passcode_hash: hash) |> Repo.update() do
+        Flux.Audit.record(scope, "workflow.site_passcode",
+          resource: workflow,
+          metadata: %{"set" => hash != nil}
+        )
+
+        {:ok, updated}
+      end
+    end
+  end
+
+  @doc "Whether the visitor-typed passcode opens this flux's site."
+  def site_passcode_ok?(%Workflow{site_passcode_hash: hash}, passcode) when is_binary(hash) do
+    typed =
+      :sha256 |> :crypto.hash(String.trim(to_string(passcode))) |> Base.encode16(case: :lower)
+
+    :crypto.hash_equals(hash, typed)
+  end
+
+  def site_passcode_ok?(_workflow, _passcode), do: false
 
   @doc """
   Exports a finished run as a golden fixture: the exact graph it ran,

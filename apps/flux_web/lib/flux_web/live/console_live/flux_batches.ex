@@ -117,6 +117,25 @@ defmodule FluxWeb.ConsoleLive.FluxBatches do
     end
   end
 
+  def handle_event("cancel_batch", %{"batch-id" => batch_id}, socket) do
+    case Workflows.cancel_batch(socket.assigns.current_scope, batch_id) do
+      {:ok, _batch} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Batch canceled — remaining rows are skipped.")
+         |> assign(
+           batches:
+             Workflows.list_batches(socket.assigns.current_scope, socket.assigns.workflow.id)
+         )}
+
+      {:error, :not_running} ->
+        {:noreply, put_flash(socket, :error, "That batch already finished.")}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not cancel the batch.")}
+    end
+  end
+
   def handle_event("retry_failed", %{"batch-id" => batch_id}, socket) do
     case Workflows.retry_failed_rows(socket.assigns.current_scope, batch_id) do
       {:ok, _batch} ->
@@ -318,7 +337,9 @@ defmodule FluxWeb.ConsoleLive.FluxBatches do
               <td>
                 <span class={[
                   "badge badge-sm",
-                  (batch.status == :completed && "badge-success") || "badge-info"
+                  batch.status == :completed && "badge-success",
+                  batch.status == :running && "badge-info",
+                  batch.status == :canceled && "badge-warning"
                 ]}>
                   {batch.status}
                 </span>
@@ -330,6 +351,15 @@ defmodule FluxWeb.ConsoleLive.FluxBatches do
                 >
                   Results CSV
                 </a>
+                <button
+                  :if={batch.status == :running}
+                  class="btn btn-ghost btn-xs text-error"
+                  phx-click="cancel_batch"
+                  phx-value-batch-id={batch.id}
+                  data-confirm="Cancel this batch? Rows not yet started are skipped; finished rows keep their runs."
+                >
+                  Cancel
+                </button>
                 <button
                   :if={batch.status == :completed and batch.failed > 0}
                   class="btn btn-ghost btn-xs"

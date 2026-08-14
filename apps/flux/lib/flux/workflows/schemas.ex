@@ -27,6 +27,8 @@ defmodule Flux.Workflows.Workflow do
     field :site_token, :string
     field :site_enabled, :boolean, default: false
     field :site_theme, :map, default: %{}
+    # Optional per-session passcode gate, same contract as app sites.
+    field :site_passcode_hash, :string, redact: true
     field :deleted_at, :utc_datetime
     field :ab_version_b, :integer
     field :ab_split, :integer, default: 0
@@ -165,7 +167,7 @@ defmodule Flux.Workflows.WorkflowBatch do
     field :target, :string, default: "draft"
     # Rows in flight at once (1 = sequential, capped in start_batch).
     field :concurrency, :integer, default: 1
-    field :status, Ecto.Enum, values: [:running, :completed], default: :running
+    field :status, Ecto.Enum, values: [:running, :completed, :canceled], default: :running
     field :graph, :map
     field :rows, {:array, :map}, default: []
     field :total, :integer, default: 0
