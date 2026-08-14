@@ -139,8 +139,12 @@ defmodule FluxWeb.Layouts do
         <aside class="w-60 min-h-full bg-base-100 border-r border-base-200 flex flex-col">
           <div class="px-4 py-4 border-b border-base-200">
             <.link navigate={~p"/console"} class="flex items-center gap-2">
-              <.icon name="hero-bolt-solid" class="size-6 flux-bolt" />
-              <span class="text-lg flux-wordmark">FluxCapacitor</span>
+              <%= if logo = console_logo(assigns[:current_scope]) do %>
+                <img src={logo} alt="Workspace logo" class="h-8 max-w-44 object-contain" />
+              <% else %>
+                <.icon name="hero-bolt-solid" class="size-6 flux-bolt" />
+                <span class="text-lg flux-wordmark">FluxCapacitor</span>
+              <% end %>
             </.link>
           </div>
 
@@ -459,4 +463,11 @@ defmodule FluxWeb.Layouts do
     </div>
     """
   end
+
+  # White-label: a workspace logo replaces the wordmark in the sidebar.
+  defp console_logo(%{workspace: %{custom_config: %{"console_logo_url" => url}}})
+       when is_binary(url) and url != "",
+       do: url
+
+  defp console_logo(_scope), do: nil
 end

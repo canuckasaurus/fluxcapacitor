@@ -96,6 +96,37 @@ defmodule FluxWeb.AccountLive.Settings do
             /> {String.replace(kind, "_", " ")}
           </label>
         </form>
+
+        <form phx-submit="save_quiet_hours" id="quiet-hours-form" class="flex gap-2 items-end pt-2">
+          <label class="form-control">
+            <span class="label-text text-xs opacity-70 mb-1">Quiet from (UTC hour)</span>
+            <input
+              type="number"
+              name="start"
+              value={elem(@quiet_hours, 0)}
+              min="0"
+              max="23"
+              placeholder="22"
+              class="input input-bordered input-sm w-24"
+            />
+          </label>
+          <label class="form-control">
+            <span class="label-text text-xs opacity-70 mb-1">until</span>
+            <input
+              type="number"
+              name="end"
+              value={elem(@quiet_hours, 1)}
+              min="0"
+              max="23"
+              placeholder="7"
+              class="input input-bordered input-sm w-24"
+            />
+          </label>
+          <button class="btn btn-primary btn-sm">Save quiet hours</button>
+          <span class="text-xs opacity-60">
+            Emails inside the window defer to its end (feed unaffected). Blank turns it off.
+          </span>
+        </form>
       </div>
 
       <div class="divider" />
@@ -236,6 +267,7 @@ defmodule FluxWeb.AccountLive.Settings do
       |> assign(:current_session_token, session["account_token"])
       |> assign(:sessions, Accounts.list_session_tokens(account))
       |> assign(:email_kinds, account.notification_email_kinds || [])
+      |> assign(:quiet_hours, {account.quiet_hours_start, account.quiet_hours_end})
       |> assign(:totp_enabled, Accounts.totp_enabled?(account))
       |> assign(:totp_enrollment, nil)
       |> assign(:totp_recovery_codes, [])
@@ -256,6 +288,39 @@ defmodule FluxWeb.AccountLive.Settings do
   end
 
   @impl true
+  def handle_event("save_quiet_hours", %{"start" => start_text, "end" => end_text}, socket) do
+    parse = fn text ->
+      case Integer.parse(to_string(text)) do
+        {hour, ""} when hour in 0..23 -> hour
+        _blank_or_invalid -> nil
+      end
+    end
+
+    {start_hour, end_hour} =
+      case {parse.(start_text), parse.(end_text)} do
+        {start_hour, end_hour} when is_integer(start_hour) and is_integer(end_hour) ->
+          {start_hour, end_hour}
+
+        _partial_or_blank ->
+          {nil, nil}
+      end
+
+    case Accounts.set_quiet_hours(socket.assigns.current_scope.account, start_hour, end_hour) do
+      {:ok, account} ->
+        info =
+          (start_hour && "Quiet hours saved: #{start_hour}:00–#{end_hour}:00 UTC.") ||
+            "Quiet hours off."
+
+        {:noreply,
+         socket
+         |> put_flash(:info, info)
+         |> assign(quiet_hours: {account.quiet_hours_start, account.quiet_hours_end})}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not save quiet hours.")}
+    end
+  end
+
   def handle_event("save_email_kinds", %{"kinds" => kinds}, socket) do
     kinds = Enum.reject(List.wrap(kinds), &(&1 == ""))
 

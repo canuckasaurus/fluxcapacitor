@@ -22,6 +22,8 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
        retention_days: Accounts.retention_days(scope),
        audit_retention_days: Accounts.audit_retention_days(scope),
        export_schedule: Accounts.export_schedule(scope),
+       digest_frequency: Accounts.digest_frequency(scope),
+       console_logo: Accounts.console_logo(scope),
        token_budget: Accounts.token_budget(scope),
        llm_cache_minutes: Accounts.llm_cache_minutes(scope),
        default_model_params:
@@ -161,6 +163,49 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
 
       _error ->
         {:noreply, put_flash(socket, :error, "Could not save the allowlist.")}
+    end
+  end
+
+  def handle_event("set_digest_frequency", %{"frequency" => frequency}, socket)
+      when frequency in ~w(weekly daily off) do
+    case Accounts.set_digest_frequency(socket.assigns.current_scope, frequency) do
+      {:ok, _workspace} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Digest frequency saved.")
+         |> assign(digest_frequency: frequency)}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not save the digest frequency.")}
+    end
+  end
+
+  def handle_event("set_console_logo", %{"url" => url}, socket) do
+    case Accounts.set_console_logo(socket.assigns.current_scope, url) do
+      {:ok, _workspace} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Console logo saved — reload to see the sidebar change.")
+         |> assign(console_logo: String.trim(url))}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not save the logo.")}
+    end
+  end
+
+  def handle_event("rotate_webhook_secret", %{"id" => id}, socket) do
+    case Flux.Webhooks.rotate_secret(socket.assigns.current_scope, id) do
+      {:ok, endpoint} ->
+        {:noreply,
+         socket
+         |> put_flash(
+           :info,
+           "New signing secret for #{endpoint.url}: #{endpoint.secret} — update the receiver now."
+         )
+         |> assign(webhooks: Flux.Webhooks.list_endpoints(socket.assigns.current_scope))}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not rotate the secret.")}
     end
   end
 
@@ -1025,6 +1070,15 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
                   Send test
                 </button>
                 <button
+                  class="btn btn-ghost btn-xs"
+                  phx-click="rotate_webhook_secret"
+                  phx-value-id={webhook.id}
+                  data-confirm="Rotate the signing secret? The receiver must switch immediately."
+                  title="Regenerate the whsec_ signing secret"
+                >
+                  Rotate secret
+                </button>
+                <button
                   class="btn btn-ghost btn-xs text-error"
                   phx-click="delete_webhook"
                   phx-value-id={webhook.id}
@@ -1187,6 +1241,34 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
             class="input input-bordered input-sm w-36"
           />
           <button class="btn btn-primary btn-sm">Mint API key</button>
+        </form>
+      </div>
+
+      <div :if={@can_rename} class="card border border-base-200 p-6 space-y-3" id="digest-card">
+        <h2 class="font-semibold">Digest & branding</h2>
+
+        <form
+          phx-change="set_digest_frequency"
+          id="digest-frequency-form"
+          class="flex gap-2 items-center"
+        >
+          <span class="text-sm opacity-70">Activity digest:</span>
+          <select name="frequency" class="select select-bordered select-sm w-32">
+            <option value="weekly" selected={@digest_frequency == "weekly"}>weekly</option>
+            <option value="daily" selected={@digest_frequency == "daily"}>daily</option>
+            <option value="off" selected={@digest_frequency == "off"}>off</option>
+          </select>
+        </form>
+
+        <form phx-submit="set_console_logo" id="console-logo-form" class="flex gap-2 items-center">
+          <input
+            type="url"
+            name="url"
+            value={@console_logo}
+            placeholder="https://…/logo.png (blank restores the wordmark)"
+            class="input input-bordered input-sm w-96"
+          />
+          <button class="btn btn-primary btn-sm">Save logo</button>
         </form>
       </div>
 

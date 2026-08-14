@@ -318,6 +318,19 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
     end
   end
 
+  def handle_event("restore_revision", %{"revision-id" => revision_id}, socket) do
+    case RAG.restore_document_revision(socket.assigns.current_scope, revision_id) do
+      {:ok, _document} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Revision restored — re-indexing in the background.")
+         |> refresh_documents()}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not restore the revision.")}
+    end
+  end
+
   def handle_event("set_document_tags", %{"document-id" => document_id, "tags" => tags}, socket) do
     case RAG.set_document_tags(
            socket.assigns.current_scope,
@@ -1043,6 +1056,10 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                   /> <span class="text-xs opacity-70">index questions, return passages</span>
                 </label>
               </label>
+              <p class="w-full text-xs opacity-60" id="embedded-tokens">
+                ≈{@selected.embedded_tokens} tokens embedded over this dataset's lifetime
+                (chars/4 estimate — the embedding spend meter).
+              </p>
               <label class="form-control">
                 <span class="label-text text-xs opacity-70 mb-1">Retrieval mode</span>
                 <select name="retrieval_mode" class="select select-bordered select-sm w-40">
@@ -1529,6 +1546,49 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                     expires {Calendar.strftime(document.expires_at, "%Y-%m-%d")}
                   </span>
                 </form>
+
+                <details :if={@can_edit}>
+                  <summary class="text-xs opacity-60 cursor-pointer">
+                    Revision history (replaced versions)
+                  </summary>
+                  <div class="space-y-1 pt-1">
+                    <p
+                      :if={
+                        RAG.list_document_revisions(
+                          @current_scope,
+                          @selected.id,
+                          document.name
+                        ) == []
+                      }
+                      class="text-xs opacity-60"
+                    >
+                      No replaced versions yet — replace-mode uploads keep the last five.
+                    </p>
+                    <div
+                      :for={
+                        revision <-
+                          RAG.list_document_revisions(@current_scope, @selected.id, document.name)
+                      }
+                      class="flex items-center gap-2 text-xs"
+                      id={"revision-#{revision.id}"}
+                    >
+                      <span class="opacity-60">
+                        {Calendar.strftime(revision.inserted_at, "%Y-%m-%d %H:%M")}
+                      </span>
+                      <span class="truncate max-w-md opacity-80">
+                        {String.slice(revision.content, 0, 80)}
+                      </span>
+                      <button
+                        class="btn btn-ghost btn-xs ml-auto"
+                        phx-click="restore_revision"
+                        phx-value-revision-id={revision.id}
+                        data-confirm="Restore this version? Today's content becomes the newest revision."
+                      >
+                        Restore
+                      </button>
+                    </div>
+                  </div>
+                </details>
 
                 <form
                   :if={@can_edit}

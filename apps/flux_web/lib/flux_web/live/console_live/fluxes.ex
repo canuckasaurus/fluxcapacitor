@@ -26,9 +26,14 @@ defmodule FluxWeb.ConsoleLive.Fluxes do
 
   defp load_workflows(socket) do
     scope = socket.assigns.current_scope
+    starred = Flux.Accounts.favorite_ids(scope.account, "flux")
 
     assign(socket,
-      workflows: Workflows.list_workflows(scope),
+      starred: starred,
+      workflows:
+        Enum.sort_by(Workflows.list_workflows(scope), fn workflow ->
+          {(MapSet.member?(starred, workflow.id) && 0) || 1, workflow.name}
+        end),
       versions: Workflows.latest_versions(scope),
       health: Workflows.flux_health(scope),
       latency:
@@ -51,6 +56,31 @@ defmodule FluxWeb.ConsoleLive.Fluxes do
 
   def handle_event("cancel", _params, socket) do
     {:noreply, assign(socket, creating: false, importing: false)}
+  end
+
+  def handle_event("import_url", %{"url" => url}, socket) do
+    with :ok <- Flux.SSRF.verify_url(String.trim(url)),
+         {:ok, %{status: 200, body: body}} <-
+           Req.get(url: String.trim(url), decode_body: false, retry: false, max_redirects: 2),
+         {:ok, _workflow} <-
+           Workflows.import_dsl(socket.assigns.current_scope, body) do
+      {:noreply,
+       socket
+       |> put_flash(:info, "Imported from URL.")
+       |> assign(workflows: Workflows.list_workflows(socket.assigns.current_scope))}
+    else
+      {:error, message} when is_binary(message) ->
+        {:noreply, put_flash(socket, :error, message)}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not fetch or import that URL.")}
+    end
+  end
+
+  def handle_event("toggle_star", %{"id" => id}, socket) do
+    account = socket.assigns.current_scope.account
+    {:ok, _result} = Flux.Accounts.toggle_favorite(account, "flux", id)
+    {:noreply, load_workflows(socket)}
   end
 
   def handle_event("import", %{"dsl" => dsl}, socket) do
@@ -312,6 +342,21 @@ defmodule FluxWeb.ConsoleLive.Fluxes do
           >
             <.icon name="hero-arrow-down-tray" class="size-4" /> Import DSL
           </button>
+          <form
+            :if={@can_create}
+            phx-submit="import_url"
+            class="flex gap-1 items-center"
+            id="import-url-form"
+          >
+            <input
+              type="url"
+              name="url"
+              placeholder="https://…/flux.json"
+              class="input input-bordered input-sm w-56"
+              title="Import a flux DSL straight from a URL (SSRF-guarded)"
+            />
+            <button class="btn btn-outline btn-sm">From URL</button>
+          </form>
           <button :if={@can_create and not @creating} class="btn btn-primary" phx-click="new">
             <.icon name="hero-plus" class="size-4" /> New Flux
           </button>
@@ -479,6 +524,15 @@ defmodule FluxWeb.ConsoleLive.Fluxes do
                 id={"select-#{workflow.id}"}
               />
               <h2 class="font-semibold">{workflow.name}</h2>
+              <button
+                class="btn btn-ghost btn-xs"
+                phx-click="toggle_star"
+                phx-value-id={workflow.id}
+                aria-label="Star this flux"
+                title="Starred fluxes float to the top (just for you)"
+              >
+                {(MapSet.member?(@starred, workflow.id) && "★") || "☆"}
+              </button>
             </div>
             <button
               :if={@can_create}

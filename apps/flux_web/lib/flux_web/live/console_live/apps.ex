@@ -22,10 +22,30 @@ defmodule FluxWeb.ConsoleLive.Apps do
        fluxes: Flux.Workflows.list_workflows(scope),
        can_create: RBAC.can?(scope, :app_create_and_management)
      )
-     |> assign(apps: Chat.list_apps(scope), trashed: Chat.list_trashed_apps(scope))}
+     |> load_apps()}
+  end
+
+  defp load_apps(socket) do
+    scope = socket.assigns.current_scope
+    starred = Flux.Accounts.favorite_ids(scope.account, "app")
+
+    assign(socket,
+      starred: starred,
+      apps:
+        Enum.sort_by(Chat.list_apps(scope), fn app ->
+          {(MapSet.member?(starred, app.id) && 0) || 1, app.name}
+        end),
+      trashed: Chat.list_trashed_apps(scope)
+    )
   end
 
   @impl true
+  def handle_event("toggle_star", %{"id" => id}, socket) do
+    account = socket.assigns.current_scope.account
+    {:ok, _result} = Flux.Accounts.toggle_favorite(account, "app", id)
+    {:noreply, load_apps(socket)}
+  end
+
   def handle_event("new", _params, socket) do
     {:noreply, assign(socket, creating: true, importing: false)}
   end
@@ -282,6 +302,15 @@ defmodule FluxWeb.ConsoleLive.Apps do
           <div class="flex items-start justify-between">
             <h2 class="font-semibold">
               <span :if={app.icon} class="mr-1">{app.icon}</span>{app.name}
+              <button
+                class="btn btn-ghost btn-xs"
+                phx-click="toggle_star"
+                phx-value-id={app.id}
+                aria-label="Star this app"
+                title="Starred apps float to the top (just for you)"
+              >
+                {(MapSet.member?(@starred, app.id) && "★") || "☆"}
+              </button>
             </h2>
             <button
               :if={@can_create}

@@ -19,6 +19,9 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
          conversations: Chat.list_conversations(scope, app.id, 50),
          handoffs: Chat.handoff_queue(scope, app.id),
          ab_stats: (app.ab_split > 0 && Chat.app_ab_stats(scope, app.id)) || nil,
+         prompt_ab_stats: (app.prompt_split > 0 && Chat.prompt_ab_stats(scope, app.id)) || nil,
+         handoff_sla: Chat.handoff_sla(scope, app.id),
+         conversation_usage: nil,
          conversation_evals: Flux.ConversationEvals.list_conversation_evals(scope, app.id),
          trashed_conversations: Chat.list_trashed_conversations(scope, app.id),
          visitor_stats: Chat.visitor_stats(scope, app.id),
@@ -58,7 +61,8 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
     {:noreply,
      assign(socket,
        selected_id: conversation_id,
-       messages: Chat.list_messages(scope, conversation_id)
+       messages: Chat.list_messages(scope, conversation_id),
+       conversation_usage: Chat.conversation_usage(scope, conversation_id)
      )}
   end
 
@@ -373,9 +377,14 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
     scope = socket.assigns.current_scope
 
     if socket.assigns.selected_id == id do
-      {:noreply, assign(socket, selected_id: nil, messages: [])}
+      {:noreply, assign(socket, selected_id: nil, messages: [], conversation_usage: nil)}
     else
-      {:noreply, assign(socket, selected_id: id, messages: Chat.list_messages(scope, id))}
+      {:noreply,
+       assign(socket,
+         selected_id: id,
+         messages: Chat.list_messages(scope, id),
+         conversation_usage: Chat.conversation_usage(scope, id)
+       )}
     end
   end
 
@@ -798,6 +807,34 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
         </div>
       </div>
 
+      <div
+        :if={@prompt_ab_stats}
+        class="card border border-base-200 p-4 space-y-2"
+        id="prompt-ab-card"
+      >
+        <h2 class="font-semibold text-sm">
+          Prompt A/B — {@app.prompt_split}% of conversations use Prompt B
+        </h2>
+        <table class="table table-xs max-w-xl">
+          <thead>
+            <tr>
+              <th>Arm</th>
+              <th>Replies</th>
+              <th>👍</th>
+              <th>👎</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={arm <- ~w(a b)}>
+              <td class="font-semibold uppercase">{arm}</td>
+              <td>{@prompt_ab_stats[arm].replies}</td>
+              <td>{@prompt_ab_stats[arm].likes}</td>
+              <td>{@prompt_ab_stats[arm].dislikes}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
       <div :if={@ab_stats} class="card border border-base-200 p-4 space-y-2" id="model-ab-card">
         <h2 class="font-semibold text-sm">
           Model A/B — {@app.provider_plugin_id}/{@app.model} vs {@app.ab_provider_plugin_id}/{@app.ab_model} ({@app.ab_split}% B)
@@ -930,6 +967,9 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
         <h2 class="font-semibold text-sm">
           <.icon name="hero-hand-raised" class="size-4 inline text-warning" />
           Waiting for a human ({length(@handoffs)})
+          <span :if={@handoff_sla} class="badge badge-ghost badge-sm" id="handoff-sla">
+            median first reply {format_sla(@handoff_sla.median_seconds)} ({@handoff_sla.count} handoffs, 30d)
+          </span>
         </h2>
         <div :for={conversation <- @handoffs} class="space-y-1" id={"handoff-#{conversation.id}"}>
           <p class="text-sm">
@@ -1165,6 +1205,14 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
         </div>
 
         <div :if={@selected_id == conversation.id} class="border-t border-base-200 p-4 space-y-2">
+          <p :if={@conversation_usage} class="text-xs opacity-70" id="conversation-usage">
+            <span class="font-semibold">This conversation:</span>
+            {@conversation_usage.input_tokens + @conversation_usage.output_tokens} tokens
+            ({@conversation_usage.input_tokens} in / {@conversation_usage.output_tokens} out)
+            <span :if={@conversation_usage.cost > 0}>
+              · ~${:erlang.float_to_binary(@conversation_usage.cost * 1.0, decimals: 4)} est.
+            </span>
+          </p>
           <div
             :if={conversation.summary}
             class="rounded-box bg-base-200/60 p-3 text-sm"
@@ -1218,4 +1266,8 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
     </Layouts.console>
     """
   end
+
+  defp format_sla(seconds) when seconds < 60, do: "#{seconds}s"
+  defp format_sla(seconds) when seconds < 3600, do: "#{div(seconds, 60)}m"
+  defp format_sla(seconds), do: "#{Float.round(seconds / 3600, 1)}h"
 end

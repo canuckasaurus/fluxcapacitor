@@ -52,6 +52,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
            streaming_id: nil,
            streaming_text: "",
            api_tokens: Chat.list_api_tokens(scope, app.id),
+           snapshots: Chat.list_app_snapshots(scope, app.id),
            models: Flux.Providers.available_models(scope),
            new_token: nil,
            can_manage: RBAC.can?(scope, :app_create_and_management),
@@ -458,6 +459,9 @@ defmodule FluxWeb.ConsoleLive.AppChat do
            "annotation_threshold" => presence(params["annotation_threshold"]),
            "suggest_followups" => params["suggest_followups"] == "on",
            "collect_visitor_info" => params["collect_visitor_info"] == "on",
+           "prompt_b" => params["prompt_b"],
+           "prompt_split" => parse_split(params["prompt_split"]),
+           "fallbacks" => parse_fallbacks(params["fallbacks"]),
            "fallback_provider_plugin_id" => fallback_plugin,
            "fallback_model" => fallback_model,
            "ab_provider_plugin_id" => ab_plugin,
@@ -518,6 +522,46 @@ defmodule FluxWeb.ConsoleLive.AppChat do
       _error ->
         {:noreply, put_flash(socket, :error, "Could not update the passcode.")}
     end
+  end
+
+  def handle_event("save_snapshot", %{"name" => name}, socket) do
+    case Chat.snapshot_app(socket.assigns.current_scope, socket.assigns.app, name) do
+      {:ok, _snapshot} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Snapshot saved.")
+         |> assign(
+           snapshots: Chat.list_app_snapshots(socket.assigns.current_scope, socket.assigns.app.id)
+         )}
+
+      {:error, :empty} ->
+        {:noreply, put_flash(socket, :error, "Give the snapshot a name.")}
+
+      {:error, :snapshot_limit} ->
+        {:noreply, put_flash(socket, :error, "Twenty snapshots is the cap — delete one first.")}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not save the snapshot.")}
+    end
+  end
+
+  def handle_event("restore_snapshot", %{"snapshot-id" => id}, socket) do
+    case Chat.restore_app_snapshot(socket.assigns.current_scope, socket.assigns.app, id) do
+      {:ok, app} ->
+        {:noreply, socket |> put_flash(:info, "Snapshot restored.") |> assign(app: app)}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not restore the snapshot.")}
+    end
+  end
+
+  def handle_event("delete_snapshot", %{"snapshot-id" => id}, socket) do
+    Chat.delete_app_snapshot(socket.assigns.current_scope, id)
+
+    {:noreply,
+     assign(socket,
+       snapshots: Chat.list_app_snapshots(socket.assigns.current_scope, socket.assigns.app.id)
+     )}
   end
 
   def handle_event("create-token", params, socket) do
@@ -648,6 +692,30 @@ defmodule FluxWeb.ConsoleLive.AppChat do
   end
 
   defp parse_var_rows(_params), do: []
+
+  defp parse_split(value) do
+    case Integer.parse(to_string(value || "")) do
+      {n, ""} when n in 0..100 -> n
+      _off -> 0
+    end
+  end
+
+  # One "plugin|model" per line becomes the ordered fallback chain.
+  defp parse_fallbacks(text) do
+    text
+    |> to_string()
+    |> String.split(~r/\r?\n/, trim: true)
+    |> Enum.flat_map(fn line ->
+      case String.split(String.trim(line), "|", parts: 2) do
+        [plugin, model] when plugin != "" and model != "" ->
+          [%{"provider_plugin_id" => String.trim(plugin), "model" => String.trim(model)}]
+
+        _invalid ->
+          []
+      end
+    end)
+    |> Enum.take(5)
+  end
 
   defp embed_snippet(app) do
     ~s(<iframe src="#{url(~p"/site/#{app.site_token}")}"\n  style="width: 100%; height: 640px; border: 0; border-radius: 12px;"\n  allow="clipboard-write"></iframe>)
@@ -1129,6 +1197,34 @@ defmodule FluxWeb.ConsoleLive.AppChat do
             />
             Ask site visitors for their name/email (optional pre-chat form, stored on the conversation)
           </label>
+          <label class="form-control block">
+            <span class="label-text text-sm mb-1">
+              Prompt B (A/B test an alternative system prompt)
+            </span>
+            <textarea name="prompt_b" rows="2" class="textarea textarea-bordered w-full">{@app.prompt_b}</textarea>
+          </label>
+          <label class="form-control">
+            <span class="label-text text-sm mb-1">Prompt B share (% of conversations)</span>
+            <input
+              type="number"
+              name="prompt_split"
+              value={@app.prompt_split}
+              min="0"
+              max="100"
+              class="input input-bordered input-sm w-24"
+            />
+          </label>
+          <label class="form-control block">
+            <span class="label-text text-sm mb-1">
+              Additional fallbacks (plugin|model per line, tried in order after the fallback model)
+            </span>
+            <textarea
+              name="fallbacks"
+              rows="2"
+              placeholder="openai|gpt-4o-mini"
+              class="textarea textarea-bordered w-full font-mono text-xs"
+            >{Enum.map_join(@app.fallbacks || [], "\n", fn f -> "#{f["provider_plugin_id"]}|#{f["model"]}" end)}</textarea>
+          </label>
           <label :if={@app.mode == :chat} class="form-control block">
             <span class="label-text text-sm mb-1">
               Fallback model (one retry when the primary provider errors)
@@ -1435,6 +1531,54 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               {(@app.site_passcode_hash && "Update passcode") || "Set passcode"}
             </button>
           </form>
+        </div>
+      </div>
+
+      <div :if={@can_edit} class="card border border-base-200 p-6 space-y-3" id="snapshots-card">
+        <div class="flex items-center justify-between gap-2">
+          <h2 class="font-semibold">Settings snapshots</h2>
+          <form phx-submit="save_snapshot" class="flex gap-2 items-center" id="save-snapshot-form">
+            <input
+              type="text"
+              name="name"
+              placeholder="before prompt rewrite…"
+              maxlength="80"
+              autocomplete="off"
+              class="input input-bordered input-sm w-52"
+            />
+            <button class="btn btn-sm">Save snapshot</button>
+          </form>
+        </div>
+        <p class="text-sm opacity-70">
+          Named copies of this app's settings (prompts, params, models) —
+          the undo that app edits never had. Restoring applies the copy
+          back through the normal validation.
+        </p>
+        <div
+          :for={snapshot <- @snapshots}
+          class="flex items-center gap-2 py-1 border-b border-base-200 last:border-0 text-sm"
+          id={"snapshot-#{snapshot.id}"}
+        >
+          <span class="font-semibold">{snapshot.name}</span>
+          <span class="text-xs opacity-60">
+            {Calendar.strftime(snapshot.inserted_at, "%Y-%m-%d %H:%M")}
+          </span>
+          <button
+            class="btn btn-outline btn-xs ml-auto"
+            phx-click="restore_snapshot"
+            phx-value-snapshot-id={snapshot.id}
+            data-confirm="Restore these settings over the current ones?"
+          >
+            Restore
+          </button>
+          <button
+            class="btn btn-ghost btn-xs text-error"
+            phx-click="delete_snapshot"
+            phx-value-snapshot-id={snapshot.id}
+            data-confirm="Delete this snapshot?"
+          >
+            Delete
+          </button>
         </div>
       </div>
 
