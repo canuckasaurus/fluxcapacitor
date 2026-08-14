@@ -291,6 +291,77 @@ defmodule Flux.Workflows do
   end
 
   @doc """
+  Schedules (or with nil, cancels) a one-shot publish of the current
+  draft. The scheduler tick performs it with a synthetic editor scope;
+  gate evals still run against the new version.
+  """
+  def schedule_publish(%Scope{} = scope, %Workflow{} = workflow, publish_at) do
+    with :ok <- RBAC.authorize(scope, :app_release_and_version),
+         :ok <- owned(scope, workflow),
+         :ok <- validate_future(publish_at) do
+      with {:ok, updated} <-
+             workflow |> Ecto.Changeset.change(publish_at: publish_at) |> Repo.update() do
+        Flux.Audit.record(scope, "workflow.schedule_publish",
+          resource: workflow,
+          metadata: %{"publish_at" => publish_at && DateTime.to_iso8601(publish_at)}
+        )
+
+        {:ok, updated}
+      end
+    end
+  end
+
+  defp validate_future(nil), do: :ok
+
+  defp validate_future(%DateTime{} = at) do
+    if DateTime.compare(at, DateTime.utc_now()) == :gt, do: :ok, else: {:error, :in_the_past}
+  end
+
+  @doc """
+  Scheduler tick: due scheduled publishes fire (once — the timestamp
+  clears first, so a publish crash can't machine-gun versions). A
+  publish failure lands a `run_failed` notification instead of a new
+  version.
+  """
+  def run_scheduled_publishes(now \\ DateTime.utc_now(:second)) do
+    due =
+      Workflow
+      |> where([w], not is_nil(w.publish_at) and w.publish_at <= ^now and is_nil(w.deleted_at))
+      |> Repo.all(skip_workspace_guard: true)
+
+    for workflow <- due do
+      from(w in Workflow, where: w.id == ^workflow.id)
+      |> Repo.update_all([set: [publish_at: nil]], skip_workspace_guard: true)
+
+      scope = %Scope{
+        account: nil,
+        workspace: %Flux.Accounts.Workspace{id: workflow.workspace_id},
+        membership: %Flux.Accounts.Membership{
+          workspace_id: workflow.workspace_id,
+          role: :editor
+        }
+      }
+
+      case publish(scope, workflow, "scheduled publish") do
+        {:ok, _version} ->
+          # The audit trail records workflow.publish; gates notify on
+          # their own if they block.
+          :ok
+
+        {:error, _reason} ->
+          Flux.Notifications.notify(
+            workflow.workspace_id,
+            "run_failed",
+            "#{workflow.name}: the scheduled publish failed — the draft graph doesn't build.",
+            "/console/fluxes/#{workflow.id}"
+          )
+      end
+    end
+
+    :ok
+  end
+
+  @doc """
   p50/p95 run duration over the last `limit` finished runs — averages
   hide the tail. Returns `%{count, p50_ms, p95_ms}` or nil when no
   timed runs exist.

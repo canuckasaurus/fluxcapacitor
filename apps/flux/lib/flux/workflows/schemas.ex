@@ -24,6 +24,9 @@ defmodule Flux.Workflows.Workflow do
     field :pinned_version, :integer
     # One whole-run retry on failure (transient provider errors).
     field :auto_retry, :boolean, default: false
+    # One-shot: the scheduler publishes the draft at this time, then
+    # clears it. Gate evals still apply.
+    field :publish_at, :utc_datetime
     field :site_token, :string
     field :site_enabled, :boolean, default: false
     field :site_theme, :map, default: %{}

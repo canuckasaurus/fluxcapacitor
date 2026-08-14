@@ -52,6 +52,7 @@ defmodule Flux.Workflows.ScheduleWorker do
     Workflows.check_paused_runs(now)
     Flux.Usage.send_monthly_cost_reports(now)
     Flux.Chat.warn_expiring_keys(now)
+    Workflows.run_scheduled_publishes(now)
 
     # Remembered URL sources re-fetch nightly (runtime-resolved — flux
     # never compile-depends on flux_rag).
@@ -59,6 +60,10 @@ defmodule Flux.Workflows.ScheduleWorker do
 
     if Code.ensure_loaded?(rag) and function_exported?(rag, :refresh_url_sources, 1) do
       rag.refresh_url_sources(now)
+    end
+
+    if Code.ensure_loaded?(rag) and function_exported?(rag, :disable_expired_documents, 1) do
+      rag.disable_expired_documents(now)
     end
 
     if Code.ensure_loaded?(rag) and function_exported?(rag, :run_scheduled_retrieval_evals, 1) do

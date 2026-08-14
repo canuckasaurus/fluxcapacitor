@@ -1101,6 +1101,43 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
     {:noreply, socket}
   end
 
+  def handle_event("schedule_publish", %{"at" => at}, socket) do
+    scope = socket.assigns.current_scope
+
+    with {:ok, naive} <- NaiveDateTime.from_iso8601(at <> ":00"),
+         {:ok, datetime} <- DateTime.from_naive(naive, "Etc/UTC"),
+         {:ok, workflow} <-
+           Workflows.schedule_publish(scope, socket.assigns.workflow, datetime) do
+      {:noreply,
+       socket
+       |> put_flash(
+         :info,
+         "Publish scheduled for #{Calendar.strftime(datetime, "%Y-%m-%d %H:%M")} UTC."
+       )
+       |> assign(workflow: workflow)}
+    else
+      {:error, :in_the_past} ->
+        {:noreply, put_flash(socket, :error, "Pick a time in the future (UTC).")}
+
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "You don't have permission to publish.")}
+
+      _invalid ->
+        {:noreply, put_flash(socket, :error, "Could not parse that time.")}
+    end
+  end
+
+  def handle_event("cancel_scheduled_publish", _params, socket) do
+    case Workflows.schedule_publish(socket.assigns.current_scope, socket.assigns.workflow, nil) do
+      {:ok, workflow} ->
+        {:noreply,
+         socket |> put_flash(:info, "Scheduled publish canceled.") |> assign(workflow: workflow)}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not cancel the schedule.")}
+    end
+  end
+
   def handle_event("publish", params, socket) do
     scope = socket.assigns.current_scope
 
@@ -3309,20 +3346,41 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
               >
                 <.icon name="hero-rocket-launch" class="size-4" /> Publish
               </summary>
-              <form
-                phx-submit="publish"
-                class="dropdown-content z-40 card bg-base-100 border border-base-300 p-3 w-64 space-y-2 shadow-lg"
-                id="publish-form"
-              >
-                <input
-                  type="text"
-                  name="note"
-                  placeholder="Release note (optional)"
-                  class="input input-sm w-full"
-                  autocomplete="off"
-                />
-                <button class="btn btn-primary btn-sm w-full">Publish now</button>
-              </form>
+              <div class="dropdown-content z-40 card bg-base-100 border border-base-300 p-3 w-64 space-y-2 shadow-lg">
+                <form phx-submit="publish" class="space-y-2" id="publish-form">
+                  <input
+                    type="text"
+                    name="note"
+                    placeholder="Release note (optional)"
+                    class="input input-sm w-full"
+                    autocomplete="off"
+                  />
+                  <button class="btn btn-primary btn-sm w-full">Publish now</button>
+                </form>
+                <form
+                  phx-submit="schedule_publish"
+                  class="space-y-2 border-t border-base-200 pt-2"
+                  id="schedule-publish-form"
+                >
+                  <p :if={@workflow.publish_at} class="text-xs text-info">
+                    Scheduled: {Calendar.strftime(@workflow.publish_at, "%Y-%m-%d %H:%M")} UTC
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-xs text-error"
+                      phx-click="cancel_scheduled_publish"
+                    >
+                      Cancel
+                    </button>
+                  </p>
+                  <input
+                    type="datetime-local"
+                    name="at"
+                    class="input input-sm w-full"
+                    title="Publish the draft at this time (UTC)"
+                  />
+                  <button class="btn btn-outline btn-xs w-full">Schedule publish (UTC)</button>
+                </form>
+              </div>
             </details>
             <button
               :if={@can_run}
