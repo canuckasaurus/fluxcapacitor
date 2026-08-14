@@ -67,6 +67,30 @@ defmodule Flux.Webhooks do
     end
   end
 
+  @doc """
+  Regenerates an endpoint's signing secret. Receivers must switch to the
+  new `whsec_` immediately — show it once, like key minting.
+  """
+  def rotate_secret(%Flux.Accounts.Scope{} = scope, endpoint_id) do
+    with :ok <- Flux.RBAC.authorize(scope, :api_extension_manage),
+         %Endpoint{} = endpoint <-
+           Repo.one(Repo.scoped(where(Endpoint, id: ^endpoint_id), scope)) ||
+             {:error, :not_found} do
+      secret = "whsec_" <> Base.url_encode64(:crypto.strong_rand_bytes(24), padding: false)
+
+      with {:ok, updated} <-
+             endpoint |> Ecto.Changeset.change(secret: secret) |> Repo.update() do
+        Flux.Audit.record(scope, "webhook.rotate_secret",
+          resource_type: "webhook_endpoint",
+          resource_id: endpoint.id,
+          metadata: %{"url" => endpoint.url}
+        )
+
+        {:ok, updated}
+      end
+    end
+  end
+
   def list_endpoints(%Scope{} = scope) do
     Endpoint
     |> Repo.scoped(scope)

@@ -375,9 +375,22 @@ defmodule Flux.Chat do
           usage: %{"human" => true, "author" => (scope.account && scope.account.email) || ""}
         })
 
+      # First human reply after a handoff request: record the wait once —
+      # the support-latency metric the queue can't show after the flag
+      # clears.
+      first_reply_seconds =
+        if conversation.handoff_requested_at && conversation.handoff_first_reply_seconds == nil do
+          DateTime.diff(DateTime.utc_now(:second), conversation.handoff_requested_at)
+        else
+          conversation.handoff_first_reply_seconds
+        end
+
       {:ok, conversation} =
         conversation
-        |> Ecto.Changeset.change(handoff_requested_at: nil)
+        |> Ecto.Changeset.change(
+          handoff_requested_at: nil,
+          handoff_first_reply_seconds: first_reply_seconds
+        )
         |> Repo.update()
 
       Phoenix.PubSub.broadcast(
@@ -1588,6 +1601,131 @@ defmodule Flux.Chat do
     |> Repo.all()
   end
 
+  ## App snapshots
+
+  @snapshot_fields ~w(provider_plugin_id model fallback_provider_plugin_id fallback_model
+                      fallbacks ab_provider_plugin_id ab_model ab_split system_prompt prompt_b
+                      prompt_split prompt_template input_form params opening_statement
+                      suggested_questions daily_token_limit rate_limit_per_minute
+                      annotation_threshold suggest_followups collect_visitor_info icon)
+
+  @doc "Saves a named copy of the app's settings (capped at twenty)."
+  def snapshot_app(%Scope{} = scope, %App{} = app, name) do
+    name = String.trim(to_string(name))
+
+    with :ok <- RBAC.authorize(scope, :app_edit),
+         true <- name != "" || {:error, :empty},
+         true <- count_snapshots(scope, app.id) < 20 || {:error, :snapshot_limit} do
+      config =
+        for field <- @snapshot_fields, into: %{} do
+          {field, Map.get(app, String.to_existing_atom(field))}
+        end
+
+      snapshot =
+        Repo.insert!(%Flux.Chat.AppSnapshot{
+          workspace_id: app.workspace_id,
+          app_id: app.id,
+          name: name,
+          config: config
+        })
+
+      Flux.Audit.record(scope, "app.snapshot", resource: app, metadata: %{"name" => name})
+      {:ok, snapshot}
+    end
+  end
+
+  def list_app_snapshots(%Scope{} = scope, app_id) do
+    Flux.Chat.AppSnapshot
+    |> Repo.scoped(scope)
+    |> where([snapshot], snapshot.app_id == ^app_id)
+    |> order_by([snapshot], desc: snapshot.inserted_at)
+    |> Repo.all()
+  end
+
+  defp count_snapshots(scope, app_id) do
+    Flux.Chat.AppSnapshot
+    |> Repo.scoped(scope)
+    |> where([snapshot], snapshot.app_id == ^app_id)
+    |> Repo.aggregate(:count)
+  end
+
+  @doc "Applies a snapshot's settings back onto the app (via the changeset)."
+  def restore_app_snapshot(%Scope{} = scope, %App{} = app, snapshot_id) do
+    with %Flux.Chat.AppSnapshot{app_id: app_id} = snapshot <-
+           Repo.one(Repo.scoped(where(Flux.Chat.AppSnapshot, id: ^snapshot_id), scope)) ||
+             {:error, :not_found},
+         true <- app_id == app.id || {:error, :not_found},
+         {:ok, restored} <- update_app(scope, app, snapshot.config) do
+      Flux.Audit.record(scope, "app.snapshot_restore",
+        resource: app,
+        metadata: %{"name" => snapshot.name}
+      )
+
+      {:ok, restored}
+    end
+  end
+
+  def delete_app_snapshot(%Scope{} = scope, snapshot_id) do
+    with :ok <- RBAC.authorize(scope, :app_edit),
+         %Flux.Chat.AppSnapshot{} = snapshot <-
+           Repo.one(Repo.scoped(where(Flux.Chat.AppSnapshot, id: ^snapshot_id), scope)) ||
+             {:error, :not_found} do
+      Repo.delete(snapshot)
+    end
+  end
+
+  @doc "Token and estimated-cost totals for one conversation's replies."
+  def conversation_usage(%Scope{} = scope, conversation_id) do
+    messages =
+      Message
+      |> Repo.scoped(scope)
+      |> where([m], m.conversation_id == ^conversation_id and m.role == :assistant)
+      |> select([m], m.usage)
+      |> Repo.all()
+
+    Enum.reduce(messages, %{input_tokens: 0, output_tokens: 0, cost: 0.0}, fn usage, acc ->
+      input = usage["input_tokens"] || 0
+      output = usage["output_tokens"] || 0
+
+      cost =
+        case usage["model_used"] do
+          model when is_binary(model) ->
+            Flux.Pricing.estimate(model, input, output) || 0.0
+
+          _unknown ->
+            0.0
+        end
+
+      %{
+        input_tokens: acc.input_tokens + input,
+        output_tokens: acc.output_tokens + output,
+        cost: acc.cost + cost
+      }
+    end)
+  end
+
+  @doc """
+  Median seconds from handoff request to the first human reply over the
+  last 30 days — nil when nothing measurable happened.
+  """
+  def handoff_sla(%Scope{} = scope, app_id) do
+    since = DateTime.add(DateTime.utc_now(:second), -30, :day)
+
+    waits =
+      Conversation
+      |> Repo.scoped(scope)
+      |> where([c], c.app_id == ^app_id and not is_nil(c.handoff_first_reply_seconds))
+      |> where([c], c.updated_at >= ^since)
+      |> select([c], c.handoff_first_reply_seconds)
+      |> Repo.all()
+      |> Enum.sort()
+
+    case waits do
+      [] -> nil
+      waits -> %{median_seconds: Enum.at(waits, div(length(waits), 2)), count: length(waits)}
+    end
+  end
+
   ## API tokens
 
   @doc """
@@ -1847,6 +1985,8 @@ defmodule Flux.Chat do
     # Model A/B: ab_split% of conversations (stable per conversation)
     # run the challenger; the reply's usage records which variant.
     {app, variant} = pick_ab_variant(app, assistant_message.conversation_id)
+    # Prompt A/B rides the same rails with an independent coin flip.
+    {app, prompt_variant} = pick_prompt_variant(app, assistant_message.conversation_id)
 
     request = %Flux.Plugin.ModelProvider.Request{
       model: app.model,
@@ -1885,6 +2025,8 @@ defmodule Flux.Chat do
                "model_used" => "#{app.provider_plugin_id}/#{app.model}"
              })) || usage
 
+        usage = (prompt_variant == "b" && Map.put(usage, "prompt_variant", "b")) || usage
+
         finalize(assistant_message, :completed, result.content, usage)
 
       {:error, reason} ->
@@ -1910,16 +2052,92 @@ defmodule Flux.Chat do
 
   defp pick_ab_variant(app, _conversation_id), do: {app, "a"}
 
-  # A configured backup model gets one try when the primary errors; the
-  # reply's usage records which model actually answered.
-  defp generate_fallback(
-         %App{fallback_provider_plugin_id: plugin, fallback_model: model} = app,
-         request,
-         emit,
-         assistant_message,
-         primary_reason
+  # prompt_split% of conversations use prompt_b as the system prompt —
+  # hashed with a salt so the model and prompt arms stay independent.
+  defp pick_prompt_variant(
+         %App{prompt_split: split, prompt_b: prompt_b} = app,
+         conversation_id
        )
-       when is_binary(plugin) and plugin != "" and is_binary(model) and model != "" do
+       when is_integer(split) and split > 0 and is_binary(prompt_b) and prompt_b != "" do
+    if rem(:erlang.phash2({conversation_id, :prompt}), 100) < split do
+      {%{app | system_prompt: prompt_b}, "b"}
+    else
+      {app, "a"}
+    end
+  end
+
+  defp pick_prompt_variant(app, _conversation_id), do: {app, "a"}
+
+  @doc "Per-arm reply/feedback stats for the prompt A/B (mirrors app_ab_stats)."
+  def prompt_ab_stats(%Scope{} = scope, app_id, limit \\ 1_000) do
+    Message
+    |> Repo.scoped(scope)
+    |> join(:inner, [m], c in Conversation, on: m.conversation_id == c.id)
+    |> where([m, c], c.app_id == ^app_id and m.role == :assistant and m.status == :completed)
+    |> order_by([m], desc: m.inserted_at)
+    |> limit(^limit)
+    |> select([m], %{usage: m.usage, feedback: m.feedback})
+    |> Repo.all()
+    |> Enum.reduce(
+      %{
+        "a" => %{replies: 0, likes: 0, dislikes: 0},
+        "b" => %{replies: 0, likes: 0, dislikes: 0}
+      },
+      fn message, acc ->
+        arm = (message.usage["prompt_variant"] == "b" && "b") || "a"
+
+        Map.update!(acc, arm, fn stats ->
+          %{
+            replies: stats.replies + 1,
+            likes: stats.likes + ((message.feedback == :like && 1) || 0),
+            dislikes: stats.dislikes + ((message.feedback == :dislike && 1) || 0)
+          }
+        end)
+      end
+    )
+  end
+
+  # Configured backups get one try each, in order, when the primary
+  # errors; the reply's usage records which model actually answered.
+  defp generate_fallback(app, request, emit, assistant_message, primary_reason) do
+    case try_fallbacks(fallback_chain(app), app, request, emit) do
+      {:ok, result, plugin, model} ->
+        finalize(assistant_message, :completed, result.content, %{
+          "input_tokens" => result.usage.input_tokens,
+          "output_tokens" => result.usage.output_tokens,
+          "model_used" => "#{plugin}/#{model}",
+          "fallback_used" => true
+        })
+
+      :exhausted ->
+        # The primary's error is the honest one to surface.
+        generate_error(assistant_message, primary_reason)
+    end
+  end
+
+  # The legacy single fallback leads; the ordered `fallbacks` list rides
+  # behind it.
+  defp fallback_chain(app) do
+    legacy =
+      if is_binary(app.fallback_provider_plugin_id) and app.fallback_provider_plugin_id != "" and
+           is_binary(app.fallback_model) and app.fallback_model != "" do
+        [{app.fallback_provider_plugin_id, app.fallback_model}]
+      else
+        []
+      end
+
+    extra =
+      for %{"provider_plugin_id" => plugin, "model" => model} <- app.fallbacks || [],
+          is_binary(plugin) and plugin != "" and is_binary(model) and model != "" do
+        {plugin, model}
+      end
+
+    Enum.uniq(legacy ++ extra)
+  end
+
+  defp try_fallbacks([], _app, _request, _emit), do: :exhausted
+
+  defp try_fallbacks([{plugin, model} | rest], app, request, emit) do
     credentials =
       case Providers.fetch_config(app.workspace_id, plugin) do
         {:ok, config} -> config
@@ -1929,23 +2147,12 @@ defmodule Flux.Chat do
     case runtime().invoke_llm(plugin, credentials, %{request | model: model}, emit) do
       {:ok, result} ->
         Flux.ProviderHealth.record(plugin, :ok)
+        {:ok, result, plugin, model}
 
-        finalize(assistant_message, :completed, result.content, %{
-          "input_tokens" => result.usage.input_tokens,
-          "output_tokens" => result.usage.output_tokens,
-          "model_used" => "#{plugin}/#{model}",
-          "fallback_used" => true
-        })
-
-      {:error, _fallback_reason} ->
-        # The primary's error is the honest one to surface.
+      {:error, _reason} ->
         Flux.ProviderHealth.record(plugin, :error)
-        generate_error(assistant_message, primary_reason)
+        try_fallbacks(rest, app, request, emit)
     end
-  end
-
-  defp generate_fallback(_app, _request, _emit, assistant_message, reason) do
-    generate_error(assistant_message, reason)
   end
 
   defp generate_error(assistant_message, reason) do

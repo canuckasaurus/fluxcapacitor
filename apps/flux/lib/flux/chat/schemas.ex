@@ -20,11 +20,17 @@ defmodule Flux.Chat.App do
     field :model, :string
     field :fallback_provider_plugin_id, :string
     field :fallback_model, :string
+    # Further backups tried in order after the single fallback:
+    # [%{"provider_plugin_id" => ..., "model" => ...}].
+    field :fallbacks, {:array, :map}, default: []
     # Model A/B: ab_split% of conversations run the challenger model.
     field :ab_provider_plugin_id, :string
     field :ab_model, :string
     field :ab_split, :integer, default: 0
     field :system_prompt, :string
+    # Prompt A/B: prompt_split% of conversations use prompt_b instead.
+    field :prompt_b, :string
+    field :prompt_split, :integer, default: 0
     field :prompt_template, :string
     field :input_form, {:array, :map}, default: []
     field :params, :map, default: %{}
@@ -63,7 +69,10 @@ defmodule Flux.Chat.App do
       :ab_model,
       :ab_split,
       :system_prompt,
+      :prompt_b,
+      :prompt_split,
       :prompt_template,
+      :fallbacks,
       :input_form,
       :params,
       :opening_statement,
@@ -78,6 +87,7 @@ defmodule Flux.Chat.App do
     |> validate_number(:daily_token_limit, greater_than: 0)
     |> validate_number(:rate_limit_per_minute, greater_than: 0, less_than_or_equal_to: 10_000)
     |> validate_number(:ab_split, greater_than_or_equal_to: 0, less_than_or_equal_to: 100)
+    |> validate_number(:prompt_split, greater_than_or_equal_to: 0, less_than_or_equal_to: 100)
     |> validate_number(:annotation_threshold,
       greater_than_or_equal_to: 0.0,
       less_than_or_equal_to: 1.0
@@ -117,6 +127,8 @@ defmodule Flux.Chat.Conversation do
     field :labels, {:array, :string}, default: []
     # Set when a site visitor asks for a human; cleared on console reply.
     field :handoff_requested_at, :utc_datetime
+    # Seconds from handoff request to the first human reply (set once).
+    field :handoff_first_reply_seconds, :integer
     field :variables, :map, default: %{}
     # Rolling memory: older turns fold into `summary` once the history
     # outgrows the token window; `summarized_seq` is the last folded turn.
@@ -190,6 +202,24 @@ defmodule Flux.Chat.Annotation do
     field :embedding_model, :string
 
     timestamps(type: :utc_datetime)
+  end
+end
+
+defmodule Flux.Chat.AppSnapshot do
+  @moduledoc "A named copy of an app's settings — the undo apps never had."
+  use Ecto.Schema
+
+  @primary_key {:id, UUIDv7, autogenerate: true}
+  @foreign_key_type :binary_id
+
+  schema "app_snapshots" do
+    belongs_to :workspace, Flux.Accounts.Workspace
+    belongs_to :app, Flux.Chat.App
+
+    field :name, :string
+    field :config, :map, default: %{}
+
+    timestamps(type: :utc_datetime, updated_at: false)
   end
 end
 
