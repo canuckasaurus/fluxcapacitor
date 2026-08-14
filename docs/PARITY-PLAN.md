@@ -1331,3 +1331,26 @@ embedding model changes deliberately excluded — they belong to the
 guarded switch). One migration (expiry_warned_at, feedback_comment,
 workflows passcode). 972 tests. The bench holds: custom domains,
 Japanese locale, require-2FA policy, member suspension.
+
+**59. Batch 35 — people, timing, and finding things.** Five picked.
+**Visitor identity** (apps.collect_visitor_info + conversation
+visitor_name/email; an optional pre-chat form on the site — submitting
+creates the conversation early if needed; bad emails are ignored, not
+stored; monitor rows and the handoff queue show the identity);
+**scheduled publish** (workflows.publish_at, a one-shot tick in the
+scheduler chain that clears the timestamp BEFORE publishing so a crash
+can't machine-gun versions; synthetic editor scope; gates still run;
+failures notify run_failed); **document expiry**
+(rag_documents.expires_at + disable_expired_documents in the nightly
+rag tick — disable-not-delete, segments cascade, re-enabling is a
+human decision); **handoff assignment**
+(conversations.assigned_account_id, claim/release buttons, assignee
+badge — the two-agents-one-visitor race closed); **palette deep
+search** (a ?q= lane on /console/palette: conversation titles via a
+new workspace-wide ILIKE search and runs via the existing
+list_workspace_runs q filter; the JS debounces 250ms and rides remote
+results below local matches; monitor and runs pages grew handle_params
+deep links — ?conversation= selects, ?run= expands). One migration
+(collect flag, identity columns, assigned_account_id, publish_at,
+expires_at). 981 tests. The bench holds: custom domains, Japanese
+locale, require-2FA policy, member suspension.

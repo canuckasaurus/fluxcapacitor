@@ -7,6 +7,25 @@ at `docs/PARITY-PLAN.md`.
 
 ## Unreleased
 
+### Batch 35
+- Visitor identity capture: an optional pre-chat name/email form on
+  public sites (per-app toggle), stored on the conversation and shown
+  in the monitor and handoff queue — anonymous `web_…` refs become
+  contactable people.
+- Scheduled publish: publish the draft at a chosen time (one-shot,
+  UTC) from the publish dropdown; the scheduler performs it and gate
+  evals still apply. A failed publish notifies instead of shipping.
+- Document expiry: an optional per-document date; the nightly sweep
+  disables expired documents so they drop out of retrieval — for
+  content that's only true until a date.
+- Handoff assignment: claim or release handoff conversations; the
+  queue shows who owns what, so two agents stop answering the same
+  visitor.
+- Palette deep search: typing three or more characters into Ctrl+K
+  also searches conversation titles and run inputs/outputs
+  server-side, with deep links that open the monitor conversation or
+  expand the run.
+
 ### Batch 34
 - API-key expiry warnings: keys expiring within seven days raise one
   `api_key_expiring` notification (webhook-routable) instead of dying
