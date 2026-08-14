@@ -201,6 +201,30 @@ defmodule FluxWeb.SiteLive.AppSite do
     end
   end
 
+  def handle_event(
+        "feedback_comment",
+        %{"message_id" => message_id, "comment" => comment},
+        socket
+      ) do
+    current = Enum.find(socket.assigns.messages, &(&1.id == message_id))
+
+    case current && current.feedback &&
+           Chat.set_feedback(socket.assigns.site_scope, message_id, current.feedback,
+             comment: comment
+           ) do
+      {:ok, updated} ->
+        messages =
+          Enum.map(socket.assigns.messages, fn message ->
+            (message.id == updated.id && updated) || message
+          end)
+
+        {:noreply, assign(socket, messages: messages)}
+
+      _no_rating_or_error ->
+        {:noreply, socket}
+    end
+  end
+
   def handle_event("request_handoff", _params, socket) do
     %{app: app, site_scope: scope} = socket.assigns
 
@@ -551,6 +575,29 @@ defmodule FluxWeb.SiteLive.AppSite do
                   👎
                 </button>
               </div>
+              <form
+                :if={message.feedback != nil and message.feedback_comment == nil}
+                phx-submit="feedback_comment"
+                id={"feedback-comment-#{message.id}"}
+                class="chat-footer mt-1 flex gap-1"
+              >
+                <input type="hidden" name="message_id" value={message.id} />
+                <input
+                  type="text"
+                  name="comment"
+                  placeholder="Tell us more (optional)…"
+                  maxlength="1000"
+                  autocomplete="off"
+                  class="input input-bordered input-xs w-56"
+                />
+                <button class="btn btn-ghost btn-xs">Send</button>
+              </form>
+              <p
+                :if={message.feedback_comment}
+                class="chat-footer mt-1 text-xs opacity-60"
+              >
+                Thanks for the feedback.
+              </p>
             </div>
             <div :if={@streaming_id} class="chat chat-start" id="site-streaming">
               <div class="chat-bubble">

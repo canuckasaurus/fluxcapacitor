@@ -106,7 +106,9 @@ defmodule FluxWeb.V1.AppResourceController do
         _clear -> nil
       end
 
-    case Chat.set_feedback(conn.assigns.service_scope, message_id, rating) do
+    case Chat.set_feedback(conn.assigns.service_scope, message_id, rating,
+           comment: params["content"]
+         ) do
       {:ok, _message} -> json(conn, %{result: "success"})
       {:error, :not_found} -> error(conn, 404, "not_found", "Message not found")
     end

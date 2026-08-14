@@ -388,11 +388,12 @@ defmodule FluxWeb.FluxDslController do
                     Calendar.strftime(message.inserted_at, "%Y-%m-%d %H:%M:%S"),
                     to_string(message.feedback),
                     question || "",
-                    message.content
+                    message.content,
+                    message.feedback_comment || ""
                   ]
                 end
 
-              {[["when", "feedback", "question", "reply"] | rows], "feedback"}
+              {[["when", "feedback", "question", "reply", "comment"] | rows], "feedback"}
           end
 
         send_download(

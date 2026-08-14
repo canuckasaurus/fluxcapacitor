@@ -281,6 +281,43 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
     {:noreply, assign(socket, annotations: Chat.list_annotations(scope, socket.assigns.app.id))}
   end
 
+  def handle_event("toggle_annotation", %{"annotation-id" => id}, socket) do
+    scope = socket.assigns.current_scope
+
+    case Enum.find(socket.assigns.annotations, &(&1.id == id)) do
+      nil ->
+        {:noreply, socket}
+
+      annotation ->
+        Chat.update_annotation(scope, id, %{enabled: not annotation.enabled})
+
+        {:noreply,
+         assign(socket, annotations: Chat.list_annotations(scope, socket.assigns.app.id))}
+    end
+  end
+
+  def handle_event(
+        "update_annotation",
+        %{"annotation_id" => id, "question" => question, "answer" => answer},
+        socket
+      ) do
+    scope = socket.assigns.current_scope
+
+    case Chat.update_annotation(scope, id, %{question: question, answer: answer}) do
+      {:ok, _annotation} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Annotation updated.")
+         |> assign(annotations: Chat.list_annotations(scope, socket.assigns.app.id))}
+
+      {:error, :empty} ->
+        {:noreply, put_flash(socket, :error, "Question and answer can't be blank.")}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not update the annotation.")}
+    end
+  end
+
   def handle_event("search", %{"query" => query}, socket) do
     results =
       case String.trim(query) do
@@ -567,6 +604,12 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
           <p class="text-sm whitespace-pre-wrap break-words max-h-24 overflow-y-auto">
             {message.content}
           </p>
+          <p
+            :if={message.feedback_comment}
+            class="text-sm border-l-2 border-warning pl-2 whitespace-pre-wrap break-words"
+          >
+            <span class="font-semibold opacity-70">Visitor said:</span> {message.feedback_comment}
+          </p>
           <button
             :if={@can_edit and message.feedback == :like and question}
             class="btn btn-outline btn-xs"
@@ -626,21 +669,56 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
         >
           <div class="flex items-center gap-2 text-xs opacity-60">
             <span class="badge badge-ghost badge-sm">{annotation.hit_count} hits</span>
+            <span :if={not annotation.enabled} class="badge badge-warning badge-sm">
+              disabled
+            </span>
             <span>{Calendar.strftime(annotation.inserted_at, "%Y-%m-%d %H:%M")}</span>
-            <button
-              :if={@can_edit}
-              class="btn btn-ghost btn-xs text-error ml-auto"
-              phx-click="delete_annotation"
-              phx-value-annotation-id={annotation.id}
-              data-confirm="Delete this annotation?"
-            >
-              Delete
-            </button>
+            <span :if={@can_edit} class="ml-auto flex items-center gap-1">
+              <button
+                class="btn btn-ghost btn-xs"
+                phx-click="toggle_annotation"
+                phx-value-annotation-id={annotation.id}
+              >
+                {(annotation.enabled && "Disable") || "Enable"}
+              </button>
+              <button
+                class="btn btn-ghost btn-xs text-error"
+                phx-click="delete_annotation"
+                phx-value-annotation-id={annotation.id}
+                data-confirm="Delete this annotation?"
+              >
+                Delete
+              </button>
+            </span>
           </div>
           <p class="text-sm font-semibold">{annotation.question}</p>
           <p class="text-sm whitespace-pre-wrap break-words max-h-24 overflow-y-auto">
             {annotation.answer}
           </p>
+          <details :if={@can_edit}>
+            <summary class="text-xs opacity-60 cursor-pointer">Edit</summary>
+            <form
+              phx-submit="update_annotation"
+              id={"edit-annotation-#{annotation.id}"}
+              class="space-y-2 pt-2"
+            >
+              <input type="hidden" name="annotation_id" value={annotation.id} />
+              <input
+                type="text"
+                name="question"
+                value={annotation.question}
+                class="input input-bordered input-sm w-full"
+                required
+              />
+              <textarea
+                name="answer"
+                rows="2"
+                class="textarea textarea-bordered textarea-sm w-full"
+                required
+              >{annotation.answer}</textarea>
+              <button class="btn btn-primary btn-xs">Save (re-embeds a changed question)</button>
+            </form>
+          </details>
         </div>
       </div>
 
