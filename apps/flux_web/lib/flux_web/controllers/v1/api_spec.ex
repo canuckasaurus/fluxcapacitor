@@ -1238,7 +1238,10 @@ defmodule FluxWeb.V1.ApiSpec do
       {:get, "List datasets", "DatasetList"},
       {:post, "Create a dataset", "DatasetCreated"}
     ],
-    "/datasets/{id}" => {:delete, "Delete a dataset", "Result"},
+    "/datasets/{id}" => [
+      {:delete, "Delete a dataset", "Result"},
+      {:patch, "Update dataset settings (chunking, retrieval mode, Q&A indexing)", "Result"}
+    ],
     "/datasets/{id}/document/create-by-text" => {:post, "Add a text document", "DocumentCreated"},
     "/datasets/{id}/document/create-by-url" =>
       {:post, "Fetch a URL into a document", "DocumentCreated"},

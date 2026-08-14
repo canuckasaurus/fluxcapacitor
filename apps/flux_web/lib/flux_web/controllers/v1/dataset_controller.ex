@@ -50,6 +50,38 @@ defmodule FluxWeb.V1.DatasetController do
 
   def create(conn, _params), do: error(conn, 400, "invalid_param", "name is required")
 
+  @settings_params ~w(name description chunk_size chunk_overlap split_markdown parent_child
+                      qa_indexing query_expansion retrieval_mode semantic_weight
+                      retrieval_top_k score_threshold)
+
+  @doc """
+  Updates dataset settings (the console's settings form, over the API):
+  chunking, retrieval mode/weight, Q&A indexing, thresholds. Chunking
+  changes apply on the next (re-)index — call the console's Re-index or
+  re-add documents. Embedding model changes are deliberately NOT here;
+  they need the guarded switch-and-re-embed flow.
+  """
+  def update(conn, %{"id" => dataset_id} = params) do
+    scope = conn.assigns.service_scope
+
+    with %{} = dataset <- RAG.get_dataset(scope, dataset_id) || {:error, :not_found},
+         {:ok, _updated} <- RAG.update_dataset(scope, dataset, Map.take(params, @settings_params)) do
+      json(conn, %{result: "success"})
+    else
+      {:error, :not_found} ->
+        error(conn, 404, "not_found", "Dataset not found")
+
+      nil ->
+        error(conn, 404, "not_found", "Dataset not found")
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        error(conn, 400, "invalid_param", changeset_message(changeset))
+
+      {:error, :unauthorized} ->
+        error(conn, 403, "forbidden", "This token cannot manage datasets")
+    end
+  end
+
   @doc "The portable flux-dataset/v1 archive as JSON."
   def export(conn, %{"id" => dataset_id}) do
     case Flux.RAG.export_dataset(conn.assigns.service_scope, dataset_id) do
