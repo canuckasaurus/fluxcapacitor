@@ -297,6 +297,27 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
     end
   end
 
+  def handle_event(
+        "set_document_expiry",
+        %{"document-id" => document_id, "expires_on" => expires_on},
+        socket
+      ) do
+    expires_at =
+      case Date.from_iso8601(to_string(expires_on)) do
+        {:ok, date} -> DateTime.new!(date, ~T[23:59:59], "Etc/UTC")
+        _blank_or_invalid -> nil
+      end
+
+    case RAG.set_document_expiry(socket.assigns.current_scope, document_id, expires_at) do
+      {:ok, _document} ->
+        info = (expires_at && "Expiry saved.") || "Expiry cleared."
+        {:noreply, socket |> put_flash(:info, info) |> refresh_documents()}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not save the expiry.")}
+    end
+  end
+
   def handle_event("set_document_tags", %{"document-id" => document_id, "tags" => tags}, socket) do
     case RAG.set_document_tags(
            socket.assigns.current_scope,
@@ -1485,6 +1506,28 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                     placeholder="tags, comma-separated (retrieval filters)"
                     class="input input-bordered input-xs w-64"
                   /> <button class="btn btn-ghost btn-xs">Save tags</button>
+                </form>
+
+                <form
+                  :if={@can_edit}
+                  phx-submit="set_document_expiry"
+                  class="flex gap-2 items-center"
+                  id={"expiry-form-#{document.id}"}
+                >
+                  <input type="hidden" name="document-id" value={document.id} />
+                  <input
+                    type="date"
+                    name="expires_on"
+                    value={
+                      document.expires_at && Date.to_iso8601(DateTime.to_date(document.expires_at))
+                    }
+                    class="input input-bordered input-xs"
+                    title="Past this date the nightly sweep disables the document (blank = never)"
+                  />
+                  <button class="btn btn-ghost btn-xs">Save expiry</button>
+                  <span :if={document.expires_at} class="text-xs opacity-60">
+                    expires {Calendar.strftime(document.expires_at, "%Y-%m-%d")}
+                  </span>
                 </form>
 
                 <form

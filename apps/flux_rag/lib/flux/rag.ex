@@ -735,6 +735,41 @@ defmodule Flux.RAG do
     end
   end
 
+  @doc "Sets (or with nil, clears) a document's expiry date."
+  def set_document_expiry(%Scope{} = scope, document_id, expires_at)
+      when is_nil(expires_at) or is_struct(expires_at, DateTime) do
+    with :ok <- RBAC.authorize(scope, :dataset_edit),
+         %Document{} = document <-
+           Repo.one(Repo.scoped(where(Document, id: ^document_id), scope)) ||
+             {:error, :not_found} do
+      document |> Ecto.Changeset.change(expires_at: expires_at) |> Repo.update()
+    end
+  end
+
+  @doc """
+  Nightly tick: documents past their expiry disable (segments cascade,
+  so they drop out of retrieval) — re-enabling manually also clears the
+  expiry, deliberately: waking expired content is a decision, not a
+  default.
+  """
+  def disable_expired_documents(now \\ DateTime.utc_now(:second)) do
+    expired =
+      Document
+      |> where([d], not is_nil(d.expires_at) and d.expires_at <= ^now and d.enabled)
+      |> select([d], d.id)
+      |> Repo.all(skip_workspace_guard: true)
+
+    if expired != [] do
+      from(d in Document, where: d.id in ^expired)
+      |> Repo.update_all([set: [enabled: false]], skip_workspace_guard: true)
+
+      from(s in Segment, where: s.document_id in ^expired)
+      |> Repo.update_all([set: [enabled: false]], skip_workspace_guard: true)
+    end
+
+    {:ok, length(expired)}
+  end
+
   @doc "Deletes several documents at once (segments cascade)."
   def delete_documents(%Scope{} = scope, document_ids) when is_list(document_ids) do
     with :ok <- RBAC.authorize(scope, :dataset_edit) do

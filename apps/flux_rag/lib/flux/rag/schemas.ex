@@ -138,6 +138,9 @@ defmodule Flux.RAG.Document do
     # Disabled documents keep their segments but retrieval skips them
     # (the flag cascades to segments' enabled).
     field(:enabled, :boolean, default: true)
+    # Past this, the nightly sweep disables the document — for content
+    # that's only true until a date. Nil never expires.
+    field(:expires_at, :utc_datetime)
     field(:error, :string)
     field(:segment_count, :integer, default: 0)
     field(:content, :string)
