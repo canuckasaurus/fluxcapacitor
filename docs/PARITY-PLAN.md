@@ -1285,3 +1285,26 @@ only failed after 14:30 UTC — the batch-27 clock-drift lesson,
 recurring. One migration (qa_indexing, icon, tags+GIN, pinned). 952
 tests. The bench holds: custom domains, Japanese locale, and batch
 32's unpicked #20 (key-expiry warnings).
+
+**57. Batch 33 — the standing list, finally picked.** Seven from the
+twice-deferred first list. **/v1/images/generations** (OpenAI shape
+over Providers.generate_image — workspace default provider, b64_json
+always, ImageList in the spec); **run attribution**
+(workflow_runs.started_by set at every creation site: account email,
+api:<key prefix> from the service token, trigger:webhook/email,
+"mcp", "batch", "replay", "retry" — surfaced in the drill-in);
+**dataset duplicate** (settings + documents + tags/metadata through
+the normal pipeline; sync schedules and eval history deliberately
+stay); **embedding model switch** (update + full re-index in one
+audited move — mixed-vintage vectors in one index is silent
+poisoning); **site custom CSS** (site_theme custom_css, </style>
+stripped, 4k cap, rendered before the accent block); **audit
+retention** (sweep_audit_trails in the nightly worker keyed on
+custom_config audit_retention_days, min 30 — the ? \? ? jsonb
+fragment claimed its python-escaping victim again); **configurable
+session lifetime** (@session_validity_in_days becomes
+session_validity_in_days/0 reading :session_validity_days, wired to
+FLUX_SESSION_VALIDITY_DAYS — instance-wide, not per-workspace,
+because sessions belong to accounts). One migration (started_by). 963
+tests. The bench holds: custom domains, Japanese locale, require-2FA
+policy, key-expiry warnings.

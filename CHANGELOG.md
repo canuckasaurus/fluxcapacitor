@@ -7,6 +7,26 @@ at `docs/PARITY-PLAN.md`.
 
 ## Unreleased
 
+### Batch 33
+- OpenAI-compatible `POST /v1/images/generations`: image generation
+  through the workspace default model's provider, answering `b64_json`.
+- Run attribution: every run records `started_by` — the account email,
+  `api:<key prefix>`, `trigger:<kind>`, `mcp`, `batch`, `replay`, or
+  `retry` — shown in the runs drill-in and riding along in exports.
+- Dataset duplicate: one-click copy of settings and documents (tags and
+  metadata included), indexed through the normal pipeline; sync
+  schedules and eval history deliberately stay behind.
+- Embedding model switch: changing a dataset's embedding model is now
+  an explicit switch-and-re-embed move (audited), never a silent
+  settings edit that poisons the index with mixed vectors.
+- Site custom CSS: a per-app CSS block on public sites (style-tag
+  breakout stripped, 4k cap) for full white-labeling.
+- Audit trail retention: an optional separate `audit_retention_days`
+  (min 30; default keep-forever) in the nightly sweep.
+- Configurable session lifetime: `FLUX_SESSION_VALIDITY_DAYS` tightens
+  the 14-day console-session window instance-wide — checked at verify
+  time, so lowering it also ends sessions already past the new window.
+
 ### Batch 32
 - Q&A-format indexing: an opt-in dataset mode where chunks index as
   model-generated questions (embedded and full-text searched) carrying

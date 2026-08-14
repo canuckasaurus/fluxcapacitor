@@ -163,6 +163,14 @@ a fallback) provisions or resolves an account exactly like OIDC.
 
 ## Account security
 
+- **Session lifetime**: console sessions live 14 days by default;
+  `FLUX_SESSION_VALIDITY_DAYS` tightens that instance-wide. The check
+  runs at verify time, so lowering it also ends sessions already past
+  the new window.
+- **Audit retention**: the audit trail is kept forever by default. A
+  per-workspace `audit retention` setting (Settings -> Data retention,
+  min 30 days) opts into pruning for data-minimization policies.
+
 - **TOTP 2FA**: every account can enroll from Account settings — scan
   the QR (or type the base32 key) into any authenticator app, confirm
   with a first code, and store the eight one-time recovery codes.

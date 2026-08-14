@@ -54,6 +54,7 @@ final `message_end` carrying usage. Quota-exceeded apps return 429 with
 | `GET /v1/workflows/runs/:id` · `POST /v1/workflows/runs/:id/stop` | Run status (`?trace=true` adds per-node executions) / stop a running run (`flux-` token) |
 | `GET /v1/models` | OpenAI-compatible model list (provider models; an `app-` token's bound model first) — SDK autodiscovery |
 | `POST /v1/moderations` | OpenAI-compatible moderation judged by the workspace guardrails (deny patterns + LLM policy); categories are `pattern` and `policy` |
+| `POST /v1/images/generations` | OpenAI-compatible image generation via the workspace default model's provider; `prompt` required, `model`/`size` optional, answers `b64_json` |
 | `GET /v1/registry/models` · `POST /v1/registry/models` | List / register model-registry entries (`name`, `file_id`, optional `metrics`; versions auto-increment). **Moved from `/v1/models` in v0.5.0** |
 | `GET /v1/notifications` | The workspace notification feed (`?limit=`) |
 | `GET /v1/conversation-evals` | The app's scripted-dialogue evals with last scores (`app-` token) |
