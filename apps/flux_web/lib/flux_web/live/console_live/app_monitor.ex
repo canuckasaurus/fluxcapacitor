@@ -50,6 +50,20 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
     end
   end
 
+  # Palette deep links land here: ?conversation=<id> opens it selected.
+  @impl true
+  def handle_params(%{"conversation" => conversation_id}, _uri, socket) do
+    scope = socket.assigns.current_scope
+
+    {:noreply,
+     assign(socket,
+       selected_id: conversation_id,
+       messages: Chat.list_messages(scope, conversation_id)
+     )}
+  end
+
+  def handle_params(_params, _uri, socket), do: {:noreply, socket}
+
   @impl true
   def handle_event(
         "human_reply",
@@ -279,6 +293,30 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
     Chat.delete_annotation(scope, id)
 
     {:noreply, assign(socket, annotations: Chat.list_annotations(scope, socket.assigns.app.id))}
+  end
+
+  def handle_event("claim_handoff", %{"conversation-id" => conversation_id}, socket) do
+    scope = socket.assigns.current_scope
+
+    case Chat.assign_handoff(scope, conversation_id, scope.account.id) do
+      {:ok, _conversation} ->
+        {:noreply, assign(socket, handoffs: Chat.handoff_queue(scope, socket.assigns.app.id))}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not claim the conversation.")}
+    end
+  end
+
+  def handle_event("release_handoff", %{"conversation-id" => conversation_id}, socket) do
+    scope = socket.assigns.current_scope
+
+    case Chat.assign_handoff(scope, conversation_id, nil) do
+      {:ok, _conversation} ->
+        {:noreply, assign(socket, handoffs: Chat.handoff_queue(scope, socket.assigns.app.id))}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not release the conversation.")}
+    end
   end
 
   def handle_event("toggle_annotation", %{"annotation-id" => id}, socket) do
@@ -896,9 +934,36 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
         <div :for={conversation <- @handoffs} class="space-y-1" id={"handoff-#{conversation.id}"}>
           <p class="text-sm">
             <span class="font-semibold">{conversation.title || "Untitled conversation"}</span>
+            <span :if={conversation.visitor_name || conversation.visitor_email} class="text-xs">
+              ({[conversation.visitor_name, conversation.visitor_email]
+              |> Enum.reject(&is_nil/1)
+              |> Enum.join(" · ")})
+            </span>
             <span class="text-xs opacity-60">
               — waiting since {Calendar.strftime(conversation.handoff_requested_at, "%H:%M")}
             </span>
+            <span :if={conversation.assigned_account} class="badge badge-info badge-sm">
+              {conversation.assigned_account.email}
+            </span>
+            <button
+              :if={conversation.assigned_account == nil}
+              class="btn btn-outline btn-xs"
+              phx-click="claim_handoff"
+              phx-value-conversation-id={conversation.id}
+            >
+              Claim
+            </button>
+            <button
+              :if={
+                conversation.assigned_account != nil and
+                  conversation.assigned_account_id == @current_scope.account.id
+              }
+              class="btn btn-ghost btn-xs"
+              phx-click="release_handoff"
+              phx-value-conversation-id={conversation.id}
+            >
+              Release
+            </button>
             <button
               class="btn btn-ghost btn-xs"
               phx-click="select"
@@ -1070,6 +1135,15 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
           >
             <span class="font-semibold text-sm">
               {conversation.title || "Untitled conversation"}
+            </span>
+            <span
+              :if={conversation.visitor_name || conversation.visitor_email}
+              class="badge badge-outline badge-sm"
+              title="Visitor-provided identity"
+            >
+              {[conversation.visitor_name, conversation.visitor_email]
+              |> Enum.reject(&is_nil/1)
+              |> Enum.join(" · ")}
             </span>
             <span :if={conversation.end_user_ref} class="badge badge-ghost badge-sm font-mono">
               {conversation.end_user_ref}
