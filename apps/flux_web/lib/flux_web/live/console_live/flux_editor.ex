@@ -1438,7 +1438,12 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
       %{
         "accent" => params["accent"],
         "title" => params["title"],
-        "logo_url" => params["logo_url"]
+        "logo_url" => params["logo_url"],
+        "custom_css" =>
+          params["custom_css"]
+          |> to_string()
+          |> String.replace(~r/<\/?style/i, "")
+          |> String.slice(0, 4_000)
       }
       |> Enum.map(fn {key, value} -> {key, String.trim(to_string(value))} end)
       |> Enum.reject(fn {_key, value} -> value == "" end)
@@ -1450,6 +1455,25 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
 
       _error ->
         {:noreply, put_flash(socket, :error, "Could not save the theme.")}
+    end
+  end
+
+  def handle_event("set_site_passcode", %{"passcode" => passcode}, socket) do
+    case Workflows.set_site_passcode(
+           socket.assigns.current_scope,
+           socket.assigns.workflow,
+           passcode
+         ) do
+      {:ok, workflow} ->
+        info =
+          if workflow.site_passcode_hash,
+            do: "Passcode set — visitors are asked once per browser session.",
+            else: "Passcode removed — the page is open again."
+
+        {:noreply, socket |> assign(workflow: workflow) |> put_flash(:info, info)}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not update the passcode.")}
     end
   end
 
@@ -6244,6 +6268,35 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
                 </label>
                 <button class="btn btn-primary btn-sm">Save theme</button>
               </div>
+              <label class="form-control w-full mt-2">
+                <span class="label-text text-xs opacity-70 mb-1">
+                  Custom CSS (advanced — applies to the public page)
+                </span>
+                <textarea
+                  name="custom_css"
+                  rows="3"
+                  class="textarea textarea-bordered w-full font-mono text-xs"
+                >{@workflow.site_theme["custom_css"]}</textarea>
+              </label>
+            </form>
+            <form phx-submit="set_site_passcode" class="flex items-end gap-2" id="flux-passcode-form">
+              <label class="form-control">
+                <span class="label-text text-xs opacity-70 mb-1">
+                  Passcode {(@workflow.site_passcode_hash && "(set)") || "(off)"}
+                </span>
+                <input
+                  type="text"
+                  name="passcode"
+                  placeholder={
+                    (@workflow.site_passcode_hash && "leave blank to remove") || "optional"
+                  }
+                  autocomplete="off"
+                  class="input input-bordered input-sm w-44"
+                />
+              </label>
+              <button class="btn btn-sm">
+                {(@workflow.site_passcode_hash && "Update passcode") || "Set passcode"}
+              </button>
             </form>
             <button
               class="btn btn-ghost btn-sm text-error"

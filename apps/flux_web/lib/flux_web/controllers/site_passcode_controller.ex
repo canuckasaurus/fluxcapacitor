@@ -25,4 +25,23 @@ defmodule FluxWeb.SitePasscodeController do
         redirect(conn, to: ~p"/site/#{token}")
     end
   end
+
+  @doc "Same contract for published flux form pages (`/site/flux/:token`)."
+  def verify_flux(conn, %{"token" => token} = params) do
+    case Flux.Workflows.get_workflow_by_site_token(token) do
+      {:ok, workflow} ->
+        if Flux.Workflows.site_passcode_ok?(workflow, params["passcode"]) do
+          conn
+          |> put_session("site_pass:#{workflow.id}", true)
+          |> redirect(to: ~p"/site/flux/#{token}")
+        else
+          conn
+          |> put_flash(:error, "That passcode didn't match.")
+          |> redirect(to: ~p"/site/flux/#{token}")
+        end
+
+      _missing ->
+        redirect(conn, to: ~p"/site/flux/#{token}")
+    end
+  end
 end

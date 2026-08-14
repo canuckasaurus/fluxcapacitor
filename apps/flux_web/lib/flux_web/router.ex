@@ -68,6 +68,7 @@ defmodule FluxWeb.Router do
 
     get "/datasets", DatasetController, :index
     post "/datasets", DatasetController, :create
+    patch "/datasets/:id", DatasetController, :update
     delete "/datasets/:id", DatasetController, :delete
     post "/datasets/:id/document/create-by-text", DatasetController, :create_by_text
     post "/datasets/:id/document/create-by-url", DatasetController, :create_by_url
@@ -180,6 +181,7 @@ defmodule FluxWeb.Router do
     end
 
     get "/:token/transcript/:conversation_id", FluxDslController, :site_transcript
+    post "/flux/:token/passcode", SitePasscodeController, :verify_flux
     post "/:token/passcode", SitePasscodeController, :verify
   end
 

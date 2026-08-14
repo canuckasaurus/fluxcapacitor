@@ -10,8 +10,9 @@ defmodule FluxWeb.SiteLive.FluxSite do
   alias Flux.Workflows
 
   @impl true
-  def mount(%{"token" => token}, _session, socket) do
+  def mount(%{"token" => token}, session, socket) do
     with {:ok, workflow} <- Workflows.get_workflow_by_site_token(token),
+         :ok <- passcode_gate(workflow, session),
          scope = Workflows.site_scope(workflow),
          %{} = version <- Workflows.serving_version(scope, workflow) || {:error, :not_published} do
       {:ok,
@@ -32,10 +33,26 @@ defmodule FluxWeb.SiteLive.FluxSite do
          resume_errors: %{}
        )}
     else
+      {:locked, workflow} ->
+        {:ok,
+         assign(socket,
+           page_title: workflow.name,
+           workflow: nil,
+           locked: %{token: token, name: workflow.name}
+         )}
+
       {:error, _not_found_or_unpublished} ->
         {:ok, assign(socket, page_title: "Not found", workflow: nil)}
     end
   end
+
+  # Passcode-protected flux sites challenge before anything loads; the
+  # controller-set session flag is the pass (same contract as app sites).
+  defp passcode_gate(%{site_passcode_hash: hash} = workflow, session) when is_binary(hash) do
+    if session["site_pass:" <> workflow.id] == true, do: :ok, else: {:locked, workflow}
+  end
+
+  defp passcode_gate(_workflow, _session), do: :ok
 
   @impl true
   def handle_event("run", params, socket) do
@@ -112,6 +129,32 @@ defmodule FluxWeb.SiteLive.FluxSite do
   end
 
   @impl true
+  def render(%{workflow: nil, locked: %{}} = assigns) do
+    ~H"""
+    <main class="min-h-screen flex items-center justify-center p-6" id="site-passcode">
+      <div class="text-center space-y-3 w-full max-w-xs">
+        <.icon name="hero-lock-closed" class="size-10 opacity-40 mx-auto" />
+        <h1 class="font-semibold text-lg">{@locked.name}</h1>
+        <p class="text-sm opacity-70">This page is passcode-protected.</p>
+        <p :if={error = Phoenix.Flash.get(@flash, :error)} class="text-sm text-error">{error}</p>
+        <form action={~p"/site/flux/#{@locked.token}/passcode"} method="post" class="space-y-2">
+          <input type="hidden" name="_csrf_token" value={Phoenix.Controller.get_csrf_token()} />
+          <input
+            type="password"
+            name="passcode"
+            placeholder="Passcode"
+            autocomplete="off"
+            class="input input-bordered w-full"
+            required
+            autofocus
+          />
+          <button class="btn btn-primary w-full">Enter</button>
+        </form>
+      </div>
+    </main>
+    """
+  end
+
   def render(%{workflow: nil} = assigns) do
     ~H"""
     <main class="min-h-screen flex items-center justify-center p-6">
@@ -128,6 +171,9 @@ defmodule FluxWeb.SiteLive.FluxSite do
 
   def render(assigns) do
     ~H"""
+    <style :if={@workflow.site_theme["custom_css"]}>
+      <%= raw(@workflow.site_theme["custom_css"]) %>
+    </style>
     <style :if={valid_accent(@workflow.site_theme["accent"])}>
       .btn-primary {
         background-color: <%= valid_accent(@workflow.site_theme["accent"]) %> !important;
