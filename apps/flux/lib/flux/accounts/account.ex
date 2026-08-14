@@ -10,6 +10,9 @@ defmodule Flux.Accounts.Account do
   schema "accounts" do
     field :email, :string
     field :notification_email_kinds, {:array, :string}, default: []
+    # Notification emails defer during these UTC hours (nil/nil = off).
+    field :quiet_hours_start, :integer
+    field :quiet_hours_end, :integer
     field :password, :string, virtual: true, redact: true
     field :hashed_password, :string, redact: true
     field :confirmed_at, :naive_datetime

@@ -88,13 +88,20 @@ defmodule Flux.Usage do
   any other kind. A per-week marker in custom_config stops repeats.
   """
   def send_weekly_digests(now \\ DateTime.utc_now(:second)) do
-    if Date.day_of_week(DateTime.to_date(now)) == 1 and now.hour == 8 and now.minute == 0 do
+    if now.hour == 8 and now.minute == 0 do
+      monday? = Date.day_of_week(DateTime.to_date(now)) == 1
       {year, week_number} = :calendar.iso_week_number(Date.to_erl(DateTime.to_date(now)))
       week = "#{year}-#{week_number}"
-      since = DateTime.add(now, -7, :day)
+      day = Date.to_iso8601(DateTime.to_date(now))
 
+      # digest_frequency: "weekly" (default, Mondays), "daily", or "off".
       for workspace <- Repo.all(Flux.Accounts.Workspace),
-          (workspace.custom_config || %{})["digest_sent"] != week do
+          frequency = (workspace.custom_config || %{})["digest_frequency"] || "weekly",
+          frequency != "off",
+          frequency == "daily" or monday?,
+          period = (frequency == "daily" && day) || week,
+          since = DateTime.add(now, (frequency == "daily" && -1) || -7, :day),
+          (workspace.custom_config || %{})["digest_sent"] != period do
         runs =
           Flux.Workflows.WorkflowRun
           |> where([r], r.workspace_id == ^workspace.id and r.inserted_at >= ^since)
@@ -118,13 +125,14 @@ defmodule Flux.Usage do
           Flux.Notifications.notify(
             workspace.id,
             "digest",
-            "Weekly digest: #{length(runs)} runs (#{failed} failed) · #{tokens} tokens#{cost_text}",
+            "#{(frequency == "daily" && "Daily") || "Weekly"} digest: " <>
+              "#{length(runs)} runs (#{failed} failed) · #{tokens} tokens#{cost_text}",
             "/console/runs"
           )
 
           workspace
           |> Ecto.Changeset.change(
-            custom_config: Map.put(workspace.custom_config || %{}, "digest_sent", week)
+            custom_config: Map.put(workspace.custom_config || %{}, "digest_sent", period)
           )
           |> Repo.update()
         end

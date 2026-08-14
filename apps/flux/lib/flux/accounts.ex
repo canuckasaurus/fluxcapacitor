@@ -44,6 +44,11 @@ defmodule Flux.Accounts do
 
   @doc "Members of a workspace who opted into email for this kind."
   def emails_subscribed_to(workspace_id, kind) do
+    for account <- accounts_subscribed_to(workspace_id, kind), do: account.email
+  end
+
+  @doc "Accounts (not just emails) opted into a kind — quiet hours need the full row."
+  def accounts_subscribed_to(workspace_id, kind) do
     import Ecto.Query, only: [from: 2]
 
     Repo.all(
@@ -51,9 +56,71 @@ defmodule Flux.Accounts do
         join: a in Account,
         on: a.id == m.account_id,
         where: m.workspace_id == ^workspace_id and ^kind in a.notification_email_kinds,
-        select: a.email
+        select: a
       )
     )
+  end
+
+  @doc "Sets (or with nils, clears) the account's UTC quiet hours for emails."
+  def set_quiet_hours(%Account{} = account, start_hour, end_hour)
+      when (is_nil(start_hour) and is_nil(end_hour)) or
+             (start_hour in 0..23 and end_hour in 0..23) do
+    account
+    |> Ecto.Changeset.change(quiet_hours_start: start_hour, quiet_hours_end: end_hour)
+    |> Repo.update()
+  end
+
+  @doc "Whether `hour` (UTC) falls inside the account's quiet window (wraps midnight)."
+  def in_quiet_hours?(%Account{quiet_hours_start: start_hour, quiet_hours_end: end_hour}, hour)
+      when is_integer(start_hour) and is_integer(end_hour) do
+    if start_hour <= end_hour do
+      hour >= start_hour and hour < end_hour
+    else
+      hour >= start_hour or hour < end_hour
+    end
+  end
+
+  def in_quiet_hours?(_account, _hour), do: false
+
+  ## Favorites (per-account stars on fluxes and apps)
+
+  def toggle_favorite(%Account{} = account, item_type, item_id)
+      when item_type in ["flux", "app"] do
+    import Ecto.Query, only: [from: 2]
+
+    case Repo.one(
+           from(f in Flux.Accounts.Favorite,
+             where:
+               f.account_id == ^account.id and f.item_type == ^item_type and
+                 f.item_id == ^item_id
+           )
+         ) do
+      nil ->
+        Repo.insert!(%Flux.Accounts.Favorite{
+          account_id: account.id,
+          item_type: item_type,
+          item_id: item_id
+        })
+
+        {:ok, :starred}
+
+      favorite ->
+        Repo.delete!(favorite)
+        {:ok, :unstarred}
+    end
+  end
+
+  @doc "MapSet of the account's starred ids for one item type."
+  def favorite_ids(%Account{} = account, item_type) do
+    import Ecto.Query, only: [from: 2]
+
+    Repo.all(
+      from(f in Flux.Accounts.Favorite,
+        where: f.account_id == ^account.id and f.item_type == ^item_type,
+        select: f.item_id
+      )
+    )
+    |> MapSet.new()
   end
 
   @doc "Logs the account out everywhere by deleting every session token."
@@ -964,6 +1031,32 @@ defmodule Flux.Accounts do
     case Integer.parse(to_string(value || "")) do
       {int, ""} when int >= min and int <= max -> int
       _blank_or_invalid -> nil
+    end
+  end
+
+  @doc ~S(Digest cadence: "weekly" default, "daily", or "off".)
+  def set_digest_frequency(%Scope{} = scope, frequency)
+      when frequency in ["weekly", "daily", "off"] do
+    update_custom_config(scope, "digest_frequency", (frequency == "weekly" && nil) || frequency)
+  end
+
+  def digest_frequency(%Scope{} = scope) do
+    case Repo.get(Workspace, Scope.workspace_id(scope)) do
+      %{custom_config: %{"digest_frequency" => frequency}} -> frequency
+      _default -> "weekly"
+    end
+  end
+
+  @doc "White-label sidebar logo (blank restores the wordmark)."
+  def set_console_logo(%Scope{} = scope, url) do
+    trimmed = String.trim(to_string(url))
+    update_custom_config(scope, "console_logo_url", (trimmed == "" && nil) || trimmed)
+  end
+
+  def console_logo(%Scope{} = scope) do
+    case Repo.get(Workspace, Scope.workspace_id(scope)) do
+      %{custom_config: %{"console_logo_url" => url}} -> url
+      _none -> nil
     end
   end
 

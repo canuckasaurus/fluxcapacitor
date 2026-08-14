@@ -58,13 +58,23 @@ defmodule Flux.Notifications do
 
     # Members who opted into this kind get it by email too (best-effort,
     # in-band: callers are already async workers or spawned tasks).
-    for email <- Flux.Accounts.emails_subscribed_to(workspace_id, kind) do
-      Flux.Accounts.AccountNotifier.deliver_notification_email(
-        email,
-        kind,
-        to_string(title),
-        path
-      )
+    # Accounts inside their quiet hours get the email deferred to the
+    # window's end via a scheduled Oban job instead of a 3am ping.
+    now = DateTime.utc_now(:second)
+
+    for account <- Flux.Accounts.accounts_subscribed_to(workspace_id, kind) do
+      if Flux.Accounts.in_quiet_hours?(account, now.hour) do
+        %{email: account.email, kind: kind, title: to_string(title), path: path}
+        |> Flux.Notifications.EmailWorker.new(scheduled_at: quiet_end(account, now))
+        |> Oban.insert()
+      else
+        Flux.Accounts.AccountNotifier.deliver_notification_email(
+          account.email,
+          kind,
+          to_string(title),
+          path
+        )
+      end
     end
 
     Phoenix.PubSub.broadcast(Flux.PubSub, topic(workspace_id), :notifications_changed)
@@ -115,4 +125,16 @@ defmodule Flux.Notifications do
 
   def subscribe(workspace_id),
     do: Phoenix.PubSub.subscribe(Flux.PubSub, topic(workspace_id))
+
+  # The next moment the account's quiet window ends (today or tomorrow).
+  defp quiet_end(account, now) do
+    end_hour = account.quiet_hours_end
+    today_end = %{now | hour: end_hour, minute: 0, second: 0}
+
+    if DateTime.compare(today_end, now) == :gt do
+      today_end
+    else
+      DateTime.add(today_end, 1, :day)
+    end
+  end
 end
