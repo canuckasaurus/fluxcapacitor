@@ -767,6 +767,40 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
     end
   end
 
+  def handle_event("duplicate_dataset", _params, socket) do
+    with %{} = dataset <- socket.assigns.selected,
+         {:ok, copy, count} <- RAG.duplicate_dataset(socket.assigns.current_scope, dataset) do
+      {:noreply,
+       socket
+       |> put_flash(:info, "Duplicated as \"#{copy.name}\" — #{count} documents indexing.")
+       |> assign(datasets: RAG.list_datasets(socket.assigns.current_scope))}
+    else
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "You don't have permission to create datasets.")}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not duplicate the dataset.")}
+    end
+  end
+
+  def handle_event("switch_embedding", %{"embedding_choice" => choice}, socket) do
+    with [plugin_id, model] <- String.split(choice, "|", parts: 2),
+         %{} = dataset <- socket.assigns.selected,
+         {:ok, updated, count} <-
+           RAG.switch_embedding_model(socket.assigns.current_scope, dataset, plugin_id, model) do
+      {:noreply,
+       socket
+       |> put_flash(:info, "Embedding model switched — #{count} documents re-embedding.")
+       |> assign(selected: updated, datasets: RAG.list_datasets(socket.assigns.current_scope))}
+    else
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "You don't have permission to edit this dataset.")}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not switch the embedding model.")}
+    end
+  end
+
   def handle_event("reindex", _params, socket) do
     with %{} = dataset <- socket.assigns.selected,
          {:ok, count} <- RAG.reindex_dataset(socket.assigns.current_scope, dataset) do
@@ -1092,6 +1126,43 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                 data-confirm="Re-chunk and re-embed every document in this dataset?"
               >
                 <.icon name="hero-arrow-path" class="size-4" /> Re-index all
+              </button>
+              <button
+                type="button"
+                class="btn btn-outline btn-sm"
+                phx-click="duplicate_dataset"
+                title="Copy this dataset — settings and documents — as a sandbox (sync schedules and eval history stay behind)"
+              >
+                <.icon name="hero-document-duplicate" class="size-4" /> Duplicate
+              </button>
+            </form>
+
+            <form
+              phx-submit="switch_embedding"
+              id="switch-embedding-form"
+              class="flex items-end gap-2 flex-wrap border-t border-base-200 pt-3"
+            >
+              <label class="form-control">
+                <span class="label-text text-xs opacity-70 mb-1">
+                  Embedding model ({@selected.embedding_plugin_id} / {@selected.embedding_model})
+                </span>
+                <select name="embedding_choice" class="select select-bordered select-sm w-64">
+                  <option
+                    :for={%{plugin_id: pid, plugin_name: pname, model: m} <- @embedding_models}
+                    value={"#{pid}|#{m.name}"}
+                    selected={
+                      @selected.embedding_plugin_id == pid and @selected.embedding_model == m.name
+                    }
+                  >
+                    {pname} — {m.label}
+                  </option>
+                </select>
+              </label>
+              <button
+                class="btn btn-warning btn-sm"
+                data-confirm="Switch the embedding model and re-embed every document? Retrieval degrades until re-indexing finishes."
+              >
+                Switch &amp; re-embed
               </button>
             </form>
           </div>

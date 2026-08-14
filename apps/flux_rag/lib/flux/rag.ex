@@ -116,6 +116,83 @@ defmodule Flux.RAG do
     end
   end
 
+  @doc """
+  Copies the dataset — settings and every document with source text —
+  as "<name> (copy)", indexed through the normal pipeline. Sync
+  schedules and eval history stay behind: the copy is a sandbox, not a
+  second subscriber.
+  """
+  def duplicate_dataset(%Scope{} = scope, %Dataset{} = dataset) do
+    settings =
+      dataset
+      |> Map.take([
+        :description,
+        :embedding_plugin_id,
+        :embedding_model,
+        :chunk_size,
+        :chunk_overlap,
+        :split_markdown,
+        :parent_child,
+        :qa_indexing,
+        :query_expansion,
+        :retrieval_mode,
+        :semantic_weight,
+        :rerank_plugin_id,
+        :rerank_model,
+        :retrieval_top_k,
+        :score_threshold,
+        :entity_plugin_id,
+        :entity_model
+      ])
+      |> Map.new(fn {key, value} -> {to_string(key), value} end)
+      |> Map.put("name", "#{dataset.name} (copy)")
+
+    with true <- dataset.workspace_id == Scope.workspace_id(scope) || {:error, :not_found},
+         {:ok, copy} <- create_dataset(scope, settings) do
+      documents =
+        Document
+        |> Repo.scoped(scope)
+        |> where([d], d.dataset_id == ^dataset.id and not is_nil(d.content))
+        |> Repo.all()
+
+      for document <- documents do
+        {:ok, copied} =
+          add_document(scope, copy, %{name: document.name, content: document.content})
+
+        # Tags and metadata travel too (add_document only takes text).
+        copied
+        |> Ecto.Changeset.change(tags: document.tags, metadata: document.metadata)
+        |> Repo.update!()
+      end
+
+      {:ok, copy, length(documents)}
+    end
+  end
+
+  @doc """
+  Switches the embedding model and re-embeds everything in one guarded
+  move — changing the model piecemeal would leave old and new vectors
+  in the same index, silently poisoning similarity.
+  """
+  def switch_embedding_model(%Scope{} = scope, %Dataset{} = dataset, plugin_id, model)
+      when is_binary(plugin_id) and is_binary(model) do
+    with :ok <- RBAC.authorize(scope, :dataset_edit),
+         true <- dataset.workspace_id == Scope.workspace_id(scope) || {:error, :not_found},
+         {:ok, updated} <-
+           update_dataset(scope, dataset, %{
+             "embedding_plugin_id" => plugin_id,
+             "embedding_model" => model
+           }),
+         {:ok, count} <- reindex_dataset(scope, updated) do
+      Flux.Audit.record(scope, "dataset.embedding_switch",
+        resource: updated,
+        metadata: %{"plugin_id" => plugin_id, "model" => model, "documents" => count}
+      )
+
+      {:ok, updated, count}
+    end
+  end
+
   @doc "Re-chunks and re-embeds every document that retained its source text."
   def reindex_dataset(%Scope{} = scope, %Dataset{} = dataset) do
     with :ok <- RBAC.authorize(scope, :dataset_edit),
