@@ -1308,3 +1308,26 @@ FLUX_SESSION_VALIDITY_DAYS — instance-wide, not per-workspace,
 because sessions belong to accounts). One migration (started_by). 963
 tests. The bench holds: custom domains, Japanese locale, require-2FA
 policy, key-expiry warnings.
+
+**58. Batch 34 — closing the feedback loop.** Six picked. **API-key
+expiry warnings** (a daily tick in the ScheduleWorker chain:
+seven-day horizon, expiry_warned_at gates the repeat, api_key_expiring
+joins the notification kinds — and therefore the webhook fan-out for
+free); **feedback comments** (messages.feedback_comment; site shows an
+inline "tell us more" form once rated, the /v1 feedbacks endpoint
+takes `content`, clearing the rating clears the text, re-rating keeps
+it; monitor review and feedback CSV grew the column); **annotation
+editing** (update_annotation re-embeds a changed question — stale
+vectors silently mis-match — plus enable/disable from the monitor);
+**batch cancel** (:canceled joins the batch enum; the row loop checks
+the DB between rows so a cancel lands mid-flight; the completed flip
+is now guarded `where status == :running`, and the batch.completed
+webhook only fires for genuine completions); **flux-site parity**
+(workflows.site_passcode_hash + custom_css in the theme whitelist; the
+locked page posts to /site/flux/:token/passcode; app sites and form
+pages now gate identically); **PATCH /v1/datasets/:id** (a
+settings-params whitelist, Result shape for the contract tests;
+embedding model changes deliberately excluded — they belong to the
+guarded switch). One migration (expiry_warned_at, feedback_comment,
+workflows passcode). 972 tests. The bench holds: custom domains,
+Japanese locale, require-2FA policy, member suspension.

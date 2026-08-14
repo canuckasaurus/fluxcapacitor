@@ -23,7 +23,7 @@ from other addresses — even with a valid key.
 | `GET /v1/conversations` · `GET /v1/messages` | List threads / a thread's messages |
 | `POST /v1/conversations/:id/name` · `DELETE /v1/conversations/:id` | Rename / delete |
 | `POST /v1/chat-messages/:id/stop` | Stop a streaming reply (streamed prefix is kept) |
-| `POST /v1/messages/:id/feedbacks` | Rate a reply (`like`/`dislike`/null) |
+| `POST /v1/messages/:id/feedbacks` | Rate a reply (`like`/`dislike`/null); optional `content` attaches a text comment |
 | `POST /v1/files/upload` | Multipart upload; returns the file id used by `files` |
 | `GET /v1/parameters` · `GET /v1/meta` | App config for clients |
 
@@ -80,6 +80,7 @@ final `message_end` carrying usage. Quota-exceeded apps return 429 with
 |---|---|
 | `GET/POST /v1/datasets` | List / create datasets |
 | `DELETE /v1/datasets/:id` | Delete a dataset |
+| `PATCH /v1/datasets/:id` | Update dataset settings: chunking, retrieval mode/weight, Q&A indexing, thresholds (embedding model changes need the console's guarded switch) |
 | `POST /v1/datasets/:id/document/create-by-text` | Add a document (`name`, `text`) |
 | `POST /v1/datasets/:id/document/create-by-url` | Fetch a URL into a document (SSRF-guarded) |
 | `GET /v1/datasets/:id/documents` · `DELETE …/documents/:document_id` | List / delete documents |

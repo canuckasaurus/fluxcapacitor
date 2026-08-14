@@ -7,6 +7,24 @@ at `docs/PARITY-PLAN.md`.
 
 ## Unreleased
 
+### Batch 34
+- API-key expiry warnings: keys expiring within seven days raise one
+  `api_key_expiring` notification (webhook-routable) instead of dying
+  as a silent 401.
+- Feedback comments: visitors and API callers can attach text to a
+  rating (site inline form; `content` on `POST /v1/messages/:id/feedbacks`),
+  shown in the monitor's feedback review and the feedback CSV.
+- Annotation editing: edit question/answer in place (a changed question
+  re-embeds) and toggle annotations on/off from the monitor.
+- Batch cancel: stop an in-flight CSV batch — rows not yet started are
+  skipped, finished rows keep their runs, the batch lands `canceled`.
+- Flux-site parity: published workflow form pages get the passcode gate
+  and custom CSS that app sites already had.
+- `PATCH /v1/datasets/:id`: dataset settings (chunking, retrieval
+  mode/weight, Q&A indexing, thresholds) over the API for
+  infra-as-code; embedding model changes stay behind the guarded
+  switch-and-re-embed flow.
+
 ### Batch 33
 - OpenAI-compatible `POST /v1/images/generations`: image generation
   through the workspace default model's provider, answering `b64_json`.
