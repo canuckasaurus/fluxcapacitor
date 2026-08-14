@@ -195,7 +195,8 @@ window.addEventListener("click", e => {
 // Fetches /console/palette once per open and filters client-side.
 // Pure JS + one JSON endpoint, so every console page gets it for free.
 const paletteKindBadge = {
-  page: "→", flux: "⚡", app: "💬", dataset: "📚", labeling: "🏷", template: "📄"
+  page: "→", flux: "⚡", app: "💬", dataset: "📚", labeling: "🏷", template: "📄",
+  conversation: "🗨", run: "🏃"
 }
 
 function openPalette() {
@@ -216,6 +217,8 @@ function openPalette() {
   const input = dialog.querySelector("input")
   const list = dialog.querySelector("ul")
   let entries = []
+  let remote = []
+  let remoteTimer = null
   let matches = []
   let selected = 0
 
@@ -251,6 +254,10 @@ function openPalette() {
         return aStarts - bStarts || a.label.localeCompare(b.label)
       })
       .slice(0, 12)
+      // Deep results (conversations, runs) are already filtered
+      // server-side — they ride below the local matches.
+      .concat(remote)
+      .slice(0, 18)
     selected = Math.min(selected, Math.max(matches.length - 1, 0))
     list.innerHTML = ""
     matches.forEach((entry, i) => {
@@ -272,7 +279,23 @@ function openPalette() {
     }
   }
 
-  input.addEventListener("input", () => { selected = 0; renderList() })
+  input.addEventListener("input", () => {
+    selected = 0
+    renderList()
+    clearTimeout(remoteTimer)
+    const query = input.value.trim()
+    if (query.length < 3) { remote = []; return }
+    remoteTimer = setTimeout(() => {
+      fetch("/console/palette?q=" + encodeURIComponent(query))
+        .then(resp => resp.json())
+        .then(data => {
+          if (input.value.trim() !== query) return
+          remote = data.entries || []
+          renderList()
+        })
+        .catch(() => {})
+    }, 250)
+  })
   input.addEventListener("keydown", e => {
     if (e.key === "ArrowDown") { e.preventDefault(); selected = Math.min(selected + 1, matches.length - 1); renderList() }
     else if (e.key === "ArrowUp") { e.preventDefault(); selected = Math.max(selected - 1, 0); renderList() }

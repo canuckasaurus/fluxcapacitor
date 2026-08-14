@@ -54,6 +54,18 @@ defmodule FluxWeb.ConsoleLive.Runs do
     assign(socket, rows: rows, totals: totals, more?: length(rows) >= socket.assigns.limit)
   end
 
+  # Palette deep links land here: ?run=<id> expands that run on load.
+  @impl true
+  def handle_params(%{"run" => run_id}, _uri, socket) do
+    {:noreply,
+     assign(socket,
+       expanded_run: run_id,
+       run_comments: load_comments(socket, run_id)
+     )}
+  end
+
+  def handle_params(_params, _uri, socket), do: {:noreply, socket}
+
   @impl true
   def handle_event("filter", params, socket) do
     filters =

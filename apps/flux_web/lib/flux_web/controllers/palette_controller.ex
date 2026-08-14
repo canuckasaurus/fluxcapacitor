@@ -26,11 +26,45 @@ defmodule FluxWeb.PaletteController do
     {"Docs", "/console/docs"}
   ]
 
-  def index(conn, _params) do
-    case conn.assigns[:current_scope] do
-      %{workspace: %{id: _id}} = scope -> json(conn, %{entries: entries(scope)})
-      _no_workspace -> json(conn, %{entries: []})
+  def index(conn, params) do
+    case {conn.assigns[:current_scope], String.trim(to_string(params["q"] || ""))} do
+      {%{workspace: %{id: _id}} = scope, ""} ->
+        json(conn, %{entries: entries(scope)})
+
+      # A query switches to deep search: conversations and runs are too
+      # numerous for the static list, so they resolve server-side.
+      {%{workspace: %{id: _id}} = scope, query} when byte_size(query) >= 3 ->
+        json(conn, %{entries: deep_entries(scope, query)})
+
+      {%{workspace: %{id: _id}}, _too_short} ->
+        json(conn, %{entries: []})
+
+      _no_workspace ->
+        json(conn, %{entries: []})
     end
+  end
+
+  defp deep_entries(scope, query) do
+    conversations =
+      for conversation <- Flux.Chat.search_conversation_titles(scope, query, 8) do
+        %{
+          label: conversation.title || "Untitled conversation",
+          kind: "conversation",
+          url: "/console/apps/#{conversation.app_id}/monitor?conversation=#{conversation.id}"
+        }
+      end
+
+    runs =
+      for %{run: run, workflow_name: name} <-
+            Flux.Workflows.list_workspace_runs(scope, %{q: query}, 8) do
+        %{
+          label: "#{name} run · #{Calendar.strftime(run.inserted_at, "%b %d %H:%M")}",
+          kind: "run",
+          url: "/console/runs?run=#{run.id}"
+        }
+      end
+
+    conversations ++ runs
   end
 
   defp entries(scope) do
