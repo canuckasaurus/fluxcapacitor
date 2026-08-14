@@ -866,6 +866,7 @@ defmodule Flux.Workflows do
             source: Keyword.get(opts, :source, :draft),
             version: Keyword.get(opts, :version),
             tags: normalize_run_tags(Keyword.get(opts, :tags, [])),
+            started_by: run_starter(scope, opts),
             inputs: inputs
           })
 
@@ -1168,6 +1169,7 @@ defmodule Flux.Workflows do
         batch_id: batch.id,
         status: :running,
         source: :batch,
+        started_by: "batch",
         inputs: row
       })
 
@@ -1545,7 +1547,8 @@ defmodule Flux.Workflows do
       start_run(scope, workflow, Map.merge(trigger.inputs, input_override),
         source: :api,
         graph: version.graph,
-        version: version.version
+        version: version.version,
+        started_by: "trigger:" <> to_string(trigger.type)
       )
     end
   end
@@ -1574,6 +1577,7 @@ defmodule Flux.Workflows do
           status: :running,
           source: :api,
           version: version.version,
+          started_by: "mcp",
           inputs: inputs
         })
 
@@ -1609,6 +1613,17 @@ defmodule Flux.Workflows do
 
   def list_api_tokens(%Scope{} = scope, workflow_id) do
     ApiToken |> Repo.scoped(scope) |> where([t], t.workflow_id == ^workflow_id) |> Repo.all()
+  end
+
+  # Attribution: an explicit :started_by wins (API key prefixes,
+  # trigger kinds, "batch"/"eval"/"retry"); else the acting account's
+  # email; else the source name.
+  defp run_starter(scope, opts) do
+    cond do
+      starter = opts[:started_by] -> String.slice(to_string(starter), 0, 160)
+      match?(%{email: email} when is_binary(email), scope.account) -> scope.account.email
+      true -> to_string(Keyword.get(opts, :source, :draft))
+    end
   end
 
   ## Run tags
@@ -1778,6 +1793,7 @@ defmodule Flux.Workflows do
           status: :running,
           source: source.source,
           version: source.version,
+          started_by: "replay",
           inputs: source.inputs
         })
 
@@ -1856,6 +1872,7 @@ defmodule Flux.Workflows do
           status: :running,
           source: run.source,
           version: run.version,
+          started_by: "retry",
           inputs: inputs,
           retry_of_id: run.id
         })

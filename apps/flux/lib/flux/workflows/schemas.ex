@@ -205,6 +205,10 @@ defmodule Flux.Workflows.WorkflowRun do
     field :error, :string
     # Free-form labels for filtering run history (manual or API-set).
     field :tags, {:array, :string}, default: []
+    # Who or what started it: an account email, "api:<key prefix>",
+    # "trigger:webhook", "batch", "eval", "retry" — the audit answer to
+    # "where did this run come from?".
+    field :started_by, :string
     field :node_executions, {:array, :map}, default: []
     field :elapsed_ms, :integer
     field :usage, :map, default: %{}

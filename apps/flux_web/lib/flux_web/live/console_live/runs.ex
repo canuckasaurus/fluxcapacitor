@@ -548,6 +548,9 @@ defmodule FluxWeb.ConsoleLive.Runs do
                       onclick="this.select()"
                       id={"share-url-#{run.id}"}
                     />
+                    <p :if={run.started_by} class="opacity-70">
+                      <span class="font-semibold">Started by:</span> {run.started_by}
+                    </p>
                     <p :if={run.error} class="text-error font-mono">{run.error}</p>
 
                     <p :if={run.inputs != %{}}>
