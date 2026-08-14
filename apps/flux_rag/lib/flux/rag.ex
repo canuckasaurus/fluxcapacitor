@@ -243,12 +243,14 @@ defmodule Flux.RAG do
          true <- dataset.workspace_id == Scope.workspace_id(scope) || {:error, :not_found} do
       # `replace: true` swaps out same-named documents instead of
       # duplicating — re-uploading a file updates the dataset in place.
+      # The outgoing content survives as a restorable revision (last five
+      # per name).
       if Keyword.get(opts, :replace, false) do
         Document
         |> Repo.scoped(scope)
         |> where([d], d.dataset_id == ^dataset.id and d.name == ^name)
         |> Repo.all()
-        |> Enum.each(&Repo.delete/1)
+        |> Enum.each(&retire_document(scope, dataset, &1))
       end
 
       document =
@@ -735,6 +737,63 @@ defmodule Flux.RAG do
     end
   end
 
+  @doc "A replaced name's prior contents, newest first."
+  def list_document_revisions(%Scope{} = scope, dataset_id, name) do
+    Flux.RAG.DocumentRevision
+    |> Repo.scoped(scope)
+    |> where([r], r.dataset_id == ^dataset_id and r.name == ^name)
+    |> order_by([r], desc: r.inserted_at, desc: r.id)
+    |> Repo.all()
+  end
+
+  @doc """
+  Restores a revision as the current document (replace-mode, so today's
+  content becomes the newest revision — restore is never destructive).
+  """
+  def restore_document_revision(%Scope{} = scope, revision_id) do
+    with %Flux.RAG.DocumentRevision{} = revision <-
+           Repo.one(Repo.scoped(where(Flux.RAG.DocumentRevision, id: ^revision_id), scope)) ||
+             {:error, :not_found},
+         %Dataset{} = dataset <- get_dataset(scope, revision.dataset_id) do
+      add_document(scope, dataset, %{name: revision.name, content: revision.content},
+        replace: true
+      )
+    end
+  end
+
+  # Replace-mode retirement: the outgoing content becomes a revision
+  # (last five per name), then the row goes.
+  defp retire_document(scope, dataset, old_document) do
+    if is_binary(old_document.content) and old_document.content != "" do
+      Repo.insert!(%Flux.RAG.DocumentRevision{
+        workspace_id: old_document.workspace_id,
+        dataset_id: dataset.id,
+        name: old_document.name,
+        content: old_document.content
+      })
+
+      prune_revisions(scope, dataset.id, old_document.name)
+    end
+
+    Repo.delete(old_document)
+  end
+
+  defp prune_revisions(scope, dataset_id, name) do
+    keep =
+      Flux.RAG.DocumentRevision
+      |> Repo.scoped(scope)
+      |> where([r], r.dataset_id == ^dataset_id and r.name == ^name)
+      |> order_by([r], desc: r.inserted_at, desc: r.id)
+      |> limit(5)
+      |> select([r], r.id)
+      |> Repo.all()
+
+    Flux.RAG.DocumentRevision
+    |> Repo.scoped(scope)
+    |> where([r], r.dataset_id == ^dataset_id and r.name == ^name and r.id not in ^keep)
+    |> Repo.delete_all()
+  end
+
   @doc "Sets (or with nil, clears) a document's expiry date."
   def set_document_expiry(%Scope{} = scope, document_id, expires_at)
       when is_nil(expires_at) or is_struct(expires_at, DateTime) do
@@ -934,6 +993,18 @@ defmodule Flux.RAG do
 
         :ok = VectorStore.backend().index(dataset.id, segments)
         index_entities(dataset, segments)
+
+        # Rough tokens-embedded meter (chars/4): embedding spend was
+        # invisible next to the LLM meters.
+        embedded_estimate =
+          pairs
+          |> Enum.map(fn {chunk, _parent} -> div(byte_size(chunk), 4) + 1 end)
+          |> Enum.sum()
+
+        from(d in Dataset, where: d.id == ^dataset.id)
+        |> Repo.update_all([inc: [embedded_tokens: embedded_estimate]],
+          skip_workspace_guard: true
+        )
 
         document
         |> Ecto.Changeset.change(status: :ready, segment_count: length(segments), error: nil)

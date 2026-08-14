@@ -40,6 +40,9 @@ defmodule Flux.RAG.Dataset do
     # Scheduled retrieval evals: cron + the last run's scores, so a
     # regression is detectable (and notifiable) without a human diff.
     field(:retrieval_eval_cron, :string)
+    # Approximate tokens embedded over this dataset's lifetime (chars/4
+    # per indexing pass) — makes embedding spend visible.
+    field(:embedded_tokens, :integer, default: 0)
     field(:last_retrieval_hit_rate, :float)
     field(:last_retrieval_mrr, :float)
     field(:last_retrieval_eval_at, :utc_datetime)
@@ -171,6 +174,24 @@ defmodule Flux.RAG.Segment do
     field(:parent_content, :string)
     field(:embedding, {:array, :float})
     field(:enabled, :boolean, default: true)
+
+    timestamps(type: :utc_datetime, updated_at: false)
+  end
+end
+
+defmodule Flux.RAG.DocumentRevision do
+  @moduledoc "Prior content of a replaced document — restorable history."
+  use Ecto.Schema
+
+  @primary_key {:id, UUIDv7, autogenerate: true}
+  @foreign_key_type :binary_id
+
+  schema "rag_document_revisions" do
+    belongs_to(:workspace, Flux.Accounts.Workspace)
+    belongs_to(:dataset, Flux.RAG.Dataset)
+
+    field(:name, :string)
+    field(:content, :string)
 
     timestamps(type: :utc_datetime, updated_at: false)
   end
