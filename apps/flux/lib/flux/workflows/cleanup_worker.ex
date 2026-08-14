@@ -2,8 +2,9 @@ defmodule Flux.Workflows.CleanupWorker do
   @moduledoc """
   Nightly retention sweep (Oban cron, `:cleanup` queue): workspaces with
   `retention_days` in their custom_config lose workflow runs and chat
-  messages older than the window. Conversations, audit entries, and
-  knowledge stay. Trashed fluxes and apps are purged for everyone after
+  messages older than the window. Conversations and knowledge stay;
+  audit entries stay forever unless a workspace opts into the separate
+  `audit_retention_days`. Trashed fluxes and apps are purged for everyone after
   #{30} days in the trash.
   """
   use Oban.Worker, queue: :cleanup, max_attempts: 3
@@ -20,6 +21,7 @@ defmodule Flux.Workflows.CleanupWorker do
   def perform(_job) do
     purge_trash()
     sweep_operational_logs()
+    sweep_audit_trails()
 
     workspaces =
       from(w in Flux.Accounts.Workspace,
@@ -115,6 +117,26 @@ defmodule Flux.Workflows.CleanupWorker do
 
     from(p in Flux.Labeling.Project, where: p.deleted_at < ^cutoff)
     |> Repo.delete_all(skip_workspace_guard: true)
+  end
+
+  # Audit stays forever by default — pruning it is an explicit
+  # data-minimization choice, made per workspace.
+  defp sweep_audit_trails do
+    workspaces =
+      from(w in Flux.Accounts.Workspace,
+        where: fragment("? \\? ?", w.custom_config, "audit_retention_days"),
+        select: {w.id, w.custom_config}
+      )
+      |> Repo.all()
+
+    for {workspace_id, %{"audit_retention_days" => days}} <- workspaces, is_integer(days) do
+      cutoff = DateTime.add(DateTime.utc_now(:second), -days, :day)
+
+      from(e in Flux.Audit.Entry,
+        where: e.workspace_id == ^workspace_id and e.inserted_at < ^cutoff
+      )
+      |> Repo.delete_all(skip_workspace_guard: true)
+    end
   end
 
   # Operational logs are bounded by age for everyone — they'd otherwise

@@ -796,6 +796,22 @@ defmodule Flux.Accounts do
   end
 
   @doc """
+  Separate window for the audit trail (nil = keep forever, the
+  default). Pruning audit is an explicit data-minimization choice, so
+  it never rides along with the operational `retention_days`.
+  """
+  def set_audit_retention_days(%Scope{} = scope, days) when is_nil(days) or days in 30..3650 do
+    update_custom_config(scope, "audit_retention_days", days)
+  end
+
+  def audit_retention_days(%Scope{} = scope) do
+    case Repo.get(Workspace, Scope.workspace_id(scope)) do
+      %{custom_config: %{"audit_retention_days" => days}} -> days
+      _forever -> nil
+    end
+  end
+
+  @doc """
   Sets (or with nil/blank, clears) the scheduled-export cron: the sweep
   writes the workspace export archive to storage on this schedule.
   """

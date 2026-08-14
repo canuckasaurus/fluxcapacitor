@@ -60,16 +60,32 @@ defmodule Flux.Accounts.AccountToken do
   The query returns the account found by the token, if any, along with the token's creation time.
 
   The token is valid if it matches the value in the database and it has
-  not expired (after @session_validity_in_days).
+  not expired (after `session_validity_in_days/0`).
   """
   def verify_session_token_query(token) do
+    validity_days = session_validity_in_days()
+
     query =
       from token in by_token_and_context_query(token, "session"),
         join: account in assoc(token, :account),
-        where: token.inserted_at > ago(@session_validity_in_days, "day"),
+        where: token.inserted_at > ago(^validity_days, "day"),
         select: {%{account | authenticated_at: token.authenticated_at}, token.inserted_at}
 
     {:ok, query}
+  end
+
+  @doc """
+  How long sessions live before forcing a fresh login. The default
+  #{@session_validity_in_days} days can be tightened instance-wide with
+  `FLUX_SESSION_VALIDITY_DAYS` (config `:flux, :session_validity_days`)
+  — checked at verify time, so lowering it also expires existing
+  sessions that are already past the new window.
+  """
+  def session_validity_in_days do
+    case Application.get_env(:flux, :session_validity_days) do
+      days when is_integer(days) and days in 1..365 -> days
+      _default -> @session_validity_in_days
+    end
   end
 
   @doc """

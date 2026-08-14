@@ -20,6 +20,7 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
        models: Providers.available_models(scope),
        default_model: Providers.default_model(scope),
        retention_days: Accounts.retention_days(scope),
+       audit_retention_days: Accounts.audit_retention_days(scope),
        export_schedule: Accounts.export_schedule(scope),
        token_budget: Accounts.token_budget(scope),
        llm_cache_minutes: Accounts.llm_cache_minutes(scope),
@@ -269,6 +270,29 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
          socket
          |> put_flash(:info, (parsed && "Retention set to #{parsed} days.") || "Retention off.")
          |> assign(retention_days: parsed)}
+
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "You don't have permission to change retention.")}
+    end
+  end
+
+  def handle_event("set_audit_retention", %{"days" => days}, socket) do
+    parsed =
+      case Integer.parse(String.trim(days)) do
+        {n, ""} when n in 30..3650 -> n
+        _blank_or_invalid -> nil
+      end
+
+    case Accounts.set_audit_retention_days(socket.assigns.current_scope, parsed) do
+      {:ok, _workspace} ->
+        {:noreply,
+         socket
+         |> put_flash(
+           :info,
+           (parsed && "Audit entries now prune after #{parsed} days.") ||
+             "Audit trail kept forever."
+         )
+         |> assign(audit_retention_days: parsed)}
 
       {:error, :unauthorized} ->
         {:noreply, put_flash(socket, :error, "You don't have permission to change retention.")}
@@ -674,6 +698,28 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
             placeholder="∞"
             class="input input-bordered input-sm w-28"
           /> <span class="text-sm opacity-70">days</span>
+          <button class="btn btn-primary btn-sm">Save</button>
+        </form>
+
+        <p class="text-sm opacity-70 pt-2">
+          Audit trail: kept forever by default. Set a separate window (min
+          30 days) only if a data-minimization policy requires pruning.
+        </p>
+
+        <form
+          phx-submit="set_audit_retention"
+          id="audit-retention-form"
+          class="flex gap-2 items-center"
+        >
+          <input
+            type="number"
+            name="days"
+            value={@audit_retention_days}
+            min="30"
+            max="3650"
+            placeholder="∞"
+            class="input input-bordered input-sm w-28"
+          /> <span class="text-sm opacity-70">days (audit)</span>
           <button class="btn btn-primary btn-sm">Save</button>
         </form>
       </div>

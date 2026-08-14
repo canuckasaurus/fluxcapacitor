@@ -45,6 +45,13 @@ if dims = System.get_env("FLUX_VECTOR_DIMS") do
   config :flux, :vector_dims, String.to_integer(dims)
 end
 
+# FLUX_SESSION_VALIDITY_DAYS: how long console sessions live before a
+# fresh login (default 14). Checked at verify time, so lowering it also
+# ends sessions already past the new window.
+if days = System.get_env("FLUX_SESSION_VALIDITY_DAYS") do
+  config :flux, :session_validity_days, String.to_integer(days)
+end
+
 # FLUX_ADMIN_EMAILS: comma-separated account emails allowed into the
 # instance admin panel (/console/admin) — all workspaces, plans, usage.
 if admins = System.get_env("FLUX_ADMIN_EMAILS") do
