@@ -481,7 +481,14 @@ defmodule FluxWeb.ConsoleLive.AppChat do
         "title" => presence(params["title"]),
         "logo_url" => presence(params["logo_url"]),
         "bubble_position" => (params["bubble_position"] == "left" && "left") || nil,
-        "bubble_greeting" => presence(params["bubble_greeting"])
+        "bubble_greeting" => presence(params["bubble_greeting"]),
+        # Owner-authored CSS for their own public site; the only thing
+        # to guard is </style> tag breakout.
+        "custom_css" =>
+          case presence(params["custom_css"]) do
+            nil -> nil
+            css -> css |> String.replace(~r/<\/?style/i, "") |> String.slice(0, 4_000)
+          end
       }
       |> Enum.reject(fn {_key, value} -> value == nil end)
       |> Map.new()
@@ -1383,6 +1390,17 @@ defmodule FluxWeb.ConsoleLive.AppChat do
                 maxlength="120"
                 class="input input-bordered input-sm w-44"
               />
+            </label>
+            <label class="form-control w-full">
+              <span class="label-text text-xs opacity-70 mb-1">
+                Custom CSS (advanced — applies to the public site)
+              </span>
+              <textarea
+                name="custom_css"
+                rows="3"
+                placeholder=".chat-bubble &lbrace; border-radius: 4px; &rbrace;"
+                class="textarea textarea-bordered w-full font-mono text-xs"
+              >{@app.site_theme["custom_css"]}</textarea>
             </label>
             <button class="btn btn-primary btn-sm">Save theme</button>
           </form>

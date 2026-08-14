@@ -391,6 +391,9 @@ defmodule FluxWeb.SiteLive.AppSite do
 
   def render(assigns) do
     ~H"""
+    <style :if={@app.site_theme["custom_css"]}>
+      <%= raw(@app.site_theme["custom_css"]) %>
+    </style>
     <style :if={valid_accent(@app.site_theme["accent"])}>
       .btn-primary, .chat-bubble-primary {
         background-color: <%= valid_accent(@app.site_theme["accent"]) %> !important;
