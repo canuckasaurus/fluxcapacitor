@@ -457,6 +457,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
            "rate_limit_per_minute" => presence(params["rate_limit_per_minute"]),
            "annotation_threshold" => presence(params["annotation_threshold"]),
            "suggest_followups" => params["suggest_followups"] == "on",
+           "collect_visitor_info" => params["collect_visitor_info"] == "on",
            "fallback_provider_plugin_id" => fallback_plugin,
            "fallback_model" => fallback_model,
            "ab_provider_plugin_id" => ab_plugin,
@@ -1118,6 +1119,15 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               class="checkbox checkbox-sm"
               checked={@app.suggest_followups}
             /> Suggest follow-up questions after each reply (one extra model call per turn)
+          </label>
+          <label class="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              name="collect_visitor_info"
+              class="checkbox checkbox-sm"
+              checked={@app.collect_visitor_info}
+            />
+            Ask site visitors for their name/email (optional pre-chat form, stored on the conversation)
           </label>
           <label :if={@app.mode == :chat} class="form-control block">
             <span class="label-text text-sm mb-1">

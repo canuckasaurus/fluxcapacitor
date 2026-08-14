@@ -474,7 +474,59 @@ defmodule Flux.Chat do
     |> where([c], c.app_id == ^app_id and not is_nil(c.handoff_requested_at))
     |> where([c], is_nil(c.deleted_at))
     |> order_by([c], asc: c.handoff_requested_at)
+    |> preload(:assigned_account)
     |> Repo.all()
+  end
+
+  @doc """
+  Claims (or with nil, releases) a handoff conversation for a member —
+  the queue shows who owns what, so two agents stop answering the same
+  visitor.
+  """
+  def assign_handoff(%Scope{} = scope, conversation_id, account_id) do
+    with :ok <- RBAC.authorize(scope, :app_monitor),
+         %Conversation{} = conversation <-
+           Repo.one(Repo.scoped(where(Conversation, id: ^conversation_id), scope)) ||
+             {:error, :not_found},
+         {:ok, updated} <-
+           conversation
+           |> Ecto.Changeset.change(assigned_account_id: account_id)
+           |> Repo.update() do
+      {:ok, Repo.preload(updated, :assigned_account, force: true)}
+    end
+  end
+
+  @doc """
+  Stores the pre-chat identity a visitor typed (collect_visitor_info
+  apps). Site-scope callable; blank values clear nothing — identity is
+  write-once unless retyped.
+  """
+  def set_visitor_identity(%Scope{} = scope, conversation_id, name, email) do
+    case Repo.one(Repo.scoped(where(Conversation, id: ^conversation_id), scope)) do
+      nil ->
+        {:error, :not_found}
+
+      conversation ->
+        changes =
+          %{}
+          |> then(fn changes ->
+            case String.trim(to_string(name)) do
+              "" -> changes
+              name -> Map.put(changes, :visitor_name, String.slice(name, 0, 160))
+            end
+          end)
+          |> then(fn changes ->
+            trimmed = String.trim(to_string(email))
+
+            if trimmed =~ ~r/^[^@,;\s]+@[^@,;\s]+$/ do
+              Map.put(changes, :visitor_email, String.slice(trimmed, 0, 160))
+            else
+              changes
+            end
+          end)
+
+        conversation |> Ecto.Changeset.change(changes) |> Repo.update()
+    end
   end
 
   def conversation_topic(conversation_id), do: "conversation:#{conversation_id}"
@@ -489,6 +541,18 @@ defmodule Flux.Chat do
     |> where([c], c.app_id == ^app_id and is_nil(c.end_user_ref))
     |> where([c], is_nil(c.deleted_at))
     |> order_by([c], desc: c.inserted_at, desc: c.id)
+    |> limit(^limit)
+    |> Repo.all()
+  end
+
+  @doc "Workspace-wide title search for the command palette's deep lane."
+  def search_conversation_titles(%Scope{} = scope, q, limit \\ 8) do
+    pattern = "%" <> String.replace(q, ~r/[\\%_]/, fn c -> "\\" <> c end) <> "%"
+
+    Conversation
+    |> Repo.scoped(scope)
+    |> where([c], is_nil(c.deleted_at) and ilike(c.title, ^pattern))
+    |> order_by([c], desc: c.inserted_at)
     |> limit(^limit)
     |> Repo.all()
   end

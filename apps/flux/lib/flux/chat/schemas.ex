@@ -34,6 +34,8 @@ defmodule Flux.Chat.App do
     field :rate_limit_per_minute, :integer
     field :annotation_threshold, :float
     field :suggest_followups, :boolean, default: false
+    # Public sites show a pre-chat name/email form when set.
+    field :collect_visitor_info, :boolean, default: false
     field :site_theme, :map, default: %{}
     field :site_token, :string
     field :site_enabled, :boolean, default: false
@@ -70,6 +72,7 @@ defmodule Flux.Chat.App do
       :rate_limit_per_minute,
       :annotation_threshold,
       :suggest_followups,
+      :collect_visitor_info,
       :site_theme
     ])
     |> validate_number(:daily_token_limit, greater_than: 0)
@@ -106,6 +109,11 @@ defmodule Flux.Chat.Conversation do
     belongs_to :app, Flux.Chat.App
     field :title, :string
     field :end_user_ref, :string
+    # Optional pre-chat identity (collect_visitor_info apps).
+    field :visitor_name, :string
+    field :visitor_email, :string
+    # Handoff ownership: which member claimed this conversation.
+    belongs_to :assigned_account, Flux.Accounts.Account
     field :labels, {:array, :string}, default: []
     # Set when a site visitor asks for a human; cleared on console reply.
     field :handoff_requested_at, :utc_datetime

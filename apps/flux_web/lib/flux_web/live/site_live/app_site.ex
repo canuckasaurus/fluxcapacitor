@@ -102,6 +102,9 @@ defmodule FluxWeb.SiteLive.AppSite do
        conversation: conversation,
        conversations: Chat.visitor_conversations(scope, app.id, end_user_ref),
        messages: messages,
+       identity_saved:
+         conversation != nil and
+           (conversation.visitor_name != nil or conversation.visitor_email != nil),
        followups: [],
        streaming_id: nil,
        streaming_text: ""
@@ -222,6 +225,34 @@ defmodule FluxWeb.SiteLive.AppSite do
 
       _no_rating_or_error ->
         {:noreply, socket}
+    end
+  end
+
+  def handle_event("identify", %{"name" => name, "email" => email}, socket) do
+    %{app: app, site_scope: scope} = socket.assigns
+
+    if String.trim(to_string(name)) == "" and String.trim(to_string(email)) == "" do
+      {:noreply, socket}
+    else
+      conversation =
+        socket.assigns.conversation ||
+          Chat.create_conversation(scope, app, %{end_user_ref: socket.assigns.end_user_ref})
+
+      case Chat.set_visitor_identity(scope, conversation.id, name, email) do
+        {:ok, updated} ->
+          if socket.assigns.conversation == nil, do: Chat.subscribe_conversation(updated.id)
+
+          {:noreply,
+           assign(socket,
+             conversation: updated,
+             conversations:
+               Chat.visitor_conversations(scope, app.id, socket.assigns.end_user_ref),
+             identity_saved: true
+           )}
+
+        _error ->
+          {:noreply, socket}
+      end
     end
   end
 
@@ -461,6 +492,31 @@ defmodule FluxWeb.SiteLive.AppSite do
         </header>
 
         <div :if={@app.mode in [:chat, :advanced_chat]} class="flex-1 flex flex-col gap-3">
+          <form
+            :if={@app.collect_visitor_info and not @identity_saved}
+            phx-submit="identify"
+            id="visitor-identity-form"
+            class="rounded-box border border-base-200 p-3 flex items-end gap-2 flex-wrap"
+          >
+            <p class="w-full text-sm opacity-70">
+              Leave your details so we can follow up (optional):
+            </p>
+            <input
+              type="text"
+              name="name"
+              placeholder="Name"
+              maxlength="160"
+              class="input input-bordered input-sm w-40"
+            />
+            <input
+              type="email"
+              name="email"
+              placeholder="you@example.com"
+              maxlength="160"
+              class="input input-bordered input-sm w-56"
+            />
+            <button class="btn btn-primary btn-sm">Save</button>
+          </form>
           <div id="site-messages" class="flex-1 space-y-3 overflow-y-auto">
             <div
               :if={
