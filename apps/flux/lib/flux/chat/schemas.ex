@@ -146,6 +146,8 @@ defmodule Flux.Chat.Message do
     field :citations, {:array, :map}, default: []
     field :files, {:array, :map}, default: []
     field :feedback, Ecto.Enum, values: [:like, :dislike]
+    # Optional free-text alongside the rating — the "what was wrong".
+    field :feedback_comment, :string
     # Console-side bookmark: pinned messages surface in a strip above
     # the thread for quick reference.
     field :pinned, :boolean, default: false
@@ -205,6 +207,8 @@ defmodule Flux.Chat.ApiToken do
     field :expires_at, :utc_datetime
     # NULL = the app/pipeline default; set, it caps THIS key's requests.
     field :rate_limit_per_minute, :integer
+    # Set when the expiring-key warning fired, so it fires exactly once.
+    field :expiry_warned_at, :utc_datetime
 
     timestamps(type: :utc_datetime)
   end

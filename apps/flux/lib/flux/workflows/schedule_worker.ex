@@ -51,6 +51,7 @@ defmodule Flux.Workflows.ScheduleWorker do
     Workflows.check_schedule_watchdog(now)
     Workflows.check_paused_runs(now)
     Flux.Usage.send_monthly_cost_reports(now)
+    Flux.Chat.warn_expiring_keys(now)
 
     # Remembered URL sources re-fetch nightly (runtime-resolved — flux
     # never compile-depends on flux_rag).

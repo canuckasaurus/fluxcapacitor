@@ -578,24 +578,47 @@ defmodule Flux.Chat do
     end
   end
 
-  @doc "Records end-user feedback (like/dislike/nil to clear) on a message."
-  def set_feedback(%Scope{} = scope, message_id, rating) when rating in [:like, :dislike, nil] do
+  @doc """
+  Records end-user feedback (like/dislike/nil to clear) on a message.
+  `opts[:comment]` attaches the "what was wrong" text; clearing the
+  rating clears the comment with it.
+  """
+  def set_feedback(%Scope{} = scope, message_id, rating, opts \\ [])
+      when rating in [:like, :dislike, nil] do
     case Repo.one(Repo.scoped(where(Message, id: ^message_id), scope)) do
       nil ->
         {:error, :not_found}
 
       message ->
-        with {:ok, updated} <- message |> Ecto.Changeset.change(feedback: rating) |> Repo.update() do
+        comment =
+          case {rating, Keyword.get(opts, :comment)} do
+            {nil, _cleared} -> nil
+            {_rating, text} when is_binary(text) -> presence_slice(text, 1_000)
+            {_rating, _unchanged} -> message.feedback_comment
+          end
+
+        with {:ok, updated} <-
+               message
+               |> Ecto.Changeset.change(feedback: rating, feedback_comment: comment)
+               |> Repo.update() do
           if rating != nil do
             Flux.Webhooks.dispatch(updated.workspace_id, "feedback.created", %{
               "message_id" => updated.id,
               "conversation_id" => updated.conversation_id,
-              "feedback" => to_string(rating)
+              "feedback" => to_string(rating),
+              "comment" => updated.feedback_comment
             })
           end
 
           {:ok, updated}
         end
+    end
+  end
+
+  defp presence_slice(text, max) do
+    case String.trim(text) do
+      "" -> nil
+      trimmed -> String.slice(trimmed, 0, max)
     end
   end
 
@@ -1150,6 +1173,46 @@ defmodule Flux.Chat do
     end
   end
 
+  @doc """
+  Edits an annotation in place. A changed question re-embeds (stale
+  vectors would silently mis-match); `enabled` toggles it out of
+  matching without losing the pair.
+  """
+  def update_annotation(%Scope{} = scope, annotation_id, attrs) when is_map(attrs) do
+    with :ok <- RBAC.authorize(scope, :app_edit),
+         %Annotation{} = annotation <-
+           Repo.one(Repo.scoped(where(Annotation, id: ^annotation_id), scope)) ||
+             {:error, :not_found} do
+      question = String.trim(to_string(attrs[:question] || annotation.question))
+      answer = String.trim(to_string(attrs[:answer] || annotation.answer))
+
+      with true <- (question != "" and answer != "") || {:error, :empty} do
+        changes = %{
+          question: question,
+          answer: answer,
+          enabled: Map.get(attrs, :enabled, annotation.enabled)
+        }
+
+        changes =
+          if question != annotation.question do
+            Map.merge(changes, annotation_embedding(scope, annotation.workspace_id, question))
+          else
+            changes
+          end
+
+        with {:ok, updated} <- annotation |> Ecto.Changeset.change(changes) |> Repo.update() do
+          Flux.Audit.record(scope, "annotation.update",
+            resource_type: "annotation",
+            resource_id: updated.id,
+            metadata: %{"app_id" => updated.app_id}
+          )
+
+          {:ok, updated}
+        end
+      end
+    end
+  end
+
   # Embed the question with the workspace's first embedding model so
   # similarity matching can work; without one, exact matching still does.
   defp annotation_embedding(scope, workspace_id, question) do
@@ -1502,6 +1565,40 @@ defmodule Flux.Chat do
     do: limit
 
   def token_rate_limit(_off_or_invalid), do: nil
+
+  @doc """
+  Daily tick: API keys expiring within seven days get one
+  `api_key_expiring` notification (webhook-routable like any kind) —
+  the alternative is a silent 401 cliff on whatever automation still
+  uses them.
+  """
+  def warn_expiring_keys(now \\ DateTime.utc_now(:second)) do
+    horizon = DateTime.add(now, 7, :day)
+
+    expiring =
+      ApiToken
+      |> where([t], not is_nil(t.expires_at) and is_nil(t.expiry_warned_at))
+      |> where([t], t.expires_at > ^now and t.expires_at < ^horizon)
+      |> Repo.all(skip_workspace_guard: true)
+
+    for token <- expiring do
+      days_left = max(div(DateTime.diff(token.expires_at, now, :hour), 24), 0)
+
+      Flux.Notifications.notify(
+        token.workspace_id,
+        "api_key_expiring",
+        "API key #{token.prefix} expires in #{days_left + 1} day#{if days_left == 0, do: "", else: "s"} " <>
+          "(#{Calendar.strftime(token.expires_at, "%Y-%m-%d")}). Mint a replacement before it dies.",
+        "/console/settings"
+      )
+
+      token
+      |> Ecto.Changeset.change(expiry_warned_at: now)
+      |> Repo.update()
+    end
+
+    :ok
+  end
 
   @doc false
   def token_expired?(%ApiToken{expires_at: nil}), do: false
