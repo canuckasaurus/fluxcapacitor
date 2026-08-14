@@ -31,11 +31,18 @@ defmodule FluxWeb.V1.WorkflowRunController do
         error(conn, 400, "workflow_not_published", "Publish this flux before calling the API")
 
       version ->
+        started_by =
+          case conn.assigns[:service_token] do
+            %{prefix: prefix} when is_binary(prefix) -> "api:" <> prefix
+            _absent -> "api"
+          end
+
         case Workflows.start_run(scope, workflow, inputs,
                source: :api,
                graph: version.graph,
                version: version.version,
-               tags: List.wrap(params["tags"])
+               tags: List.wrap(params["tags"]),
+               started_by: started_by
              ) do
           {:ok, run} ->
             case Map.get(params, "response_mode", "streaming") do

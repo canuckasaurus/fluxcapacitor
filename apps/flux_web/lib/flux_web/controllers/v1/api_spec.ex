@@ -124,6 +124,29 @@ defmodule FluxWeb.V1.ApiSpec do
       })
     end
 
+    defmodule ImageList do
+      @moduledoc false
+      require OpenApiSpex
+
+      OpenApiSpex.schema(%{
+        title: "ImageList",
+        description: "OpenAI-compatible image generation response (POST /v1/images/generations)",
+        type: :object,
+        properties: %{
+          created: %Schema{type: :integer},
+          data: %Schema{
+            type: :array,
+            items: %Schema{
+              type: :object,
+              properties: %{b64_json: %Schema{type: :string}},
+              required: [:b64_json]
+            }
+          }
+        },
+        required: [:created, :data]
+      })
+    end
+
     defmodule ChatMessage do
       @moduledoc false
       require OpenApiSpex
@@ -1163,6 +1186,7 @@ defmodule FluxWeb.V1.ApiSpec do
     Schemas.ChatCompletion,
     Schemas.EmbeddingList,
     Schemas.ModerationResult,
+    Schemas.ImageList,
     Schemas.ChatMessage,
     Schemas.WorkflowRun,
     Schemas.Parameters,
@@ -1229,6 +1253,8 @@ defmodule FluxWeb.V1.ApiSpec do
     "/embeddings" => {:post, "OpenAI-compatible embeddings", "EmbeddingList"},
     "/moderations" =>
       {:post, "OpenAI-compatible moderation via workspace guardrails", "ModerationResult"},
+    "/images/generations" =>
+      {:post, "OpenAI-compatible image generation (b64_json)", "ImageList"},
     "/completion-messages" => {:post, "Run a completion app", "ChatMessage"},
     "/workflows/run" => {:post, "Run the token's published flux", "WorkflowRun"},
     "/workflows/runs/{id}/resume" => {:post, "Resume a paused run", "WorkflowRun"},

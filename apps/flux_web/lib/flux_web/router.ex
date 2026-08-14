@@ -42,6 +42,7 @@ defmodule FluxWeb.Router do
     post "/chat/completions", OpenAIController, :create
     post "/embeddings", OpenAIController, :embeddings
     post "/moderations", OpenAIController, :moderations
+    post "/images/generations", OpenAIController, :image_generations
     get "/models", OpenAIController, :models
     post "/audio/transcriptions", OpenAIController, :transcriptions
     post "/audio/speech", OpenAIController, :speech

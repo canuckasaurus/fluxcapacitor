@@ -221,6 +221,45 @@ defmodule FluxWeb.V1.OpenAIController do
   end
 
   @doc """
+  OpenAI-compatible image generation: `POST /v1/images/generations` with
+  any service token. `prompt` is required; `model` and `size` pass
+  through to the workspace default model's provider. Always answers
+  `b64_json` (no hosted URLs to expire).
+  """
+  def image_generations(conn, params) do
+    scope = conn.assigns[:service_scope]
+    prompt = String.trim(to_string(params["prompt"] || ""))
+
+    if prompt == "" do
+      openai_error(conn, 400, "prompt is required.", "invalid_request_error")
+    else
+      workspace_id = Flux.Accounts.Scope.workspace_id(scope)
+
+      case Flux.Providers.generate_image(workspace_id, prompt, %{
+             "model" => params["model"],
+             "size" => params["size"]
+           }) do
+        {:ok, %{image: image}} ->
+          json(conn, %{
+            "created" => System.os_time(:second),
+            "data" => [%{"b64_json" => Base.encode64(image)}]
+          })
+
+        {:error, :not_supported} ->
+          openai_error(
+            conn,
+            400,
+            "No workspace default model, or its provider has no image endpoint.",
+            "invalid_request_error"
+          )
+
+        {:error, reason} ->
+          openai_error(conn, 502, "The provider errored: #{inspect(reason)}", "api_error")
+      end
+    end
+  end
+
+  @doc """
   OpenAI-compatible moderations: `POST /v1/moderations` with any service
   token. `input` (string or array) is judged by the workspace guardrails
   — deny patterns and, when configured, the LLM moderation policy. The
