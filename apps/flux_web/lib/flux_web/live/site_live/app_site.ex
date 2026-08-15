@@ -256,6 +256,19 @@ defmodule FluxWeb.SiteLive.AppSite do
     end
   end
 
+  def handle_event("email_transcript", _params, socket) do
+    scope = socket.assigns.site_scope
+    app = socket.assigns.app
+
+    with %Flux.Chat.Conversation{} = conversation <- socket.assigns.conversation,
+         :ok <- Chat.email_transcript(scope, app, conversation.id) do
+      {:noreply, put_flash(socket, :info, "Transcript sent to #{conversation.visitor_email}.")}
+    else
+      _no_email_or_failure ->
+        {:noreply, put_flash(socket, :error, "Could not send the transcript.")}
+    end
+  end
+
   def handle_event("request_handoff", _params, socket) do
     %{app: app, site_scope: scope} = socket.assigns
 
@@ -736,6 +749,16 @@ defmodule FluxWeb.SiteLive.AppSite do
             >
               <.icon name="hero-arrow-down-tray" class="size-4" />
             </a>
+            <button
+              :if={@conversation != nil and @conversation.visitor_email != nil}
+              type="button"
+              class="btn btn-ghost"
+              phx-click="email_transcript"
+              title={"Email this transcript to #{@conversation.visitor_email}"}
+              id="email-transcript"
+            >
+              <.icon name="hero-envelope" class="size-4" />
+            </button>
             <button
               :if={
                 @conversation != nil and @conversation.handoff_requested_at == nil and

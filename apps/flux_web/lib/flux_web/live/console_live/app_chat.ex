@@ -49,6 +49,9 @@ defmodule FluxWeb.ConsoleLive.AppChat do
            messages: messages,
            renaming: false,
            followups: [],
+           editing_message_id: nil,
+           prompt_draft: app.system_prompt,
+           snippets: Flux.Prompts.list(scope),
            streaming_id: nil,
            streaming_text: "",
            api_tokens: Chat.list_api_tokens(scope, app.id),
@@ -232,6 +235,56 @@ defmodule FluxWeb.ConsoleLive.AppChat do
     end
   end
 
+  def handle_event("start_edit_message", %{"id" => message_id}, socket) do
+    {:noreply, assign(socket, editing_message_id: message_id)}
+  end
+
+  def handle_event("cancel_edit_message", _params, socket) do
+    {:noreply, assign(socket, editing_message_id: nil)}
+  end
+
+  def handle_event("submit_edit_message", %{"content" => content}, socket) when content != "" do
+    scope = socket.assigns.current_scope
+
+    with %Flux.Chat.Conversation{} = conversation <- socket.assigns.conversation,
+         {:ok, _user, assistant_message} <-
+           Chat.edit_message(
+             scope,
+             socket.assigns.app,
+             conversation,
+             socket.assigns.editing_message_id,
+             content
+           ) do
+      messages =
+        scope
+        |> Chat.list_messages(conversation.id)
+        |> Enum.reject(&(&1.id == assistant_message.id))
+
+      {:noreply,
+       assign(socket,
+         editing_message_id: nil,
+         messages: messages,
+         streaming_id: assistant_message.id,
+         streaming_text: ""
+       )}
+    else
+      {:error, :guardrail} ->
+        {:noreply, put_flash(socket, :error, "That message isn't allowed here.")}
+
+      {:error, :quota_exceeded} ->
+        {:noreply,
+         put_flash(socket, :error, "This app's daily token limit is spent — try again tomorrow.")}
+
+      {:error, :busy} ->
+        {:noreply, put_flash(socket, :error, "Wait for the current reply to finish first.")}
+
+      _not_editable ->
+        {:noreply, assign(socket, editing_message_id: nil)}
+    end
+  end
+
+  def handle_event("submit_edit_message", _params, socket), do: {:noreply, socket}
+
   def handle_event("new-conversation", _params, socket) do
     {:noreply,
      assign(socket,
@@ -394,6 +447,46 @@ defmodule FluxWeb.ConsoleLive.AppChat do
         {:noreply, put_flash(socket, :error, "Could not save the configuration.")}
     end
   end
+
+  def handle_event("prompt_draft_change", %{"system_prompt" => draft}, socket) do
+    {:noreply, assign(socket, prompt_draft: draft)}
+  end
+
+  def handle_event("save_system_prompt", %{"system_prompt" => prompt}, socket) do
+    case Chat.update_app(socket.assigns.current_scope, socket.assigns.app, %{
+           "system_prompt" => prompt
+         }) do
+      {:ok, app} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "System prompt saved.")
+         |> assign(app: app, prompt_draft: app.system_prompt)}
+
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "You don't have permission to edit this app.")}
+
+      {:error, %Ecto.Changeset{}} ->
+        {:noreply, put_flash(socket, :error, "Could not save the system prompt.")}
+    end
+  end
+
+  # The picker appends the library snippet to the draft — nothing is
+  # persisted until "Save prompt".
+  def handle_event("insert_snippet", %{"snippet" => snippet_id}, socket) when snippet_id != "" do
+    case Enum.find(socket.assigns.snippets, &(&1.id == snippet_id)) do
+      nil ->
+        {:noreply, socket}
+
+      snippet ->
+        draft = String.trim_trailing(socket.assigns.prompt_draft || "")
+        joined = (draft == "" && snippet.content) || draft <> "
+
+" <> snippet.content
+        {:noreply, assign(socket, prompt_draft: joined)}
+    end
+  end
+
+  def handle_event("insert_snippet", _params, socket), do: {:noreply, socket}
 
   def handle_event("enable_site", _params, socket) do
     case Chat.enable_site(socket.assigns.current_scope, socket.assigns.app) do
@@ -671,6 +764,12 @@ defmodule FluxWeb.ConsoleLive.AppChat do
     end
   end
 
+  defp last_user_id(messages) do
+    messages
+    |> Enum.reverse()
+    |> Enum.find_value(fn message -> message.role == :user && message.id end)
+  end
+
   defp drop_last_assistant(messages) do
     case List.last(messages) do
       %{role: :assistant} -> Enum.drop(messages, -1)
@@ -932,6 +1031,28 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               <%= cond do %>
                 <% message.status == :error -> %>
                   <span class="whitespace-pre-wrap">{message.error}</span>
+                <% message.role == :user and @editing_message_id == message.id -> %>
+                  <form
+                    phx-submit="submit_edit_message"
+                    class="space-y-2 min-w-64"
+                    id={"edit-form-#{message.id}"}
+                  >
+                    <textarea
+                      name="content"
+                      class="textarea textarea-bordered w-full text-base-content"
+                      rows="3"
+                    >{message.content}</textarea>
+                    <div class="flex gap-2 justify-end">
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-xs"
+                        phx-click="cancel_edit_message"
+                      >
+                        Cancel
+                      </button>
+                      <button type="submit" class="btn btn-secondary btn-xs">Send again</button>
+                    </div>
+                  </form>
                 <% message.role == :assistant -> %>
                   <div class="markdown-chat">{FluxWeb.Markdown.render(message.content)}</div>
                 <% true -> %>
@@ -979,6 +1100,24 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               >
                 <.icon name="hero-bookmark" class={["size-3", message.pinned && "text-primary"]} />
                 {(message.pinned && "Unpin") || "Pin"}
+              </button>
+            </div>
+            <div
+              :if={
+                message.role == :user and @streaming_id == nil and
+                  @editing_message_id != message.id and message.id == last_user_id(@messages)
+              }
+              class="chat-footer mt-1"
+            >
+              <button
+                type="button"
+                class="btn btn-ghost btn-xs"
+                phx-click="start_edit_message"
+                phx-value-id={message.id}
+                title="Edit this message and regenerate the reply"
+                aria-label="Edit this message"
+              >
+                <.icon name="hero-pencil" class="size-3" /> Edit
               </button>
             </div>
             <div
@@ -1101,6 +1240,31 @@ defmodule FluxWeb.ConsoleLive.AppChat do
             </button>
           </div>
         </form>
+      </div>
+
+      <div :if={@app.mode == :chat and @can_edit} class="card border border-base-200 p-6 space-y-3">
+        <h2 class="font-semibold">System prompt</h2>
+        <form id="system-prompt-form" phx-submit="save_system_prompt" phx-change="prompt_draft_change">
+          <textarea
+            name="system_prompt"
+            rows="4"
+            class="textarea textarea-bordered w-full"
+            placeholder="You are a helpful assistant for..."
+          >{@prompt_draft}</textarea>
+          <div class="flex items-center gap-2 mt-2">
+            <button class="btn btn-primary btn-sm">Save prompt</button>
+            <select
+              :if={@snippets != []}
+              name="snippet"
+              class="select select-bordered select-sm ml-auto"
+              form="snippet-insert-form"
+            >
+              <option value="">Insert a library snippet…</option>
+              <option :for={snippet <- @snippets} value={snippet.id}>{snippet.name}</option>
+            </select>
+          </div>
+        </form>
+        <form :if={@snippets != []} id="snippet-insert-form" phx-change="insert_snippet"></form>
       </div>
 
       <div

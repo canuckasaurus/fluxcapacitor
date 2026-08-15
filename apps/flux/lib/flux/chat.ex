@@ -970,6 +970,113 @@ defmodule Flux.Chat do
     end
   end
 
+  @doc """
+  Rewrites the conversation's last user message and regenerates the
+  reply from it. Everything after the edited message is discarded, and
+  the new content passes the same guardrails as a fresh send. Returns
+  `{:ok, user_message, assistant_message}`.
+  """
+  def edit_message(
+        %Scope{} = scope,
+        %App{} = app,
+        %Conversation{} = conversation,
+        message_id,
+        content
+      )
+      when is_binary(content) and content != "" do
+    with :ok <- if(quota_exceeded?(app), do: {:error, :quota_exceeded}, else: :ok),
+         {:ok, content} <-
+           Flux.Guardrails.sanitize_input(app.workspace_id, content, "chat (#{app.name})"),
+         {_earlier, [%Message{role: :user} = target | later]} <-
+           scope
+           |> list_messages(conversation.id)
+           |> Enum.split_while(&(&1.id != message_id)) do
+      cond do
+        Enum.any?(later, &(&1.role == :user)) -> {:error, :not_last}
+        Enum.any?(later, &(&1.status == :streaming)) -> {:error, :busy}
+        true -> apply_message_edit(scope, app, conversation, target, later, content)
+      end
+    else
+      {:error, reason} -> {:error, reason}
+      _not_found_or_not_user -> {:error, :not_found}
+    end
+  end
+
+  defp apply_message_edit(scope, app, conversation, target, later, content) do
+    workspace_id = Scope.workspace_id(scope)
+    target = target |> Ecto.Changeset.change(content: content) |> Repo.update!()
+
+    later_ids = Enum.map(later, & &1.id)
+
+    if later_ids != [] do
+      from(m in Message, where: m.id in ^later_ids and m.workspace_id == ^workspace_id)
+      |> Repo.delete_all()
+    end
+
+    assistant_message =
+      Repo.insert!(%Message{
+        workspace_id: workspace_id,
+        conversation_id: conversation.id,
+        role: :assistant,
+        status: :streaming
+      })
+
+    :ok = subscribe(assistant_message.id)
+
+    history = list_messages(scope, conversation.id)
+    annotation = match_annotation(app, content)
+
+    {:ok, _pid} =
+      Task.Supervisor.start_child(Flux.GenerationSupervisor, fn ->
+        Registry.register(Flux.GenerationRegistry, assistant_message.id, nil)
+
+        if annotation do
+          answer_from_annotation(annotation, assistant_message)
+        else
+          generate(app, history, assistant_message)
+        end
+      end)
+
+    {:ok, target, assistant_message}
+  end
+
+  @doc """
+  Emails the transcript to the address the visitor shared on this
+  conversation; `{:error, :no_email}` when they never left one.
+  """
+  def email_transcript(%Scope{} = scope, %App{} = app, conversation_id) do
+    with %Conversation{app_id: app_id} = conversation <-
+           get_conversation(scope, conversation_id) || {:error, :not_found},
+         true <- app_id == app.id || {:error, :not_found},
+         email when is_binary(email) <- conversation.visitor_email || {:error, :no_email} do
+      transcript = render_transcript(scope, app, conversation)
+
+      case Flux.Accounts.AccountNotifier.deliver_transcript(email, app.name, transcript) do
+        {:ok, _email} -> :ok
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      {:error, reason} -> {:error, reason}
+      _mismatch -> {:error, :not_found}
+    end
+  end
+
+  defp render_transcript(scope, app, conversation) do
+    scope
+    |> list_messages(conversation.id)
+    |> Enum.reject(&(&1.content in [nil, ""]))
+    |> Enum.map_join("\n\n", fn message ->
+      speaker =
+        case message.role do
+          :user -> conversation.visitor_name || "You"
+          :assistant -> app.name
+          other -> other |> to_string() |> String.capitalize()
+        end
+
+      "#{speaker}:\n#{message.content}"
+    end)
+  end
+
   defp derive_title(content) do
     clean = content |> String.replace(~r/\s+/, " ") |> String.trim()
 
