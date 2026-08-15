@@ -329,6 +329,30 @@ defmodule FluxWeb.FluxDslController do
     end
   end
 
+  @doc "Downloads one document's stored content from the knowledge browser."
+  def document_download(conn, %{"document_id" => document_id}) do
+    case Flux.RAG.download_document(conn.assigns.current_scope, document_id) do
+      {:ok, document} ->
+        name = String.replace(document.name || "document", ~r/[\/\\]/, "_")
+        filename = (String.contains?(name, ".") && name) || name <> ".txt"
+
+        send_download(
+          conn,
+          {:binary, document.content || ""},
+          filename: filename,
+          content_type: "text/plain"
+        )
+
+      {:error, :unauthorized} ->
+        conn
+        |> put_flash(:error, "You don't have permission to download documents.")
+        |> redirect(to: ~p"/console/knowledge")
+
+      _not_found ->
+        conn |> put_flash(:error, "Document not found.") |> redirect(to: ~p"/console/knowledge")
+    end
+  end
+
   @doc "Monitoring tables as CSV: ?kind=feedback (rated replies) or usage (daily stats)."
   def monitor_export(conn, %{"id" => app_id} = params) do
     scope = conn.assigns.current_scope

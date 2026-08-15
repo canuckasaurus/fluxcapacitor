@@ -679,6 +679,16 @@ defmodule Flux.RAG do
     |> Repo.all()
   end
 
+  @doc "Fetches one document for original-content download (its own permission)."
+  def download_document(%Scope{} = scope, document_id) do
+    with :ok <- RBAC.authorize(scope, :dataset_document_download),
+         %Document{} = document <-
+           Repo.one(Repo.scoped(where(Document, id: ^document_id), scope)) ||
+             {:error, :not_found} do
+      {:ok, document}
+    end
+  end
+
   def delete_document(%Scope{} = scope, document_id) do
     with :ok <- RBAC.authorize(scope, :dataset_edit),
          %Document{} = document <-

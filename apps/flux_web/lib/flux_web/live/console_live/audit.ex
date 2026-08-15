@@ -15,6 +15,8 @@ defmodule FluxWeb.ConsoleLive.Audit do
          page_title: "Audit log",
          from: nil,
          to: nil,
+         actor_id: nil,
+         members: for({account, _membership} <- Flux.Accounts.list_members(scope), do: account),
          entries: Audit.list(scope, 100)
        )}
     else
@@ -26,15 +28,22 @@ defmodule FluxWeb.ConsoleLive.Audit do
   end
 
   @impl true
-  def handle_event("filter", %{"from" => from, "to" => to}, socket) do
+  def handle_event("filter", %{"from" => from, "to" => to} = params, socket) do
     from = parse_date(from)
     to = parse_date(to)
+    actor_id = ((params["actor"] || "") != "" && params["actor"]) || nil
 
     {:noreply,
      assign(socket,
        from: from,
        to: to,
-       entries: Audit.list(socket.assigns.current_scope, 100, from: from, to: to)
+       actor_id: actor_id,
+       entries:
+         Audit.list(socket.assigns.current_scope, 100,
+           from: from,
+           to: to,
+           actor_id: actor_id
+         )
      )}
   end
 
@@ -45,9 +54,13 @@ defmodule FluxWeb.ConsoleLive.Audit do
     end
   end
 
-  defp export_path(from, to) do
+  defp export_path(from, to, actor_id) do
     query =
-      [{"from", from && Date.to_iso8601(from)}, {"to", to && Date.to_iso8601(to)}]
+      [
+        {"from", from && Date.to_iso8601(from)},
+        {"to", to && Date.to_iso8601(to)},
+        {"actor", actor_id}
+      ]
       |> Enum.reject(fn {_key, value} -> value == nil end)
 
     (query == [] && ~p"/console/audit-export") ||
@@ -89,8 +102,25 @@ defmodule FluxWeb.ConsoleLive.Audit do
               class="input input-bordered input-sm"
             />
           </label>
+          <label class="form-control">
+            <span class="label-text text-xs opacity-70">Actor</span>
+            <select name="actor" class="select select-bordered select-sm">
+              <option value="">Everyone</option>
+              <option
+                :for={member <- @members}
+                value={member.id}
+                selected={@actor_id == member.id}
+              >
+                {member.email}
+              </option>
+            </select>
+          </label>
         </form>
-        <a href={export_path(@from, @to)} class="btn btn-outline btn-sm" id="audit-export-link">
+        <a
+          href={export_path(@from, @to, @actor_id)}
+          class="btn btn-outline btn-sm"
+          id="audit-export-link"
+        >
           <.icon name="hero-arrow-down-tray" class="size-4" /> Download CSV
         </a>
       </div>

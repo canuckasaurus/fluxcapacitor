@@ -40,7 +40,11 @@ defmodule FluxWeb.WorkspaceExportController do
     scope = conn.assigns.current_scope
 
     if Flux.RBAC.can?(scope, :workspace_member_manage) do
-      opts = [from: parse_date(params["from"]), to: parse_date(params["to"])]
+      opts = [
+        from: parse_date(params["from"]),
+        to: parse_date(params["to"]),
+        actor_id: params["actor"]
+      ]
 
       send_download(
         conn,

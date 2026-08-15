@@ -331,9 +331,62 @@ defmodule Flux.Usage do
   end
 
   @doc """
-  Per-flux run/token/cost totals over the window, most expensive first —
-  the dedicated cost surface (runs page card + CSV export).
+  Daily token/cost totals for the workspace over the last `days`,
+  combining flux runs and chat replies — the data behind `GET /v1/usage`.
+  Chat costs are the same pricing estimate the console shows.
   """
+  def daily_usage(%Scope{} = scope, days \\ 30) when days in 1..365 do
+    since = DateTime.add(DateTime.utc_now(:second), -days, :day)
+
+    runs =
+      Flux.Workflows.WorkflowRun
+      |> Repo.scoped(scope)
+      |> where([r], r.inserted_at >= ^since)
+      |> select([r], %{at: r.inserted_at, usage: r.usage})
+      |> Repo.all()
+      |> Enum.map(&Map.put(&1, :kind, :runs))
+
+    messages =
+      Flux.Chat.Message
+      |> Repo.scoped(scope)
+      |> where([m], m.inserted_at >= ^since and m.role == :assistant)
+      |> select([m], %{at: m.inserted_at, usage: m.usage})
+      |> Repo.all()
+      |> Enum.map(&Map.put(&1, :kind, :messages))
+
+    (runs ++ messages)
+    |> Enum.group_by(&DateTime.to_date(&1.at))
+    |> Enum.map(fn {date, rows} -> usage_day_totals(date, rows) end)
+    |> Enum.sort_by(& &1.date, {:desc, Date})
+  end
+
+  defp usage_day_totals(date, rows) do
+    Enum.reduce(
+      rows,
+      %{date: date, runs: 0, messages: 0, input_tokens: 0, output_tokens: 0, cost: 0.0},
+      fn row, acc ->
+        usage = row.usage || %{}
+        input = usage["input_tokens"] || 0
+        output = usage["output_tokens"] || 0
+
+        %{
+          acc
+          | runs: acc.runs + ((row.kind == :runs && 1) || 0),
+            messages: acc.messages + ((row.kind == :messages && 1) || 0),
+            input_tokens: acc.input_tokens + input,
+            output_tokens: acc.output_tokens + output,
+            cost: acc.cost + usage_row_cost(usage, input, output)
+        }
+      end
+    )
+  end
+
+  defp usage_row_cost(usage, input, output) do
+    usage["estimated_cost_usd"] ||
+      (is_binary(usage["model_used"]) &&
+         Flux.Pricing.estimate(usage["model_used"], input, output)) || 0.0
+  end
+
   def flux_costs(%Scope{} = scope, days \\ 30) do
     since = DateTime.add(DateTime.utc_now(:second), -days, :day)
 

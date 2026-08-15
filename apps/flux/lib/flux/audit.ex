@@ -71,17 +71,24 @@ defmodule Flux.Audit do
 
   @doc """
   Recent entries for the scope's workspace, newest first (actor preloaded).
-  `opts`: `:from`/`:to` (`Date`) bound the window inclusively.
+  `opts`: `:from`/`:to` (`Date`) bound the window inclusively;
+  `:actor_id` keeps one member's actions.
   """
   def list(%Scope{} = scope, limit \\ 50, opts \\ []) do
     Entry
     |> Repo.scoped(scope)
     |> bounded(opts[:from], opts[:to])
+    |> by_actor(opts[:actor_id])
     |> order_by([e], desc: e.inserted_at, desc: e.id)
     |> limit(^limit)
     |> Repo.all()
     |> Repo.preload(:actor)
   end
+
+  defp by_actor(query, actor_id) when is_binary(actor_id) and actor_id != "",
+    do: where(query, [e], e.actor_id == ^actor_id)
+
+  defp by_actor(query, _none), do: query
 
   @doc "The audit trail as CSV (same window semantics as `list/3`)."
   def export_csv(%Scope{} = scope, opts \\ []) do

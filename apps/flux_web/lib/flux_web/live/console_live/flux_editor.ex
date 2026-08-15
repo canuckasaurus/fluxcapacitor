@@ -1586,6 +1586,29 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
      assign(socket, triggers: Workflows.list_triggers(scope, socket.assigns.workflow.id))}
   end
 
+  def handle_event("fire_trigger", %{"trigger-id" => trigger_id}, socket) do
+    scope = socket.assigns.current_scope
+
+    case Workflows.fire_trigger(scope, trigger_id) do
+      {:ok, run} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Run started from this trigger.")
+         |> assign(triggers: Workflows.list_triggers(scope, socket.assigns.workflow.id))
+         |> push_navigate(to: ~p"/console/runs?run=#{run.id}")}
+
+      {:error, :not_published} ->
+        {:noreply,
+         put_flash(socket, :error, "Publish the flux first — triggers run the serving version.")}
+
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "You don't have permission to fire triggers.")}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Could not start a run from this trigger.")}
+    end
+  end
+
   def handle_event("delete_trigger", %{"trigger-id" => trigger_id}, socket) do
     scope = socket.assigns.current_scope
     Workflows.delete_trigger(scope, trigger_id)
@@ -6451,6 +6474,14 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
               <span :if={trigger.watchdog_muted} class="badge badge-ghost badge-sm">
                 watchdog muted
               </span>
+              <button
+                class="btn btn-ghost btn-xs"
+                phx-click="fire_trigger"
+                phx-value-trigger-id={trigger.id}
+                title="Start a run now with this trigger's stored inputs — no waiting for the real event"
+              >
+                Fire now
+              </button>
               <button
                 class="btn btn-ghost btn-xs text-error"
                 phx-click="delete_trigger"

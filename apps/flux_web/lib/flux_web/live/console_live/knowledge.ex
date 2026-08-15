@@ -32,6 +32,7 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
        chat_models: chat_models,
        datasource_plugins: datasource_plugins,
        can_edit: RBAC.can?(scope, :dataset_edit),
+       can_download: RBAC.can?(scope, :dataset_document_download),
        can_create: RBAC.can?(scope, :dataset_create_and_management),
        fluxes: Flux.Workflows.list_workflows(scope),
        selected: nil,
@@ -1502,6 +1503,14 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
                     âœ•
                   </span>
                 </button>
+                <a
+                  :if={@can_download && @selected}
+                  class="btn btn-ghost btn-xs"
+                  title="Download original content"
+                  href={~p"/console/knowledge/#{@selected.id}/documents/#{document.id}/download"}
+                >
+                  &#8675;
+                </a>
               </div>
               <div
                 :if={@expanded_document_id == document.id}

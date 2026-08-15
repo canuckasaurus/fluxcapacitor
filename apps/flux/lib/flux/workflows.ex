@@ -1697,6 +1697,21 @@ defmodule Flux.Workflows do
   end
 
   @doc """
+  Fires a trigger immediately — the same path the real event takes
+  (serving version, stored inputs, "trigger:<type>" attribution), just
+  started by hand from the editor for testing. Works on disabled
+  triggers too; that's the point of a dry fire.
+  """
+  def fire_trigger(%Scope{} = scope, trigger_id) do
+    with :ok <- RBAC.authorize(scope, :app_edit) do
+      case Repo.one(Repo.scoped(where(Flux.Workflows.Trigger, id: ^trigger_id), scope)) do
+        nil -> {:error, :not_found}
+        trigger -> run_from_trigger(trigger)
+      end
+    end
+  end
+
+  @doc """
   Runs the latest published version synchronously and returns the
   finished run — inbound integrations (MCP `tools/call`) await outputs.
   Same lifecycle as any run: usage, webhooks, budget and guardrails.
