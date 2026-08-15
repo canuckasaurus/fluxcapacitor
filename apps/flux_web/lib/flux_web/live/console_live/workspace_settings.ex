@@ -23,6 +23,8 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
        audit_retention_days: Accounts.audit_retention_days(scope),
        export_schedule: Accounts.export_schedule(scope),
        digest_frequency: Accounts.digest_frequency(scope),
+       workspace_locale: Accounts.workspace_locale(scope),
+       known_locales: Enum.sort(Gettext.known_locales(FluxWeb.Gettext)),
        console_logo: Accounts.console_logo(scope),
        token_budget: Accounts.token_budget(scope),
        llm_cache_minutes: Accounts.llm_cache_minutes(scope),
@@ -163,6 +165,21 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
 
       _error ->
         {:noreply, put_flash(socket, :error, "Could not save the allowlist.")}
+    end
+  end
+
+  def handle_event("set_workspace_locale", %{"locale" => locale}, socket) do
+    locale = ((locale == "" or locale not in socket.assigns.known_locales) && nil) || locale
+
+    case Accounts.set_workspace_locale(socket.assigns.current_scope, locale) do
+      {:ok, _workspace} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Default language saved — it applies on the next page load.")
+         |> assign(workspace_locale: locale)}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not save the default language.")}
     end
   end
 
@@ -1257,6 +1274,28 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
             <option value="weekly" selected={@digest_frequency == "weekly"}>weekly</option>
             <option value="daily" selected={@digest_frequency == "daily"}>daily</option>
             <option value="off" selected={@digest_frequency == "off"}>off</option>
+          </select>
+        </form>
+
+        <form
+          phx-change="set_workspace_locale"
+          id="workspace-locale-form"
+          class="flex gap-2 items-center"
+        >
+          <span class="text-sm opacity-70">Default console language:</span>
+          <select
+            name="locale"
+            class="select select-bordered select-sm w-40"
+            title="Used when a member has not picked a language and their browser does not say"
+          >
+            <option value="" selected={@workspace_locale == nil}>browser default</option>
+            <option
+              :for={locale <- @known_locales}
+              value={locale}
+              selected={@workspace_locale == locale}
+            >
+              {locale}
+            </option>
           </select>
         </form>
 

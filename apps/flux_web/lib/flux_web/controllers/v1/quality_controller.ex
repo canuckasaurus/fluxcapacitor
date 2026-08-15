@@ -383,6 +383,26 @@ defmodule FluxWeb.V1.QualityController do
 
   ## Notifications (any valid token)
 
+  @doc "GET /v1/usage — daily token/cost totals (runs + chat), newest day first."
+  def usage(conn, params) do
+    days = min(max(parse_int(params["days"], 30), 1), 365)
+
+    data =
+      for day <- Flux.Usage.daily_usage(conn.assigns.service_scope, days) do
+        %{
+          date: Date.to_iso8601(day.date),
+          runs: day.runs,
+          messages: day.messages,
+          input_tokens: day.input_tokens,
+          output_tokens: day.output_tokens,
+          total_tokens: day.input_tokens + day.output_tokens,
+          estimated_cost_usd: Float.round(day.cost * 1.0, 6)
+        }
+      end
+
+    json(conn, %{data: data, period_days: days})
+  end
+
   def notifications(conn, params) do
     limit = min(max(parse_int(params["limit"], 30), 1), 100)
 

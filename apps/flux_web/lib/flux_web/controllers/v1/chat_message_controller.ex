@@ -135,7 +135,10 @@ defmodule FluxWeb.V1.ChatMessageController do
             event: "message_end",
             message_id: message.id,
             conversation_id: conversation.id,
-            metadata: %{usage: message.usage}
+            metadata: %{
+              usage: message.usage,
+              retriever_resources: retriever_resources(message)
+            }
           })
 
         conn
@@ -174,7 +177,10 @@ defmodule FluxWeb.V1.ChatMessageController do
           conversation_id: conversation.id,
           mode: "chat",
           answer: message.content,
-          metadata: %{usage: message.usage},
+          metadata: %{
+            usage: message.usage,
+            retriever_resources: retriever_resources(message)
+          },
           created_at: DateTime.to_unix(message.inserted_at)
         })
 
@@ -185,6 +191,23 @@ defmodule FluxWeb.V1.ChatMessageController do
         error(conn, 504, "timeout", "Generation timed out")
     end
   end
+
+  # Knowledge citations in the reference API's shape: chatflow knowledge
+  # nodes store them on the message, straight chat apps have none.
+  defp retriever_resources(%{citations: citations}) when is_list(citations) do
+    for {citation, index} <- Enum.with_index(citations, 1) do
+      %{
+        position: index,
+        dataset_id: citation["dataset_id"],
+        document_id: citation["document_id"],
+        document_name: citation["document"],
+        content: citation["content"],
+        score: citation["score"]
+      }
+    end
+  end
+
+  defp retriever_resources(_message), do: []
 
   defp error(conn, status, code, message) do
     conn

@@ -2,6 +2,7 @@ defmodule FluxWeb.Plugs.Locale do
   @moduledoc """
   Picks the UI locale for the request: an explicit `?locale=` param wins
   (and is remembered in the session), then the session, then the
+  workspace default locale (set in workspace settings), then the
   Accept-Language header. Unknown locales fall back to the default.
 
   Also usable as a LiveView `on_mount` hook so LiveView processes pick
@@ -16,7 +17,12 @@ defmodule FluxWeb.Plugs.Locale do
 
   @impl true
   def call(conn, _opts) do
-    candidates = [conn.params["locale"], get_session(conn, :locale) | accept_languages(conn)]
+    candidates =
+      [
+        conn.params["locale"],
+        get_session(conn, :locale),
+        workspace_locale(conn) | accept_languages(conn)
+      ]
 
     case first_known(candidates) do
       nil ->
@@ -48,6 +54,15 @@ defmodule FluxWeb.Plugs.Locale do
         base = candidate |> String.split("-") |> hd()
         Enum.find(known, &(&1 == candidate)) || Enum.find(known, &(&1 == base))
     end)
+  end
+
+  # The workspace default fills in for members who never picked a locale;
+  # the pipeline runs this plug after the scope fetch, so no extra query.
+  defp workspace_locale(conn) do
+    case conn.assigns[:current_scope] do
+      %{workspace: %{custom_config: %{"locale" => locale}}} when is_binary(locale) -> locale
+      _no_workspace -> nil
+    end
   end
 
   defp accept_languages(conn) do

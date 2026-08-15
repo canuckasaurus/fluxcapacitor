@@ -10,8 +10,9 @@ defmodule FluxWeb.Router do
     plug :put_root_layout, html: {FluxWeb.Layouts, :root}
     plug :protect_from_forgery
     plug :put_secure_browser_headers
-    plug FluxWeb.Plugs.Locale
+    # Scope first: the locale plug falls back to the workspace default.
     plug :fetch_current_scope_for_account
+    plug FluxWeb.Plugs.Locale
   end
 
   pipeline :api do
@@ -89,6 +90,7 @@ defmodule FluxWeb.Router do
     get "/registry/models", QualityController, :models
     post "/registry/models", QualityController, :model_register
     get "/notifications", QualityController, :notifications
+    get "/usage", QualityController, :usage
     get "/conversation-evals", QualityController, :conversation_evals
     post "/conversation-evals/:id/run", QualityController, :conversation_eval_run
     get "/ab-stats", QualityController, :ab_stats
@@ -212,6 +214,11 @@ defmodule FluxWeb.Router do
     patch "/Users/:id", ScimController, :patch
     put "/Users/:id", ScimController, :put
     delete "/Users/:id", ScimController, :delete
+
+    # Groups map IdP group pushes onto workspace roles (group id = role).
+    get "/Groups", ScimController, :groups_index
+    get "/Groups/:id", ScimController, :groups_show
+    patch "/Groups/:id", ScimController, :groups_patch
   end
 
   # Endpoint plugins: workspace installations serve HTTP under their token.
@@ -311,6 +318,7 @@ defmodule FluxWeb.Router do
     get "/apps/:id/finetune-export", FluxDslController, :finetune_export
     get "/apps/:id/monitor-export", FluxDslController, :monitor_export
     get "/knowledge/:id/export", FluxDslController, :dataset_export
+    get "/knowledge/:id/documents/:document_id/download", FluxDslController, :document_download
     get "/runs/:run_id/export", FluxDslController, :run_export
     get "/labeling/:id/export", FluxDslController, :labeling_export
     get "/templates/:id/file", DocTemplateController, :file

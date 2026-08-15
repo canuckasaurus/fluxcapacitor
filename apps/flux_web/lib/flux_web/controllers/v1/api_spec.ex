@@ -1060,6 +1060,38 @@ defmodule FluxWeb.V1.ApiSpec do
       })
     end
 
+    defmodule UsageList do
+      @moduledoc false
+      require OpenApiSpex
+
+      OpenApiSpex.schema(%{
+        title: "UsageList",
+        type: :object,
+        properties: %{
+          data: %Schema{
+            type: :array,
+            items: %Schema{
+              type: :object,
+              properties: %{
+                date: %Schema{type: :string, format: :date},
+                runs: %Schema{type: :integer},
+                messages: %Schema{type: :integer},
+                input_tokens: %Schema{type: :integer},
+                output_tokens: %Schema{type: :integer},
+                total_tokens: %Schema{type: :integer},
+                estimated_cost_usd: %Schema{type: :number}
+              },
+              required: [:date, :runs, :messages, :total_tokens],
+              additionalProperties: false
+            }
+          },
+          period_days: %Schema{type: :integer}
+        },
+        required: [:data, :period_days],
+        additionalProperties: false
+      })
+    end
+
     defmodule NotificationList do
       @moduledoc false
       require OpenApiSpex
@@ -1289,6 +1321,7 @@ defmodule FluxWeb.V1.ApiSpec do
       {:post, "Register a stored file as a model", "ModelRegistered", 201}
     ],
     "/notifications" => {:get, "Workspace notification feed", "NotificationList"},
+    "/usage" => {:get, "Daily token/cost totals (?days=30, runs + chat)", "UsageList"},
     "/audio/transcriptions" =>
       {:post, "OpenAI-compatible speech-to-text (multipart file)", "TranscriptionResult"},
     "/workflows/runs/{id}" => {:get, "Run status (?trace=true adds nodes)", "RunDetail"},
