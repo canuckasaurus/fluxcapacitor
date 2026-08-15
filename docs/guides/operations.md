@@ -191,6 +191,24 @@ a fallback) provisions or resolves an account exactly like OIDC.
   (App → Site → Passcode) — visitors enter it once per browser
   session. It's a share-gate, not authentication: rotate it by saving
   a new one, remove it by saving blank.
+- **New-device alerts**: a sign-in from an ip + browser pair no
+  earlier session used emails the account automatically (the very
+  first session stays quiet — everything is new then). The email
+  points at Account settings → Sessions for revocation.
+- **SCIM Groups**: alongside `/scim/v2/Users`, `/scim/v2/Groups`
+  accepts IdP group pushes where the group id is the role — put
+  people in an `editor` group in Okta/Entra and their workspace role
+  follows. Removal returns them to `normal`; owners never move.
+- **Browser push**: each member can enable Web Push per browser from
+  Account settings. Handoff requests and run failures then reach the
+  desktop even with the console closed. The VAPID keypair is minted
+  automatically on first use and lives in instance settings — no
+  external push service. Requires HTTPS (or localhost) for the
+  service worker.
+- **Workspace default language**: Settings → Digest & branding can
+  pin a console language used when a member hasn't picked one and
+  their browser doesn't negotiate one; explicit `?locale=` choices
+  and browser preferences still win over it.
 
 ## Backups & retention
 

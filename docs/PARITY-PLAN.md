@@ -1384,3 +1384,53 @@ keeps Mondays; the sent-marker became period-keyed). One migration
 (three tables + seven columns). 995 tests. The bench holds: custom
 domains, Japanese locale, require-2FA, member suspension, visitor
 blocklist, API citations, /v1/usage.
+
+**61. Batch 37 (mega) — thirteen picked, one dissolved honestly.**
+The datasource "Sync now" item dissolved on implementation contact —
+knowledge.ex has had a manual sync_datasource form since the
+datasource batch; proposal grep missed it (the lesson from batch 31
+recurs: verify against *both* naming layers before proposing).
+Twelve items shipped. **API citations** (chat_message_controller maps
+message.citations into metadata.retriever_resources on blocking and
+message_end responses — position/dataset_id/document_id/document_name/
+content/score, the reference shape); **GET /v1/usage**
+(Usage.daily_usage buckets runs + assistant messages by UTC day,
+reusing the run usage maps and the console's Pricing.estimate for
+chat; UsageList joined the spec); **new-device login alerts**
+(generate_account_session_token compares the incoming ip/user_agent
+pair against every prior session token and mails
+deliver_new_device_alert on a miss — first sessions stay silent);
+**message edit & retry** (Chat.edit_message guards last-user-message
++ not-streaming, deletes later turns, re-runs guardrails, spawns the
+same generation path; app_chat grew an inline edit form on the last
+user bubble); **trigger fire-now** (Workflows.fire_trigger reuses
+run_from_trigger so attribution stays "trigger:<type>"; works on
+disabled triggers — that's the point of a dry fire); **document
+download** (RAG.download_document behind dataset_document_download —
+a permission that had sat unused for twenty batches);
+**audit actor filter** (Audit.list actor_id option + a member select
+that rides the CSV export querystring too); **workspace default
+locale** (custom_config "locale"; the Locale plug moved *after* the
+scope fetch in the browser pipeline and slots the workspace default
+between session and Accept-Language, so explicit choices still win);
+**web push** (native Flux.WebPush: RFC 8291 aes128gcm encryption and
+RFC 8292 VAPID ES256 on bare :crypto — no push SDK, per the
+no-sidecars rule; instance keypair lazily minted into
+InstanceSettings, push_subscriptions per account, delivery as Oban
+jobs that drop 404/410-gone endpoints; notify() fans out handoff +
+run_failed only; sw.js + a WebPush hook + settings toggle complete
+the loop. Req lesson: its test-plug adapter eats the
+content-encoding request header while decompress-probing, so the
+test asserts the rest of the wire format); **transcript email**
+(Chat.email_transcript requires the batch-35 visitor_email, renders
+speaker-labeled text, mails via the account notifier; an envelope
+button on the site); **snippet picker** (app_chat had *no* system
+prompt editor at all — the picker item grew into a System prompt
+card with draft state and an append-from-library select);
+**SCIM Groups** (/scim/v2/Groups where group id = role;
+add/replace/remove Operations in both Okta value-list and Entra
+filtered-path styles via scim_set_member_role — owners never move,
+mirroring the Users deprovision rule). One migration
+(push_subscriptions). 1020 tests. The bench holds: custom domains,
+Japanese locale, require-2FA, member suspension, visitor blocklist,
+trusted 2FA devices, site localization.

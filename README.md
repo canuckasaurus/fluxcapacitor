@@ -269,15 +269,18 @@ orchestrator, no queue infrastructure beyond Postgres.
   (built-in + custom roles), **OIDC and SAML 2.0 single sign-on** (point
   `SAML_IDP_METADATA_FILE` at your IdP's metadata and the login page
   grows an SSO button), **SCIM 2.0
-  provisioning**, plan-based feature gating, a repo-level tenancy guard on
+  provisioning** (Users *and* Groups — IdP group pushes map straight
+  onto workspace roles), plan-based feature gating, a repo-level tenancy guard on
   every query against tenant tables, per-workspace encryption keys, an
-  append-only audit trail (**date-filterable, exports as CSV**),
+  append-only audit trail (**date- and actor-filterable, exports as
+  CSV**),
   workspace export/import archives with a **rehearsed restore
   runbook** (plus `mix flux.backup` dumping **every workspace's
   archive** in one cron-ready task), per-account **session management** (see every signed-in
   device **with its IP and browser**, revoke one, or log out everywhere),
   **TOTP two-factor authentication** (QR enrollment, one-time recovery
-  codes, a code challenge on password logins), a **workspace API IP
+  codes, a code challenge on password logins), **new-device sign-in
+  alerts**, a **workspace API IP
   allowlist** (CIDRs gating all of `/v1`, rejections audited), and
   **per-key rate limits** on any API key.
   A one-click **visitor forget** hard-deletes everything an
@@ -495,7 +498,7 @@ scratch drive, and a labeling project wired to the Model trainer flux
 ## Testing
 
 ```bash
-mix test                             # full umbrella suite (~995 tests), hermetic
+mix test                             # full umbrella suite (~1020 tests), hermetic
 ```
 
 The suite runs with no network: providers stub through `Req.Test` or the

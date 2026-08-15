@@ -7,6 +7,38 @@ at `docs/PARITY-PLAN.md`.
 
 ## Unreleased
 
+### Batch 37 (mega)
+- API citations: `/v1/chat-messages` responses (blocking and the SSE
+  `message_end` event) carry `metadata.retriever_resources` — the
+  knowledge sources behind a chatflow answer, in the reference shape.
+- `GET /v1/usage`: daily token and estimated-cost totals across flux
+  runs and chat replies (`?days=`, workspace or app token).
+- New-device login alerts: a sign-in from an ip/browser pair no earlier
+  session used emails the account (first-ever sessions stay quiet).
+- Message edit & retry: rewrite your last console-chat message in place
+  and regenerate the reply — later turns are discarded, guardrails
+  re-apply.
+- Trigger "Fire now": start a run from any trigger's stored inputs
+  straight from the editor, no waiting for cron, webhook, or mail.
+- Document download: a per-document button in the knowledge browser
+  streams the stored original (behind its own long-dormant
+  `dataset_document_download` permission).
+- Audit actor filter: narrow the audit trail (and its CSV export) to
+  one member.
+- Workspace default locale: a console language that fills in when a
+  member never picked one and their browser doesn't say.
+- Browser push notifications: native Web Push (VAPID + aes128gcm on
+  `:crypto`, no push SDK) for handoff requests and run failures —
+  subscribe per browser from account settings.
+- Visitor transcript email: site visitors who shared their email can
+  have the conversation mailed to them.
+- Prompt-snippet picker: the prompt library is insertable into an app's
+  system prompt (which also gained a proper editing card in app
+  settings).
+- SCIM Groups: `/scim/v2/Groups` maps IdP group pushes onto workspace
+  roles (Okta value-list and Entra filtered-path styles; owners never
+  move).
+
 ### Batch 36 (mega)
 - Webhook secret rotation: one click regenerates an endpoint's
   `whsec_` (shown once) with an audit entry.

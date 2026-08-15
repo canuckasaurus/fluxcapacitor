@@ -18,7 +18,7 @@ from other addresses — even with a valid key.
 
 | Endpoint | Purpose |
 |---|---|
-| `POST /v1/chat-messages` | Send a message. `response_mode`: `streaming` (SSE, default) or `blocking`. `conversation_id` continues a thread; `files` attaches image uploads for vision models |
+| `POST /v1/chat-messages` | Send a message. `response_mode`: `streaming` (SSE, default) or `blocking`. `conversation_id` continues a thread; `files` attaches image uploads for vision models. Replies carry `metadata.retriever_resources` (knowledge citations: `document_name`, `content`, `score`, ids) on the blocking document and the `message_end` SSE event |
 | `POST /v1/completion-messages` | Run a completion app with `inputs` |
 | `GET /v1/conversations` · `GET /v1/messages` | List threads / a thread's messages |
 | `POST /v1/conversations/:id/name` · `DELETE /v1/conversations/:id` | Rename / delete |
@@ -57,6 +57,7 @@ final `message_end` carrying usage. Quota-exceeded apps return 429 with
 | `POST /v1/images/generations` | OpenAI-compatible image generation via the workspace default model's provider; `prompt` required, `model`/`size` optional, answers `b64_json` |
 | `GET /v1/registry/models` · `POST /v1/registry/models` | List / register model-registry entries (`name`, `file_id`, optional `metrics`; versions auto-increment). **Moved from `/v1/models` in v0.5.0** |
 | `GET /v1/notifications` | The workspace notification feed (`?limit=`) |
+| `GET /v1/usage` | Daily token/cost totals over `?days=` (default 30): runs + chat replies per UTC day, newest first |
 | `GET /v1/conversation-evals` | The app's scripted-dialogue evals with last scores (`app-` token) |
 | `POST /v1/conversation-evals/:id/run` | Replay and judge one dialogue, blocking (`app-` token) |
 | `GET /v1/visitors` | Per-visitor rollup: conversations, messages, tokens, feedback (`app-` token) |
@@ -101,6 +102,10 @@ final `message_end` carrying usage. Quota-exceeded apps return 429 with
   token).
 - `/scim/v2/Users` — IdP provisioning with the workspace SCIM bearer
   token.
+- `/scim/v2/Groups` — group→role mapping over the same token: group id
+  = role (`admin`, `editor`, `normal`, `dataset_operator`); PATCH
+  add/replace/remove members sets roles (Okta value lists and Entra
+  `members[value eq "…"]` paths both work; owners never move).
 - Failure-alert webhooks the platform *sends* are signed:
   `x-flux-signature: sha256=HMAC(body)` with the `whsec_` secret shown
   in workspace settings. Subscribable events: `run.*` lifecycle,
