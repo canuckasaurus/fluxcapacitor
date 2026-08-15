@@ -124,11 +124,61 @@ const CanvasFind = {
   },
 }
 
+// Web push: the toggle registers the service worker and subscribes with
+// the instance VAPID key; the subscription JSON goes to the LiveView.
+const WebPush = {
+  mounted() {
+    const button = this.el.querySelector("#push-toggle")
+    if (!button) return
+
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+      button.disabled = true
+      button.title = "This browser does not support push notifications"
+      return
+    }
+
+    button.addEventListener("click", async () => {
+      try {
+        if (this.el.dataset.subscribed === "true") {
+          const registration = await navigator.serviceWorker.ready
+          const subscription = await registration.pushManager.getSubscription()
+          if (subscription) {
+            await subscription.unsubscribe()
+            this.pushEvent("push_unsubscribed", {endpoint: subscription.endpoint})
+          } else {
+            this.pushEvent("push_unsubscribed", {endpoint: ""})
+          }
+        } else {
+          const permission = await Notification.requestPermission()
+          if (permission !== "granted") {
+            this.pushEvent("push_error", {reason: "permission denied"})
+            return
+          }
+          const registration = await navigator.serviceWorker.register("/sw.js")
+          const subscription = await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(this.el.dataset.vapidKey),
+          })
+          this.pushEvent("push_subscribed", {subscription: subscription.toJSON()})
+        }
+      } catch (error) {
+        this.pushEvent("push_error", {reason: String(error)})
+      }
+    })
+  },
+}
+
+function urlBase64ToUint8Array(base64) {
+  const padding = "=".repeat((4 - (base64.length % 4)) % 4)
+  const raw = atob((base64 + padding).replace(/-/g, "+").replace(/_/g, "/"))
+  return Uint8Array.from(raw, c => c.charCodeAt(0))
+}
+
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: {...colocatedHooks, MicRecorder, CanvasFind},
+  hooks: {...colocatedHooks, MicRecorder, CanvasFind, WebPush},
 })
 
 // ── Themed confirm ─────────────────────────────────────────────────────

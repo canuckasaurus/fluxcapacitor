@@ -77,6 +77,15 @@ defmodule Flux.Notifications do
       end
     end
 
+    # Urgent kinds also reach subscribed browsers even when no console
+    # tab is open; delivery rides Oban so a dead endpoint costs nothing.
+    if kind in Flux.WebPush.push_kinds() do
+      member_ids =
+        for member <- Flux.Accounts.scim_list_members(workspace_id), do: member.account_id
+
+      Flux.WebPush.fan_out(member_ids, to_string(title), path)
+    end
+
     Phoenix.PubSub.broadcast(Flux.PubSub, topic(workspace_id), :notifications_changed)
     :ok
   end

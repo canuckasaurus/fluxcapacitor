@@ -127,6 +127,21 @@ defmodule FluxWeb.AccountLive.Settings do
             Emails inside the window defer to its end (feed unaffected). Blank turns it off.
           </span>
         </form>
+
+        <div
+          class="flex items-center gap-2 pt-2"
+          id="push-card"
+          phx-hook="WebPush"
+          data-vapid-key={@vapid_public_key}
+          data-subscribed={to_string(@push_subscribed)}
+        >
+          <button type="button" class="btn btn-outline btn-sm" id="push-toggle">
+            {(@push_subscribed && "Disable browser notifications") || "Enable browser notifications"}
+          </button>
+          <span class="text-xs opacity-60">
+            Handoff requests and run failures reach this browser even with the console closed.
+          </span>
+        </div>
       </div>
 
       <div class="divider" />
@@ -269,6 +284,8 @@ defmodule FluxWeb.AccountLive.Settings do
       |> assign(:email_kinds, account.notification_email_kinds || [])
       |> assign(:quiet_hours, {account.quiet_hours_start, account.quiet_hours_end})
       |> assign(:totp_enabled, Accounts.totp_enabled?(account))
+      |> assign(:push_subscribed, Flux.WebPush.subscribed?(account))
+      |> assign(:vapid_public_key, Flux.WebPush.vapid_public_key())
       |> assign(:totp_enrollment, nil)
       |> assign(:totp_recovery_codes, [])
       |> assign(:trigger_submit, false)
@@ -319,6 +336,33 @@ defmodule FluxWeb.AccountLive.Settings do
       _error ->
         {:noreply, put_flash(socket, :error, "Could not save quiet hours.")}
     end
+  end
+
+  def handle_event("push_subscribed", %{"subscription" => subscription}, socket) do
+    case Flux.WebPush.subscribe(socket.assigns.current_scope.account, subscription) do
+      {:ok, _subscription} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Browser notifications enabled.")
+         |> assign(push_subscribed: true)}
+
+      {:error, _invalid} ->
+        {:noreply, put_flash(socket, :error, "Could not store the push subscription.")}
+    end
+  end
+
+  def handle_event("push_unsubscribed", %{"endpoint" => endpoint}, socket) do
+    :ok = Flux.WebPush.unsubscribe(socket.assigns.current_scope.account, endpoint)
+
+    {:noreply,
+     socket
+     |> put_flash(:info, "Browser notifications disabled.")
+     |> assign(push_subscribed: false)}
+  end
+
+  def handle_event("push_error", %{"reason" => reason}, socket) do
+    {:noreply,
+     put_flash(socket, :error, "Browser notifications unavailable: " <> to_string(reason))}
   end
 
   def handle_event("save_email_kinds", %{"kinds" => kinds}, socket) do
