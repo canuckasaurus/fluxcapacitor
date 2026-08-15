@@ -42,6 +42,42 @@ defmodule Flux.Accounts.AccountNotifier do
 
   defp humanize_kind(kind), do: kind |> String.replace("_", " ") |> String.capitalize()
 
+  @doc "Alerts the account that a session just started from an unseen device."
+  def deliver_new_device_alert(%Account{} = account, ip, user_agent) do
+    deliver(account.email, "[FluxCapacitor] New sign-in to your account", """
+
+    ==============================
+
+    Your account #{account.email} just signed in from a device we
+    haven't seen before:
+
+      IP address: #{ip}
+      Browser:    #{user_agent || "unknown"}
+      Time (UTC): #{DateTime.utc_now(:second) |> DateTime.to_iso8601()}
+
+    If this was you, there's nothing to do. If it wasn't, sign in and
+    revoke the session under Account settings → Sessions.
+
+    ==============================
+    """)
+  end
+
+  @doc "Mails a chat transcript to the address a site visitor left."
+  def deliver_transcript(recipient, app_name, transcript) do
+    deliver(recipient, "[FluxCapacitor] Your conversation with #{app_name}", """
+
+    ==============================
+
+    Here is the transcript you asked for:
+
+    #{transcript}
+
+    You received this because you requested a copy of your conversation.
+
+    ==============================
+    """)
+  end
+
   @doc """
   Deliver a workspace invitation with its accept link.
   """

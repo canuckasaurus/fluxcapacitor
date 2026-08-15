@@ -425,9 +425,31 @@ defmodule Flux.Accounts do
         user_agent: device_info[:user_agent] && String.slice(device_info[:user_agent], 0, 250)
     }
 
+    maybe_alert_new_device(account, account_token.ip, account_token.user_agent)
+
     Repo.insert!(account_token)
     token
   end
+
+  # A sign-in from an ip + browser pair no earlier session used gets an
+  # alert email. First-ever sessions stay silent — everything is new then.
+  defp maybe_alert_new_device(account, ip, user_agent) when is_binary(ip) do
+    sessions =
+      Repo.all(
+        from(t in AccountToken,
+          where: t.account_id == ^account.id and t.context == "session",
+          select: {t.ip, t.user_agent}
+        )
+      )
+
+    if sessions != [] and {ip, user_agent} not in sessions do
+      AccountNotifier.deliver_new_device_alert(account, ip, user_agent)
+    end
+
+    :ok
+  end
+
+  defp maybe_alert_new_device(_account, _ip, _user_agent), do: :ok
 
   @doc """
   Gets the account with the given signed token.
@@ -790,6 +812,36 @@ defmodule Flux.Accounts do
     end
   end
 
+  @doc """
+  Sets a member's role from IdP group membership (SCIM Groups PATCH).
+  The workspace token is the authorization — no account scope here, same
+  trust model as `scim_provision/2`. Owners are never touched.
+  """
+  def scim_set_member_role(%Workspace{} = workspace, account_id, role)
+      when role in [:admin, :editor, :normal, :dataset_operator] do
+    case scim_find_member(workspace.id, account_id) do
+      nil ->
+        {:error, :not_found}
+
+      %Membership{role: :owner} ->
+        {:error, :owner}
+
+      %Membership{role: ^role} = membership ->
+        {:ok, membership}
+
+      %Membership{} = membership ->
+        {:ok, updated} = membership |> Ecto.Changeset.change(role: role) |> Repo.update()
+
+        Flux.Audit.record(scim_scope(workspace), "member.scim_role_change",
+          resource_type: "membership",
+          resource_id: membership.id,
+          metadata: %{"account_id" => account_id, "role" => to_string(role)}
+        )
+
+        {:ok, %{updated | account: membership.account}}
+    end
+  end
+
   defp scim_scope(workspace), do: %Scope{account: nil, membership: nil, workspace: workspace}
 
   @doc "Sets the run/message retention window in days (nil = keep forever)."
@@ -1031,6 +1083,23 @@ defmodule Flux.Accounts do
     case Integer.parse(to_string(value || "")) do
       {int, ""} when int >= min and int <= max -> int
       _blank_or_invalid -> nil
+    end
+  end
+
+  @doc """
+  Sets the workspace default console locale (a Gettext short code such
+  as "de"). It fills in when a member never picked a locale and their
+  browser negotiation misses; nil returns to pure browser negotiation.
+  """
+  def set_workspace_locale(%Scope{} = scope, locale)
+      when is_nil(locale) or (is_binary(locale) and byte_size(locale) <= 10) do
+    update_custom_config(scope, "locale", locale)
+  end
+
+  def workspace_locale(%Scope{} = scope) do
+    case scope.workspace do
+      %{custom_config: %{"locale" => locale}} when is_binary(locale) -> locale
+      _unset -> nil
     end
   end
 
