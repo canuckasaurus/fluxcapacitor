@@ -42,6 +42,8 @@ defmodule Flux.Chat.App do
     field :suggest_followups, :boolean, default: false
     # Public sites show a pre-chat name/email form when set.
     field :collect_visitor_info, :boolean, default: false
+    # Free-form labels for organizing the apps index.
+    field :tags, {:array, :string}, default: []
     field :site_theme, :map, default: %{}
     field :site_token, :string
     field :site_enabled, :boolean, default: false
@@ -82,6 +84,7 @@ defmodule Flux.Chat.App do
       :annotation_threshold,
       :suggest_followups,
       :collect_visitor_info,
+      :tags,
       :site_theme
     ])
     |> validate_number(:daily_token_limit, greater_than: 0)
@@ -240,6 +243,9 @@ defmodule Flux.Chat.ApiToken do
 
     field :token_hash, :binary, redact: true
     field :prefix, :string
+    # Set on ds- tokens: the key opens exactly one dataset's endpoints.
+    # A plain id (the Dataset schema lives in flux_rag).
+    field :dataset_id, :binary_id
     field :last_used_at, :utc_datetime
     # NULL = perpetual — both lifetimes are first-class choices.
     field :expires_at, :utc_datetime
@@ -269,6 +275,9 @@ defmodule Flux.Chat.UploadedFile do
     field :content_type, :string
     field :end_user_ref, :string
     field :download_token, :string
+    # Text pulled out of document uploads at store time (Tika / native),
+    # so chat turns can carry the file's content without re-extracting.
+    field :extracted_text, :string
 
     timestamps(type: :utc_datetime)
   end

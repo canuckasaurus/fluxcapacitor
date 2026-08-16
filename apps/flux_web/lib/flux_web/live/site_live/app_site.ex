@@ -57,23 +57,7 @@ defmodule FluxWeb.SiteLive.AppSite do
         "web_" <> Base.url_encode64(:crypto.strong_rand_bytes(9), padding: false)
 
     # Returning visitors resume their last conversation (chat modes).
-    {conversation, messages} =
-      if app.mode in [:chat, :advanced_chat] do
-        case Chat.latest_conversation(scope, app.id, end_user_ref) do
-          nil ->
-            {nil, []}
-
-          conversation ->
-            messages =
-              scope
-              |> Chat.list_messages(conversation.id)
-              |> Enum.filter(&(&1.status in [:completed, :error] or &1.role == :user))
-
-            {conversation, messages}
-        end
-      else
-        {nil, []}
-      end
+    {conversation, messages} = resume_conversation(app, scope, end_user_ref)
 
     # Human replies arrive on the conversation topic while the tab
     # is open — the handoff loop closes live.
@@ -82,9 +66,16 @@ defmodule FluxWeb.SiteLive.AppSite do
     {:ok,
      socket
      |> allow_upload(:image,
-       accept: ~w(.png .jpg .jpeg .gif .webp),
+       accept: ~w(.png .jpg .jpeg .gif .webp .pdf .txt .md .docx .csv .json .html),
        max_entries: 3,
        max_file_size: 15_000_000
+     )
+     |> allow_upload(:audio,
+       accept: ~w(audio/webm audio/ogg audio/mpeg audio/wav video/webm),
+       max_entries: 1,
+       max_file_size: 20_000_000,
+       auto_upload: true,
+       progress: &handle_audio_progress/3
      )
      |> assign(
        page_title: app.name,
@@ -107,8 +98,61 @@ defmodule FluxWeb.SiteLive.AppSite do
            (conversation.visitor_name != nil or conversation.visitor_email != nil),
        followups: [],
        streaming_id: nil,
-       streaming_text: ""
+       streaming_text: "",
+       transcribing: false
      )}
+  end
+
+  defp resume_conversation(%App{mode: mode} = app, scope, end_user_ref)
+       when mode in [:chat, :advanced_chat] do
+    case Chat.latest_conversation(scope, app.id, end_user_ref) do
+      nil ->
+        {nil, []}
+
+      conversation ->
+        messages =
+          scope
+          |> Chat.list_messages(conversation.id)
+          |> Enum.filter(&(&1.status in [:completed, :error] or &1.role == :user))
+
+        {conversation, messages}
+    end
+  end
+
+  defp resume_conversation(_app, _scope, _end_user_ref), do: {nil, []}
+
+  # Voice input, same loop as the console: the MicRecorder hook uploads
+  # the recording, the app's provider transcribes it, and the text lands
+  # in the input box client-side.
+  defp handle_audio_progress(:audio, entry, socket) do
+    if entry.done? do
+      transcript =
+        consume_uploaded_entry(socket, entry, fn %{path: path} ->
+          {:ok,
+           Chat.transcribe_audio(
+             socket.assigns.site_scope,
+             socket.assigns.app,
+             File.read!(path),
+             %{filename: entry.client_name, content_type: entry.client_type}
+           )}
+        end)
+
+      case transcript do
+        {:ok, text} ->
+          {:noreply,
+           socket
+           |> assign(transcribing: false)
+           |> push_event("voice-transcript", %{text: text})}
+
+        {:error, _reason} ->
+          {:noreply,
+           socket
+           |> assign(transcribing: false)
+           |> put_flash(:error, gettext("Transcription failed — try again."))}
+      end
+    else
+      {:noreply, assign(socket, transcribing: true)}
+    end
   end
 
   @impl true
@@ -412,20 +456,20 @@ defmodule FluxWeb.SiteLive.AppSite do
       <div class="text-center space-y-3 w-full max-w-xs">
         <.icon name="hero-lock-closed" class="size-10 opacity-40 mx-auto" />
         <h1 class="font-semibold text-lg">{@locked.name}</h1>
-        <p class="text-sm opacity-70">This app is passcode-protected.</p>
+        <p class="text-sm opacity-70">{gettext("This app is passcode-protected.")}</p>
         <p :if={error = Phoenix.Flash.get(@flash, :error)} class="text-sm text-error">{error}</p>
         <form action={~p"/site/#{@locked.token}/passcode"} method="post" class="space-y-2">
           <input type="hidden" name="_csrf_token" value={Phoenix.Controller.get_csrf_token()} />
           <input
             type="password"
             name="passcode"
-            placeholder="Passcode"
+            placeholder={gettext("Passcode")}
             autocomplete="off"
             class="input input-bordered w-full"
             required
             autofocus
           />
-          <button class="btn btn-primary w-full">Enter</button>
+          <button class="btn btn-primary w-full">{gettext("Enter")}</button>
         </form>
       </div>
     </main>
@@ -512,12 +556,12 @@ defmodule FluxWeb.SiteLive.AppSite do
             class="rounded-box border border-base-200 p-3 flex items-end gap-2 flex-wrap"
           >
             <p class="w-full text-sm opacity-70">
-              Leave your details so we can follow up (optional):
+              {gettext("Leave your details so we can follow up (optional):")}
             </p>
             <input
               type="text"
               name="name"
-              placeholder="Name"
+              placeholder={gettext("Name")}
               maxlength="160"
               class="input input-bordered input-sm w-40"
             />
@@ -528,7 +572,7 @@ defmodule FluxWeb.SiteLive.AppSite do
               maxlength="160"
               class="input input-bordered input-sm w-56"
             />
-            <button class="btn btn-primary btn-sm">Save</button>
+            <button class="btn btn-primary btn-sm">{gettext("Save")}</button>
           </form>
           <div id="site-messages" class="flex-1 space-y-3 overflow-y-auto">
             <div
@@ -546,7 +590,7 @@ defmodule FluxWeb.SiteLive.AppSite do
               }
               class="text-sm opacity-60"
             >
-              Say something to start the conversation.
+              {gettext("Say something to start the conversation.")}
             </p>
             <div
               :if={@messages == [] and @streaming_id == nil and @app.suggested_questions != []}
@@ -618,10 +662,10 @@ defmodule FluxWeb.SiteLive.AppSite do
                 <button
                   type="button"
                   class="btn btn-ghost btn-xs speak-reply"
-                  title="Read this reply aloud (click again to stop)"
-                  aria-label="Read this reply aloud"
+                  title={gettext("Read this reply aloud (click again to stop)")}
+                  aria-label={gettext("Read this reply aloud")}
                 >
-                  <.icon name="hero-speaker-wave" class="size-3" /> Listen
+                  <.icon name="hero-speaker-wave" class="size-3" /> {gettext("Listen")}
                 </button>
                 <button
                   type="button"
@@ -654,18 +698,18 @@ defmodule FluxWeb.SiteLive.AppSite do
                 <input
                   type="text"
                   name="comment"
-                  placeholder="Tell us more (optional)…"
+                  placeholder={gettext("Tell us more (optional)…")}
                   maxlength="1000"
                   autocomplete="off"
                   class="input input-bordered input-xs w-56"
                 />
-                <button class="btn btn-ghost btn-xs">Send</button>
+                <button class="btn btn-ghost btn-xs">{gettext("Send")}</button>
               </form>
               <p
                 :if={message.feedback_comment}
                 class="chat-footer mt-1 text-xs opacity-60"
               >
-                Thanks for the feedback.
+                {gettext("Thanks for the feedback.")}
               </p>
             </div>
             <div :if={@streaming_id} class="chat chat-start" id="site-streaming">
@@ -713,30 +757,43 @@ defmodule FluxWeb.SiteLive.AppSite do
             </div>
             <label
               class="btn btn-ghost btn-square"
-              title="Attach images"
-              aria-label="Attach images"
+              title={gettext("Attach images or documents")}
+              aria-label={gettext("Attach files")}
             >
               <.live_file_input upload={@uploads.image} class="hidden" />
               <.icon name="hero-paper-clip" class="size-4" />
             </label>
+            <.live_file_input upload={@uploads.audio} class="hidden" />
+            <button
+              type="button"
+              id="mic-button"
+              phx-hook="MicRecorder"
+              data-upload-name="audio"
+              class="btn btn-ghost btn-square"
+              title={gettext("Hold to talk — release to transcribe")}
+              aria-label={gettext("Voice input")}
+            >
+              <.icon name="hero-microphone" class="size-4" />
+            </button>
             <input
               type="text"
               name="content"
+              id="chat-content-input"
               autocomplete="off"
-              placeholder="Type a message…"
+              placeholder={(@transcribing && gettext("Transcribing…")) || gettext("Type a message…")}
               class="input input-bordered flex-1"
               disabled={@streaming_id != nil}
             />
-            <button :if={@streaming_id == nil} class="btn btn-primary">Send</button>
+            <button :if={@streaming_id == nil} class="btn btn-primary">{gettext("Send")}</button>
             <button :if={@streaming_id} type="button" class="btn btn-warning" phx-click="stop">
-              Stop
+              {gettext("Stop")}
             </button>
             <button
               :if={@conversation != nil and @streaming_id == nil}
               type="button"
               class="btn btn-ghost"
               phx-click="start_over"
-              title="Start a new conversation"
+              title={gettext("Start a new conversation")}
             >
               <.icon name="hero-arrow-path" class="size-4" />
             </button>
@@ -744,7 +801,7 @@ defmodule FluxWeb.SiteLive.AppSite do
               :if={@conversation != nil}
               href={~p"/site/#{@app.site_token}/transcript/#{@conversation.id}"}
               class="btn btn-ghost"
-              title="Download this conversation as Markdown"
+              title={gettext("Download this conversation as Markdown")}
               download
             >
               <.icon name="hero-arrow-down-tray" class="size-4" />
@@ -754,7 +811,11 @@ defmodule FluxWeb.SiteLive.AppSite do
               type="button"
               class="btn btn-ghost"
               phx-click="email_transcript"
-              title={"Email this transcript to #{@conversation.visitor_email}"}
+              title={
+                gettext("Email this transcript to %{email}",
+                  email: @conversation.visitor_email
+                )
+              }
               id="email-transcript"
             >
               <.icon name="hero-envelope" class="size-4" />
@@ -767,10 +828,10 @@ defmodule FluxWeb.SiteLive.AppSite do
               type="button"
               class="btn btn-ghost btn-sm"
               phx-click="request_handoff"
-              title="Ask a person to join this conversation"
+              title={gettext("Ask a person to join this conversation")}
               id="request-handoff"
             >
-              <.icon name="hero-user" class="size-4" /> Talk to a human
+              <.icon name="hero-user" class="size-4" /> {gettext("Talk to a human")}
             </button>
           </form>
           <p
@@ -779,7 +840,7 @@ defmodule FluxWeb.SiteLive.AppSite do
             id="handoff-waiting"
           >
             <.icon name="hero-clock" class="size-4 inline" />
-            The team has been notified — a human will reply right here.
+            {gettext("The team has been notified — a human will reply right here.")}
           </p>
         </div>
 

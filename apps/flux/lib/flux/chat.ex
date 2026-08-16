@@ -209,6 +209,11 @@ defmodule Flux.Chat do
     Repo.one(Repo.scoped(where(Conversation, id: ^id), scope)) || {:error, :not_found}
   end
 
+  @doc "One message in the scope's workspace, or {:error, :not_found}."
+  def get_message(%Scope{} = scope, id) do
+    Repo.one(Repo.scoped(where(Message, id: ^id), scope)) || {:error, :not_found}
+  end
+
   @doc "The visitor's most recent conversation with an app, or nil."
   def latest_conversation(%Scope{} = scope, app_id, end_user_ref)
       when is_binary(end_user_ref) and end_user_ref != "" do
@@ -1182,7 +1187,8 @@ defmodule Flux.Chat do
            key: key,
            size: byte_size(binary),
            content_type: Map.get(upload, :content_type),
-           end_user_ref: Map.get(upload, :end_user_ref)
+           end_user_ref: Map.get(upload, :end_user_ref),
+           extracted_text: extract_document_text(filename, Map.get(upload, :content_type), binary)
          })}
       end
     end
@@ -1190,6 +1196,25 @@ defmodule Flux.Chat do
 
   defp check_size(bytes) when bytes <= @max_upload_bytes, do: :ok
   defp check_size(_bytes), do: {:error, :too_large}
+
+  # Document uploads get their text pulled out once, at store time, so
+  # every later turn can hand it to the model without re-extraction.
+  # Images and audio pass through untouched (vision/transcription own
+  # those); extraction failures degrade to a plain attachment.
+  @document_text_limit 24_000
+  defp extract_document_text(_name, "image/" <> _subtype, _binary), do: nil
+  defp extract_document_text(_name, "audio/" <> _subtype, _binary), do: nil
+  defp extract_document_text(_name, "video/" <> _subtype, _binary), do: nil
+
+  defp extract_document_text(name, content_type, binary) do
+    case Flux.Documents.extract_binary(name, content_type, binary) do
+      {:ok, text} when is_binary(text) and text != "" ->
+        String.slice(text, 0, @document_text_limit)
+
+      _not_extractable ->
+        nil
+    end
+  end
 
   @doc "Fetches an uploaded file in the scope's workspace, or nil."
   def get_uploaded_file(%Scope{} = scope, id) do
@@ -1966,7 +1991,7 @@ defmodule Flux.Chat do
   def list_workspace_tokens(%Scope{} = scope) do
     ApiToken
     |> Repo.scoped(scope)
-    |> where([t], is_nil(t.app_id) and is_nil(t.workflow_id))
+    |> where([t], is_nil(t.app_id) and is_nil(t.workflow_id) and is_nil(t.dataset_id))
     |> Repo.all()
   end
 
@@ -1992,6 +2017,56 @@ defmodule Flux.Chat do
   end
 
   def fetch_workspace_by_token(_other), do: {:error, :invalid_token}
+
+  @doc """
+  Mints a dataset-scoped `ds-` key: it can only touch its one dataset's
+  knowledge endpoints — share a KB without workspace-wide power.
+  """
+  def create_dataset_token(%Scope{} = scope, dataset_id, opts \\ []) do
+    with :ok <- RBAC.authorize(scope, :dataset_edit) do
+      raw = "ds-" <> Base.url_encode64(:crypto.strong_rand_bytes(24), padding: false)
+
+      token =
+        Repo.insert!(%ApiToken{
+          workspace_id: Scope.workspace_id(scope),
+          dataset_id: dataset_id,
+          token_hash: :crypto.hash(:sha256, raw),
+          prefix: String.slice(raw, 0, 11) <> "…",
+          expires_at: token_expiry(opts[:expires_in_days])
+        })
+
+      Flux.Audit.record(scope, "api_token.create",
+        resource_type: "api_token",
+        resource_id: token.id,
+        metadata: %{"kind" => "dataset", "dataset_id" => dataset_id}
+      )
+
+      {:ok, token, raw}
+    end
+  end
+
+  @doc "Resolves a ds- token to {dataset_id, workspace_id, token}."
+  def fetch_dataset_by_token("ds-" <> _rest = raw) do
+    hash = :crypto.hash(:sha256, raw)
+
+    case Repo.get_by(ApiToken, [token_hash: hash], skip_workspace_guard: true) do
+      %ApiToken{dataset_id: dataset_id} = token when is_binary(dataset_id) ->
+        if token_expired?(token) do
+          {:error, :token_expired}
+        else
+          token
+          |> Ecto.Changeset.change(last_used_at: DateTime.utc_now(:second))
+          |> Repo.update()
+
+          {:ok, dataset_id, token.workspace_id, token}
+        end
+
+      _other ->
+        {:error, :invalid_token}
+    end
+  end
+
+  def fetch_dataset_by_token(_other), do: {:error, :invalid_token}
 
   @doc "Resolves a raw bearer token to `{app, token}`; touches last_used_at."
   def fetch_app_by_token("app-" <> _ = raw) do
@@ -2768,6 +2843,12 @@ defmodule Flux.Chat do
       |> Enum.map(fn message ->
         base = %{role: message.role, content: message.content}
 
+        base =
+          case load_documents(message.files || []) do
+            "" -> base
+            documents -> %{base | content: to_string(base.content) <> "\n\n" <> documents}
+          end
+
         case load_images(message.files || []) do
           [] -> base
           images -> Map.put(base, :images, images)
@@ -2775,6 +2856,27 @@ defmodule Flux.Chat do
       end)
 
     system ++ turns
+  end
+
+  # Attached documents ride into the model as text blocks appended to
+  # the turn (per-doc cap keeps a big PDF from eating the whole window).
+  defp load_documents(files) do
+    files
+    |> Enum.reject(&match?(%{"content_type" => "image/" <> _subtype}, &1))
+    |> Enum.flat_map(fn
+      %{"id" => id, "name" => name} ->
+        case Repo.get(Flux.Chat.UploadedFile, id, skip_workspace_guard: true) do
+          %{extracted_text: text} when is_binary(text) and text != "" ->
+            ["[Attached file: #{name}]\n#{String.slice(text, 0, 8_000)}"]
+
+          _no_text ->
+            []
+        end
+
+      _malformed ->
+        []
+    end)
+    |> Enum.join("\n\n")
   end
 
   # Attached image files become base64 payloads for vision-capable

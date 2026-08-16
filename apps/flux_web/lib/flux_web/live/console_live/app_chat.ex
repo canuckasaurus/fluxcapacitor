@@ -30,7 +30,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
         {:ok,
          socket
          |> allow_upload(:image,
-           accept: ~w(.png .jpg .jpeg .gif .webp),
+           accept: ~w(.png .jpg .jpeg .gif .webp .pdf .txt .md .docx .csv .json .html),
            max_entries: 3,
            max_file_size: 15_000_000
          )
@@ -1207,8 +1207,8 @@ defmodule FluxWeb.ConsoleLive.AppChat do
           <div class="flex gap-2 items-center">
             <label
               class="btn btn-ghost btn-sm btn-square"
-              title="Attach images (vision models)"
-              aria-label="Attach images"
+              title="Attach images or documents (PDF, Office, text)"
+              aria-label="Attach files"
             >
               <.live_file_input upload={@uploads.image} class="hidden" />
               <.icon name="hero-paper-clip" class="size-4" />

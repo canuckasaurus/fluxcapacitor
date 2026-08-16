@@ -90,14 +90,14 @@ defmodule FluxWeb.V1.ChatMessageController do
   end
 
   # Reference-compatible files param: [%{"type" => "image",
-  # "transfer_method" => "local_file", "upload_file_id" => id}]. Only
-  # image uploads that exist in this workspace are attached.
+  # "transfer_method" => "local_file", "upload_file_id" => id}]. Image
+  # uploads feed vision models; document uploads ride in as extracted
+  # text. Files that don't exist in this workspace are skipped.
   defp resolve_files(scope, files) when is_list(files) do
     for %{"upload_file_id" => id} <- files,
         is_binary(id),
         match?({:ok, _}, Ecto.UUID.cast(id)),
-        %Flux.Chat.UploadedFile{content_type: "image/" <> _} = file <-
-          [Chat.get_uploaded_file(scope, id)] do
+        %Flux.Chat.UploadedFile{} = file <- [Chat.get_uploaded_file(scope, id)] do
       file
     end
   end
