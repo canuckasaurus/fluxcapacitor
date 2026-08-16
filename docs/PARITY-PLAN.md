@@ -1434,3 +1434,46 @@ mirroring the Users deprovision rule). One migration
 (push_subscriptions). 1020 tests. The bench holds: custom domains,
 Japanese locale, require-2FA, member suspension, visitor blocklist,
 trusted 2FA devices, site localization.
+
+**62. Batch 38 — twelve picked, two honest reshapes.** The "login
+throttling" item turned out half-built (a per-IP auth limiter had
+covered the login POST since batch 15), so it landed as the additive
+half: a per-*email* bucket across IPs (15/15min, audited
+account.login_throttled) that distributed guessers can't rotate out
+of. And "plugin install from URL" hit an architectural wall — plugins
+are compiled BEAM modules with no package system — so it landed as
+the data-shaped equivalent: OpenAPI toolset import by URL
+(SSRF-guarded, same parse path as paste). The other ten as scoped:
+**site localization** (every visitor string through gettext; the
+public_site live_session grew the Locale on_mount; de/es/fr
+translated — 33 strings each, including a few older console strays);
+**idle timeout** (accounts_tokens.last_used_at, verify-query filter
+via coalesce(last_used_at, inserted_at), touch throttled to
+once-per-5-min so it isn't a write per request;
+FLUX_SESSION_IDLE_MINUTES); **/v1/responses** (input/instructions →
+the same stateless completion as /chat/completions; response.created
+/ output_text.delta / response.completed SSE events; new SDKs
+autodiscover now); **chat document uploads** (extraction happens ONCE
+at store time into uploaded_files.extracted_text via
+Documents.extract_binary; build_prompt appends per-doc-capped text
+blocks so history replays don't re-extract; image/audio/video pass
+through to their own paths; the /v1 files param takes documents too);
+**site voice** (the console's MicRecorder loop verbatim: upload
+:audio, provider transcription, transcript lands client-side);
+**GET /v1/messages/:id/suggested** (reference shape over the
+existing follow_up_suggestions); **ds- keys** (api_tokens.dataset_id,
+ServiceAuth confines the token to /v1/datasets/<its-id>/* by path —
+everything else 403s; minted from the knowledge page, shown once;
+workspace-token listing filters them out); **flux/app tags**
+(tags columns + changeset cast, chips + filter + inline per-card
+editors on both index pages — HEEx :for takes no comprehension
+filters, hence filter_by_tag/2); **OIDC claim→role**
+(exchange_code now surfaces claims; apply_oidc_roles syncs roles per
+login for workspaces with a custom_config mapping; owners and
+unmatched members never move — removal is a human decision);
+**scheduled backups** (Flux.Backup wraps the mix flux.backup logic
+for Storage.put under backups/<date>/, gated once-a-day through
+InstanceSettings so restarts don't double-run; scheduler tick calls
+it). One migration (five columns). 1039 tests. The bench holds:
+custom domains, Japanese locale, require-2FA, member suspension,
+visitor blocklist, trusted 2FA devices, CSAT surveys, site share QR.

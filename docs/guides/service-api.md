@@ -23,6 +23,7 @@ from other addresses — even with a valid key.
 | `GET /v1/conversations` · `GET /v1/messages` | List threads / a thread's messages |
 | `POST /v1/conversations/:id/name` · `DELETE /v1/conversations/:id` | Rename / delete |
 | `POST /v1/chat-messages/:id/stop` | Stop a streaming reply (streamed prefix is kept) |
+| `GET /v1/messages/:id/suggested` | Follow-up question suggestions after a reply (`{result, data: [q…]}`) |
 | `POST /v1/messages/:id/feedbacks` | Rate a reply (`like`/`dislike`/null); optional `content` attaches a text comment |
 | `POST /v1/files/upload` | Multipart upload; returns the file id used by `files` |
 | `GET /v1/parameters` · `GET /v1/meta` | App config for clients |
@@ -55,9 +56,16 @@ final `message_end` carrying usage. Quota-exceeded apps return 429 with
 | `GET /v1/models` | OpenAI-compatible model list (provider models; an `app-` token's bound model first) — SDK autodiscovery |
 | `POST /v1/moderations` | OpenAI-compatible moderation judged by the workspace guardrails (deny patterns + LLM policy); categories are `pattern` and `policy` |
 | `POST /v1/images/generations` | OpenAI-compatible image generation via the workspace default model's provider; `prompt` required, `model`/`size` optional, answers `b64_json` |
+| `POST /v1/responses` | OpenAI Responses API (the endpoint new OpenAI SDKs default to): `input` (string or message array) + `instructions`, blocking or SSE (`response.created` / `response.output_text.delta` / `response.completed`); tools/state extras unsupported |
 | `GET /v1/registry/models` · `POST /v1/registry/models` | List / register model-registry entries (`name`, `file_id`, optional `metrics`; versions auto-increment). **Moved from `/v1/models` in v0.5.0** |
 | `GET /v1/notifications` | The workspace notification feed (`?limit=`) |
 | `GET /v1/usage` | Daily token/cost totals over `?days=` (default 30): runs + chat replies per UTC day, newest first |
+
+Token kinds: `app-` (one chat app), `flux-` (one workflow), `ws-`
+(workspace-wide datasets/quality/models), and `ds-` — a dataset key
+minted from the knowledge page that opens exactly
+`/v1/datasets/<its-id>/…` and nothing else (share a KB without
+workspace-wide power).
 | `GET /v1/conversation-evals` | The app's scripted-dialogue evals with last scores (`app-` token) |
 | `POST /v1/conversation-evals/:id/run` | Replay and judge one dialogue, blocking (`app-` token) |
 | `GET /v1/visitors` | Per-visitor rollup: conversations, messages, tokens, feedback (`app-` token) |

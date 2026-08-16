@@ -166,7 +166,13 @@ a fallback) provisions or resolves an account exactly like OIDC.
 - **Session lifetime**: console sessions live 14 days by default;
   `FLUX_SESSION_VALIDITY_DAYS` tightens that instance-wide. The check
   runs at verify time, so lowering it also ends sessions already past
-  the new window.
+  the new window. `FLUX_SESSION_IDLE_MINUTES` adds an independent
+  inactivity timeout (5–10080): a session unused that long is dead
+  even with absolute lifetime remaining.
+- **Login throttling**: the login POST is rate-limited per IP (10/min)
+  and per email address across IPs (15 per 15 minutes) — the second
+  bucket is what stops a distributed guesser rotating addresses.
+  Lockouts land in the audit trail as `account.login_throttled`.
 - **Audit retention**: the audit trail is kept forever by default. A
   per-workspace `audit retention` setting (Settings -> Data retention,
   min 30 days) opts into pruning for data-minimization policies.
@@ -199,6 +205,11 @@ a fallback) provisions or resolves an account exactly like OIDC.
   accepts IdP group pushes where the group id is the role — put
   people in an `editor` group in Okta/Entra and their workspace role
   follows. Removal returns them to `normal`; owners never move.
+- **OIDC claim→role mapping**: OIDC-only shops get the same role sync
+  without SCIM. Settings → Digest & branding takes a claim name (say
+  `groups`) and `value=role` lines; every SSO login re-applies the
+  mapping to that workspace's membership. Owners and unmatched
+  members are never touched — removal stays a human decision.
 - **Browser push**: each member can enable Web Push per browser from
   Account settings. Handoff requests and run failures then reach the
   desktop even with the console closed. The VAPID keypair is minted
@@ -211,6 +222,12 @@ a fallback) provisions or resolves an account exactly like OIDC.
   and browser preferences still win over it.
 
 ## Backups & retention
+
+- **Scheduled backups**: `FLUX_SCHEDULED_BACKUPS=true` writes every
+  workspace's export archive through the storage layer (S3 in
+  production, `backups/<date>/…`) nightly after 03:00 UTC, once per
+  calendar day — the cron-free sibling of `mix flux.backup`.
+  Individual workspace failures are logged, never fatal.
 
 - **Export** (Settings → Export): the whole workspace — fluxes, apps,
   datasets, eval sets, labeling projects, retrieval cases — as one

@@ -498,7 +498,7 @@ scratch drive, and a labeling project wired to the Model trainer flux
 ## Testing
 
 ```bash
-mix test                             # full umbrella suite (~1020 tests), hermetic
+mix test                             # full umbrella suite (~1039 tests), hermetic
 ```
 
 The suite runs with no network: providers stub through `Req.Test` or the

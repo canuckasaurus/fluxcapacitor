@@ -7,6 +7,36 @@ at `docs/PARITY-PLAN.md`.
 
 ## Unreleased
 
+### Batch 38
+- Public-site localization: every visitor-facing site string runs
+  through gettext with browser negotiation — German, Spanish, and
+  French ship translated.
+- Per-email login throttling: alongside the per-IP limit, one email
+  hammered from many addresses locks for fifteen minutes (audited).
+- Session idle timeout: `FLUX_SESSION_IDLE_MINUTES` ends sessions
+  unused that long, independent of the absolute lifetime.
+- OpenAI Responses API: `POST /v1/responses` (blocking + SSE event
+  stream) — the endpoint new OpenAI SDKs default to.
+- Chat document uploads: PDFs, Office files, and text ride into
+  console and site chats; text is extracted once at upload (Tika /
+  native) and appended to the model's context.
+- Site voice input: the mic button and provider transcription reach
+  the public site.
+- `GET /v1/messages/:id/suggested`: follow-up question suggestions
+  over the API (reference-compatible).
+- Dataset-scoped API keys: `ds-` tokens open exactly one dataset's
+  knowledge endpoints — share a KB without workspace-wide power.
+- Flux and app tags: comma-separated labels with filter chips on both
+  index pages (runs already had them).
+- OIDC claim→role mapping: workspace roles follow a configured
+  id-token claim on every SSO login (the OIDC sibling of SCIM Groups).
+- OpenAPI toolset import by URL: fetch a spec instead of pasting it
+  (SSRF-guarded) — the honest reading of "plugin install from URL";
+  plugins are compiled modules, toolsets are data.
+- Scheduled backups: `FLUX_SCHEDULED_BACKUPS=true` dumps every
+  workspace's export archive through the storage layer (S3 in
+  production) nightly after 03:00 UTC, once per day.
+
 ### Batch 37 (mega)
 - API citations: `/v1/chat-messages` responses (blocking and the SSE
   `message_end` event) carry `metadata.retriever_resources` — the
