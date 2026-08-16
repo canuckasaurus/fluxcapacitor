@@ -172,6 +172,26 @@ defmodule FluxWeb.ConsoleLive.Tools do
     end
   end
 
+  def handle_event("import_url", %{"url" => url}, socket) do
+    case Tools.import_toolset_from_url(socket.assigns.current_scope, url) do
+      {:ok, toolset} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Imported #{length(toolset.operations)} operation(s) from the URL.")
+         |> assign(importing: false, expanded_id: toolset.id)
+         |> load_toolsets()}
+
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "You don't have permission to manage tools.")}
+
+      {:error, message} when is_binary(message) ->
+        {:noreply, put_flash(socket, :error, message)}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not fetch or parse that URL.")}
+    end
+  end
+
   def handle_event("expand", %{"id" => id}, socket) do
     expanded = if socket.assigns.expanded_id == id, do: nil, else: id
     {:noreply, assign(socket, expanded_id: expanded)}
@@ -272,6 +292,18 @@ defmodule FluxWeb.ConsoleLive.Tools do
             <button class="btn btn-primary">Import</button>
             <button type="button" class="btn btn-ghost" phx-click="cancel">Cancel</button>
           </div>
+        </form>
+
+        <form phx-submit="import_url" id="toolset-url-form" class="flex gap-2 items-center">
+          <input
+            type="url"
+            name="url"
+            placeholder="https://api.example.com/openapi.json"
+            class="input input-bordered input-sm flex-1"
+            title="Fetch a spec by URL instead — same import, SSRF-guarded"
+            required
+          />
+          <button class="btn btn-outline btn-sm">Import from URL</button>
         </form>
       </div>
 

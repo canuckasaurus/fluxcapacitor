@@ -32,6 +32,7 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
        chat_models: chat_models,
        datasource_plugins: datasource_plugins,
        can_edit: RBAC.can?(scope, :dataset_edit),
+       new_ds_token: nil,
        can_download: RBAC.can?(scope, :dataset_document_download),
        can_create: RBAC.can?(scope, :dataset_create_and_management),
        fluxes: Flux.Workflows.list_workflows(scope),
@@ -103,6 +104,7 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
           documents: RAG.list_documents(socket.assigns.current_scope, dataset.id),
           url_sources: RAG.list_url_sources(socket.assigns.current_scope, dataset.id)
         )
+        |> assign(new_ds_token: socket.assigns[:new_ds_token])
     end
   end
 
@@ -458,6 +460,16 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
 
       _other ->
         {:noreply, put_flash(socket, :error, "Could not fetch that URL.")}
+    end
+  end
+
+  def handle_event("mint_ds_token", _params, socket) do
+    case Flux.Chat.create_dataset_token(socket.assigns.current_scope, socket.assigns.selected.id) do
+      {:ok, _token, raw} ->
+        {:noreply, assign(socket, new_ds_token: raw)}
+
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "You don't have permission to mint dataset keys.")}
     end
   end
 
@@ -1341,6 +1353,20 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
               <button class="btn btn-outline btn-sm">Sync datasource</button>
             </form>
 
+            <div :if={@can_edit} class="space-y-1" id="ds-token-card">
+              <button
+                type="button"
+                class="btn btn-outline btn-xs"
+                phx-click="mint_ds_token"
+                title="A ds- key that can only touch this dataset's /v1 endpoints"
+              >
+                Mint dataset API key
+              </button>
+              <p :if={@new_ds_token} class="text-xs font-mono break-all">
+                {@new_ds_token}
+                <span class="font-sans opacity-60">— copy it now; it is shown once.</span>
+              </p>
+            </div>
             <form
               :if={@datasource_plugins != []}
               phx-submit="save_auto_sync"

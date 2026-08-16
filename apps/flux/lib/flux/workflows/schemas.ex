@@ -13,6 +13,8 @@ defmodule Flux.Workflows.Workflow do
   schema "workflows" do
     belongs_to :workspace, Flux.Accounts.Workspace
     belongs_to :created_by, Flux.Accounts.Account
+    # Free-form labels for organizing the fluxes index.
+    field :tags, {:array, :string}, default: []
 
     field :name, :string
     field :description, :string
@@ -44,7 +46,7 @@ defmodule Flux.Workflows.Workflow do
 
   def changeset(workflow, attrs) do
     workflow
-    |> cast(attrs, [:name, :description, :monthly_token_budget, :auto_retry])
+    |> cast(attrs, [:name, :description, :monthly_token_budget, :auto_retry, :tags])
     |> validate_required([:name])
     |> validate_length(:name, min: 1, max: 255)
     |> validate_number(:monthly_token_budget, greater_than: 0)

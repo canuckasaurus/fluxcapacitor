@@ -47,6 +47,26 @@ defmodule Flux.Tools do
     end
   end
 
+  @doc """
+  Fetches an OpenAPI spec from a URL (SSRF-guarded) and imports it as a
+  toolset — the closest thing to remote plugin install this
+  architecture allows: plugins are compiled modules, toolsets are data.
+  """
+  def import_toolset_from_url(%Scope{} = scope, url) when is_binary(url) do
+    url = String.trim(url)
+
+    with :ok <- Flux.SSRF.verify_url(url),
+         {:ok, %{status: 200, body: body}} <-
+           Req.get(url: url, decode_body: false, retry: false, max_redirects: 2) do
+      create_toolset(scope, nil, body)
+    else
+      {:error, message} when is_binary(message) -> {:error, message}
+      {:ok, %{status: status}} -> {:error, "the URL answered HTTP #{status}"}
+      {:error, _reason} -> {:error, "could not fetch that URL"}
+      other -> other
+    end
+  end
+
   def update_toolset(%Scope{} = scope, %ApiToolset{} = toolset, attrs) do
     with :ok <- RBAC.authorize(scope, :tool_manage),
          :ok <- owned(scope, toolset) do

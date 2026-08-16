@@ -24,6 +24,7 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
        export_schedule: Accounts.export_schedule(scope),
        digest_frequency: Accounts.digest_frequency(scope),
        workspace_locale: Accounts.workspace_locale(scope),
+       oidc_role_mapping: Accounts.oidc_role_mapping(scope),
        known_locales: Enum.sort(Gettext.known_locales(FluxWeb.Gettext)),
        console_logo: Accounts.console_logo(scope),
        token_budget: Accounts.token_budget(scope),
@@ -165,6 +166,36 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
 
       _error ->
         {:noreply, put_flash(socket, :error, "Could not save the allowlist.")}
+    end
+  end
+
+  def handle_event("set_oidc_mapping", %{"claim" => claim, "mapping" => mapping_text}, socket) do
+    mapping =
+      mapping_text
+      |> String.split(["\n", "\r\n"], trim: true)
+      |> Enum.flat_map(fn line ->
+        case String.split(line, "=", parts: 2) do
+          [value, role] -> [{String.trim(value), String.trim(role)}]
+          _malformed -> []
+        end
+      end)
+      |> Enum.filter(fn {value, role} ->
+        value != "" and role in ~w(admin editor normal dataset_operator)
+      end)
+      |> Map.new()
+
+    case Accounts.set_oidc_role_mapping(socket.assigns.current_scope, claim, mapping) do
+      {:ok, _workspace} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "OIDC role mapping saved.")
+         |> assign(
+           oidc_role_mapping:
+             {(String.trim(claim) != "" and mapping != %{} && String.trim(claim)) || nil, mapping}
+         )}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not save the mapping.")}
     end
   end
 
@@ -1297,6 +1328,31 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
               {locale}
             </option>
           </select>
+        </form>
+
+        <form phx-submit="set_oidc_mapping" id="oidc-mapping-form" class="space-y-2">
+          <p class="text-sm opacity-70">
+            OIDC role mapping — roles follow the IdP on every SSO login. Claim name plus
+            <code>value=role</code>
+            lines (roles: admin, editor, normal, dataset_operator);
+            owners and unmatched members are never touched.
+          </p>
+          <div class="flex gap-2 items-start">
+            <input
+              type="text"
+              name="claim"
+              value={elem(@oidc_role_mapping, 0)}
+              placeholder="groups"
+              class="input input-bordered input-sm w-36"
+            />
+            <textarea
+              name="mapping"
+              rows="3"
+              placeholder="platform-admins=admin\nbuilders=editor"
+              class="textarea textarea-bordered textarea-sm flex-1 font-mono"
+            >{Enum.map_join(elem(@oidc_role_mapping, 1), "\n", fn {value, role} -> "#{value}=#{role}" end)}</textarea>
+            <button class="btn btn-primary btn-sm">Save</button>
+          </div>
         </form>
 
         <form phx-submit="set_console_logo" id="console-logo-form" class="flex gap-2 items-center">

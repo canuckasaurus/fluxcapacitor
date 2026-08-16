@@ -20,7 +20,8 @@ defmodule FluxWeb.ConsoleLive.Apps do
        form: to_form(App.changeset(%App{}, %{})),
        models: Providers.available_models(scope),
        fluxes: Flux.Workflows.list_workflows(scope),
-       can_create: RBAC.can?(scope, :app_create_and_management)
+       can_create: RBAC.can?(scope, :app_create_and_management),
+       tag_filter: nil
      )
      |> load_apps()}
   end
@@ -29,17 +30,54 @@ defmodule FluxWeb.ConsoleLive.Apps do
     scope = socket.assigns.current_scope
     starred = Flux.Accounts.favorite_ids(scope.account, "app")
 
+    apps =
+      Enum.sort_by(Chat.list_apps(scope), fn app ->
+        {(MapSet.member?(starred, app.id) && 0) || 1, app.name}
+      end)
+
     assign(socket,
       starred: starred,
-      apps:
-        Enum.sort_by(Chat.list_apps(scope), fn app ->
-          {(MapSet.member?(starred, app.id) && 0) || 1, app.name}
-        end),
+      all_tags: apps |> Enum.flat_map(& &1.tags) |> Enum.uniq() |> Enum.sort(),
+      apps: apps,
       trashed: Chat.list_trashed_apps(scope)
     )
   end
 
+  defp filter_by_tag(items, nil), do: items
+  defp filter_by_tag(items, tag), do: Enum.filter(items, &(tag in &1.tags))
+
+  defp parse_tags(text) do
+    text
+    |> to_string()
+    |> String.split(",", trim: true)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.map(&String.slice(&1, 0, 40))
+    |> Enum.uniq()
+    |> Enum.take(10)
+  end
+
   @impl true
+  def handle_event("filter_tag", %{"tag" => tag}, socket) do
+    tag = ((tag == socket.assigns.tag_filter or tag == "") && nil) || tag
+    {:noreply, assign(socket, tag_filter: tag)}
+  end
+
+  def handle_event("set_tags", %{"app-id" => id, "tags" => text}, socket) do
+    scope = socket.assigns.current_scope
+
+    with %{} = app <- Enum.find(socket.assigns.apps, &(&1.id == id)),
+         {:ok, _updated} <- Chat.update_app(scope, app, %{"tags" => parse_tags(text)}) do
+      {:noreply, socket |> put_flash(:info, "Tags saved.") |> load_apps()}
+    else
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "You don't have permission to edit this app.")}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not save the tags.")}
+    end
+  end
+
   def handle_event("toggle_star", %{"id" => id}, socket) do
     account = socket.assigns.current_scope.account
     {:ok, _result} = Flux.Accounts.toggle_favorite(account, "app", id)
@@ -293,9 +331,31 @@ defmodule FluxWeb.ConsoleLive.Apps do
         <p>Create your first chat app to start talking to a model.</p>
       </Layouts.empty_state>
 
+      <div :if={@all_tags != []} class="flex flex-wrap items-center gap-1" id="tag-filter">
+        <span class="text-xs opacity-60">Tags:</span>
+        <button
+          :for={tag <- @all_tags}
+          type="button"
+          class={["btn btn-xs", (@tag_filter == tag && "btn-primary") || "btn-ghost"]}
+          phx-click="filter_tag"
+          phx-value-tag={tag}
+        >
+          {tag}
+        </button>
+        <button
+          :if={@tag_filter}
+          type="button"
+          class="btn btn-ghost btn-xs opacity-60"
+          phx-click="filter_tag"
+          phx-value-tag=""
+        >
+          clear
+        </button>
+      </div>
+
       <div class="grid gap-4 sm:grid-cols-2">
         <div
-          :for={app <- @apps}
+          :for={app <- filter_by_tag(@apps, @tag_filter)}
           class="card border border-base-200 p-6 space-y-2"
           id={"app-#{app.id}"}
         >
@@ -322,6 +382,23 @@ defmodule FluxWeb.ConsoleLive.Apps do
               Delete
             </button>
           </div>
+          <form
+            :if={@can_create}
+            phx-submit="set_tags"
+            id={"tags-#{app.id}"}
+            class="flex items-center gap-1"
+          >
+            <input type="hidden" name="app-id" value={app.id} />
+            <input
+              type="text"
+              name="tags"
+              value={Enum.join(app.tags, ", ")}
+              placeholder="tags, comma, separated"
+              class="input input-bordered input-xs flex-1"
+              title="Free-form labels; the chips above filter by them"
+            />
+            <button class="btn btn-ghost btn-xs">Tag</button>
+          </form>
           <p class="text-xs opacity-60">
             <span class="badge badge-ghost badge-xs align-middle">{app.mode}</span>
             {(app.mode == :advanced_chat && "flux-driven") ||

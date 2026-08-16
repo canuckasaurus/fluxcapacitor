@@ -19,21 +19,39 @@ defmodule FluxWeb.ConsoleLive.Fluxes do
        form: to_form(Workflow.changeset(%Workflow{}, %{})),
        can_create: RBAC.can?(scope, :app_create_and_management),
        can_export: RBAC.can?(scope, :app_import_export_dsl),
-       selected: MapSet.new()
+       selected: MapSet.new(),
+       tag_filter: nil
      )
      |> load_workflows()}
+  end
+
+  defp filter_by_tag(items, nil), do: items
+  defp filter_by_tag(items, tag), do: Enum.filter(items, &(tag in &1.tags))
+
+  defp parse_tags(text) do
+    text
+    |> to_string()
+    |> String.split(",", trim: true)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.map(&String.slice(&1, 0, 40))
+    |> Enum.uniq()
+    |> Enum.take(10)
   end
 
   defp load_workflows(socket) do
     scope = socket.assigns.current_scope
     starred = Flux.Accounts.favorite_ids(scope.account, "flux")
 
+    workflows =
+      Enum.sort_by(Workflows.list_workflows(scope), fn workflow ->
+        {(MapSet.member?(starred, workflow.id) && 0) || 1, workflow.name}
+      end)
+
     assign(socket,
       starred: starred,
-      workflows:
-        Enum.sort_by(Workflows.list_workflows(scope), fn workflow ->
-          {(MapSet.member?(starred, workflow.id) && 0) || 1, workflow.name}
-        end),
+      all_tags: workflows |> Enum.flat_map(& &1.tags) |> Enum.uniq() |> Enum.sort(),
+      workflows: workflows,
       versions: Workflows.latest_versions(scope),
       health: Workflows.flux_health(scope),
       latency:
@@ -74,6 +92,27 @@ defmodule FluxWeb.ConsoleLive.Fluxes do
 
       _error ->
         {:noreply, put_flash(socket, :error, "Could not fetch or import that URL.")}
+    end
+  end
+
+  def handle_event("filter_tag", %{"tag" => tag}, socket) do
+    tag = ((tag == socket.assigns.tag_filter or tag == "") && nil) || tag
+    {:noreply, assign(socket, tag_filter: tag)}
+  end
+
+  def handle_event("set_tags", %{"workflow-id" => id, "tags" => text}, socket) do
+    scope = socket.assigns.current_scope
+
+    with %{} = workflow <- Enum.find(socket.assigns.workflows, &(&1.id == id)),
+         {:ok, _updated} <-
+           Workflows.update_workflow(scope, workflow, %{"tags" => parse_tags(text)}) do
+      {:noreply, socket |> put_flash(:info, "Tags saved.") |> load_workflows()}
+    else
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "You don't have permission to edit this flux.")}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not save the tags.")}
     end
   end
 
@@ -507,9 +546,31 @@ defmodule FluxWeb.ConsoleLive.Fluxes do
         </button>
       </div>
 
+      <div :if={@all_tags != []} class="flex flex-wrap items-center gap-1" id="tag-filter">
+        <span class="text-xs opacity-60">Tags:</span>
+        <button
+          :for={tag <- @all_tags}
+          type="button"
+          class={["btn btn-xs", (@tag_filter == tag && "btn-primary") || "btn-ghost"]}
+          phx-click="filter_tag"
+          phx-value-tag={tag}
+        >
+          {tag}
+        </button>
+        <button
+          :if={@tag_filter}
+          type="button"
+          class="btn btn-ghost btn-xs opacity-60"
+          phx-click="filter_tag"
+          phx-value-tag=""
+        >
+          clear
+        </button>
+      </div>
+
       <div class="grid gap-4 sm:grid-cols-2">
         <div
-          :for={workflow <- @workflows}
+          :for={workflow <- filter_by_tag(@workflows, @tag_filter)}
           class="card border border-base-200 p-6 space-y-2"
           id={"workflow-#{workflow.id}"}
         >
@@ -544,6 +605,23 @@ defmodule FluxWeb.ConsoleLive.Fluxes do
               Delete
             </button>
           </div>
+          <form
+            :if={@can_create}
+            phx-submit="set_tags"
+            id={"tags-#{workflow.id}"}
+            class="flex items-center gap-1"
+          >
+            <input type="hidden" name="workflow-id" value={workflow.id} />
+            <input
+              type="text"
+              name="tags"
+              value={Enum.join(workflow.tags, ", ")}
+              placeholder="tags, comma, separated"
+              class="input input-bordered input-xs flex-1"
+              title="Free-form labels; the chips above filter by them"
+            />
+            <button class="btn btn-ghost btn-xs">Tag</button>
+          </form>
           <p class="text-xs opacity-60">
             {length(workflow.graph["nodes"] || [])} nodes
             <span :if={@versions[workflow.id]} class="badge badge-success badge-sm ml-1">
