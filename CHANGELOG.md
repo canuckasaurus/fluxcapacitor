@@ -7,6 +7,34 @@ at `docs/PARITY-PLAN.md`.
 
 ## Unreleased
 
+### Batch 39
+- Passkeys (WebAuthn): register platform authenticators from account
+  settings and sign in without a password — pure-Elixir `wax`, no
+  external auth service. TOTP stays.
+- Inbound email chat channel: a per-app webhook address turns mail
+  into chat turns (one thread per correspondent) and mails the model's
+  reply back.
+- Dataset file API: `/v1/datasets/:id/document/create-by-file`
+  (multipart, extraction included) and
+  `…/documents/:id/update-by-text` (old content becomes a revision).
+- Idempotency keys: an `Idempotency-Key` header on `/v1` POSTs replays
+  the stored JSON response instead of double-running; keys live a day.
+- App monthly cost budget: cap an app's estimated monthly spend; past
+  it the app answers like a spent daily limit. (Also fixed a latent
+  crash: cost rollups mishandled `Pricing.estimate`'s tuple return for
+  priced models.)
+- Per-member usage: a "who is spending" table on the dashboard from
+  run attribution.
+- Live visitor presence: the app monitor shows how many visitors have
+  the site open right now; a human reply to a visitor who left (and
+  shared an email) sends a heads-up mail with the site link.
+- Run bookmarks: pin runs above the scroll, per account.
+- Guardrail preset library: one-click PII patterns (emails, phones,
+  cards, IBANs) for the deny/redact lists.
+- SAML attribute→role mapping: the same SSO role mapping OIDC uses now
+  also applies to SAML assertions — the trio (SCIM, OIDC, SAML) is
+  complete.
+
 ### Batch 38
 - Public-site localization: every visitor-facing site string runs
   through gettext with browser negotiation — German, Spanish, and

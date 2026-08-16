@@ -61,6 +61,11 @@ final `message_end` carrying usage. Quota-exceeded apps return 429 with
 | `GET /v1/notifications` | The workspace notification feed (`?limit=`) |
 | `GET /v1/usage` | Daily token/cost totals over `?days=` (default 30): runs + chat replies per UTC day, newest first |
 
+`Idempotency-Key` header on any `/v1` POST: a key seen in the last 24
+hours replays the stored JSON response (`idempotency-replayed: true`)
+instead of running the work twice. SSE-streaming responses are never
+stored — send blocking requests if you want replay protection.
+
 Token kinds: `app-` (one chat app), `flux-` (one workflow), `ws-`
 (workspace-wide datasets/quality/models), and `ds-` — a dataset key
 minted from the knowledge page that opens exactly
@@ -90,6 +95,8 @@ workspace-wide power).
 | `GET/POST /v1/datasets` | List / create datasets |
 | `DELETE /v1/datasets/:id` | Delete a dataset |
 | `PATCH /v1/datasets/:id` | Update dataset settings: chunking, retrieval mode/weight, Q&A indexing, thresholds (embedding model changes need the console's guarded switch) |
+| `POST /v1/datasets/:id/document/create-by-file` | Multipart upload; text is extracted (Tika / native) and indexed, same-named documents are replaced (old content kept as a revision) |
+| `POST /v1/datasets/:id/documents/:document_id/update-by-text` | Replace a document's text by id; the outgoing content becomes a restorable revision |
 | `POST /v1/datasets/:id/document/create-by-text` | Add a document (`name`, `text`) |
 | `POST /v1/datasets/:id/document/create-by-url` | Fetch a URL into a document (SSRF-guarded) |
 | `GET /v1/datasets/:id/documents` · `DELETE …/documents/:document_id` | List / delete documents |

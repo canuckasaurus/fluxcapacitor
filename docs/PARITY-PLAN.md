@@ -1477,3 +1477,44 @@ InstanceSettings so restarts don't double-run; scheduler tick calls
 it). One migration (five columns). 1039 tests. The bench holds:
 custom domains, Japanese locale, require-2FA, member suspension,
 visitor blocklist, trusted 2FA devices, CSAT surveys, site share QR.
+
+**63. Batch 39 — eleven picked, one latent bug flushed out.** The
+month-budget work exposed that every cost rollup since batch 36 had
+mishandled Pricing.estimate's `{:ok, cost} | :unknown` return —
+harmless with the unpriced echo model that dev runs on, an
+ArithmeticError the first time a *priced* model's usage hit
+conversation_usage / daily_usage. Normalized behind price_estimate/3
+and fixed in usage_row_cost. The eleven: **passkeys** (pure-Elixir
+wax; registration lives in the settings LiveView because the same
+process holds the Wax challenge, login needs two controller endpoints
+because only controllers write the session cookie — the assertion
+rides a plain hidden-form POST so the redirect just works);
+**inbound email channel** (apps.email_channel_token, emch_ webhook;
+one conversation per correspondent keyed "email:<addr>", the reply
+awaited by a supervised task polling the message row — send_message
+subscribes the *caller*, and the webhook must 202 before generation
+finishes); **dataset file API** (create-by-file multipart through
+Documents.extract_binary with replace-mode + update-by-text via
+RAG.update_document_text, old content kept as a revision);
+**idempotency keys** (idempotency_keys table, plug between
+ServiceAuth and RateLimit; register_before_send sees *iodata*, not a
+binary — the lesson of the batch; SSE responses are nil resp_body and
+correctly never stored; nightly prune); **app monthly budget**
+(monthly_cost_budget, month_cost_estimate groups by model_used with
+decimal_to_int around Postgres sums, folded into quota_exceeded? so
+every send path enforces it); **member usage** (Usage.member_usage
+over started_by; dashboard "Who is spending" card); **live visitor
+presence** (FluxWeb.SitePresence on Phoenix.Presence; site LVs track
+per conversation, the monitor counts via presence_diff);
+**away-mail** (human_reply asks the runtime-resolved presence module
+visitor_present?/1 — config :flux, :site_presence — and mails the
+visitor's address only when the tab is really gone); **run
+bookmarks** (account_favorites grew a "run" item type; stars sort
+pinned runs first); **guardrail presets** (four practical PII regexes
+appended by one click, not RFC parsers and labeled as such);
+**SAML attribute→role** (apply_oidc_roles now also fed by
+Samly assertion attributes — SCIM/OIDC/SAML role sync trio complete).
+One migration (two tables + two columns), one new dep (wax_).
+1056 tests. The bench holds: custom domains, Japanese locale,
+require-2FA, member suspension, visitor blocklist, trusted 2FA
+devices, CSAT surveys, site share QR, credential load balancing.

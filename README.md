@@ -279,7 +279,8 @@ orchestrator, no queue infrastructure beyond Postgres.
   archive** in one cron-ready task), per-account **session management** (see every signed-in
   device **with its IP and browser**, revoke one, or log out everywhere),
   **TOTP two-factor authentication** (QR enrollment, one-time recovery
-  codes, a code challenge on password logins), **new-device sign-in
+  codes, a code challenge on password logins), **passkeys** (WebAuthn
+  sign-in with platform authenticators), **new-device sign-in
   alerts**, a **workspace API IP
   allowlist** (CIDRs gating all of `/v1`, rejections audited), and
   **per-key rate limits** on any API key.
@@ -498,7 +499,7 @@ scratch drive, and a labeling project wired to the Model trainer flux
 ## Testing
 
 ```bash
-mix test                             # full umbrella suite (~1039 tests), hermetic
+mix test                             # full umbrella suite (~1056 tests), hermetic
 ```
 
 The suite runs with no network: providers stub through `Req.Test` or the

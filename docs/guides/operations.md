@@ -47,6 +47,15 @@ checked against chat and run inputs. `block` refuses the input;
 already spent, so the team gets told instead of the user getting a
 hole in the reply.
 
+## Chat channels
+
+- **Inbound email**: App → Email channel mints a webhook URL
+  (`/channels/email/emch_…`). Point a mail provider's inbound route
+  (Mailgun, SES, Postmark) at it: sender + body become a chat turn,
+  one conversation per correspondent, and the finished reply is mailed
+  back from the platform's from-address. Guardrails and app limits
+  apply like any other turn.
+
 ## Notifications & webhooks
 
 Every operational event lands in the in-console feed (filterable by
@@ -197,6 +206,15 @@ a fallback) provisions or resolves an account exactly like OIDC.
   (App → Site → Passcode) — visitors enter it once per browser
   session. It's a share-gate, not authentication: rotate it by saving
   a new one, remove it by saving blank.
+- **Passkeys**: accounts can register WebAuthn credentials (platform
+  authenticators, security keys) from Account settings and sign in
+  password-free from the login page. Verification is pure Elixir
+  (`wax`); registration and login both require the browser to be on
+  the configured origin, so set `FLUX_BASE_URL` correctly.
+- **SSO role mapping, three ways**: SCIM Groups push role changes,
+  and the workspace's claim→role mapping (Settings → Digest &
+  branding) now applies to both OIDC id-token claims *and* SAML
+  assertion attributes on every login.
 - **New-device alerts**: a sign-in from an ip + browser pair no
   earlier session used emails the account automatically (the very
   first session stays quiet — everything is new then). The email
