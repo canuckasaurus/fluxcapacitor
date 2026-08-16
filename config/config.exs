@@ -61,6 +61,10 @@ config :flux, Oban,
 
 # Object storage: :local for dev/test; production (or MinIO-backed dev)
 # switches to :s3 via STORAGE_BACKEND in runtime.exs.
+# Away-mail presence check: resolved at runtime so flux never
+# compile-depends on flux_web.
+config :flux, :site_presence, FluxWeb.SitePresence
+
 config :flux, Flux.Storage,
   backend: :local,
   bucket: nil,

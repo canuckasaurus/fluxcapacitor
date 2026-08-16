@@ -59,9 +59,7 @@ defmodule FluxWeb.SiteLive.AppSite do
     # Returning visitors resume their last conversation (chat modes).
     {conversation, messages} = resume_conversation(app, scope, end_user_ref)
 
-    # Human replies arrive on the conversation topic while the tab
-    # is open — the handoff loop closes live.
-    if connected?(socket) && conversation, do: Chat.subscribe_conversation(conversation.id)
+    subscribe_and_track(socket, app, conversation)
 
     {:ok,
      socket
@@ -101,6 +99,18 @@ defmodule FluxWeb.SiteLive.AppSite do
        streaming_text: "",
        transcribing: false
      )}
+  end
+
+  # Human replies arrive on the conversation topic while the tab is
+  # open, and the presence feeds the monitor's live-visitor count plus
+  # the away-mail check.
+  defp subscribe_and_track(socket, app, conversation) do
+    if connected?(socket) do
+      if conversation, do: Chat.subscribe_conversation(conversation.id)
+      FluxWeb.SitePresence.track(self(), app.id, conversation && conversation.id)
+    end
+
+    :ok
   end
 
   defp resume_conversation(%App{mode: mode} = app, scope, end_user_ref)
@@ -173,6 +183,7 @@ defmodule FluxWeb.SiteLive.AppSite do
               Chat.create_conversation(scope, app, %{end_user_ref: socket.assigns.end_user_ref})
 
             Chat.subscribe_conversation(created.id)
+            FluxWeb.SitePresence.track(self(), app.id, created.id)
             created
 
           existing ->

@@ -8,6 +8,10 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
 
   @impl true
   def mount(%{"id" => app_id}, _session, socket) do
+    if connected?(socket) do
+      Phoenix.PubSub.subscribe(Flux.PubSub, FluxWeb.SitePresence.topic(app_id))
+    end
+
     scope = socket.assigns.current_scope
 
     with true <- RBAC.can?(scope, :app_monitor) || :unauthorized,
@@ -33,6 +37,7 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
          feedback: Chat.list_feedback(scope, app.id),
          quality: Chat.quality_stats(scope, app.id),
          topics: Chat.topic_clusters(scope, app.id),
+         live_visitors: FluxWeb.SitePresence.visitor_count(app.id),
          annotations: Chat.list_annotations(scope, app.id),
          can_edit: RBAC.can?(scope, :app_edit),
          labeling_projects: Flux.Labeling.list_projects(scope),
@@ -67,6 +72,12 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
   end
 
   def handle_params(_params, _uri, socket), do: {:noreply, socket}
+
+  @impl true
+  def handle_info(%Phoenix.Socket.Broadcast{event: "presence_diff"}, socket) do
+    {:noreply,
+     assign(socket, live_visitors: FluxWeb.SitePresence.visitor_count(socket.assigns.app.id))}
+  end
 
   @impl true
   def handle_event(
@@ -460,7 +471,16 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
       <div class="flex items-center justify-between">
         <div>
           <h1 class="text-2xl font-bold">{@app.name} — monitoring</h1>
-          <p class="opacity-60 text-sm">Recent conversations and their messages.</p>
+          <p class="opacity-60 text-sm">
+            Recent conversations and their messages.
+            <span
+              :if={@live_visitors > 0}
+              class="badge badge-success badge-sm ml-1"
+              id="live-visitors"
+            >
+              {@live_visitors} chatting now
+            </span>
+          </p>
         </div>
         <div class="flex gap-2">
           <.link
