@@ -1060,6 +1060,76 @@ defmodule FluxWeb.V1.ApiSpec do
       })
     end
 
+    defmodule ResponsesResult do
+      @moduledoc false
+      require OpenApiSpex
+
+      OpenApiSpex.schema(%{
+        title: "ResponsesResult",
+        type: :object,
+        properties: %{
+          id: %Schema{type: :string},
+          object: %Schema{type: :string, enum: ["response"]},
+          created_at: %Schema{type: :integer},
+          status: %Schema{type: :string},
+          model: %Schema{type: :string, nullable: true},
+          output: %Schema{
+            type: :array,
+            items: %Schema{
+              type: :object,
+              properties: %{
+                type: %Schema{type: :string},
+                id: %Schema{type: :string},
+                role: %Schema{type: :string},
+                status: %Schema{type: :string},
+                content: %Schema{
+                  type: :array,
+                  items: %Schema{
+                    type: :object,
+                    properties: %{
+                      type: %Schema{type: :string},
+                      text: %Schema{type: :string}
+                    },
+                    required: [:type, :text],
+                    additionalProperties: true
+                  }
+                }
+              },
+              required: [:type, :role, :content],
+              additionalProperties: true
+            }
+          },
+          usage: %Schema{
+            type: :object,
+            properties: %{
+              input_tokens: %Schema{type: :integer},
+              output_tokens: %Schema{type: :integer},
+              total_tokens: %Schema{type: :integer}
+            },
+            additionalProperties: false
+          }
+        },
+        required: [:id, :object, :status, :output],
+        additionalProperties: true
+      })
+    end
+
+    defmodule SuggestedQuestions do
+      @moduledoc false
+      require OpenApiSpex
+
+      OpenApiSpex.schema(%{
+        title: "SuggestedQuestions",
+        type: :object,
+        properties: %{
+          result: %Schema{type: :string, enum: ["success"]},
+          data: %Schema{type: :array, items: %Schema{type: :string}}
+        },
+        required: [:result, :data],
+        additionalProperties: false
+      })
+    end
+
     defmodule UsageList do
       @moduledoc false
       require OpenApiSpex
@@ -1322,6 +1392,10 @@ defmodule FluxWeb.V1.ApiSpec do
     ],
     "/notifications" => {:get, "Workspace notification feed", "NotificationList"},
     "/usage" => {:get, "Daily token/cost totals (?days=30, runs + chat)", "UsageList"},
+    "/responses" =>
+      {:post, "OpenAI Responses API: input/instructions, blocking or SSE", "ResponsesResult"},
+    "/messages/{id}/suggested" =>
+      {:get, "Follow-up question suggestions after a reply", "SuggestedQuestions"},
     "/audio/transcriptions" =>
       {:post, "OpenAI-compatible speech-to-text (multipart file)", "TranscriptionResult"},
     "/workflows/runs/{id}" => {:get, "Run status (?trace=true adds nodes)", "RunDetail"},

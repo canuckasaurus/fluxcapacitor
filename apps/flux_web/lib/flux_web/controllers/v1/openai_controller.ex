@@ -94,6 +94,196 @@ defmodule FluxWeb.V1.OpenAIController do
   end
 
   @doc """
+  OpenAI-compatible Responses API: `POST /v1/responses` — the endpoint
+  new OpenAI SDKs default to. `input` (string or message array) and
+  `instructions` map onto the same stateless completion as
+  /v1/chat/completions; tools/state/reasoning extras are not supported.
+  """
+  def responses(conn, params) do
+    app = conn.assigns[:service_app]
+
+    cond do
+      app == nil ->
+        openai_error(conn, 401, "This endpoint needs an app- API token.", "invalid_request_error")
+
+      Chat.quota_exceeded?(app) ->
+        openai_error(conn, 429, "The app's daily token limit is spent.", "rate_limit_error")
+
+      true ->
+        with {:ok, messages} <- responses_input(params),
+             :ok <- guard_input(app, messages) do
+          if params["stream"] == true do
+            respond_responses_stream(conn, app, messages)
+          else
+            respond_responses(conn, app, messages)
+          end
+        else
+          {:error, :bad_messages} ->
+            openai_error(
+              conn,
+              400,
+              "input must be a non-empty string or an array of messages.",
+              "invalid_request_error"
+            )
+
+          {:error, :guardrail} ->
+            openai_error(conn, 400, "This content isn't allowed here.", "invalid_request_error")
+        end
+    end
+  end
+
+  # `instructions` becomes the system turn; `input` is either plain
+  # text or Responses-style items whose content parts are flattened.
+  defp responses_input(params) do
+    instructions =
+      case params["instructions"] do
+        text when is_binary(text) and text != "" -> [%{"role" => "system", "content" => text}]
+        _none -> []
+      end
+
+    case params["input"] do
+      text when is_binary(text) and text != "" ->
+        normalize_messages(instructions ++ [%{"role" => "user", "content" => text}])
+
+      items when is_list(items) and items != [] ->
+        normalize_messages(instructions ++ Enum.map(items, &responses_item/1))
+
+      _bad ->
+        {:error, :bad_messages}
+    end
+  end
+
+  defp responses_item(%{"role" => role, "content" => content}) do
+    %{"role" => role, "content" => responses_item_text(content)}
+  end
+
+  defp responses_item(_other), do: %{}
+
+  defp responses_item_text(content) when is_binary(content), do: content
+
+  defp responses_item_text(parts) when is_list(parts) do
+    parts
+    |> Enum.map(fn
+      %{"type" => type, "text" => text} when type in ["input_text", "output_text"] -> text
+      %{"text" => text} when is_binary(text) -> text
+      _other -> nil
+    end)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join("\n")
+  end
+
+  defp responses_item_text(_other), do: ""
+
+  defp respond_responses(conn, app, messages) do
+    case invoke_completion(app, messages, fn _chunk -> :ok end, []) do
+      {:ok, result, model_used} ->
+        json(conn, response_object(response_id(), result.content, usage(result), model_used))
+
+      {:error, reason} ->
+        openai_error(conn, 502, "The model errored: #{inspect(reason)}", "api_error")
+    end
+  end
+
+  defp respond_responses_stream(conn, app, messages) do
+    parent = self()
+    id = response_id()
+
+    Task.Supervisor.start_child(Flux.GenerationSupervisor, fn ->
+      emit = fn %{delta: delta} -> send(parent, {:delta, delta}) end
+
+      case invoke_completion(app, messages, emit, []) do
+        {:ok, result, model_used} -> send(parent, {:finished, result, model_used})
+        {:error, reason} -> send(parent, {:failed, reason})
+      end
+    end)
+
+    conn =
+      conn
+      |> put_resp_content_type("text/event-stream")
+      |> put_resp_header("cache-control", "no-cache")
+      |> send_chunked(200)
+
+    {_, conn} =
+      response_event(conn, "response.created", %{
+        "response" => response_object(id, "", nil, app.model) |> Map.put("status", "in_progress")
+      })
+
+    responses_stream_loop(conn, id, app.model)
+  end
+
+  defp responses_stream_loop(conn, id, model) do
+    receive do
+      {:delta, delta} ->
+        case response_event(conn, "response.output_text.delta", %{"delta" => delta}) do
+          {:ok, conn} -> responses_stream_loop(conn, id, model)
+          {:error, _closed} -> conn
+        end
+
+      {:finished, result, model_used} ->
+        {_, conn} =
+          response_event(conn, "response.output_text.done", %{"text" => result.content})
+
+        {_, conn} =
+          response_event(conn, "response.completed", %{
+            "response" => response_object(id, result.content, usage(result), model_used)
+          })
+
+        conn
+
+      {:failed, reason} ->
+        {_, conn} =
+          response_event(conn, "response.failed", %{
+            "response" => %{"id" => id, "status" => "failed", "error" => inspect(reason)}
+          })
+
+        conn
+    after
+      @stream_timeout ->
+        {_, conn} = response_event(conn, "response.failed", %{"error" => "timeout"})
+        conn
+    end
+  end
+
+  defp response_event(conn, event, payload) do
+    chunk(conn, "event: " <> event <> "\ndata: " <> Jason.encode!(payload) <> "\n\n")
+  end
+
+  defp response_object(id, text, usage, model) do
+    %{
+      "id" => id,
+      "object" => "response",
+      "created_at" => System.system_time(:second),
+      "status" => "completed",
+      "model" => model,
+      "output" => [
+        %{
+          "type" => "message",
+          "id" => "msg_" <> String.slice(id, 5..-1//1),
+          "role" => "assistant",
+          "status" => "completed",
+          "content" => [%{"type" => "output_text", "text" => text, "annotations" => []}]
+        }
+      ],
+      "usage" =>
+        case usage do
+          %{"prompt_tokens" => input, "completion_tokens" => output} ->
+            %{
+              "input_tokens" => input,
+              "output_tokens" => output,
+              "total_tokens" => input + output
+            }
+
+          _none ->
+            %{"input_tokens" => 0, "output_tokens" => 0, "total_tokens" => 0}
+        end
+    }
+  end
+
+  defp response_id do
+    "resp_" <> Base.url_encode64(:crypto.strong_rand_bytes(12), padding: false)
+  end
+
+  @doc """
   OpenAI-compatible model listing: `GET /v1/models` with any service
   token — every model the workspace's configured providers offer, so
   SDKs and gateways autodiscover. With an `app-` token the app's own

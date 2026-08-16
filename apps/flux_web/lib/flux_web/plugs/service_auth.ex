@@ -16,6 +16,7 @@ defmodule FluxWeb.Plugs.ServiceAuth do
   def call(conn, _opts) do
     with ["Bearer " <> raw] <- get_req_header(conn, "authorization"),
          {:ok, assigns} <- resolve(raw),
+         :ok <- check_dataset_scope(conn, assigns),
          :ok <- check_ip(conn, assigns[:workspace_id]) do
       workspace_id = assigns[:workspace_id]
 
@@ -32,8 +33,21 @@ defmodule FluxWeb.Plugs.ServiceAuth do
       |> assign(:service_app, assigns[:app])
       |> assign(:service_workflow, assigns[:workflow])
       |> assign(:service_token, assigns[:token])
+      |> assign(:service_dataset_id, assigns[:dataset_id])
       |> assign(:service_scope, scope)
     else
+      {:error, :dataset_scope} ->
+        conn
+        |> put_resp_content_type("application/json")
+        |> send_resp(
+          403,
+          Jason.encode!(%{
+            code: "invalid_token_kind",
+            message: "A ds- token only opens its own dataset's endpoints"
+          })
+        )
+        |> halt()
+
       {:error, :token_expired} ->
         conn
         |> put_resp_content_type("application/json")
@@ -63,6 +77,19 @@ defmodule FluxWeb.Plugs.ServiceAuth do
     end
   end
 
+  # A ds- token is confined to its dataset's paths: /v1/datasets/<id>/…
+  # only. Everything else — other datasets, dataset creation, the whole
+  # rest of the API — answers 403.
+  defp check_dataset_scope(conn, %{dataset_id: dataset_id}) when is_binary(dataset_id) do
+    if String.starts_with?(conn.request_path, "/v1/datasets/#{dataset_id}/") do
+      :ok
+    else
+      {:error, :dataset_scope}
+    end
+  end
+
+  defp check_dataset_scope(_conn, _assigns), do: :ok
+
   # Workspace IP allowlist: a valid token from the wrong network is
   # still refused, and the attempt lands in the audit trail.
   defp check_ip(conn, workspace_id) do
@@ -80,6 +107,21 @@ defmodule FluxWeb.Plugs.ServiceAuth do
       )
 
       {:error, :ip_forbidden}
+    end
+  end
+
+  # Dataset keys open exactly one dataset's knowledge endpoints and
+  # nothing else — the path check is the whole privilege boundary.
+  defp resolve("ds-" <> _rest = raw) do
+    with {:ok, dataset_id, workspace_id, token} <- Chat.fetch_dataset_by_token(raw) do
+      {:ok,
+       %{
+         app: nil,
+         workflow: nil,
+         token: token,
+         workspace_id: workspace_id,
+         dataset_id: dataset_id
+       }}
     end
   end
 

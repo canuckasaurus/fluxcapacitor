@@ -91,6 +91,23 @@ defmodule FluxWeb.V1.AppResourceController do
     error(conn, 400, "invalid_param", "conversation_id is required")
   end
 
+  @doc "Follow-up question suggestions after a reply (reference-compatible)."
+  def suggested(conn, %{"id" => message_id}) do
+    scope = conn.assigns.service_scope
+    app = conn.assigns.service_app
+
+    with {:ok, _uuid} <- Ecto.UUID.cast(message_id),
+         %Flux.Chat.Message{} = message <- Chat.get_message(scope, message_id),
+         %{app_id: app_id} = _conversation <-
+           Chat.get_conversation(scope, message.conversation_id),
+         true <- app != nil and app_id == app.id do
+      suggestions = Chat.follow_up_suggestions(scope, app, message.conversation_id)
+      json(conn, %{result: "success", data: suggestions})
+    else
+      _not_found -> error(conn, 404, "not_found", "Message not found")
+    end
+  end
+
   def stop(conn, %{"id" => message_id}) do
     case Chat.stop_generation(conn.assigns.service_scope, message_id) do
       {:ok, _message} -> json(conn, %{result: "success"})

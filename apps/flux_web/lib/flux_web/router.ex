@@ -41,6 +41,7 @@ defmodule FluxWeb.Router do
 
     # OpenAI-compatible: any OpenAI SDK with base_url swapped in.
     post "/chat/completions", OpenAIController, :create
+    post "/responses", OpenAIController, :responses
     post "/embeddings", OpenAIController, :embeddings
     post "/moderations", OpenAIController, :moderations
     post "/images/generations", OpenAIController, :image_generations
@@ -62,6 +63,7 @@ defmodule FluxWeb.Router do
     get "/messages", AppResourceController, :messages
     post "/chat-messages/:id/stop", AppResourceController, :stop
     post "/messages/:id/feedbacks", AppResourceController, :feedback
+    get "/messages/:id/suggested", AppResourceController, :suggested
     get "/meta", AppResourceController, :meta
     post "/conversations/:id/name", AppResourceController, :rename_conversation
     delete "/conversations/:id", AppResourceController, :delete_conversation
@@ -177,7 +179,7 @@ defmodule FluxWeb.Router do
   scope "/site", FluxWeb do
     pipe_through [:browser, :allow_embedding, :ensure_site_visitor]
 
-    live_session :public_site do
+    live_session :public_site, on_mount: [FluxWeb.Plugs.Locale] do
       live "/flux/:token", SiteLive.FluxSite, :show
       live "/:token", SiteLive.AppSite, :show
     end
