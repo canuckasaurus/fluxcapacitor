@@ -370,6 +370,8 @@ defmodule Flux.Chat do
   def human_reply(%Scope{} = scope, conversation_id, content)
       when is_binary(content) and content != "" do
     with %Conversation{} = conversation <- get_conversation(scope, conversation_id) do
+      maybe_mail_away_visitor(conversation, content)
+
       message =
         Repo.insert!(%Message{
           workspace_id: conversation.workspace_id,
@@ -1045,6 +1047,35 @@ defmodule Flux.Chat do
     {:ok, target, assistant_message}
   end
 
+  # A human replied but the visitor's tab is closed: if they left an
+  # email, send a heads-up with the site link. Presence is resolved at
+  # runtime (the tracker lives in the web app); no tracker means we
+  # can't know they're away, so we stay quiet rather than spam.
+  defp maybe_mail_away_visitor(%Conversation{visitor_email: email} = conversation, content)
+       when is_binary(email) do
+    presence = Application.get_env(:flux, :site_presence)
+
+    away? =
+      presence != nil and Code.ensure_loaded?(presence) and
+        function_exported?(presence, :visitor_present?, 1) and
+        not presence.visitor_present?(conversation.id)
+
+    if away? do
+      app = Repo.get(App, conversation.app_id, skip_workspace_guard: true)
+
+      Flux.Accounts.AccountNotifier.deliver_away_reply(
+        email,
+        (app && app.name) || "the team",
+        String.slice(content, 0, 500),
+        app && app.site_token
+      )
+    end
+
+    :ok
+  end
+
+  defp maybe_mail_away_visitor(_conversation, _content), do: :ok
+
   @doc """
   Emails the transcript to the address the visitor shared on this
   conversation; `{:error, :no_email}` when they never left one.
@@ -1222,9 +1253,15 @@ defmodule Flux.Chat do
   end
 
   @doc "Whether the app's daily token budget (input+output, UTC day) is spent."
-  def quota_exceeded?(%App{daily_token_limit: nil}), do: false
+  def quota_exceeded?(%App{daily_token_limit: nil, monthly_cost_budget: nil}), do: false
 
-  def quota_exceeded?(%App{daily_token_limit: limit} = app) do
+  def quota_exceeded?(%App{} = app) do
+    daily_tokens_exceeded?(app) or monthly_budget_exceeded?(app)
+  end
+
+  defp daily_tokens_exceeded?(%App{daily_token_limit: nil}), do: false
+
+  defp daily_tokens_exceeded?(%App{daily_token_limit: limit} = app) do
     today = DateTime.utc_now() |> DateTime.to_date() |> DateTime.new!(~T[00:00:00])
 
     used =
@@ -1245,6 +1282,54 @@ defmodule Flux.Chat do
       |> Repo.one()
 
     decimal_to_int(used.total) >= limit
+  end
+
+  # Estimated month-to-date spend vs the app's monthly USD budget: the
+  # same per-model Pricing.estimate the console shows, summed from this
+  # month's assistant messages.
+  defp monthly_budget_exceeded?(%App{monthly_cost_budget: nil}), do: false
+
+  defp monthly_budget_exceeded?(%App{monthly_cost_budget: budget} = app) do
+    month_cost_estimate(app) >= budget
+  end
+
+  # Pricing.estimate answers {:ok, cost} | :unknown — normalize to a
+  # number so cost rollups can sum without pattern-matching everywhere.
+  defp price_estimate(model, input, output) do
+    case Flux.Pricing.estimate(model, input, output) do
+      {:ok, cost} -> cost
+      _unknown -> 0.0
+    end
+  end
+
+  @doc "Month-to-date estimated USD spend for one app's chat replies."
+  def month_cost_estimate(%App{} = app) do
+    start_of_month =
+      DateTime.utc_now()
+      |> DateTime.to_date()
+      |> Date.beginning_of_month()
+      |> DateTime.new!(~T[00:00:00])
+
+    Message
+    |> join(:inner, [m], c in Conversation, on: m.conversation_id == c.id)
+    |> where([m, c], c.app_id == ^app.id and m.workspace_id == ^app.workspace_id)
+    |> where([m], m.role == :assistant and m.inserted_at >= ^start_of_month)
+    |> group_by([m], fragment("? ->> 'model_used'", m.usage))
+    |> select([m], %{
+      model: fragment("? ->> 'model_used'", m.usage),
+      input: sum(fragment("coalesce((? ->> 'input_tokens')::bigint, 0)", m.usage)),
+      output: sum(fragment("coalesce((? ->> 'output_tokens')::bigint, 0)", m.usage))
+    })
+    |> Repo.all()
+    |> Enum.reduce(0.0, fn row, acc ->
+      case row.model do
+        model when is_binary(model) ->
+          acc + price_estimate(model, decimal_to_int(row.input), decimal_to_int(row.output))
+
+        _unknown ->
+          acc
+      end
+    end)
   end
 
   ## Annotations
@@ -1822,7 +1907,7 @@ defmodule Flux.Chat do
       cost =
         case usage["model_used"] do
           model when is_binary(model) ->
-            Flux.Pricing.estimate(model, input, output) || 0.0
+            price_estimate(model, input, output)
 
           _unknown ->
             0.0
@@ -2067,6 +2152,89 @@ defmodule Flux.Chat do
   end
 
   def fetch_dataset_by_token(_other), do: {:error, :invalid_token}
+
+  ## Inbound email channel
+
+  @doc "Mints (or rotates) the app's inbound-email webhook token."
+  def enable_email_channel(%Scope{} = scope, %App{} = app) do
+    with :ok <- RBAC.authorize(scope, :app_edit) do
+      token = "emch_" <> Base.url_encode64(:crypto.strong_rand_bytes(18), padding: false)
+      app |> Ecto.Changeset.change(email_channel_token: token) |> Repo.update()
+    end
+  end
+
+  def disable_email_channel(%Scope{} = scope, %App{} = app) do
+    with :ok <- RBAC.authorize(scope, :app_edit) do
+      app |> Ecto.Changeset.change(email_channel_token: nil) |> Repo.update()
+    end
+  end
+
+  def get_app_by_email_channel_token("emch_" <> _rest = token) do
+    case Repo.get_by(App, [email_channel_token: token], skip_workspace_guard: true) do
+      %App{deleted_at: nil} = app -> {:ok, app}
+      _missing -> {:error, :not_found}
+    end
+  end
+
+  def get_app_by_email_channel_token(_other), do: {:error, :not_found}
+
+  @doc """
+  An inbound email becomes a chat turn: the sender address keys the
+  conversation (one thread per correspondent), the body is the message,
+  and once the reply finishes it is mailed back. Returns fast — the
+  await-and-mail loop runs in a supervised task so mail-provider
+  webhooks never time out.
+  """
+  def email_inbound(%App{} = app, from, subject, body)
+      when is_binary(from) and is_binary(body) and body != "" do
+    scope = site_scope(app)
+    ref = "email:" <> String.downcase(String.trim(from))
+
+    conversation =
+      case latest_conversation(scope, app.id, ref) do
+        nil ->
+          created = create_conversation(scope, app, %{end_user_ref: ref})
+          {:ok, with_identity} = set_visitor_identity(scope, created.id, nil, String.trim(from))
+          with_identity
+
+        existing ->
+          existing
+      end
+
+    content =
+      case String.trim(to_string(subject || "")) do
+        "" -> body
+        trimmed -> "Subject: " <> trimmed <> "\n\n" <> body
+      end
+
+    with {:ok, _user, assistant} <- send_message(scope, app, conversation, content) do
+      {:ok, _pid} =
+        Task.Supervisor.start_child(Flux.GenerationSupervisor, fn ->
+          await_and_mail_reply(assistant.id, from, app.name)
+        end)
+
+      {:ok, conversation.id}
+    end
+  end
+
+  # send_message subscribed the *caller*; this task polls the row
+  # instead so it works from any process.
+  defp await_and_mail_reply(message_id, to, app_name) do
+    Enum.reduce_while(1..150, nil, fn _try, _acc ->
+      case Repo.get(Message, message_id, skip_workspace_guard: true) do
+        %{status: :streaming} ->
+          Process.sleep(1_000)
+          {:cont, nil}
+
+        %{status: :completed, content: content} when is_binary(content) and content != "" ->
+          Flux.Accounts.AccountNotifier.deliver_channel_reply(to, app_name, content)
+          {:halt, :ok}
+
+        _failed_or_gone ->
+          {:halt, :error}
+      end
+    end)
+  end
 
   @doc "Resolves a raw bearer token to `{app, token}`; touches last_used_at."
   def fetch_app_by_token("app-" <> _ = raw) do

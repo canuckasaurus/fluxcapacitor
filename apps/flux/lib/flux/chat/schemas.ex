@@ -44,6 +44,11 @@ defmodule Flux.Chat.App do
     field :collect_visitor_info, :boolean, default: false
     # Free-form labels for organizing the apps index.
     field :tags, {:array, :string}, default: []
+    # Inbound-email webhook token (emch_…); nil = channel off.
+    field :email_channel_token, :string
+    # Monthly estimated-USD cap; past it the app answers like a spent
+    # daily limit. nil = uncapped.
+    field :monthly_cost_budget, :float
     field :site_theme, :map, default: %{}
     field :site_token, :string
     field :site_enabled, :boolean, default: false
@@ -85,8 +90,10 @@ defmodule Flux.Chat.App do
       :suggest_followups,
       :collect_visitor_info,
       :tags,
+      :monthly_cost_budget,
       :site_theme
     ])
+    |> validate_number(:monthly_cost_budget, greater_than: 0)
     |> validate_number(:daily_token_limit, greater_than: 0)
     |> validate_number(:rate_limit_per_minute, greater_than: 0, less_than_or_equal_to: 10_000)
     |> validate_number(:ab_split, greater_than_or_equal_to: 0, less_than_or_equal_to: 100)

@@ -448,6 +448,26 @@ defmodule FluxWeb.ConsoleLive.AppChat do
     end
   end
 
+  def handle_event("enable_email_channel", _params, socket) do
+    case Chat.enable_email_channel(socket.assigns.current_scope, socket.assigns.app) do
+      {:ok, app} ->
+        {:noreply, socket |> put_flash(:info, "Email channel ready.") |> assign(app: app)}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not enable the email channel.")}
+    end
+  end
+
+  def handle_event("disable_email_channel", _params, socket) do
+    case Chat.disable_email_channel(socket.assigns.current_scope, socket.assigns.app) do
+      {:ok, app} ->
+        {:noreply, socket |> put_flash(:info, "Email channel off.") |> assign(app: app)}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not disable the email channel.")}
+    end
+  end
+
   def handle_event("prompt_draft_change", %{"system_prompt" => draft}, socket) do
     {:noreply, assign(socket, prompt_draft: draft)}
   end
@@ -549,6 +569,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
            "suggested_questions" => questions,
            "daily_token_limit" => presence(params["daily_token_limit"]),
            "rate_limit_per_minute" => presence(params["rate_limit_per_minute"]),
+           "monthly_cost_budget" => presence(params["monthly_cost_budget"]),
            "annotation_threshold" => presence(params["annotation_threshold"]),
            "suggest_followups" => params["suggest_followups"] == "on",
            "collect_visitor_info" => params["collect_visitor_info"] == "on",
@@ -1270,6 +1291,37 @@ defmodule FluxWeb.ConsoleLive.AppChat do
       <div
         :if={@app.mode in [:chat, :advanced_chat] and @can_edit}
         class="card border border-base-200 p-6 space-y-3"
+        id="email-channel-card"
+      >
+        <h2 class="font-semibold">Email channel</h2>
+        <p class="text-sm opacity-70">
+          Point your mail provider's inbound webhook (Mailgun routes, SES,
+          Postmark) here and every email becomes a chat turn — the reply
+          goes back to the sender. One thread per correspondent.
+        </p>
+        <pre :if={@app.email_channel_token} class="rounded bg-base-200 p-2 text-xs overflow-x-auto">POST {url(~p"/channels/email/#{@app.email_channel_token}")}</pre>
+        <div class="flex gap-2">
+          <button
+            type="button"
+            class="btn btn-outline btn-sm"
+            phx-click="enable_email_channel"
+          >
+            {(@app.email_channel_token && "Rotate token") || "Enable email channel"}
+          </button>
+          <button
+            :if={@app.email_channel_token}
+            type="button"
+            class="btn btn-ghost btn-sm text-error"
+            phx-click="disable_email_channel"
+          >
+            Disable
+          </button>
+        </div>
+      </div>
+
+      <div
+        :if={@app.mode in [:chat, :advanced_chat] and @can_edit}
+        class="card border border-base-200 p-6 space-y-3"
       >
         <h2 class="font-semibold">Chat settings</h2>
         <form id="chat-settings-form" phx-submit="save_chat_settings" class="space-y-3">
@@ -1313,6 +1365,19 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               name="daily_token_limit"
               value={@app.daily_token_limit}
               min="1"
+              class="input input-bordered input-sm w-48"
+            />
+          </label>
+          <label class="form-control block">
+            <span class="label-text text-sm mb-1">
+              Monthly cost budget (estimated USD; blank = uncapped, past it the app answers 429)
+            </span>
+            <input
+              type="number"
+              name="monthly_cost_budget"
+              value={@app.monthly_cost_budget}
+              min="0.01"
+              step="0.01"
               class="input input-bordered input-sm w-48"
             />
           </label>

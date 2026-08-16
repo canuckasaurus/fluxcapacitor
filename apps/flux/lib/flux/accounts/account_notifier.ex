@@ -62,6 +62,40 @@ defmodule Flux.Accounts.AccountNotifier do
     """)
   end
 
+  @doc "Mails a site visitor that a human replied while they were away."
+  def deliver_away_reply(recipient, app_name, excerpt, site_token) do
+    base = Application.get_env(:flux, :app_base_url, "")
+
+    link =
+      (is_binary(site_token) and base != "" and
+         "\n\nPick the conversation back up: " <> base <> "/site/" <> site_token) || ""
+
+    deliver(recipient, "[FluxCapacitor] " <> app_name <> " replied to you", """
+
+    ==============================
+
+    A person replied to your conversation with #{app_name}:
+
+    #{excerpt}#{link}
+
+    You received this because you left your email in the chat.
+
+    ==============================
+    """)
+  end
+
+  @doc "Mails the model's reply back to an email-channel correspondent."
+  def deliver_channel_reply(recipient, app_name, content) do
+    deliver(recipient, "Re: your message to " <> app_name, """
+
+    #{content}
+
+    --
+    Sent by #{app_name} via FluxCapacitor. Reply to this address to
+    continue the conversation.
+    """)
+  end
+
   @doc "Mails a chat transcript to the address a site visitor left."
   def deliver_transcript(recipient, app_name, transcript) do
     deliver(recipient, "[FluxCapacitor] Your conversation with #{app_name}", """
