@@ -25,6 +25,19 @@ defmodule Flux.Guardrails do
     end
   end
 
+  @doc """
+  Ready-made PII patterns for the deny/redact list — append instead of
+  hand-writing regex. Deliberately practical shapes, not RFC parsers.
+  """
+  def presets do
+    [
+      {"emails", ~S"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"},
+      {"phone numbers", ~S"\+?\d[\d\s().-]{7,}\d"},
+      {"credit cards", ~S"\b(?:\d[ -]?){13,16}\b"},
+      {"IBANs", ~S"\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b"}
+    ]
+  end
+
   @doc "Saves patterns (newline-separated; blank disables) and the action."
   def configure(%Scope{} = scope, patterns_text, action)
       when action in ["block", "flag", "redact"] do

@@ -13,6 +13,9 @@ defmodule FluxWeb.SamlController do
     with %Samly.Assertion{} = assertion <- Samly.get_active_assertion(conn),
          {:ok, email} <- FluxWeb.SAML.assertion_email(assertion),
          {:ok, account} <- Accounts.get_or_register_sso_account(email) do
+      # Workspaces with an SSO role mapping get roles synced from the
+      # assertion's attributes — same config the OIDC flow reads.
+      Accounts.apply_oidc_roles(account, assertion.attributes || %{})
       AccountAuth.log_in_account(conn, account)
     else
       nil ->

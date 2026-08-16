@@ -133,6 +133,33 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
     end
   end
 
+  def handle_event("add_guardrail_preset", %{"pattern" => pattern}, socket) do
+    current = (socket.assigns.guardrails && socket.assigns.guardrails.patterns) || []
+
+    if pattern in current do
+      {:noreply, socket}
+    else
+      action = (socket.assigns.guardrails && socket.assigns.guardrails.action) || "redact"
+
+      case Flux.Guardrails.configure(
+             socket.assigns.current_scope,
+             Enum.join(current ++ [pattern], "\n"),
+             action
+           ) do
+        {:ok, _workspace} ->
+          workspace_id = Flux.Accounts.Scope.workspace_id(socket.assigns.current_scope)
+
+          {:noreply,
+           socket
+           |> put_flash(:info, "Preset added to the guardrails.")
+           |> assign(guardrails: Flux.Guardrails.config(workspace_id))}
+
+        _error ->
+          {:noreply, put_flash(socket, :error, "Could not add the preset.")}
+      end
+    end
+  end
+
   def handle_event("set_guardrails", %{"patterns" => patterns, "action" => action}, socket) do
     case Flux.Guardrails.configure(socket.assigns.current_scope, patterns, action) do
       {:ok, _workspace} ->
@@ -988,6 +1015,20 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
           output raises a <span class="font-mono">guardrail</span>
           notification (routable to webhooks). Blank disables.
         </p>
+
+        <div class="flex flex-wrap items-center gap-1" id="guardrail-presets">
+          <span class="text-xs opacity-60">Presets:</span>
+          <button
+            :for={{label, pattern} <- Flux.Guardrails.presets()}
+            type="button"
+            class="btn btn-ghost btn-xs"
+            phx-click="add_guardrail_preset"
+            phx-value-pattern={pattern}
+            title={pattern}
+          >
+            + {label}
+          </button>
+        </div>
 
         <form phx-submit="set_guardrails" id="guardrails-form" class="space-y-2">
           <textarea

@@ -35,12 +35,16 @@ defmodule FluxWeb.ConsoleLive.Runs do
   end
 
   defp load_runs(socket) do
+    starred =
+      Flux.Accounts.favorite_ids(socket.assigns.current_scope.account, "run")
+
     rows =
       Workflows.list_workspace_runs(
         socket.assigns.current_scope,
         socket.assigns.filters,
         socket.assigns.limit
       )
+      |> Enum.sort_by(fn %{run: run} -> (MapSet.member?(starred, run.id) && 0) || 1 end)
 
     totals =
       Enum.reduce(rows, %{tokens: 0, cost: 0.0}, fn %{run: run}, acc ->
@@ -51,7 +55,12 @@ defmodule FluxWeb.ConsoleLive.Runs do
         }
       end)
 
-    assign(socket, rows: rows, totals: totals, more?: length(rows) >= socket.assigns.limit)
+    assign(socket,
+      rows: rows,
+      starred: starred,
+      totals: totals,
+      more?: length(rows) >= socket.assigns.limit
+    )
   end
 
   # Palette deep links land here: ?run=<id> expands that run on load.
@@ -67,6 +76,13 @@ defmodule FluxWeb.ConsoleLive.Runs do
   def handle_params(_params, _uri, socket), do: {:noreply, socket}
 
   @impl true
+  def handle_event("toggle_run_star", %{"id" => run_id}, socket) do
+    {:ok, _state} =
+      Flux.Accounts.toggle_favorite(socket.assigns.current_scope.account, "run", run_id)
+
+    {:noreply, load_runs(socket)}
+  end
+
   def handle_event("filter", params, socket) do
     filters =
       %{}
@@ -460,6 +476,8 @@ defmodule FluxWeb.ConsoleLive.Runs do
         <table :if={@rows != []} class="table table-sm">
           <thead>
             <tr>
+              <th></th>
+
               <th title="Pick two runs to compare">⇄</th>
 
               <th>When</th>
@@ -493,6 +511,18 @@ defmodule FluxWeb.ConsoleLive.Runs do
                     phx-value-id={run.id}
                     aria-label="Pick this run for comparison"
                   />
+                </td>
+
+                <td onclick="event.stopPropagation()">
+                  <button
+                    class="btn btn-ghost btn-xs px-1"
+                    phx-click="toggle_run_star"
+                    phx-value-id={run.id}
+                    title="Pinned runs stay at the top of the list (just for you)"
+                    aria-label="Pin this run"
+                  >
+                    {(MapSet.member?(@starred, run.id) && "★") || "☆"}
+                  </button>
                 </td>
 
                 <td class="text-xs opacity-70">

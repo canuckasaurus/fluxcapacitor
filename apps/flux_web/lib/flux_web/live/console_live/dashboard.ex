@@ -20,6 +20,7 @@ defmodule FluxWeb.ConsoleLive.Dashboard do
 
     assign(socket,
       usage: Flux.Usage.workspace_summary(scope),
+      member_usage: Flux.Usage.member_usage(scope) |> Enum.take(8),
       quality: Flux.Usage.quality_summary(scope),
       onboarding: Flux.Usage.onboarding(scope),
       activity: Flux.Audit.list(scope, 8),
@@ -231,6 +232,32 @@ defmodule FluxWeb.ConsoleLive.Dashboard do
         >
           {gettext("Nothing to report yet — usage appears here once apps and fluxes run.")}
         </p>
+      </div>
+
+      <div
+        :if={@member_usage != []}
+        class="card border border-base-200 p-6 space-y-3"
+        id="member-usage"
+      >
+        <h2 class="font-semibold">Who is spending (30 days)</h2>
+        <table class="table table-sm">
+          <thead>
+            <tr>
+              <th>Started by</th>
+              <th class="text-right">Runs</th>
+              <th class="text-right">Tokens</th>
+              <th class="text-right">Est. cost</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={row <- @member_usage}>
+              <td class="text-xs">{row.who}</td>
+              <td class="text-right text-xs">{row.runs}</td>
+              <td class="text-right text-xs">{row.tokens}</td>
+              <td class="text-right text-xs">${Float.round(row.cost * 1.0, 4)}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
 
       <div class="card border border-base-200 p-6 space-y-3" id="quality-panel">

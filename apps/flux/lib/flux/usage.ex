@@ -331,6 +331,39 @@ defmodule Flux.Usage do
   end
 
   @doc """
+  Runs, tokens, and estimated cost per starter over the window — the
+  "who is spending" table. `started_by` is already attributed on every
+  run (member emails, api:<prefix>, trigger:<type>, batch, …).
+  """
+  def member_usage(%Scope{} = scope, days \\ 30) when days in 1..365 do
+    since = DateTime.add(DateTime.utc_now(:second), -days, :day)
+
+    Flux.Workflows.WorkflowRun
+    |> Repo.scoped(scope)
+    |> where([r], r.inserted_at >= ^since)
+    |> select([r], %{started_by: r.started_by, usage: r.usage})
+    |> Repo.all()
+    |> Enum.group_by(&(&1.started_by || "unknown"))
+    |> Enum.map(fn {who, rows} -> member_usage_totals(who, rows) end)
+    |> Enum.sort_by(&(-&1.tokens))
+  end
+
+  defp member_usage_totals(who, rows) do
+    %{
+      who: who,
+      runs: length(rows),
+      tokens:
+        Enum.sum(
+          for row <- rows,
+              do:
+                ((row.usage || %{})["input_tokens"] || 0) +
+                  ((row.usage || %{})["output_tokens"] || 0)
+        ),
+      cost: Enum.sum(for row <- rows, do: (row.usage || %{})["estimated_cost_usd"] || 0.0)
+    }
+  end
+
+  @doc """
   Daily token/cost totals for the workspace over the last `days`,
   combining flux runs and chat replies — the data behind `GET /v1/usage`.
   Chat costs are the same pricing estimate the console shows.
@@ -382,9 +415,19 @@ defmodule Flux.Usage do
   end
 
   defp usage_row_cost(usage, input, output) do
-    usage["estimated_cost_usd"] ||
-      (is_binary(usage["model_used"]) &&
-         Flux.Pricing.estimate(usage["model_used"], input, output)) || 0.0
+    cond do
+      is_number(usage["estimated_cost_usd"]) ->
+        usage["estimated_cost_usd"]
+
+      is_binary(usage["model_used"]) ->
+        case Flux.Pricing.estimate(usage["model_used"], input, output) do
+          {:ok, cost} -> cost
+          _unknown -> 0.0
+        end
+
+      true ->
+        0.0
+    end
   end
 
   def flux_costs(%Scope{} = scope, days \\ 30) do
