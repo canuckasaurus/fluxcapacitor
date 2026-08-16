@@ -11,257 +11,624 @@ msgstr ""
 "Language: de\n"
 "Plural-Forms: nplurals=2; plural=(n!=1);\n"
 
+#: lib/flux_web/components/core_components.ex:375
+#, elixir-autogen, elixir-format
 msgid "Actions"
 msgstr "Aktionen"
 
+#: lib/flux_web/live/account_live/registration.ex:76
+#, elixir-autogen, elixir-format
 msgid "An email was sent to %{email}, please access it to confirm your account."
 msgstr "Eine E-Mail wurde an %{email} gesendet — bitte öffnen Sie sie, um Ihr Konto zu bestätigen."
 
+#: lib/flux_web/components/layouts.ex:417
+#: lib/flux_web/components/layouts.ex:429
+#, elixir-autogen, elixir-format
 msgid "Attempting to reconnect"
 msgstr "Verbindung wird wiederhergestellt"
 
+#: lib/flux_web/components/layouts.ex:54
+#, elixir-autogen, elixir-format
 msgid "Console"
 msgstr "Konsole"
 
+#: lib/flux_web/live/account_live/login.ex:95
+#, elixir-autogen, elixir-format
 msgid "Continue with %{provider}"
 msgstr "Weiter mit %{provider}"
 
+#: lib/flux_web/live/account_live/registration.ex:38
+#, elixir-autogen, elixir-format
 msgid "Create an account"
 msgstr "Konto erstellen"
 
+#: lib/flux_web/live/account_live/registration.ex:18
+#, elixir-autogen, elixir-format
 msgid "Create your account — already registered?"
 msgstr "Erstellen Sie Ihr Konto — bereits registriert?"
 
+#: lib/flux_web/live/account_live/registration.ex:37
+#, elixir-autogen, elixir-format
 msgid "Creating account..."
 msgstr "Konto wird erstellt..."
 
+#: lib/flux_web/components/layouts.ex:49
+#: lib/flux_web/components/layouts.ex:279
+#: lib/flux_web/controllers/page_html/home.html.heex:17
+#, elixir-autogen, elixir-format
 msgid "Docs"
 msgstr "Doku"
 
+#: lib/flux_web/live/account_live/login.ex:47
+#: lib/flux_web/live/account_live/login.ex:72
+#: lib/flux_web/live/account_live/registration.ex:30
+#, elixir-autogen, elixir-format
 msgid "Email"
 msgstr "E-Mail"
 
+#: lib/flux_web/live/account_live/login.ex:138
+#, elixir-autogen, elixir-format
 msgid "If your email is in our system, you will receive instructions for logging in shortly."
 msgstr "Wenn Ihre E-Mail-Adresse in unserem System hinterlegt ist, erhalten Sie in Kürze Anweisungen zur Anmeldung."
 
+#: lib/flux_web/components/layouts.ex:59
+#: lib/flux_web/controllers/page_html/home.html.heex:22
+#: lib/flux_web/live/account_live/registration.ex:20
+#, elixir-autogen, elixir-format
 msgid "Log in"
 msgstr "Anmelden"
 
+#: lib/flux_web/live/account_live/login.ex:85
+#, elixir-autogen, elixir-format
 msgid "Log in and stay logged in"
 msgstr "Anmelden und angemeldet bleiben"
 
+#: lib/flux_web/live/account_live/login.ex:88
+#, elixir-autogen, elixir-format
 msgid "Log in only this time"
 msgstr "Nur dieses Mal anmelden"
 
+#: lib/flux_web/live/account_live/login.ex:20
+#, elixir-autogen, elixir-format
 msgid "Log in to your workspace — or"
 msgstr "Melden Sie sich in Ihrem Arbeitsbereich an — oder"
 
+#: lib/flux_web/live/account_live/login.ex:54
+#, elixir-autogen, elixir-format
 msgid "Log in with email"
 msgstr "Mit E-Mail anmelden"
 
+#: lib/flux_web/live/account_live/login.ex:80
+#, elixir-autogen, elixir-format
 msgid "Password"
 msgstr "Passwort"
 
+#: lib/flux_web/live/account_live/login.ex:18
+#, elixir-autogen, elixir-format
 msgid "Reauthenticate to perform sensitive account actions."
 msgstr "Melden Sie sich erneut an, um sensible Kontoaktionen durchzuführen."
 
+#: lib/flux_web/components/layouts.ex:424
+#, elixir-autogen, elixir-format
 msgid "Something went wrong!"
 msgstr "Etwas ist schiefgelaufen!"
 
+#: lib/flux_web/components/layouts.ex:412
+#, elixir-autogen, elixir-format
 msgid "We can't find the internet"
 msgstr "Das Internet ist nicht erreichbar"
 
+#: lib/flux_web/live/account_live/registration.ex:41
+#, elixir-autogen, elixir-format
 msgid "We'll email you a magic link — no password needed to start."
 msgstr "Wir senden Ihnen einen Magic-Link per E-Mail — kein Passwort nötig."
 
+#: lib/flux_web/components/core_components.ex:81
+#, elixir-autogen, elixir-format
 msgid "close"
 msgstr "schließen"
 
+#: lib/flux_web/live/account_live/login.ex:22
+#, elixir-autogen, elixir-format
 msgid "create an account"
 msgstr "Konto erstellen"
 
+#: lib/flux_web/live/account_live/login.ex:58
+#, elixir-autogen, elixir-format
 msgid "or use a password"
 msgstr "oder ein Passwort verwenden"
 
+#: lib/flux_web/live/console_live/dashboard.ex:312
+#, elixir-autogen, elixir-format
 msgid "Add knowledge"
 msgstr "Wissen hinzufügen"
 
+#: lib/flux_web/live/console_live/dashboard.ex:191
+#, elixir-autogen, elixir-format
 msgid "App"
 msgstr "App"
 
+#: lib/flux_web/components/layouts.ex:169
+#: lib/flux_web/live/console_live/apps.ex:230
+#, elixir-autogen, elixir-format
 msgid "Apps"
 msgstr "Apps"
 
+#: lib/flux_web/components/layouts.ex:258
+#: lib/flux_web/live/console_live/audit.ex:80
+#, elixir-autogen, elixir-format
 msgid "Audit log"
 msgstr "Audit-Protokoll"
 
+#: lib/flux_web/components/layouts.ex:159
+#, elixir-autogen, elixir-format
 msgid "Build"
 msgstr "Bauen"
 
+#: lib/flux_web/live/console_live/dashboard.ex:301
+#, elixir-autogen, elixir-format
 msgid "Create a Flux"
 msgstr "Flux erstellen"
 
+#: lib/flux_web/live/console_live/dashboard.ex:207
+#, elixir-autogen, elixir-format
 msgid "Daily"
 msgstr "Täglich"
 
+#: lib/flux_web/live/console_live/dashboard.ex:211
+#, elixir-autogen, elixir-format
 msgid "Day"
 msgstr "Tag"
 
+#: lib/flux_web/components/layouts.ex:175
+#: lib/flux_web/live/console_live/doc_templates.ex:306
+#, elixir-autogen, elixir-format
 msgid "Doc templates"
 msgstr "Dokumentvorlagen"
 
+#: lib/flux_web/components/layouts.ex:163
+#, elixir-autogen, elixir-format
 msgid "Flux Creator"
 msgstr "Flux-Creator"
 
+#: lib/flux_web/components/layouts.ex:185
+#, elixir-autogen, elixir-format
 msgid "Ground"
 msgstr "Grundlagen"
 
+#: lib/flux_web/components/layouts.ex:181
+#: lib/flux_web/live/console_live/interviews.ex:202
+#, elixir-autogen, elixir-format
 msgid "Interviews"
 msgstr "Interviews"
 
+#: lib/flux_web/live/console_live/dashboard.ex:334
+#, elixir-autogen, elixir-format
 msgid "Invite your team"
 msgstr "Team einladen"
 
+#: lib/flux_web/components/layouts.ex:189
+#: lib/flux_web/live/console_live/dashboard.ex:176
+#: lib/flux_web/live/console_live/knowledge.ex:886
+#, elixir-autogen, elixir-format
 msgid "Knowledge"
 msgstr "Wissen"
 
+#: lib/flux_web/components/layouts.ex:207
+#: lib/flux_web/live/console_live/labeling.ex:257
+#, elixir-autogen, elixir-format
 msgid "Labeling"
 msgstr "Labeling"
 
+#: lib/flux_web/components/layouts.ex:251
+#: lib/flux_web/live/console_live/members.ex:281
+#, elixir-autogen, elixir-format
 msgid "Members"
 msgstr "Mitglieder"
 
+#: lib/flux_web/live/console_live/dashboard.ex:232
+#, elixir-autogen, elixir-format
 msgid "Nothing to report yet — usage appears here once apps and fluxes run."
 msgstr "Noch nichts zu berichten — die Nutzung erscheint hier, sobald Apps und Fluxes laufen."
 
+#: lib/flux_web/components/layouts.ex:217
+#, elixir-autogen, elixir-format
 msgid "Operate"
 msgstr "Betreiben"
 
+#: lib/flux_web/components/layouts.ex:213
+#: lib/flux_web/live/console_live/plugins.ex:153
+#, elixir-autogen, elixir-format
 msgid "Plugins"
 msgstr "Plugins"
 
+#: lib/flux_web/live/console_live/dashboard.ex:121
+#: lib/flux_web/live/console_live/dashboard.ex:192
+#: lib/flux_web/live/console_live/dashboard.ex:212
+#, elixir-autogen, elixir-format
 msgid "Replies"
 msgstr "Antworten"
 
+#: lib/flux_web/live/console_live/dashboard.ex:161
+#, elixir-autogen, elixir-format
 msgid "Run tokens"
 msgstr "Ausführungs-Tokens"
 
+#: lib/flux_web/components/layouts.ex:221
+#: lib/flux_web/live/console_live/dashboard.ex:152
+#: lib/flux_web/live/console_live/runs.ex:292
+#, elixir-autogen, elixir-format
 msgid "Runs"
 msgstr "Ausführungen"
 
+#: lib/flux_web/live/console_live/dashboard.ex:323
+#, elixir-autogen, elixir-format
 msgid "Set up plugins"
 msgstr "Plugins einrichten"
 
+#: lib/flux_web/components/layouts.ex:271
+#, elixir-autogen, elixir-format
 msgid "Settings"
 msgstr "Einstellungen"
 
+#: lib/flux_web/live/console_live/dashboard.ex:193
+#, elixir-autogen, elixir-format
 msgid "Tokens"
 msgstr "Tokens"
 
+#: lib/flux_web/live/console_live/dashboard.ex:127
+#: lib/flux_web/live/console_live/dashboard.ex:213
+#, elixir-autogen, elixir-format
 msgid "Tokens in"
 msgstr "Tokens ein"
 
+#: lib/flux_web/live/console_live/dashboard.ex:133
+#: lib/flux_web/live/console_live/dashboard.ex:214
+#, elixir-autogen, elixir-format
 msgid "Tokens out"
 msgstr "Tokens aus"
 
+#: lib/flux_web/components/layouts.ex:195
+#: lib/flux_web/live/console_live/tools.ex:263
+#, elixir-autogen, elixir-format
 msgid "Tools"
 msgstr "Werkzeuge"
 
+#: lib/flux_web/live/console_live/dashboard.ex:187
+#, elixir-autogen, elixir-format
 msgid "Top apps by tokens"
 msgstr "Top-Apps nach Tokens"
 
+#: lib/flux_web/live/console_live/dashboard.ex:170
+#, elixir-autogen, elixir-format
 msgid "Uploads"
 msgstr "Uploads"
 
+#: lib/flux_web/live/console_live/dashboard.ex:117
+#, elixir-autogen, elixir-format
 msgid "Usage (last %{days} days)"
 msgstr "Nutzung (letzte %{days} Tage)"
 
+#: lib/flux_web/live/console_live/dashboard.ex:74
+#, elixir-autogen, elixir-format
 msgid "Welcome to"
 msgstr "Willkommen bei"
 
+#: lib/flux_web/live/console_live/dashboard.ex:77
+#, elixir-autogen, elixir-format
 msgid "You're signed in as"
 msgstr "Sie sind angemeldet als"
 
+#: lib/flux_web/live/console_live/apps.ex:232
+#, elixir-autogen, elixir-format
 msgid "Chat applications backed by your configured models."
 msgstr "Chat-Anwendungen auf Basis Ihrer konfigurierten Modelle."
 
+#: lib/flux_web/live/console_live/fluxes.ex:374
+#, elixir-autogen, elixir-format
 msgid "Design, debug, and publish AI workflows."
 msgstr "KI-Workflows entwerfen, debuggen und veröffentlichen."
 
+#: lib/flux_web/live/console_live/knowledge.ex:889
+#, elixir-autogen, elixir-format
 msgid "Document collections your fluxes can retrieve from."
 msgstr "Dokumentsammlungen, aus denen Ihre Fluxes abrufen können."
 
+#: lib/flux_web/live/console_live/docs.ex:245
+#, elixir-autogen, elixir-format
 msgid "Documentation"
 msgstr "Dokumentation"
 
+#: lib/flux_web/live/console_live/fluxes.ex:373
+#, elixir-autogen, elixir-format
 msgid "Fluxes"
 msgstr "Fluxes"
 
+#: lib/flux_web/live/console_live/knowledge.ex:907
+#, elixir-autogen, elixir-format
 msgid "New dataset"
 msgstr "Neuer Datensatz"
 
+#: lib/flux_web/live/console_live/docs.ex:246
+#, elixir-autogen, elixir-format
 msgid "The guides, right here in the console."
 msgstr "Die Anleitungen, direkt in der Konsole."
 
+#: lib/flux_web/live/console_live/workspace_settings.ex:675
+#, elixir-autogen, elixir-format
 msgid "Workspace settings"
 msgstr "Arbeitsbereich-Einstellungen"
 
+#: lib/flux_web/live/console_live/flux_batches.ex:244
+#, elixir-autogen, elixir-format
 msgid "Batch runs"
 msgstr "Batch-Ausführungen"
 
+#: lib/flux_web/live/console_live/dashboard.ex:256
+#, elixir-autogen, elixir-format
 msgid "Eval set"
 msgstr "Evaluationsset"
 
+#: lib/flux_web/live/console_live/flux_evals.ex:330
+#, elixir-autogen, elixir-format
 msgid "Evaluations"
 msgstr "Evaluationen"
 
+#: lib/flux_web/live/console_live/files.ex:80
+#, elixir-autogen, elixir-format
 msgid "Everything the workspace has stored — run outputs, artifacts, uploads."
 msgstr "Alles, was der Arbeitsbereich gespeichert hat — Ausgaben, Artefakte, Uploads."
 
+#: lib/flux_web/components/layouts.ex:227
+#: lib/flux_web/live/console_live/files.ex:78
+#, elixir-autogen, elixir-format
 msgid "Files"
 msgstr "Dateien"
 
+#: lib/flux_web/live/console_live/dashboard.ex:273
+#, elixir-autogen, elixir-format
 msgid "No evals yet — score a flux from its Evals page and results land here."
 msgstr "Noch keine Evaluationen — bewerten Sie einen Flux über seine Evaluationsseite, und die Ergebnisse erscheinen hier."
 
+#: lib/flux_web/live/console_live/dashboard.ex:259
+#, elixir-autogen, elixir-format
 msgid "Pass / fail"
 msgstr "Bestanden / fehlgeschlagen"
 
+#: lib/flux_web/live/console_live/dashboard.ex:238
+#, elixir-autogen, elixir-format
 msgid "Quality"
 msgstr "Qualität"
 
+#: lib/flux_web/live/console_live/dashboard.ex:258
+#, elixir-autogen, elixir-format
 msgid "Score"
 msgstr "Punktzahl"
 
+#: lib/flux_web/live/console_live/dashboard.ex:257
+#, elixir-autogen, elixir-format
 msgid "Target"
 msgstr "Ziel"
 
+#: lib/flux_web/live/console_live/dashboard.ex:249
+#, elixir-autogen, elixir-format
 msgid "agreement"
 msgstr "Übereinstimmung"
 
+#: lib/flux_web/live/console_live/dashboard.ex:240
+#, elixir-autogen, elixir-format
 msgid "gates"
 msgstr "Gates"
 
+#: lib/flux_web/live/console_live/dashboard.ex:243
+#, elixir-autogen, elixir-format
 msgid "scheduled"
 msgstr "geplant"
 
+#: lib/flux_web/live/console_live/dashboard.ex:246
+#, elixir-autogen, elixir-format
 msgid "to label"
 msgstr "zu labeln"
 
+#: lib/flux_web/live/console_live/notifications.ex:77
+#, elixir-autogen, elixir-format
 msgid "Failures, regressions, and completions across the workspace."
 msgstr "Fehlschläge, Regressionen und Abschlüsse im gesamten Arbeitsbereich."
 
+#: lib/flux_web/live/console_live/dashboard.ex:90
+#, elixir-autogen, elixir-format
 msgid "Getting started"
 msgstr "Erste Schritte"
 
+#: lib/flux_web/live/console_live/dashboard.ex:95
+#, elixir-autogen, elixir-format
 msgid "Getting started progress"
 msgstr "Fortschritt der ersten Schritte"
 
+#: lib/flux_web/components/layouts.ex:239
+#: lib/flux_web/live/console_live/notifications.ex:75
+#, elixir-autogen, elixir-format
 msgid "Notifications"
 msgstr "Benachrichtigungen"
 
+#: lib/flux_web/live/site_live/app_site.ex:831
+#, elixir-autogen, elixir-format
+msgid "Ask a person to join this conversation"
+msgstr "Eine Person zu diesem Gespräch hinzubitten"
+
+#: lib/flux_web/live/site_live/app_site.ex:759
+#, elixir-autogen, elixir-format
+msgid "Attach files"
+msgstr "Dateien anhängen"
+
+#: lib/flux_web/live/site_live/app_site.ex:758
+#, elixir-autogen, elixir-format
+msgid "Attach images or documents"
+msgstr "Bilder oder Dokumente anhängen"
+
+#: lib/flux_web/live/account_live/totp.ex:30
+#, elixir-autogen, elixir-format
+msgid "Authentication code"
+msgstr "Authentifizierungscode"
+
+#: lib/flux_web/live/account_live/login.ex:104
+#, elixir-autogen, elixir-format
+msgid "Continue with SAML SSO"
+msgstr "Mit SAML-SSO fortfahren"
+
+#: lib/flux_web/live/site_live/app_site.ex:804
+#, elixir-autogen, elixir-format
+msgid "Download this conversation as Markdown"
+msgstr "Dieses Gespräch als Markdown herunterladen"
+
+#: lib/flux_web/live/site_live/app_site.ex:815
+#, elixir-autogen, elixir-format
+msgid "Email this transcript to %{email}"
+msgstr "Dieses Protokoll an %{email} senden"
+
+#: lib/flux_web/live/site_live/app_site.ex:470
+#, elixir-autogen, elixir-format
+msgid "Enter"
+msgstr "Weiter"
+
+#: lib/flux_web/live/account_live/totp.ex:21
+#, elixir-autogen, elixir-format
+msgid "Enter the six-digit code from your authenticator app."
+msgstr "Gib den sechsstelligen Code aus deiner Authenticator-App ein."
+
+#: lib/flux_web/live/console_live/dashboard.ex:291
+#, elixir-autogen, elixir-format
+msgid "Full audit log"
+msgstr "Vollständiges Audit-Protokoll"
+
+#: lib/flux_web/live/site_live/app_site.ex:771
+#, elixir-autogen, elixir-format
+msgid "Hold to talk — release to transcribe"
+msgstr "Zum Sprechen halten — loslassen zum Transkribieren"
+
+#: lib/flux_web/live/site_live/app_site.ex:557
+#, elixir-autogen, elixir-format
+msgid "Leave your details so we can follow up (optional):"
+msgstr "Hinterlasse deine Kontaktdaten für Rückfragen (optional):"
+
+#: lib/flux_web/live/site_live/app_site.ex:666
+#, elixir-autogen, elixir-format
+msgid "Listen"
+msgstr "Anhören"
+
+#: lib/flux_web/live/account_live/totp.ex:42
+#, elixir-autogen, elixir-format
+msgid "Lost the device? A recovery code works here too."
+msgstr "Gerät verloren? Ein Wiederherstellungscode funktioniert hier auch."
+
+#: lib/flux_web/live/console_live/dashboard.ex:139
+#, elixir-autogen, elixir-format
+msgid "Month-end projection"
+msgstr "Monatsend-Prognose"
+
+#: lib/flux_web/live/site_live/app_site.ex:562
+#, elixir-autogen, elixir-format
+msgid "Name"
+msgstr "Name"
+
+#: lib/flux_web/live/site_live/app_site.ex:464
+#, elixir-autogen, elixir-format, fuzzy
+msgid "Passcode"
+msgstr "Passwort"
+
+#: lib/flux_web/components/layouts.ex:201
+#: lib/flux_web/live/console_live/playground.ex:113
+#, elixir-autogen, elixir-format
+msgid "Playground"
+msgstr "Spielwiese"
+
+#: lib/flux_web/live/site_live/app_site.ex:664
+#, elixir-autogen, elixir-format
+msgid "Read this reply aloud"
+msgstr "Diese Antwort vorlesen"
+
+#: lib/flux_web/live/site_live/app_site.ex:663
+#, elixir-autogen, elixir-format
+msgid "Read this reply aloud (click again to stop)"
+msgstr "Diese Antwort vorlesen (erneut klicken zum Stoppen)"
+
+#: lib/flux_web/live/console_live/dashboard.ex:278
+#, elixir-autogen, elixir-format
 msgid "Recent activity"
 msgstr "Letzte Aktivität"
 
-msgid "Full audit log"
-msgstr "Vollständiges Audit-Protokoll"
+#: lib/flux_web/live/site_live/app_site.ex:573
+#, elixir-autogen, elixir-format
+msgid "Save"
+msgstr "Speichern"
+
+#: lib/flux_web/live/site_live/app_site.ex:591
+#, elixir-autogen, elixir-format
+msgid "Say something to start the conversation."
+msgstr "Sag etwas, um das Gespräch zu beginnen."
+
+#: lib/flux_web/live/site_live/app_site.ex:704
+#: lib/flux_web/live/site_live/app_site.ex:787
+#, elixir-autogen, elixir-format
+msgid "Send"
+msgstr "Senden"
+
+#: lib/flux_web/live/site_live/app_site.ex:796
+#, elixir-autogen, elixir-format
+msgid "Start a new conversation"
+msgstr "Neues Gespräch beginnen"
+
+#: lib/flux_web/live/site_live/app_site.ex:789
+#, elixir-autogen, elixir-format
+msgid "Stop"
+msgstr "Stopp"
+
+#: lib/flux_web/live/site_live/app_site.ex:834
+#, elixir-autogen, elixir-format
+msgid "Talk to a human"
+msgstr "Mit einem Menschen sprechen"
+
+#: lib/flux_web/live/site_live/app_site.ex:699
+#, elixir-autogen, elixir-format
+msgid "Tell us more (optional)…"
+msgstr "Erzähl uns mehr (optional)…"
+
+#: lib/flux_web/live/site_live/app_site.ex:710
+#, elixir-autogen, elixir-format
+msgid "Thanks for the feedback."
+msgstr "Danke für das Feedback."
+
+#: lib/flux_web/live/site_live/app_site.ex:843
+#, elixir-autogen, elixir-format
+msgid "The team has been notified — a human will reply right here."
+msgstr "Das Team wurde benachrichtigt — ein Mensch antwortet direkt hier."
+
+#: lib/flux_web/live/site_live/app_site.ex:457
+#, elixir-autogen, elixir-format
+msgid "This app is passcode-protected."
+msgstr "Diese App ist durch einen Zugangscode geschützt."
+
+#: lib/flux_web/live/site_live/app_site.ex:782
+#, elixir-autogen, elixir-format
+msgid "Transcribing…"
+msgstr "Transkribiere…"
+
+#: lib/flux_web/live/site_live/app_site.ex:149
+#, elixir-autogen, elixir-format
+msgid "Transcription failed — try again."
+msgstr "Transkription fehlgeschlagen — bitte erneut versuchen."
+
+#: lib/flux_web/live/site_live/app_site.ex:782
+#, elixir-autogen, elixir-format
+msgid "Type a message…"
+msgstr "Nachricht eingeben…"
+
+#: lib/flux_web/live/account_live/totp.ex:38
+#, elixir-autogen, elixir-format
+msgid "Verify"
+msgstr "Bestätigen"
+
+#: lib/flux_web/live/site_live/app_site.ex:772
+#, elixir-autogen, elixir-format
+msgid "Voice input"
+msgstr "Spracheingabe"
