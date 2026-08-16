@@ -54,6 +54,7 @@ defmodule Flux.Workflows.ScheduleWorker do
     Flux.Chat.warn_expiring_keys(now)
     Workflows.run_scheduled_publishes(now)
     Flux.Backup.run_scheduled(now)
+    Flux.Idempotency.prune(now)
 
     # Remembered URL sources re-fetch nightly (runtime-resolved — flux
     # never compile-depends on flux_rag).

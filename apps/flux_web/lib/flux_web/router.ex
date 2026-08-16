@@ -22,6 +22,7 @@ defmodule FluxWeb.Router do
   pipeline :service_api do
     plug :accepts, ["json"]
     plug FluxWeb.Plugs.ServiceAuth
+    plug FluxWeb.Plugs.Idempotency
     plug FluxWeb.Plugs.RateLimit, name: "v1", by: :service, limit: 120, scale_ms: 60_000
   end
 
@@ -74,6 +75,8 @@ defmodule FluxWeb.Router do
     patch "/datasets/:id", DatasetController, :update
     delete "/datasets/:id", DatasetController, :delete
     post "/datasets/:id/document/create-by-text", DatasetController, :create_by_text
+    post "/datasets/:id/document/create-by-file", DatasetController, :create_by_file
+    post "/datasets/:id/documents/:document_id/update-by-text", DatasetController, :update_by_text
     post "/datasets/:id/document/create-by-url", DatasetController, :create_by_url
     post "/workflows/batch", QualityController, :batch_create
     get "/batches/:id", QualityController, :batch_show
@@ -204,6 +207,14 @@ defmodule FluxWeb.Router do
 
     post "/webhook/:token", TriggerController, :webhook
     post "/email/:token", TriggerController, :email
+  end
+
+  ## Inbound chat channels (the emch_ token in the path is the authorization)
+
+  scope "/channels", FluxWeb do
+    pipe_through :api
+
+    post "/email/:token", ChannelController, :email
   end
 
   # SCIM 2.0 provisioning (IdP-driven); the bearer token names the workspace.
@@ -393,6 +404,8 @@ defmodule FluxWeb.Router do
     end
 
     post "/accounts/log-in", AccountSessionController, :create
+    post "/accounts/passkeys/login-challenge", PasskeyController, :login_challenge
+    post "/accounts/passkeys/login", PasskeyController, :login
     post "/accounts/totp", AccountSessionController, :totp
     delete "/accounts/log-out", AccountSessionController, :delete
 

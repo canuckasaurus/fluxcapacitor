@@ -134,6 +134,66 @@ defmodule FluxWeb.V1.DatasetController do
     error(conn, 400, "invalid_param", "name and text are required")
   end
 
+  @doc "Multipart file upload -> extracted text -> indexed document."
+  def create_by_file(conn, %{"id" => dataset_id, "file" => %Plug.Upload{} = upload}) do
+    scope = conn.assigns.service_scope
+
+    with dataset when not is_tuple(dataset) <- RAG.get_dataset(scope, dataset_id),
+         {:ok, binary} <- File.read(upload.path),
+         {:ok, text} when text != "" <-
+           Flux.Documents.extract_binary(upload.filename, upload.content_type, binary),
+         {:ok, document} <-
+           RAG.add_document(scope, dataset, %{name: upload.filename, content: text},
+             replace: true
+           ) do
+      json(conn, %{
+        document: %{id: document.id, name: document.name, status: document.status}
+      })
+    else
+      {:error, :not_found} ->
+        error(conn, 404, "not_found", "Dataset not found")
+
+      {:error, :unauthorized} ->
+        error(conn, 403, "forbidden", "This token cannot add documents")
+
+      {:ok, ""} ->
+        error(conn, 422, "no_text", "No text could be extracted from that file")
+
+      {:error, reason} when is_binary(reason) ->
+        error(conn, 422, "extraction_failed", reason)
+
+      _unreadable ->
+        error(conn, 422, "extraction_failed", "Could not read or extract the file")
+    end
+  end
+
+  def create_by_file(conn, _params) do
+    error(conn, 400, "invalid_param", ~s(multipart field "file" is required))
+  end
+
+  @doc "Replaces a document's text by id; the old content becomes a revision."
+  def update_by_text(conn, %{"document_id" => document_id, "text" => text})
+      when is_binary(text) and text != "" do
+    scope = conn.assigns.service_scope
+
+    case RAG.update_document_text(scope, document_id, text, conn.params["name"]) do
+      {:ok, document} ->
+        json(conn, %{
+          document: %{id: document.id, name: document.name, status: document.status}
+        })
+
+      {:error, :not_found} ->
+        error(conn, 404, "not_found", "Document not found")
+
+      {:error, :unauthorized} ->
+        error(conn, 403, "forbidden", "This token cannot edit documents")
+    end
+  end
+
+  def update_by_text(conn, _params) do
+    error(conn, 400, "invalid_param", "text is required")
+  end
+
   def create_by_url(conn, %{"id" => dataset_id, "url" => url}) when is_binary(url) do
     scope = conn.assigns.service_scope
 

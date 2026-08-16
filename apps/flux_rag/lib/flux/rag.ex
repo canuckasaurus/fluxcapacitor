@@ -679,6 +679,46 @@ defmodule Flux.RAG do
     |> Repo.all()
   end
 
+  @doc """
+  Replaces a document's content by id and re-indexes — the API's
+  update-by-text. The outgoing content is kept as a revision, same as
+  replace-mode uploads.
+  """
+  def update_document_text(%Scope{} = scope, document_id, text, name \\ nil)
+      when is_binary(text) and text != "" do
+    with :ok <- RBAC.authorize(scope, :dataset_edit),
+         %Document{} = document <-
+           Repo.one(Repo.scoped(where(Document, id: ^document_id), scope)) ||
+             {:error, :not_found} do
+      if is_binary(document.content) and document.content != "" do
+        Repo.insert!(%Flux.RAG.DocumentRevision{
+          workspace_id: document.workspace_id,
+          dataset_id: document.dataset_id,
+          name: document.name,
+          content: document.content
+        })
+
+        prune_revisions(scope, document.dataset_id, document.name)
+      end
+
+      {:ok, updated} =
+        document
+        |> Ecto.Changeset.change(
+          content: text,
+          name: (is_binary(name) and name != "" && name) || document.name,
+          status: :pending
+        )
+        |> Repo.update()
+
+      {:ok, _job} =
+        %{document_id: updated.id}
+        |> Flux.RAG.IndexWorker.new()
+        |> Oban.insert()
+
+      {:ok, updated}
+    end
+  end
+
   @doc "Fetches one document for original-content download (its own permission)."
   def download_document(%Scope{} = scope, document_id) do
     with :ok <- RBAC.authorize(scope, :dataset_document_download),

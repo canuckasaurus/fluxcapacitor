@@ -1345,6 +1345,10 @@ defmodule FluxWeb.V1.ApiSpec do
       {:patch, "Update dataset settings (chunking, retrieval mode, Q&A indexing)", "Result"}
     ],
     "/datasets/{id}/document/create-by-text" => {:post, "Add a text document", "DocumentCreated"},
+    "/datasets/{id}/document/create-by-file" =>
+      {:post, "Upload a file (multipart); text is extracted and indexed", "DocumentCreated"},
+    "/datasets/{id}/documents/{document_id}/update-by-text" =>
+      {:post, "Replace a document's text (old content becomes a revision)", "DocumentCreated"},
     "/datasets/{id}/document/create-by-url" =>
       {:post, "Fetch a URL into a document", "DocumentCreated"},
     "/datasets/{id}/documents" => {:get, "List documents", "DocumentList"},
