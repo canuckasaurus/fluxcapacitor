@@ -25,8 +25,10 @@ defmodule FluxWeb.OIDCController do
     with true <-
            (is_binary(expected) and Plug.Crypto.secure_compare(state, expected)) ||
              {:error, "login session mismatch — try again"},
-         {:ok, email} <- OIDC.exchange_code(code, url(~p"/auth/oidc/callback")),
+         {:ok, email, claims} <- OIDC.exchange_code(code, url(~p"/auth/oidc/callback")),
          {:ok, account} <- Accounts.get_or_register_sso_account(email) do
+      # Workspaces with a claim->role mapping get roles synced per login.
+      Accounts.apply_oidc_roles(account, claims)
       AccountAuth.log_in_account(conn, account)
     else
       {:error, message} when is_binary(message) -> fail(conn, message)

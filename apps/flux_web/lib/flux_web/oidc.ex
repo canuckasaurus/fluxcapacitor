@@ -104,7 +104,7 @@ defmodule FluxWeb.OIDC do
         {:error, "the id_token carries no email claim"}
 
       true ->
-        {:ok, String.downcase(claims["email"])}
+        {:ok, String.downcase(claims["email"]), claims}
     end
   end
 

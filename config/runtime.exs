@@ -52,6 +52,19 @@ if days = System.get_env("FLUX_SESSION_VALIDITY_DAYS") do
   config :flux, :session_validity_days, String.to_integer(days)
 end
 
+# FLUX_SESSION_IDLE_MINUTES: end console sessions unused this long
+# (5–10080; unset = no idle timeout). Independent of the absolute
+# lifetime above.
+if minutes = System.get_env("FLUX_SESSION_IDLE_MINUTES") do
+  config :flux, :session_idle_minutes, String.to_integer(minutes)
+end
+
+# FLUX_SCHEDULED_BACKUPS=true: nightly workspace-export archives are
+# written through the storage layer (backups/<date>/… on S3 or disk).
+if System.get_env("FLUX_SCHEDULED_BACKUPS") in ~w(true 1) do
+  config :flux, :scheduled_backups, true
+end
+
 # FLUX_ADMIN_EMAILS: comma-separated account emails allowed into the
 # instance admin panel (/console/admin) — all workspaces, plans, usage.
 if admins = System.get_env("FLUX_ADMIN_EMAILS") do

@@ -29,10 +29,22 @@ defmodule FluxWeb.AccountSessionController do
     end
   end
 
-  # email + password login
+  # email + password login. The router already rate-limits the POST per
+  # IP; this second bucket throttles per *email address* across IPs, so
+  # a distributed guesser rotating addresses still locks out. Every
+  # attempt costs the counter (success included) — only someone signing
+  # in fifteen times in fifteen minutes would notice.
   defp create(conn, %{"account" => account_params}, info) do
     %{"email" => email, "password" => password} = account_params
 
+    if login_throttled?(conn, email) do
+      throttled_response(conn, email)
+    else
+      password_login(conn, account_params, email, password, info)
+    end
+  end
+
+  defp password_login(conn, account_params, email, password, info) do
     case Accounts.get_account_by_email_and_password(email, password) do
       %{} = account ->
         if Accounts.totp_enabled?(account) do
@@ -57,6 +69,41 @@ defmodule FluxWeb.AccountSessionController do
         |> put_flash(:email, String.slice(email, 0, 160))
         |> redirect(to: ~p"/accounts/log-in")
     end
+  end
+
+  @login_attempt_limit 15
+  @login_window_ms :timer.minutes(15)
+
+  defp login_throttled?(_conn, email) do
+    if Application.get_env(:flux_web, :rate_limit_enabled, true) do
+      email_hash =
+        :sha256
+        |> :crypto.hash(String.downcase(String.trim(email)))
+        |> Base.encode16(case: :lower)
+        |> String.slice(0, 16)
+
+      case FluxWeb.RateLimit.hit("login:#{email_hash}", @login_window_ms, @login_attempt_limit) do
+        {:allow, _count} -> false
+        {:deny, _retry_ms} -> true
+      end
+    else
+      false
+    end
+  end
+
+  defp throttled_response(conn, email) do
+    # Best-effort audit trail: only possible when the email maps to a
+    # real account with a workspace (Audit.record never raises).
+    with %{} = account <- Accounts.get_account_by_email(email) do
+      Flux.Audit.record(Accounts.scope_for(account), "account.login_throttled",
+        resource_type: "account",
+        resource_id: account.id
+      )
+    end
+
+    conn
+    |> put_flash(:error, "Too many sign-in attempts — wait a few minutes and try again.")
+    |> redirect(to: ~p"/accounts/log-in")
   end
 
   # 2FA challenge: only reachable with a password-verified pending login

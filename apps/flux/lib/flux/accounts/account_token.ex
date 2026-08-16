@@ -22,6 +22,10 @@ defmodule Flux.Accounts.AccountToken do
     # Where the session signed in from (settings page's "which device?").
     field :ip, :string
     field :user_agent, :string
+    # Touched (at most every few minutes) on session use — drives the
+    # optional idle timeout. NULL means "not seen since the column landed";
+    # the idle check coalesces to inserted_at.
+    field :last_used_at, :utc_datetime
     belongs_to :account, Flux.Accounts.Account
 
     timestamps(updated_at: false)
@@ -71,7 +75,32 @@ defmodule Flux.Accounts.AccountToken do
         where: token.inserted_at > ago(^validity_days, "day"),
         select: {%{account | authenticated_at: token.authenticated_at}, token.inserted_at}
 
+    query =
+      case idle_timeout_minutes() do
+        nil ->
+          query
+
+        minutes ->
+          where(
+            query,
+            [token],
+            coalesce(token.last_used_at, token.inserted_at) > ago(^minutes, "minute")
+          )
+      end
+
     {:ok, query}
+  end
+
+  @doc """
+  The optional inactivity window in minutes (`FLUX_SESSION_IDLE_MINUTES`,
+  config `:flux, :session_idle_minutes`) — a session unused that long is
+  dead even if its absolute lifetime has time left. nil (default) = off.
+  """
+  def idle_timeout_minutes do
+    case Application.get_env(:flux, :session_idle_minutes) do
+      minutes when is_integer(minutes) and minutes in 5..10_080 -> minutes
+      _off -> nil
+    end
   end
 
   @doc """
@@ -173,7 +202,8 @@ defmodule Flux.Accounts.AccountToken do
     end
   end
 
-  defp by_token_and_context_query(token, context) do
+  @doc false
+  def by_token_and_context_query(token, context) do
     from AccountToken, where: [token: ^token, context: ^context]
   end
 end

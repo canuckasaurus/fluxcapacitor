@@ -458,7 +458,23 @@ defmodule Flux.Accounts do
   """
   def get_account_by_session_token(token) do
     {:ok, query} = AccountToken.verify_session_token_query(token)
-    Repo.one(query)
+    result = Repo.one(query)
+
+    if result, do: touch_session_token(token)
+    result
+  end
+
+  # Keeps the idle-timeout clock honest without a write per request:
+  # last_used_at only advances when it is more than five minutes stale.
+  defp touch_session_token(token) do
+    if AccountToken.idle_timeout_minutes() do
+      from(t in AccountToken.by_token_and_context_query(token, "session"),
+        where: coalesce(t.last_used_at, t.inserted_at) < ago(5, "minute")
+      )
+      |> Repo.update_all(set: [last_used_at: DateTime.utc_now(:second)])
+    end
+
+    :ok
   end
 
   @doc """
@@ -1153,6 +1169,83 @@ defmodule Flux.Accounts do
       %{custom_config: %{"monthly_token_budget" => budget}} -> budget
       _unlimited -> nil
     end
+  end
+
+  @doc """
+  Configures OIDC claim→role mapping for this workspace: `claim` names
+  the id-token claim to read (e.g. "groups"), `mapping` is
+  %{"claim value" => "role"}. nil/empty clears it.
+  """
+  def set_oidc_role_mapping(%Scope{} = scope, claim, mapping) do
+    claim = ((claim || "") |> String.trim() != "" && String.trim(claim)) || nil
+    mapping = (is_map(mapping) and map_size(mapping) > 0 && mapping) || nil
+
+    with {:ok, _workspace} <- update_custom_config(scope, "oidc_role_claim", claim) do
+      update_custom_config(scope, "oidc_role_map", (claim && mapping) || nil)
+    end
+  end
+
+  def oidc_role_mapping(%Scope{} = scope) do
+    case Repo.get(Workspace, Scope.workspace_id(scope)) do
+      %{custom_config: %{"oidc_role_claim" => claim, "oidc_role_map" => mapping}}
+      when is_binary(claim) and is_map(mapping) ->
+        {claim, mapping}
+
+      _unset ->
+        {nil, %{}}
+    end
+  end
+
+  @doc """
+  Applies OIDC claim→role mappings after an SSO login: every workspace
+  the account belongs to that configured a mapping gets the member's
+  role set from the id-token claims. Owners never move; workspaces
+  without a mapping are untouched; unmatched claim values leave the
+  role alone (removal is a human decision, not a login side effect).
+  """
+  def apply_oidc_roles(%Account{} = account, claims) when is_map(claims) do
+    memberships =
+      Repo.all(
+        from(m in Membership,
+          where: m.account_id == ^account.id and m.role != :owner,
+          join: w in Workspace,
+          on: w.id == m.workspace_id,
+          select: {m, w.custom_config}
+        )
+      )
+
+    for {membership, %{"oidc_role_claim" => claim, "oidc_role_map" => mapping}} <- memberships,
+        is_binary(claim) and is_map(mapping) do
+      values = claims[claim] |> List.wrap() |> Enum.map(&to_string/1)
+
+      role =
+        Enum.find_value(values, fn value ->
+          case mapping[value] do
+            mapped when mapped in ~w(admin editor normal dataset_operator) -> mapped
+            _unmapped -> nil
+          end
+        end)
+
+      if role && role != to_string(membership.role) do
+        membership
+        |> Ecto.Changeset.change(role: String.to_existing_atom(role))
+        |> Repo.update()
+
+        Flux.Audit.record(
+          %Scope{
+            account: nil,
+            membership: nil,
+            workspace: %Workspace{id: membership.workspace_id}
+          },
+          "member.oidc_role_change",
+          resource_type: "membership",
+          resource_id: membership.id,
+          metadata: %{"account_id" => account.id, "role" => role}
+        )
+      end
+    end
+
+    :ok
   end
 
   defp update_custom_config(scope, key, value) do
