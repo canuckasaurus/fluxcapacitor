@@ -64,6 +64,7 @@ defmodule FluxWeb.MixProject do
       {:jason, "~> 1.2"},
       {:jose, "~> 1.11"},
       {:samly, "~> 1.4"},
+      {:wax_, "~> 0.7"},
       {:earmark, "~> 1.4"},
       {:bandit, "~> 1.5"},
       {:hammer, "~> 7.0"},

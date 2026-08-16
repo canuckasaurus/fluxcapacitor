@@ -85,7 +85,7 @@ defmodule Flux.Accounts do
   ## Favorites (per-account stars on fluxes and apps)
 
   def toggle_favorite(%Account{} = account, item_type, item_id)
-      when item_type in ["flux", "app"] do
+      when item_type in ["flux", "app", "run"] do
     import Ecto.Query, only: [from: 2]
 
     case Repo.one(
@@ -242,6 +242,64 @@ defmodule Flux.Accounts do
   end
 
   def sudo_mode?(_account, _minutes), do: false
+
+  ## Passkeys (WebAuthn credentials)
+
+  @doc "The account's registered passkeys, newest first."
+  def list_passkeys(%Account{id: account_id}) do
+    Repo.all(
+      from(p in Flux.Accounts.Passkey,
+        where: p.account_id == ^account_id,
+        order_by: [desc: p.inserted_at]
+      )
+    )
+  end
+
+  @doc "Stores a verified WebAuthn credential (web layer runs Wax first)."
+  def register_passkey(%Account{} = account, credential_id, cose_key, name)
+      when is_binary(credential_id) do
+    %Flux.Accounts.Passkey{
+      account_id: account.id,
+      credential_id: credential_id,
+      public_key: :erlang.term_to_binary(cose_key),
+      name:
+        (is_binary(name) and String.trim(name) != "" && String.slice(name, 0, 80)) || "passkey"
+    }
+    |> Repo.insert()
+  end
+
+  @doc "Resolves a credential id to {account, passkey, cose_key} for login."
+  def find_passkey(credential_id) when is_binary(credential_id) do
+    case Repo.one(
+           from(p in Flux.Accounts.Passkey,
+             where: p.credential_id == ^credential_id,
+             join: a in assoc(p, :account),
+             preload: [account: a]
+           )
+         ) do
+      nil ->
+        {:error, :not_found}
+
+      passkey ->
+        {:ok, passkey.account, passkey, :erlang.binary_to_term(passkey.public_key, [:safe])}
+    end
+  end
+
+  @doc "Advances the clone-detection counter after a successful assertion."
+  def bump_passkey_sign_count(%Flux.Accounts.Passkey{} = passkey, sign_count)
+      when is_integer(sign_count) do
+    passkey |> Ecto.Changeset.change(sign_count: sign_count) |> Repo.update()
+  end
+
+  @doc "Removes one of the account's passkeys."
+  def delete_passkey(%Account{id: account_id}, passkey_id) do
+    from(p in Flux.Accounts.Passkey,
+      where: p.id == ^passkey_id and p.account_id == ^account_id
+    )
+    |> Repo.delete_all()
+
+    :ok
+  end
 
   ## TOTP two-factor authentication
 

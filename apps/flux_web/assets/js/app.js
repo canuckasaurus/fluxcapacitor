@@ -168,6 +168,106 @@ const WebPush = {
   },
 }
 
+// Passkeys: registration talks to the settings LiveView (which holds
+// the Wax challenge); login fetches a challenge from a controller so
+// the session cookie carries it, then submits a plain form.
+const PasskeyRegister = {
+  mounted() {
+    const button = this.el.querySelector("#passkey-register-button")
+    if (!button) return
+
+    if (!("credentials" in navigator) || !window.PublicKeyCredential) {
+      button.disabled = true
+      button.title = "This browser does not support passkeys"
+      return
+    }
+
+    button.addEventListener("click", () => {
+      const name = (this.el.querySelector("#passkey-name") || {}).value || ""
+      this.pushEvent("start_passkey_registration", {name})
+    })
+
+    this.handleEvent("passkey-create", async opts => {
+      try {
+        const credential = await navigator.credentials.create({
+          publicKey: {
+            challenge: urlBase64ToUint8Array(opts.challenge),
+            rp: {id: opts.rp_id, name: "FluxCapacitor"},
+            user: {
+              id: urlBase64ToUint8Array(opts.user_id),
+              name: opts.user_name,
+              displayName: opts.user_name,
+            },
+            pubKeyCredParams: [
+              {type: "public-key", alg: -7},
+              {type: "public-key", alg: -257},
+            ],
+            authenticatorSelection: {residentKey: "preferred", userVerification: "preferred"},
+            attestation: "none",
+          },
+        })
+        this.pushEvent("passkey_attestation", {
+          name: opts.name,
+          raw_id: bufferToUrlBase64(credential.rawId),
+          attestation_object: bufferToUrlBase64(credential.response.attestationObject),
+          client_data_json: bufferToUrlBase64(credential.response.clientDataJSON),
+        })
+      } catch (error) {
+        this.pushEvent("passkey_error", {reason: String(error)})
+      }
+    })
+  },
+}
+
+const PasskeyLogin = {
+  mounted() {
+    if (!("credentials" in navigator) || !window.PublicKeyCredential) {
+      this.el.disabled = true
+      this.el.title = "This browser does not support passkeys"
+      return
+    }
+
+    this.el.addEventListener("click", async () => {
+      try {
+        const csrf = document.querySelector("meta[name='csrf-token']").getAttribute("content")
+        const response = await fetch("/accounts/passkeys/login-challenge", {
+          method: "POST",
+          headers: {"x-csrf-token": csrf},
+        })
+        const opts = await response.json()
+        const assertion = await navigator.credentials.get({
+          publicKey: {
+            challenge: urlBase64ToUint8Array(opts.challenge),
+            rpId: opts.rp_id,
+            userVerification: "preferred",
+          },
+        })
+        const form = document.getElementById("passkey-login-form")
+        form.querySelector("[name=raw_id]").value = bufferToUrlBase64(assertion.rawId)
+        form.querySelector("[name=authenticator_data]").value = bufferToUrlBase64(
+          assertion.response.authenticatorData
+        )
+        form.querySelector("[name=signature]").value = bufferToUrlBase64(
+          assertion.response.signature
+        )
+        form.querySelector("[name=client_data_json]").value = bufferToUrlBase64(
+          assertion.response.clientDataJSON
+        )
+        form.submit()
+      } catch (error) {
+        console.error("passkey login", error)
+      }
+    })
+  },
+}
+
+function bufferToUrlBase64(buffer) {
+  const bytes = new Uint8Array(buffer)
+  let binary = ""
+  for (const b of bytes) binary += String.fromCharCode(b)
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
+}
+
 function urlBase64ToUint8Array(base64) {
   const padding = "=".repeat((4 - (base64.length % 4)) % 4)
   const raw = atob((base64 + padding).replace(/-/g, "+").replace(/_/g, "/"))
@@ -178,7 +278,7 @@ const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: {...colocatedHooks, MicRecorder, CanvasFind, WebPush},
+  hooks: {...colocatedHooks, MicRecorder, CanvasFind, WebPush, PasskeyRegister, PasskeyLogin},
 })
 
 // ── Themed confirm ─────────────────────────────────────────────────────

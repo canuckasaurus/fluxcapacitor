@@ -89,6 +89,30 @@ defmodule FluxWeb.AccountLive.Login do
             </.button>
           </.form>
 
+          <div>
+            <div class="divider my-0 text-xs opacity-60">or</div>
+            <button
+              type="button"
+              class="btn btn-outline w-full mt-3"
+              id="passkey-login"
+              phx-hook="PasskeyLogin"
+            >
+              {gettext("Sign in with a passkey")}
+            </button>
+            <form
+              action={~p"/accounts/passkeys/login"}
+              method="post"
+              id="passkey-login-form"
+              class="hidden"
+            >
+              <input type="hidden" name="_csrf_token" value={Phoenix.Controller.get_csrf_token()} />
+              <input type="hidden" name="raw_id" />
+              <input type="hidden" name="authenticator_data" />
+              <input type="hidden" name="signature" />
+              <input type="hidden" name="client_data_json" />
+            </form>
+          </div>
+
           <div :if={FluxWeb.OIDC.configured?()}>
             <div class="divider my-0 text-xs opacity-60">or</div>
             <.link href={~p"/auth/oidc"} class="btn btn-outline w-full mt-3" id="oidc-login">

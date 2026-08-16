@@ -146,6 +146,48 @@ defmodule FluxWeb.AccountLive.Settings do
 
       <div class="divider" />
 
+      <div class="space-y-2 text-left" id="passkey-card" phx-hook="PasskeyRegister">
+        <h2 class="font-semibold">Passkeys</h2>
+        <p class="text-sm opacity-70">
+          Sign in with your device's screen lock or security key — no
+          password, phishing-resistant. Registered passkeys:
+        </p>
+        <ul :if={@passkeys != []} class="space-y-1">
+          <li :for={passkey <- @passkeys} class="flex items-center gap-2 text-sm">
+            <.icon name="hero-key" class="size-4 opacity-60" />
+            {passkey.name}
+            <span class="text-xs opacity-50">
+              added {Calendar.strftime(passkey.inserted_at, "%Y-%m-%d")}
+            </span>
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs text-error"
+              phx-click="delete_passkey"
+              phx-value-id={passkey.id}
+            >
+              remove
+            </button>
+          </li>
+        </ul>
+        <div class="flex items-end gap-2">
+          <label class="form-control">
+            <span class="label-text text-xs opacity-70 mb-1">Name this device</span>
+            <input
+              type="text"
+              id="passkey-name"
+              placeholder="work laptop"
+              maxlength="80"
+              class="input input-bordered input-sm w-44"
+            />
+          </label>
+          <button type="button" class="btn btn-outline btn-sm" id="passkey-register-button">
+            Add a passkey
+          </button>
+        </div>
+      </div>
+
+      <div class="divider" />
+
       <div class="space-y-2 text-left" id="totp-card">
         <h2 class="font-semibold">Two-factor authentication</h2>
 
@@ -285,6 +327,8 @@ defmodule FluxWeb.AccountLive.Settings do
       |> assign(:quiet_hours, {account.quiet_hours_start, account.quiet_hours_end})
       |> assign(:totp_enabled, Accounts.totp_enabled?(account))
       |> assign(:push_subscribed, Flux.WebPush.subscribed?(account))
+      |> assign(:passkeys, Accounts.list_passkeys(account))
+      |> assign(:passkey_challenge, nil)
       |> assign(:vapid_public_key, Flux.WebPush.vapid_public_key())
       |> assign(:totp_enrollment, nil)
       |> assign(:totp_recovery_codes, [])
@@ -375,6 +419,83 @@ defmodule FluxWeb.AccountLive.Settings do
       _error ->
         {:noreply, put_flash(socket, :error, "Could not save the email preferences.")}
     end
+  end
+
+  def handle_event("start_passkey_registration", %{"name" => name}, socket) do
+    account = socket.assigns.current_scope.account
+
+    challenge =
+      Wax.new_registration_challenge(
+        origin: FluxWeb.Endpoint.url(),
+        rp_id: :auto,
+        attestation: "none"
+      )
+
+    {:noreply,
+     socket
+     |> assign(passkey_challenge: challenge)
+     |> push_event("passkey-create", %{
+       name: name,
+       challenge: Base.url_encode64(challenge.bytes, padding: false),
+       rp_id: challenge.rp_id,
+       user_id: Base.url_encode64(account.id, padding: false),
+       user_name: account.email
+     })}
+  end
+
+  def handle_event("passkey_attestation", params, socket) do
+    account = socket.assigns.current_scope.account
+
+    case verify_passkey_attestation(params, socket.assigns.passkey_challenge) do
+      {:ok, cose_key} ->
+        {:ok, _passkey} =
+          Accounts.register_passkey(
+            account,
+            to_string(params["raw_id"]),
+            cose_key,
+            params["name"]
+          )
+
+        {:noreply,
+         socket
+         |> put_flash(:info, "Passkey registered.")
+         |> assign(passkeys: Accounts.list_passkeys(account), passkey_challenge: nil)}
+
+      :error ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "Passkey registration didn't verify — try again.")
+         |> assign(passkey_challenge: nil)}
+    end
+  end
+
+  defp verify_passkey_attestation(_params, nil), do: :error
+
+  defp verify_passkey_attestation(params, challenge) do
+    with {:ok, attestation_object} <-
+           Base.url_decode64(params["attestation_object"] || "", padding: false),
+         {:ok, client_data_json} <-
+           Base.url_decode64(params["client_data_json"] || "", padding: false),
+         {:ok, {auth_data, _attestation_result}} <-
+           Wax.register(attestation_object, client_data_json, challenge) do
+      {:ok, auth_data.attested_credential_data.credential_public_key}
+    else
+      _invalid -> :error
+    end
+  end
+
+  def handle_event("passkey_error", %{"reason" => reason}, socket) do
+    {:noreply, put_flash(socket, :error, "Passkey: " <> to_string(reason))}
+  end
+
+  def handle_event("delete_passkey", %{"id" => id}, socket) do
+    account = socket.assigns.current_scope.account
+    :ok = Accounts.delete_passkey(account, id)
+
+    {:noreply,
+     socket
+     |> put_flash(:info, "Passkey removed.")
+     |> assign(passkeys: Accounts.list_passkeys(account))}
   end
 
   def handle_event("start_totp", _params, socket) do
