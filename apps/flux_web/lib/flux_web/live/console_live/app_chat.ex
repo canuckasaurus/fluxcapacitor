@@ -610,6 +610,37 @@ defmodule FluxWeb.ConsoleLive.AppChat do
     end
   end
 
+  def handle_event("save_business_hours", params, socket) do
+    days = Enum.filter(List.wrap(params["days"]), &(&1 in ~w(mon tue wed thu fri sat sun)))
+
+    hours =
+      with [_ | _] <- days,
+           {open, ""} <- Integer.parse(to_string(params["open"])),
+           {close, ""} <- Integer.parse(to_string(params["close"])),
+           true <- open in 0..23 and close in 0..23 do
+        base = %{"days" => days, "open" => open, "close" => close}
+        note = presence(params["note"])
+        (note && Map.put(base, "note", note)) || base
+      else
+        _cleared -> %{}
+      end
+
+    case Chat.update_app(socket.assigns.current_scope, socket.assigns.app, %{
+           "business_hours" => hours
+         }) do
+      {:ok, app} ->
+        message =
+          if hours == %{},
+            do: "Business hours cleared — the site is always open.",
+            else: "Business hours saved (UTC)."
+
+        {:noreply, socket |> put_flash(:info, message) |> assign(app: app)}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not save the business hours.")}
+    end
+  end
+
   def handle_event("save_theme", params, socket) do
     theme =
       %{
@@ -1704,6 +1735,61 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               >{@app.embed_origins}</textarea>
             </label>
             <button class="btn btn-outline btn-sm">Save origins</button>
+          </form>
+          <form
+            phx-submit="save_business_hours"
+            id="business-hours-form"
+            class="flex items-end gap-2 flex-wrap border-t border-base-200 pt-3"
+          >
+            <div class="flex gap-1 items-center">
+              <label
+                :for={day <- ~w(mon tue wed thu fri sat sun)}
+                class="label cursor-pointer gap-1 px-1"
+              >
+                <input
+                  type="checkbox"
+                  name="days[]"
+                  value={day}
+                  checked={day in (@app.business_hours["days"] || [])}
+                  class="checkbox checkbox-xs"
+                />
+                <span class="label-text text-xs">{day}</span>
+              </label>
+            </div>
+            <label class="form-control">
+              <span class="label-text text-xs opacity-70 mb-1">Open (UTC hour)</span>
+              <input
+                type="number"
+                name="open"
+                min="0"
+                max="23"
+                value={@app.business_hours["open"]}
+                class="input input-bordered input-sm w-20"
+              />
+            </label>
+            <label class="form-control">
+              <span class="label-text text-xs opacity-70 mb-1">Close</span>
+              <input
+                type="number"
+                name="close"
+                min="0"
+                max="23"
+                value={@app.business_hours["close"]}
+                class="input input-bordered input-sm w-20"
+              />
+            </label>
+            <label class="form-control flex-1 min-w-48">
+              <span class="label-text text-xs opacity-70 mb-1">
+                Away note (shown outside hours; no days checked = always open)
+              </span>
+              <input
+                type="text"
+                name="note"
+                value={@app.business_hours["note"]}
+                class="input input-bordered input-sm w-full"
+              />
+            </label>
+            <button class="btn btn-outline btn-sm">Save hours</button>
           </form>
           <form
             phx-submit="save_theme"

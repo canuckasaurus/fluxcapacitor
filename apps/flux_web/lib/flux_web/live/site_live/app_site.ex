@@ -97,7 +97,10 @@ defmodule FluxWeb.SiteLive.AppSite do
        followups: [],
        streaming_id: nil,
        streaming_text: "",
-       transcribing: false
+       transcribing: false,
+       agent_typing: false,
+       last_typing_at: 0,
+       open_now: Chat.within_business_hours?(app)
      )}
   end
 
@@ -167,6 +170,19 @@ defmodule FluxWeb.SiteLive.AppSite do
 
   @impl true
   def handle_event("validate_upload", _params, socket), do: {:noreply, socket}
+
+  # Keyup on the composer: at most one typing broadcast per 2 seconds,
+  # so the monitor sees "visitor is typing" without a message storm.
+  def handle_event("typing", _params, socket) do
+    now = System.monotonic_time(:millisecond)
+
+    if socket.assigns.conversation != nil and now - socket.assigns.last_typing_at > 2_000 do
+      Chat.broadcast_typing(socket.assigns.conversation.id, :visitor)
+      {:noreply, assign(socket, last_typing_at: now)}
+    else
+      {:noreply, socket}
+    end
+  end
 
   def handle_event("cancel_upload", %{"ref" => ref}, socket) do
     {:noreply, cancel_upload(socket, :image, ref)}
@@ -402,6 +418,16 @@ defmodule FluxWeb.SiteLive.AppSite do
   end
 
   @impl true
+  def handle_info({:typing, _conversation_id, :agent}, socket) do
+    Process.send_after(self(), :agent_typing_expired, 4_000)
+    {:noreply, assign(socket, agent_typing: true)}
+  end
+
+  def handle_info({:typing, _conversation_id, :visitor}, socket), do: {:noreply, socket}
+
+  def handle_info(:agent_typing_expired, socket),
+    do: {:noreply, assign(socket, agent_typing: false)}
+
   def handle_info({:human_reply, message}, socket) do
     conversation = socket.assigns.conversation
 
@@ -791,6 +817,8 @@ defmodule FluxWeb.SiteLive.AppSite do
               name="content"
               id="chat-content-input"
               autocomplete="off"
+              phx-keyup="typing"
+              phx-debounce="400"
               placeholder={(@transcribing && gettext("Transcribing…")) || gettext("Type a message…")}
               class="input input-bordered flex-1"
               disabled={@streaming_id != nil}
@@ -834,7 +862,7 @@ defmodule FluxWeb.SiteLive.AppSite do
             <button
               :if={
                 @conversation != nil and @conversation.handoff_requested_at == nil and
-                  @streaming_id == nil
+                  @streaming_id == nil and @open_now
               }
               type="button"
               class="btn btn-ghost btn-sm"
@@ -845,6 +873,17 @@ defmodule FluxWeb.SiteLive.AppSite do
               <.icon name="hero-user" class="size-4" /> {gettext("Talk to a human")}
             </button>
           </form>
+          <p :if={not @open_now} class="text-sm opacity-70" id="business-hours-note">
+            <.icon name="hero-moon" class="size-4 inline" />
+            {@app.business_hours["note"] ||
+              gettext(
+                "We're outside our usual hours right now — leave a message (and your email) and we'll follow up."
+              )}
+          </p>
+          <p :if={@agent_typing} class="text-sm opacity-70" id="agent-typing">
+            <.icon name="hero-pencil" class="size-4 inline" />
+            {gettext("Someone on the team is typing…")}
+          </p>
           <p
             :if={@conversation != nil and @conversation.handoff_requested_at != nil}
             class="text-sm opacity-70"
