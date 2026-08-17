@@ -96,6 +96,53 @@ defmodule Flux.RAG do
     end
   end
 
+  @doc "Whether this dataset's retrieval is served by an external endpoint."
+  def external?(%Dataset{external_endpoint: endpoint}), do: endpoint not in [nil, ""]
+
+  @doc """
+  Registers an external knowledge base as a dataset: retrieval queries
+  POST to the user-hosted endpoint (the Dify-compatible `/retrieval`
+  contract) and its records come back as ordinary hits — knowledge
+  nodes, hit testing, and citations all work unchanged. The API key is
+  encrypted with the workspace DEK; the endpoint is SSRF-guarded at
+  save time and again on every call. External datasets hold no local
+  documents.
+  """
+  def connect_external_dataset(%Scope{} = scope, attrs) do
+    take = fn key -> String.trim(to_string(attrs[key] || attrs[to_string(key)] || "")) end
+    name = take.(:name)
+    endpoint = take.(:endpoint)
+    knowledge_id = take.(:knowledge_id)
+    api_key = take.(:api_key)
+
+    with :ok <- RBAC.authorize(scope, :dataset_create_and_management),
+         true <- name != "" || {:error, "The dataset needs a name."},
+         :ok <- Flux.SSRF.verify_url(endpoint),
+         {:ok, encrypted} <- encrypt_external_key(Scope.workspace_id(scope), api_key),
+         {:ok, dataset} <-
+           %Dataset{workspace_id: Scope.workspace_id(scope)}
+           |> Ecto.Changeset.change(
+             name: name,
+             external_endpoint: endpoint,
+             external_knowledge_id: (knowledge_id != "" && knowledge_id) || nil,
+             external_api_key: encrypted
+           )
+           |> Repo.insert() do
+      Flux.Audit.record(scope, "dataset.connect_external",
+        resource: dataset,
+        metadata: %{"name" => name, "endpoint" => endpoint}
+      )
+
+      {:ok, dataset}
+    else
+      {:error, message} when is_binary(message) -> {:error, message}
+      other -> other
+    end
+  end
+
+  defp encrypt_external_key(_workspace_id, ""), do: {:ok, nil}
+  defp encrypt_external_key(workspace_id, api_key), do: Flux.Crypto.encrypt(workspace_id, api_key)
+
   def update_dataset(%Scope{} = scope, %Dataset{} = dataset, attrs) do
     with :ok <- RBAC.authorize(scope, :dataset_edit),
          true <- dataset.workspace_id == Scope.workspace_id(scope) || {:error, :not_found},
@@ -240,6 +287,7 @@ defmodule Flux.RAG do
   def add_document(%Scope{} = scope, %Dataset{} = dataset, %{name: name, content: content}, opts)
       when is_binary(content) do
     with :ok <- RBAC.authorize(scope, :dataset_edit),
+         true <- not external?(dataset) || {:error, :external_dataset},
          true <- dataset.workspace_id == Scope.workspace_id(scope) || {:error, :not_found} do
       # `replace: true` swaps out same-named documents instead of
       # duplicating — re-uploading a file updates the dataset in place.
@@ -1525,100 +1573,197 @@ defmodule Flux.RAG do
   """
   def retrieve(%Scope{} = scope, dataset_id, query, opts \\ []) do
     with %Dataset{} = dataset <- get_dataset(scope, dataset_id) do
-      top_k = Keyword.get(opts, :top_k) || dataset.retrieval_top_k || 4
-      rerank? = dataset.rerank_plugin_id not in [nil, ""]
-      candidates = if rerank?, do: top_k * 3, else: top_k
+      if external?(dataset),
+        do: external_retrieve(dataset, query, opts),
+        else: local_retrieve(scope, dataset, query, opts)
+    end
+  end
 
-      # Query expansion (per-dataset opt-in): alternate phrasings each
-      # contribute their own rankings to the RRF fusion.
-      queries = [query | expand_query(scope, dataset, query)]
+  # External datasets never touch the local index: the query goes to the
+  # registered endpoint and its records come back shaped like hits
+  # (content/score/document.name), so every consumer works unchanged.
+  defp external_retrieve(%Dataset{} = dataset, query, opts) do
+    top_k = Keyword.get(opts, :top_k) || dataset.retrieval_top_k || 4
 
-      # Retrieval mode picks the sources; each ranking carries the
-      # weight its RRF contributions are scaled by. In hybrid mode
-      # `semantic_weight` skews the fusion (×2w semantic, ×2(1−w)
-      # keyword/entity — 0.5 or nil is plain RRF); single-source modes
-      # are always unweighted.
-      {semantic_scale, lexical_scale} =
-        case dataset.semantic_weight do
-          weight when is_float(weight) -> {2 * weight, 2 * (1.0 - weight)}
-          _neutral -> {1.0, 1.0}
-        end
+    payload = %{
+      "knowledge_id" => dataset.external_knowledge_id,
+      "query" => query,
+      "retrieval_setting" => %{
+        "top_k" => top_k,
+        "score_threshold" => dataset.score_threshold || 0.0
+      }
+    }
 
-      rankings =
-        Enum.flat_map(queries, fn variant ->
-          case dataset.retrieval_mode do
-            :semantic ->
-              [{semantic_hits(dataset, variant, top_k * 3), 1.0}]
+    headers =
+      case decrypt_external_key(dataset) do
+        nil -> []
+        api_key -> [{"authorization", "Bearer " <> api_key}]
+      end
 
-            :keyword ->
-              [
-                {keyword_hits(scope, dataset_id, variant, top_k * 3), 1.0},
-                {entity_hits(scope, dataset_id, variant, top_k * 3), 1.0}
-              ]
-
-            _hybrid ->
-              [
-                {semantic_hits(dataset, variant, top_k * 3), semantic_scale},
-                {keyword_hits(scope, dataset_id, variant, top_k * 3), lexical_scale},
-                {entity_hits(scope, dataset_id, variant, top_k * 3), lexical_scale}
-              ]
-          end
-        end)
-
-      ranked =
-        rankings
-        |> Enum.reduce(%{}, fn {hits, scale}, acc ->
-          hits
-          |> Enum.with_index(1)
-          |> Enum.reduce(acc, fn {segment_id, rank}, acc ->
-            contribution = scale / (@rrf_k + rank)
-            Map.update(acc, segment_id, contribution, &(&1 + contribution))
-          end)
-        end)
-        |> Enum.sort_by(fn {_segment_id, score} -> score end, :desc)
-        |> Enum.take(candidates)
-
-      ids = Enum.map(ranked, fn {segment_id, _score} -> segment_id end)
-      scores = Map.new(ranked)
-      tags = opts |> Keyword.get(:tags, []) |> List.wrap() |> Enum.reject(&(&1 == ""))
-      metadata_filter = Keyword.get(opts, :metadata, %{})
-
-      segments =
-        Segment
-        |> Repo.scoped(scope)
-        |> where([s], s.id in ^ids and s.enabled)
-        |> join(:inner, [s], d in assoc(s, :document))
-        |> then(fn query ->
-          # Tag filter: only segments from documents carrying any of the
-          # requested tags.
-          if tags == [] do
-            query
-          else
-            where(query, [s, d], fragment("? && ?", d.tags, ^tags))
-          end
-        end)
-        |> then(fn query ->
-          # Metadata filter: JSONB containment — the document must carry
-          # every requested key/value pair.
-          if metadata_filter == %{} do
-            query
-          else
-            where(query, [s, d], fragment("? @> ?", d.metadata, ^metadata_filter))
-          end
-        end)
-        |> preload([s, d], document: d)
-        |> Repo.all()
-        |> Enum.sort_by(&Map.fetch!(scores, &1.id), :desc)
-        |> Enum.map(&Map.put(&1, :score, Map.fetch!(scores, &1.id)))
-
+    with :ok <- Flux.SSRF.verify_url(dataset.external_endpoint),
+         {:ok, %{status: 200, body: %{"records" => records}}} when is_list(records) <-
+           Req.post(
+             [
+               url: dataset.external_endpoint,
+               json: payload,
+               headers: headers,
+               redirect: false,
+               max_retries: 1,
+               receive_timeout: 15_000
+             ] ++ Application.get_env(:flux_rag, :req_options, [])
+           ) do
       hits =
-        dataset
-        |> maybe_rerank(query, segments, top_k, rerank?)
-        |> apply_threshold(dataset.score_threshold)
-        |> promote_parents()
+        records
+        |> Enum.take(top_k)
+        |> Enum.map(&external_hit(&1, dataset))
+        |> Enum.reject(&(&1.content == ""))
 
       {:ok, hits}
+    else
+      {:ok, %{status: 200}} ->
+        {:error, "the external knowledge endpoint returned no records"}
+
+      {:ok, %{status: status}} ->
+        {:error, "the external knowledge endpoint returned HTTP #{status}"}
+
+      {:error, message} when is_binary(message) ->
+        {:error, message}
+
+      {:error, reason} ->
+        {:error, inspect(reason)}
     end
+  end
+
+  defp external_hit(record, dataset) when is_map(record) do
+    title =
+      case String.trim(to_string(record["title"] || "")) do
+        "" -> dataset.name
+        title -> title
+      end
+
+    %{
+      id: nil,
+      document_id: nil,
+      content: String.trim(to_string(record["content"] || "")),
+      score: (is_number(record["score"]) && record["score"] * 1.0) || 0.0,
+      document: %{name: title},
+      metadata: (is_map(record["metadata"]) && record["metadata"]) || %{}
+    }
+  end
+
+  defp external_hit(_malformed, dataset),
+    do: %{
+      id: nil,
+      document_id: nil,
+      content: "",
+      score: 0.0,
+      document: %{name: dataset.name},
+      metadata: %{}
+    }
+
+  defp decrypt_external_key(%Dataset{external_api_key: nil}), do: nil
+
+  defp decrypt_external_key(%Dataset{} = dataset) do
+    case Flux.Crypto.decrypt(dataset.workspace_id, dataset.external_api_key) do
+      {:ok, api_key} -> api_key
+      _undecryptable -> nil
+    end
+  end
+
+  defp local_retrieve(%Scope{} = scope, %Dataset{id: dataset_id} = dataset, query, opts) do
+    top_k = Keyword.get(opts, :top_k) || dataset.retrieval_top_k || 4
+    rerank? = dataset.rerank_plugin_id not in [nil, ""]
+    candidates = if rerank?, do: top_k * 3, else: top_k
+
+    # Query expansion (per-dataset opt-in): alternate phrasings each
+    # contribute their own rankings to the RRF fusion.
+    queries = [query | expand_query(scope, dataset, query)]
+
+    # Retrieval mode picks the sources; each ranking carries the
+    # weight its RRF contributions are scaled by. In hybrid mode
+    # `semantic_weight` skews the fusion (×2w semantic, ×2(1−w)
+    # keyword/entity — 0.5 or nil is plain RRF); single-source modes
+    # are always unweighted.
+    {semantic_scale, lexical_scale} =
+      case dataset.semantic_weight do
+        weight when is_float(weight) -> {2 * weight, 2 * (1.0 - weight)}
+        _neutral -> {1.0, 1.0}
+      end
+
+    rankings =
+      Enum.flat_map(queries, fn variant ->
+        case dataset.retrieval_mode do
+          :semantic ->
+            [{semantic_hits(dataset, variant, top_k * 3), 1.0}]
+
+          :keyword ->
+            [
+              {keyword_hits(scope, dataset_id, variant, top_k * 3), 1.0},
+              {entity_hits(scope, dataset_id, variant, top_k * 3), 1.0}
+            ]
+
+          _hybrid ->
+            [
+              {semantic_hits(dataset, variant, top_k * 3), semantic_scale},
+              {keyword_hits(scope, dataset_id, variant, top_k * 3), lexical_scale},
+              {entity_hits(scope, dataset_id, variant, top_k * 3), lexical_scale}
+            ]
+        end
+      end)
+
+    ranked =
+      rankings
+      |> Enum.reduce(%{}, fn {hits, scale}, acc ->
+        hits
+        |> Enum.with_index(1)
+        |> Enum.reduce(acc, fn {segment_id, rank}, acc ->
+          contribution = scale / (@rrf_k + rank)
+          Map.update(acc, segment_id, contribution, &(&1 + contribution))
+        end)
+      end)
+      |> Enum.sort_by(fn {_segment_id, score} -> score end, :desc)
+      |> Enum.take(candidates)
+
+    ids = Enum.map(ranked, fn {segment_id, _score} -> segment_id end)
+    scores = Map.new(ranked)
+    tags = opts |> Keyword.get(:tags, []) |> List.wrap() |> Enum.reject(&(&1 == ""))
+    metadata_filter = Keyword.get(opts, :metadata, %{})
+
+    segments =
+      Segment
+      |> Repo.scoped(scope)
+      |> where([s], s.id in ^ids and s.enabled)
+      |> join(:inner, [s], d in assoc(s, :document))
+      |> then(fn query ->
+        # Tag filter: only segments from documents carrying any of the
+        # requested tags.
+        if tags == [] do
+          query
+        else
+          where(query, [s, d], fragment("? && ?", d.tags, ^tags))
+        end
+      end)
+      |> then(fn query ->
+        # Metadata filter: JSONB containment — the document must carry
+        # every requested key/value pair.
+        if metadata_filter == %{} do
+          query
+        else
+          where(query, [s, d], fragment("? @> ?", d.metadata, ^metadata_filter))
+        end
+      end)
+      |> preload([s, d], document: d)
+      |> Repo.all()
+      |> Enum.sort_by(&Map.fetch!(scores, &1.id), :desc)
+      |> Enum.map(&Map.put(&1, :score, Map.fetch!(scores, &1.id)))
+
+    hits =
+      dataset
+      |> maybe_rerank(query, segments, top_k, rerank?)
+      |> apply_threshold(dataset.score_threshold)
+      |> promote_parents()
+
+    {:ok, hits}
   end
 
   # Parent-child hits surface the parent section instead of the matched

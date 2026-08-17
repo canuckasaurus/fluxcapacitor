@@ -40,6 +40,11 @@ defmodule Flux.RAG.Dataset do
     # Scheduled retrieval evals: cron + the last run's scores, so a
     # regression is detectable (and notifiable) without a human diff.
     field(:retrieval_eval_cron, :string)
+    # External knowledge: retrieval is served by this user-hosted HTTP
+    # endpoint instead of the local index (API key DEK-encrypted).
+    field(:external_endpoint, :string)
+    field(:external_knowledge_id, :string)
+    field(:external_api_key, :string, redact: true)
     # Approximate tokens embedded over this dataset's lifetime (chars/4
     # per indexing pass) — makes embedding spend visible.
     field(:embedded_tokens, :integer, default: 0)

@@ -28,6 +28,7 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
      |> assign(
        page_title: "Knowledge",
        creating: false,
+       connecting_external: false,
        embedding_models: embedding_models,
        chat_models: chat_models,
        datasource_plugins: datasource_plugins,
@@ -67,6 +68,8 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
   end
 
   defp plugin_runtime, do: Application.get_env(:flux, :plugin_runtime, Flux.PluginRuntime)
+
+  defp external?(dataset), do: RAG.external?(dataset)
 
   defp bulk_set_enabled(socket, enabled) do
     ids = MapSet.to_list(socket.assigns.selected_doc_ids)
@@ -194,6 +197,39 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
 
   def handle_event("new", _params, socket), do: {:noreply, assign(socket, creating: true)}
   def handle_event("cancel", _params, socket), do: {:noreply, assign(socket, creating: false)}
+
+  def handle_event("new_external", _params, socket),
+    do: {:noreply, assign(socket, connecting_external: true)}
+
+  def handle_event("cancel_external", _params, socket),
+    do: {:noreply, assign(socket, connecting_external: false)}
+
+  def handle_event("connect_external", params, socket) do
+    scope = socket.assigns.current_scope
+
+    case RAG.connect_external_dataset(scope, params) do
+      {:ok, dataset} ->
+        {:noreply,
+         socket
+         |> assign(
+           connecting_external: false,
+           datasets: RAG.list_datasets(scope),
+           selected: dataset,
+           retrieval_cases: [],
+           retrieval_summary: nil
+         )
+         |> refresh_documents()}
+
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "You don't have permission to create datasets.")}
+
+      {:error, message} when is_binary(message) ->
+        {:noreply, put_flash(socket, :error, message)}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not connect the external knowledge base.")}
+    end
+  end
 
   def handle_event("create", params, socket) do
     scope = socket.assigns.current_scope
@@ -903,9 +939,66 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
           </button>
         </form>
 
-        <button :if={@can_create and not @creating} class="btn btn-primary" phx-click="new">
-          <.icon name="hero-plus" class="size-4" /> {gettext("New dataset")}
-        </button>
+        <div class="flex gap-2">
+          <button
+            :if={@can_create and not @connecting_external}
+            class="btn btn-outline"
+            phx-click="new_external"
+            title="Register a user-hosted retrieval endpoint as a dataset"
+          >
+            <.icon name="hero-globe-alt" class="size-4" /> {gettext("Connect external")}
+          </button>
+          <button :if={@can_create and not @creating} class="btn btn-primary" phx-click="new">
+            <.icon name="hero-plus" class="size-4" /> {gettext("New dataset")}
+          </button>
+        </div>
+      </div>
+
+      <div
+        :if={@connecting_external}
+        class="card border border-base-200 p-6 space-y-3"
+        id="external-connect-card"
+      >
+        <h2 class="font-semibold">Connect an external knowledge base</h2>
+        <p class="text-sm opacity-70">
+          Retrieval queries POST to your endpoint
+          (<span class="font-mono">{"{query, knowledge_id, retrieval_setting}"}</span>) and the
+          returned <span class="font-mono">records</span> flow into answers and citations like
+          local chunks. Documents stay on your side.
+        </p>
+        <form phx-submit="connect_external" id="external-connect-form" class="space-y-3">
+          <input
+            type="text"
+            name="name"
+            required
+            placeholder="Legacy wiki (external)"
+            class="input input-bordered w-full max-w-md"
+          />
+          <input
+            type="url"
+            name="endpoint"
+            required
+            placeholder="https://knowledge.example.com/retrieval"
+            class="input input-bordered w-full max-w-md"
+          />
+          <input
+            type="text"
+            name="knowledge_id"
+            placeholder="Knowledge id (optional)"
+            class="input input-bordered w-full max-w-md"
+          />
+          <input
+            type="password"
+            name="api_key"
+            placeholder="API key (optional, sent as a Bearer token)"
+            class="input input-bordered w-full max-w-md"
+            autocomplete="off"
+          />
+          <div class="flex gap-2">
+            <button class="btn btn-primary">Connect</button>
+            <button type="button" class="btn btn-ghost" phx-click="cancel_external">Cancel</button>
+          </div>
+        </form>
       </div>
 
       <div :if={@creating} class="card border border-base-200 p-6 space-y-3">
@@ -958,7 +1051,12 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
           >
             <p class="font-semibold text-sm">{dataset.name}</p>
 
-            <p class="text-xs opacity-60">{dataset.embedding_model}</p>
+            <p :if={external?(dataset)} class="text-xs">
+              <span class="badge badge-accent badge-xs">external</span>
+            </p>
+            <p :if={not external?(dataset)} class="text-xs opacity-60">
+              {dataset.embedding_model}
+            </p>
           </div>
 
           <p :if={@datasets == []} class="text-sm opacity-60">No datasets yet.</p>
@@ -991,7 +1089,25 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
             </div>
           </div>
 
-          <div :if={@can_edit} class="card border border-base-200 p-4 space-y-2">
+          <div
+            :if={external?(@selected)}
+            class="card border border-base-200 p-4 space-y-1"
+            id="external-dataset-card"
+          >
+            <p class="text-sm font-semibold">
+              <.icon name="hero-globe-alt" class="size-4 inline" /> External knowledge base
+            </p>
+            <p class="text-xs opacity-70">
+              Retrieval is served live by <span class="font-mono">{@selected.external_endpoint}</span>
+              (hit testing and retrieval evals below query it) — there are no local
+              documents to manage.
+            </p>
+          </div>
+
+          <div
+            :if={@can_edit and not external?(@selected)}
+            class="card border border-base-200 p-4 space-y-2"
+          >
             <p class="text-sm font-semibold">Chunking &amp; retrieval</p>
 
             <form
@@ -1218,7 +1334,10 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
             </form>
           </div>
 
-          <div :if={@can_edit} class="card border border-base-200 p-4 space-y-2">
+          <div
+            :if={@can_edit and not external?(@selected)}
+            class="card border border-base-200 p-4 space-y-2"
+          >
             <p class="text-sm font-semibold">Chunk preview</p>
             <p class="text-xs opacity-60">
               See what the current chunking settings produce before
@@ -1251,7 +1370,10 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
             </div>
           </div>
 
-          <div :if={@can_edit and @fluxes != []} class="card border border-base-200 p-4 space-y-2">
+          <div
+            :if={@can_edit and @fluxes != [] and not external?(@selected)}
+            class="card border border-base-200 p-4 space-y-2"
+          >
             <p class="text-sm font-semibold">Run a flux over this dataset</p>
             <p class="text-xs opacity-60">
               Every document becomes a batch row (its text as <span class="font-mono">query</span>/<span class="font-mono">content</span>,
@@ -1267,7 +1389,10 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
             </form>
           </div>
 
-          <div :if={@can_edit} class="card border border-base-200 p-4 space-y-3">
+          <div
+            :if={@can_edit and not external?(@selected)}
+            class="card border border-base-200 p-4 space-y-3"
+          >
             <p class="text-sm font-semibold">Add documents</p>
 
             <form phx-submit="upload" phx-change="validate_upload" class="space-y-2">
@@ -1415,7 +1540,7 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
             </form>
           </div>
 
-          <div class="card border border-base-200 p-4 space-y-2">
+          <div :if={not external?(@selected)} class="card border border-base-200 p-4 space-y-2">
             <p class="text-sm font-semibold">Documents</p>
 
             <form phx-submit="search_dataset" class="flex gap-2" id="dataset-search-form">
