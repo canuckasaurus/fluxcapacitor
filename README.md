@@ -168,10 +168,21 @@ orchestrator, no queue infrastructure beyond Postgres.
   to listed origins** (the site's `frame-ancestors` CSP narrows from
   `*` to your list), apps carry an **emoji
   icon**, and an **inbound email trigger** starts fluxes straight from
-  a Mailgun/SES-style mail webhook. On the human side of the monitor,
-  conversations **assign to a member** (dropdown, mine/unassigned
-  filters — beyond self-claim on the handoff queue) and handoff
-  answers insert **one-click saved replies** shared by the workspace.
+  a Mailgun/SES-style mail webhook. On the human side, the monitor is a
+  **live support desk**: new conversations and messages appear without
+  a reload ("new" markers on changed threads), **typing indicators**
+  run both ways during handoffs, conversations **assign to a member**
+  (dropdown, mine/unassigned filters — beyond self-claim on the
+  handoff queue), handoff answers insert **one-click saved replies**,
+  threads carry **internal notes** the visitor never sees and
+  **resolve states** (a fresh visitor message reopens them, open/
+  resolved tallies on the page), a **handoff SLA alert** fires when a
+  visitor waits longer than the configured minutes, and per-app
+  **business hours** show an away note outside the schedule instead of
+  promising a human. Chat lifecycle events
+  (`conversation.started`, `message.completed`, `handoff.requested`)
+  join the **signed webhook** roster, and **email branding** puts the
+  workspace's from-name and reply-to on outbound workspace mail.
   Conversations get **model-written titles** after the first exchange
   (manual renames always win). API
   tokens are **perpetual or expiring by choice** (30/90/365 days),
@@ -514,7 +525,7 @@ scratch drive, and a labeling project wired to the Model trainer flux
 ## Testing
 
 ```bash
-mix test                             # full umbrella suite (~1075 tests), hermetic
+mix test                             # full umbrella suite (~1089 tests), hermetic
 ```
 
 The suite runs with no network: providers stub through `Req.Test` or the

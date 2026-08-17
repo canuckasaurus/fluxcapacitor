@@ -1561,3 +1561,41 @@ defps between handle_event clauses (grouping warning). One migration
 custom domains, Japanese locale, require-2FA, member suspension,
 visitor blocklist, trusted 2FA devices, CSAT surveys, site share QR,
 SSO-only login, conversation share links, sign-in-as.
+
+**65. Batch 41 — eight picked, the human-support batch.** The monitor
+grew from a viewer into a desk: **internal notes** (conversation_notes
+table, amber card in the thread, author + time, RBAC app_monitor);
+**resolve states** (conversations.resolved_at; open/resolved filter
+beside the assignment one, 30-day tallies; do_send_message clears the
+flag so a fresh visitor message reopens without a click); **live feed**
+(a new "app_monitor:<app_id>" topic — create_conversation,
+request_handoff, human_reply, and finalize all nudge it; the LV
+reloads lists on each nudge and marks unselected threads "new";
+finalize looks the conversation up guard-skipped for the app id);
+**typing indicators** (the existing conversation topic carries
+{:typing, id, who}; each side broadcasts its own role and renders only
+the other's — the site throttles keyup broadcasts to one per 2s
+server-side, the monitor subscribes per handoff/selected conversation
+through a MapSet so duplicate PubSub subscriptions never double-fire);
+**handoff SLA alerts** (workspace custom_config handoff_alert_minutes;
+the every-minute tick notifies once per overdue request via
+conversations.handoff_alerted_at, and request_handoff re-arms it);
+**business hours** (apps.business_hours map — days/open/close/note,
+UTC, overnight windows wrap; outside them the site shows the away note
+and hides the talk-to-a-human button); **conversation webhook events**
+(conversation.started / message.completed with usage /
+handoff.requested join @other_events and dispatch from the three
+lifecycle points); **email branding** (workspace custom_config
+mail_branding; AccountNotifier's deliver/4 applies from-name +
+reply-to and the "[Name]" subject prefix to workspace-scoped mail —
+notifications ride it through notify and the quiet-hours EmailWorker
+(workspace_id added to job args), plus away notes, transcripts,
+channel replies, and invitations; magic links and security alerts stay
+platform-branded). LiveViewTest lessons: badge text renders with
+newlines, so assert on titles/ids rather than ">new<"; form() re-sends
+currently-checked checkboxes, so clearing needs an explicit empty
+"days" list. One migration (one table + three columns), no new deps.
+1089 tests. Bench: custom domains, Japanese locale, require-2FA,
+member suspension, visitor blocklist, trusted 2FA devices, CSAT
+surveys, site share QR, SSO-only login, conversation share links,
+sign-in-as.

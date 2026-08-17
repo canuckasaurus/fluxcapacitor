@@ -79,9 +79,14 @@ lands in the dev mailbox at `/dev/mailbox`).
    locking embedding to listed origins — the site's `frame-ancestors`
    CSP narrows from `*` to your list), or mint an API key and call
    `/v1` (see the [service API guide](service-api.md)). The monitor
-   handles the human side: claim or **assign conversations to a
-   member** (mine/unassigned filters keep two humans off one visitor)
-   and answer with one-click **saved replies**.
+   handles the human side live — new conversations and messages appear
+   without a reload, with typing indicators both ways: claim or
+   **assign conversations to a member** (mine/unassigned filters keep
+   two humans off one visitor), answer with one-click **saved
+   replies**, leave **internal notes** the visitor never sees, and
+   **resolve** finished threads (a fresh visitor message reopens
+   them). **Business hours** put the site on a weekly schedule, and a
+   **handoff SLA alert** warns when a visitor waits too long.
 5. **Knowledge** → create a dataset (echo embeddings work for trying it
    out), add documents by upload, paste, or URL, watch them index, and
    hit-test retrieval. Wire a `knowledge` node to the dataset in any
@@ -113,7 +118,7 @@ lands in the dev mailbox at `/dev/mailbox`).
 
 ## Testing
 
-`mix test` at the umbrella root runs everything (~1075 tests) with no
+`mix test` at the umbrella root runs everything (~1089 tests) with no
 network — fake providers, injected converters, temp-dir storage. To run
 a single app's tests, `cd` into the app first; `mix test apps/flux`
 from the root silently runs nothing. Golden replay fixtures, `/v1`

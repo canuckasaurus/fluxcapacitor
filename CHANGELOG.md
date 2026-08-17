@@ -7,6 +7,28 @@ at `docs/PARITY-PLAN.md`.
 
 ## Unreleased
 
+### Batch 41
+- Internal notes: agent-only comments on a conversation in the
+  monitor — author and time stamped, never shown to the visitor.
+- Resolve states: mark conversations resolved, filter open/resolved,
+  see 30-day tallies; a fresh visitor message reopens the thread on
+  its own.
+- Business hours: a per-app weekly UTC schedule — outside it the site
+  shows an away note and stops offering "talk to a human".
+- Typing indicators, both directions: the monitor sees "visitor is
+  typing" and the visitor sees "someone on the team is typing" during
+  handoffs.
+- Handoff SLA alerts: a visitor waiting longer than the configured
+  minutes fires a notification, once per request.
+- Live monitor feed: new conversations and messages appear in the
+  monitor without a reload, with "new" markers on changed threads.
+- Conversation webhook events: `conversation.started`,
+  `message.completed` (with usage), and `handoff.requested` join the
+  subscribable event list.
+- Email branding: workspace from-name and reply-to on outbound
+  workspace mail (invites, notifications, transcripts, away notes,
+  channel replies); account mail stays platform-branded.
+
 ### Batch 40
 - External knowledge bases: register a user-hosted retrieval endpoint
   as a dataset (Dify-compatible `/retrieval` contract) — its records

@@ -77,13 +77,26 @@ Two more gates run beside the patterns:
   back from the platform's from-address. Guardrails and app limits
   apply like any other turn.
 
+The human side of chat runs from the app monitor: a **live feed** (new
+conversations and messages appear without a reload, changed threads
+marked "new"), **typing indicators** both ways during handoffs,
+**assignment** with mine/unassigned filters, **internal notes** the
+visitor never sees, **resolve states** (a fresh visitor message
+reopens), one-click **saved replies**, and a per-app **business-hours
+schedule** (UTC; outside it the site shows an away note and stops
+offering a human). A **handoff SLA alert** (Settings → Failure alerts)
+fires a notification when a visitor waits longer than the configured
+minutes, once per request.
+
 ## Notifications & webhooks
 
 Every operational event lands in the in-console feed (filterable by
 kind, per-item or bulk mark-read) and can route to signed webhooks:
 endpoints subscribe per event (`run.*`, `notification.*`,
 `document.indexed`/`document.failed`/`dataset.synced` for knowledge
-ingestion, …), payloads
+ingestion, `conversation.started`/`message.completed`/
+`handoff.requested` for chat lifecycle — CRM and analytics sync
+without polling, …), payloads
 are HMAC-SHA256 signed (`x-flux-signature`), deliveries are logged
 with per-attempt outcomes and manual retry, and the **Send test**
 button fires a `webhook.test` event so you can verify a receiver
@@ -171,6 +184,12 @@ Metric names are verified against the live `/metrics` endpoint.
   last month's tokens, estimated USD, and top fluxes).
 - Webhook endpoints take a **Slack format** option: events post as
   Block Kit, ready for an incoming-webhook URL.
+- **Email branding** (Settings → Email branding): a workspace from-name
+  and reply-to applied to outbound workspace mail — invites,
+  notification emails, transcripts, away notes, email-channel replies —
+  including the `[Name]` subject prefix. The sending address stays
+  `FLUX_MAIL_FROM` (your SMTP sender domain); account mail (magic
+  links, security alerts) stays platform-branded.
 
 ## SAML single sign-on
 
