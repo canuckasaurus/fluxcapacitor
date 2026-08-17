@@ -55,6 +55,10 @@ defmodule Flux.Chat.App do
     # Origins allowed to iframe the published site (whitespace/newline
     # separated); blank keeps the embed-anywhere default.
     field :embed_origins, :string
+    # Weekly site schedule (UTC): %{"days" => [...], "open" => h,
+    # "close" => h, "note" => "..."}. Empty means always open.
+    # Machine-shaped by the app page, never free-cast.
+    field :business_hours, :map, default: %{}
     field :site_theme, :map, default: %{}
     field :site_token, :string
     field :site_enabled, :boolean, default: false
@@ -98,6 +102,7 @@ defmodule Flux.Chat.App do
       :tags,
       :monthly_cost_budget,
       :embed_origins,
+      :business_hours,
       :site_theme
     ])
     |> validate_number(:monthly_cost_budget, greater_than: 0)
@@ -142,8 +147,13 @@ defmodule Flux.Chat.Conversation do
     # Handoff ownership: which member claimed this conversation.
     belongs_to :assigned_account, Flux.Accounts.Account
     field :labels, {:array, :string}, default: []
+    # Resolve state: a human marked the thread done; a fresh visitor
+    # message clears it.
+    field :resolved_at, :utc_datetime
     # Set when a site visitor asks for a human; cleared on console reply.
     field :handoff_requested_at, :utc_datetime
+    # Set once the overdue-handoff SLA warning fired for this request.
+    field :handoff_alerted_at, :utc_datetime
     # Seconds from handoff request to the first human reply (set once).
     field :handoff_first_reply_seconds, :integer
     field :variables, :map, default: %{}
@@ -292,6 +302,24 @@ defmodule Flux.Chat.UploadedFile do
     # Text pulled out of document uploads at store time (Tika / native),
     # so chat turns can carry the file's content without re-extracting.
     field :extracted_text, :string
+
+    timestamps(type: :utc_datetime)
+  end
+end
+
+defmodule Flux.Chat.ConversationNote do
+  @moduledoc "An agent-only comment on a conversation, never shown to the visitor."
+  use Ecto.Schema
+
+  @primary_key {:id, UUIDv7, autogenerate: true}
+  @foreign_key_type :binary_id
+
+  schema "conversation_notes" do
+    belongs_to :workspace, Flux.Accounts.Workspace
+    belongs_to :conversation, Flux.Chat.Conversation
+
+    field :author_email, :string
+    field :body, :string
 
     timestamps(type: :utc_datetime)
   end

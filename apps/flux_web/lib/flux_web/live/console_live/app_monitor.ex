@@ -10,45 +10,56 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
   def mount(%{"id" => app_id}, _session, socket) do
     if connected?(socket) do
       Phoenix.PubSub.subscribe(Flux.PubSub, FluxWeb.SitePresence.topic(app_id))
+      Chat.subscribe_monitor(app_id)
     end
 
     scope = socket.assigns.current_scope
 
     with true <- RBAC.can?(scope, :app_monitor) || :unauthorized,
          %App{} = app <- Chat.get_app(scope, app_id) do
-      {:ok,
-       assign(socket,
-         page_title: "#{app.name} — monitoring",
-         app: app,
-         conversations: Chat.list_conversations(scope, app.id, 50),
-         handoffs: Chat.handoff_queue(scope, app.id),
-         ab_stats: (app.ab_split > 0 && Chat.app_ab_stats(scope, app.id)) || nil,
-         prompt_ab_stats: (app.prompt_split > 0 && Chat.prompt_ab_stats(scope, app.id)) || nil,
-         handoff_sla: Chat.handoff_sla(scope, app.id),
-         conversation_usage: nil,
-         conversation_evals: Flux.ConversationEvals.list_conversation_evals(scope, app.id),
-         trashed_conversations: Chat.list_trashed_conversations(scope, app.id),
-         visitor_stats: Chat.visitor_stats(scope, app.id),
-         selected_conversation_ids: MapSet.new(),
-         all_labels: Chat.conversation_labels(scope, app.id),
-         label_filter: nil,
-         assignment_filter: :all,
-         members: Flux.Accounts.scim_list_members(Flux.Accounts.Scope.workspace_id(scope)),
-         canned_replies: Chat.list_canned_replies(scope),
-         reply_prefill: %{},
-         usage: Chat.usage_stats(scope, app.id),
-         feedback_filter: :all,
-         feedback: Chat.list_feedback(scope, app.id),
-         quality: Chat.quality_stats(scope, app.id),
-         topics: Chat.topic_clusters(scope, app.id),
-         live_visitors: FluxWeb.SitePresence.visitor_count(app.id),
-         annotations: Chat.list_annotations(scope, app.id),
-         can_edit: RBAC.can?(scope, :app_edit),
-         labeling_projects: Flux.Labeling.list_projects(scope),
-         search_results: nil,
-         selected_id: nil,
-         messages: []
-       )}
+      handoffs = Chat.handoff_queue(scope, app.id)
+
+      socket =
+        assign(socket,
+          page_title: "#{app.name} — monitoring",
+          app: app,
+          conversations: Chat.list_conversations(scope, app.id, 50),
+          handoffs: handoffs,
+          resolution: Chat.resolution_counts(scope, app.id),
+          status_filter: :all,
+          notes: [],
+          unread_ids: MapSet.new(),
+          typing_visitors: %{},
+          typing_topics: MapSet.new(),
+          ab_stats: (app.ab_split > 0 && Chat.app_ab_stats(scope, app.id)) || nil,
+          prompt_ab_stats: (app.prompt_split > 0 && Chat.prompt_ab_stats(scope, app.id)) || nil,
+          handoff_sla: Chat.handoff_sla(scope, app.id),
+          conversation_usage: nil,
+          conversation_evals: Flux.ConversationEvals.list_conversation_evals(scope, app.id),
+          trashed_conversations: Chat.list_trashed_conversations(scope, app.id),
+          visitor_stats: Chat.visitor_stats(scope, app.id),
+          selected_conversation_ids: MapSet.new(),
+          all_labels: Chat.conversation_labels(scope, app.id),
+          label_filter: nil,
+          assignment_filter: :all,
+          members: Flux.Accounts.scim_list_members(Flux.Accounts.Scope.workspace_id(scope)),
+          canned_replies: Chat.list_canned_replies(scope),
+          reply_prefill: %{},
+          usage: Chat.usage_stats(scope, app.id),
+          feedback_filter: :all,
+          feedback: Chat.list_feedback(scope, app.id),
+          quality: Chat.quality_stats(scope, app.id),
+          topics: Chat.topic_clusters(scope, app.id),
+          live_visitors: FluxWeb.SitePresence.visitor_count(app.id),
+          annotations: Chat.list_annotations(scope, app.id),
+          can_edit: RBAC.can?(scope, :app_edit),
+          labeling_projects: Flux.Labeling.list_projects(scope),
+          search_results: nil,
+          selected_id: nil,
+          messages: []
+        )
+
+      {:ok, subscribe_typing_topics(socket, Enum.map(handoffs, & &1.id))}
     else
       :unauthorized ->
         {:ok,
@@ -67,12 +78,15 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
   def handle_params(%{"conversation" => conversation_id}, _uri, socket) do
     scope = socket.assigns.current_scope
 
-    {:noreply,
-     assign(socket,
-       selected_id: conversation_id,
-       messages: Chat.list_messages(scope, conversation_id),
-       conversation_usage: Chat.conversation_usage(scope, conversation_id)
-     )}
+    socket =
+      assign(socket,
+        selected_id: conversation_id,
+        messages: Chat.list_messages(scope, conversation_id),
+        notes: Chat.list_conversation_notes(scope, conversation_id),
+        conversation_usage: Chat.conversation_usage(scope, conversation_id)
+      )
+
+    {:noreply, subscribe_typing_topics(socket, [conversation_id])}
   end
 
   def handle_params(_params, _uri, socket), do: {:noreply, socket}
@@ -82,6 +96,57 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
     {:noreply,
      assign(socket, live_visitors: FluxWeb.SitePresence.visitor_count(socket.assigns.app.id))}
   end
+
+  # Something changed in a conversation: refresh the lists live, and
+  # mark unselected threads as unread.
+  def handle_info({:monitor_update, conversation_id}, socket) do
+    scope = socket.assigns.current_scope
+    app = socket.assigns.app
+
+    unread_ids =
+      if socket.assigns.selected_id == conversation_id,
+        do: socket.assigns.unread_ids,
+        else: MapSet.put(socket.assigns.unread_ids, conversation_id)
+
+    handoffs = Chat.handoff_queue(scope, app.id)
+
+    socket =
+      assign(socket,
+        conversations: Chat.list_conversations(scope, app.id, 50),
+        handoffs: handoffs,
+        resolution: Chat.resolution_counts(scope, app.id),
+        unread_ids: unread_ids
+      )
+
+    socket =
+      if socket.assigns.selected_id == conversation_id do
+        assign(socket, messages: Chat.list_messages(scope, conversation_id))
+      else
+        socket
+      end
+
+    {:noreply, subscribe_typing_topics(socket, Enum.map(handoffs, & &1.id))}
+  end
+
+  def handle_info({:typing, conversation_id, :visitor}, socket) do
+    Process.send_after(self(), {:typing_expired, conversation_id}, 4_000)
+
+    {:noreply,
+     assign(socket,
+       typing_visitors: Map.put(socket.assigns.typing_visitors, conversation_id, true)
+     )}
+  end
+
+  def handle_info({:typing, _conversation_id, :agent}, socket), do: {:noreply, socket}
+
+  def handle_info({:typing_expired, conversation_id}, socket) do
+    {:noreply,
+     assign(socket, typing_visitors: Map.delete(socket.assigns.typing_visitors, conversation_id))}
+  end
+
+  # Human replies ride the conversation topics we subscribed for typing;
+  # the monitor_update nudge already refreshes the thread.
+  def handle_info({:human_reply, _message}, socket), do: {:noreply, socket}
 
   @impl true
   def handle_event(
@@ -454,15 +519,74 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
     scope = socket.assigns.current_scope
 
     if socket.assigns.selected_id == id do
-      {:noreply, assign(socket, selected_id: nil, messages: [], conversation_usage: nil)}
-    else
       {:noreply,
-       assign(socket,
-         selected_id: id,
-         messages: Chat.list_messages(scope, id),
-         conversation_usage: Chat.conversation_usage(scope, id)
-       )}
+       assign(socket, selected_id: nil, messages: [], notes: [], conversation_usage: nil)}
+    else
+      socket =
+        assign(socket,
+          selected_id: id,
+          messages: Chat.list_messages(scope, id),
+          notes: Chat.list_conversation_notes(scope, id),
+          unread_ids: MapSet.delete(socket.assigns.unread_ids, id),
+          conversation_usage: Chat.conversation_usage(scope, id)
+        )
+
+      {:noreply, subscribe_typing_topics(socket, [id])}
     end
+  end
+
+  def handle_event("filter_status", %{"filter" => filter}, socket)
+      when filter in ["all", "open", "resolved"] do
+    {:noreply, assign(socket, status_filter: String.to_existing_atom(filter))}
+  end
+
+  def handle_event("resolve_conversation", %{"conversation-id" => id}, socket) do
+    scope = socket.assigns.current_scope
+
+    case Chat.resolve_conversation(scope, id) do
+      {:ok, _conversation} -> {:noreply, refresh_conversations(socket)}
+      _error -> {:noreply, put_flash(socket, :error, "Could not resolve the conversation.")}
+    end
+  end
+
+  def handle_event("reopen_conversation", %{"conversation-id" => id}, socket) do
+    scope = socket.assigns.current_scope
+
+    case Chat.reopen_conversation(scope, id) do
+      {:ok, _conversation} -> {:noreply, refresh_conversations(socket)}
+      _error -> {:noreply, put_flash(socket, :error, "Could not reopen the conversation.")}
+    end
+  end
+
+  def handle_event("add_note", %{"conversation-id" => id, "body" => body}, socket) do
+    scope = socket.assigns.current_scope
+
+    case Chat.add_conversation_note(scope, id, body) do
+      {:ok, _note} ->
+        {:noreply, assign(socket, notes: Chat.list_conversation_notes(scope, id))}
+
+      {:error, :blank} ->
+        {:noreply, socket}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not save the note.")}
+    end
+  end
+
+  def handle_event("delete_note", %{"note-id" => note_id}, socket) do
+    scope = socket.assigns.current_scope
+    Chat.delete_conversation_note(scope, note_id)
+
+    notes =
+      (socket.assigns.selected_id &&
+         Chat.list_conversation_notes(scope, socket.assigns.selected_id)) || []
+
+    {:noreply, assign(socket, notes: notes)}
+  end
+
+  def handle_event("agent_typing", %{"conversation-id" => id}, socket) do
+    Chat.broadcast_typing(id, :agent)
+    {:noreply, socket}
   end
 
   def handle_event("add_conversation_eval", params, socket) do
@@ -1124,9 +1248,19 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
               placeholder="Reply as a human — the visitor sees it live"
               class="input input-bordered input-sm flex-1"
               autocomplete="off"
+              phx-keyup="agent_typing"
+              phx-value-conversation-id={conversation.id}
+              phx-debounce="300"
             />
             <button class="btn btn-primary btn-sm">Send</button>
           </form>
+          <p
+            :if={@typing_visitors[conversation.id]}
+            class="text-xs opacity-60"
+            id={"handoff-typing-#{conversation.id}"}
+          >
+            visitor is typing…
+          </p>
         </div>
       </div>
 
@@ -1275,6 +1409,18 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
             </option>
           </select>
         </form>
+
+        <form :if={@conversations != []} phx-change="filter_status" id="status-filter" class="w-fit">
+          <select name="filter" class="select select-bordered select-sm">
+            <option value="all" selected={@status_filter == :all}>Any status</option>
+            <option value="open" selected={@status_filter == :open}>Open</option>
+            <option value="resolved" selected={@status_filter == :resolved}>Resolved</option>
+          </select>
+        </form>
+
+        <span class="text-xs opacity-60" id="resolution-counts">
+          {@resolution.open} open · {@resolution.resolved} resolved (30d)
+        </span>
       </div>
 
       <div
@@ -1310,7 +1456,8 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
         :for={conversation <- @conversations}
         :if={
           (@label_filter == nil or @label_filter in conversation.labels) and
-            assignment_match?(conversation, @assignment_filter, @current_scope.account.id)
+            assignment_match?(conversation, @assignment_filter, @current_scope.account.id) and
+            status_match?(conversation, @status_filter)
         }
         class="card border border-base-200"
       >
@@ -1362,6 +1509,23 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
             >
               {conversation.assigned_account.email}
             </span>
+            <span :if={conversation.resolved_at} class="badge badge-success badge-sm">
+              resolved
+            </span>
+            <span
+              :if={MapSet.member?(@unread_ids, conversation.id)}
+              class="badge badge-primary badge-sm"
+              title="Changed since you last looked"
+            >
+              new
+            </span>
+            <span
+              :if={@typing_visitors[conversation.id]}
+              class="text-xs opacity-60"
+              id={"typing-#{conversation.id}"}
+            >
+              visitor is typing…
+            </span>
             <span class="ml-auto text-xs opacity-60">
               {Calendar.strftime(conversation.inserted_at, "%Y-%m-%d %H:%M")}
             </span>
@@ -1387,6 +1551,61 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
               Rolling memory (what the model carries forward)
             </p>
             <p class="whitespace-pre-wrap">{conversation.summary}</p>
+          </div>
+          <div class="flex gap-2 items-center">
+            <button
+              :if={conversation.resolved_at == nil}
+              class="btn btn-outline btn-xs"
+              phx-click="resolve_conversation"
+              phx-value-conversation-id={conversation.id}
+              id={"resolve-#{conversation.id}"}
+            >
+              <.icon name="hero-check" class="size-3" /> Resolve
+            </button>
+            <button
+              :if={conversation.resolved_at != nil}
+              class="btn btn-ghost btn-xs"
+              phx-click="reopen_conversation"
+              phx-value-conversation-id={conversation.id}
+              id={"reopen-#{conversation.id}"}
+            >
+              Reopen
+            </button>
+            <span :if={conversation.resolved_at} class="text-xs opacity-50">
+              resolved {Calendar.strftime(conversation.resolved_at, "%Y-%m-%d %H:%M")} — a new
+              visitor message reopens it
+            </span>
+          </div>
+          <div class="rounded-box bg-warning/10 p-3 space-y-1" id={"notes-#{conversation.id}"}>
+            <p class="text-xs font-semibold opacity-70">
+              <.icon name="hero-lock-closed" class="size-3 inline" />
+              Internal notes — never shown to the visitor
+            </p>
+            <p :for={note <- @notes} class="text-sm flex items-start gap-2">
+              <span class="whitespace-pre-wrap flex-1">{note.body}</span>
+              <span class="text-xs opacity-50 shrink-0">
+                {note.author_email} · {Calendar.strftime(note.inserted_at, "%m-%d %H:%M")}
+              </span>
+              <button
+                class="btn btn-ghost btn-xs"
+                phx-click="delete_note"
+                phx-value-note-id={note.id}
+                aria-label="Delete note"
+              >
+                ✕
+              </button>
+            </p>
+            <form phx-submit="add_note" class="flex gap-2" id={"note-form-#{conversation.id}"}>
+              <input type="hidden" name="conversation-id" value={conversation.id} />
+              <input
+                type="text"
+                name="body"
+                placeholder="Add a note for the team…"
+                class="input input-bordered input-xs flex-1"
+                autocomplete="off"
+              />
+              <button class="btn btn-outline btn-xs">Note</button>
+            </form>
           </div>
           <form
             phx-change="assign_conversation"
@@ -1450,6 +1669,35 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
     </Layouts.console>
     """
   end
+
+  # Subscribes to conversation topics (typing + human replies) exactly
+  # once each — duplicate PubSub subscriptions mean duplicate messages.
+  defp subscribe_typing_topics(socket, conversation_ids) do
+    new_ids =
+      conversation_ids
+      |> MapSet.new()
+      |> MapSet.difference(socket.assigns.typing_topics)
+
+    if connected?(socket) do
+      Enum.each(new_ids, &Chat.subscribe_conversation/1)
+    end
+
+    assign(socket, typing_topics: MapSet.union(socket.assigns.typing_topics, new_ids))
+  end
+
+  defp refresh_conversations(socket) do
+    scope = socket.assigns.current_scope
+    app = socket.assigns.app
+
+    assign(socket,
+      conversations: Chat.list_conversations(scope, app.id, 50),
+      resolution: Chat.resolution_counts(scope, app.id)
+    )
+  end
+
+  defp status_match?(_conversation, :all), do: true
+  defp status_match?(conversation, :open), do: conversation.resolved_at == nil
+  defp status_match?(conversation, :resolved), do: conversation.resolved_at != nil
 
   defp assignment_match?(_conversation, :all, _account_id), do: true
 

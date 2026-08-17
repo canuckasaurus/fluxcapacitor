@@ -205,6 +205,31 @@ defmodule Flux.Chat do
 
   def embed_frame_ancestors(_other), do: nil
 
+  @business_days ~w(mon tue wed thu fri sat sun)
+
+  @doc """
+  Whether the app's public site is inside its configured business hours
+  (UTC). No or empty config means always open; overnight windows
+  (open > close) wrap past midnight.
+  """
+  def within_business_hours?(%App{business_hours: hours}, now \\ DateTime.utc_now()) do
+    case hours do
+      %{"days" => [_ | _] = days, "open" => open, "close" => close}
+      when is_integer(open) and is_integer(close) ->
+        day = Enum.at(@business_days, Date.day_of_week(now) - 1)
+
+        hour_ok =
+          if open <= close,
+            do: now.hour >= open and now.hour < close,
+            else: now.hour >= open or now.hour < close
+
+        day in days and hour_ok
+
+      _always_open ->
+        true
+    end
+  end
+
   @doc "A workspace-only scope for anonymous public-site visitors."
   def site_scope(%App{} = app) do
     %Scope{
@@ -217,12 +242,23 @@ defmodule Flux.Chat do
   ## Conversations & messages
 
   def create_conversation(%Scope{} = scope, %App{} = app, attrs \\ %{}) do
-    Repo.insert!(%Conversation{
-      workspace_id: Scope.workspace_id(scope),
-      app_id: app.id,
-      title: Map.get(attrs, :title),
-      end_user_ref: Map.get(attrs, :end_user_ref)
+    conversation =
+      Repo.insert!(%Conversation{
+        workspace_id: Scope.workspace_id(scope),
+        app_id: app.id,
+        title: Map.get(attrs, :title),
+        end_user_ref: Map.get(attrs, :end_user_ref)
+      })
+
+    notify_monitor(app.id, conversation.id)
+
+    Flux.Webhooks.dispatch(conversation.workspace_id, "conversation.started", %{
+      "conversation_id" => conversation.id,
+      "app_id" => app.id,
+      "end_user_ref" => conversation.end_user_ref
     })
+
+    conversation
   end
 
   def get_conversation(%Scope{} = scope, id) do
@@ -362,7 +398,11 @@ defmodule Flux.Chat do
       %Conversation{handoff_requested_at: nil} = conversation ->
         {:ok, flagged} =
           conversation
-          |> Ecto.Changeset.change(handoff_requested_at: DateTime.utc_now(:second))
+          |> Ecto.Changeset.change(
+            handoff_requested_at: DateTime.utc_now(:second),
+            # Re-arm the overdue-handoff SLA alert for this new request.
+            handoff_alerted_at: nil
+          )
           |> Repo.update()
 
         Flux.Notifications.notify(
@@ -371,6 +411,13 @@ defmodule Flux.Chat do
           "A visitor asked for a human in #{app.name}.",
           "/console/apps/#{app.id}/monitor"
         )
+
+        Flux.Webhooks.dispatch(app.workspace_id, "handoff.requested", %{
+          "conversation_id" => conversation.id,
+          "app_id" => app.id
+        })
+
+        notify_monitor(app.id, conversation.id)
 
         {:ok, flagged}
 
@@ -426,8 +473,90 @@ defmodule Flux.Chat do
         {:human_reply, message}
       )
 
+      notify_monitor(conversation.app_id, conversation.id)
+
       {:ok, message}
     end
+  end
+
+  @doc "Marks a conversation resolved (a fresh visitor message reopens it)."
+  def resolve_conversation(%Scope{} = scope, conversation_id),
+    do: set_resolved(scope, conversation_id, DateTime.utc_now(:second))
+
+  @doc "Reopens a resolved conversation."
+  def reopen_conversation(%Scope{} = scope, conversation_id),
+    do: set_resolved(scope, conversation_id, nil)
+
+  defp set_resolved(scope, conversation_id, at) do
+    with :ok <- RBAC.authorize(scope, :app_monitor),
+         %Conversation{} = conversation <-
+           Repo.one(Repo.scoped(where(Conversation, id: ^conversation_id), scope)) ||
+             {:error, :not_found},
+         {:ok, updated} <-
+           conversation |> Ecto.Changeset.change(resolved_at: at) |> Repo.update() do
+      notify_monitor(updated.app_id, updated.id)
+      {:ok, updated}
+    end
+  end
+
+  @doc "Open/resolved tallies for the monitor header (last 30 days)."
+  def resolution_counts(%Scope{} = scope, app_id) do
+    cutoff = DateTime.add(DateTime.utc_now(:second), -30, :day)
+
+    counts =
+      Conversation
+      |> Repo.scoped(scope)
+      |> where([c], c.app_id == ^app_id and is_nil(c.deleted_at) and c.inserted_at >= ^cutoff)
+      |> group_by([c], is_nil(c.resolved_at))
+      |> select([c], {is_nil(c.resolved_at), count(c.id)})
+      |> Repo.all()
+      |> Map.new()
+
+    %{open: Map.get(counts, true, 0), resolved: Map.get(counts, false, 0)}
+  end
+
+  @doc """
+  Every-minute tick: workspaces that configured `handoff_alert_minutes`
+  get a notification when a handoff sits unanswered that long — once
+  per request (a fresh request re-arms it).
+  """
+  def check_handoff_sla(now \\ DateTime.utc_now(:second)) do
+    workspaces =
+      from(w in Flux.Accounts.Workspace,
+        where: fragment("(? ->> 'handoff_alert_minutes') is not null", w.custom_config),
+        select: {w.id, fragment("(? ->> 'handoff_alert_minutes')::int", w.custom_config)}
+      )
+      |> Repo.all()
+
+    for {workspace_id, minutes} <- workspaces, is_integer(minutes) and minutes > 0 do
+      cutoff = DateTime.add(now, -minutes, :minute)
+
+      overdue =
+        from(c in Conversation,
+          join: a in App,
+          on: a.id == c.app_id,
+          where: c.workspace_id == ^workspace_id and is_nil(c.deleted_at),
+          where: c.handoff_requested_at <= ^cutoff and is_nil(c.handoff_alerted_at),
+          select: {c.id, a.id, a.name}
+        )
+        |> Repo.all()
+
+      for {conversation_id, app_id, app_name} <- overdue do
+        Flux.Notifications.notify(
+          workspace_id,
+          "handoff",
+          "A visitor has been waiting #{minutes}+ minutes without a human reply in #{app_name}.",
+          "/console/apps/#{app_id}/monitor"
+        )
+
+        from(c in Conversation,
+          where: c.id == ^conversation_id and c.workspace_id == ^workspace_id
+        )
+        |> Repo.update_all(set: [handoff_alerted_at: now])
+      end
+    end
+
+    :ok
   end
 
   @doc """
@@ -536,6 +665,48 @@ defmodule Flux.Chat do
     end
   end
 
+  ## Internal notes (agent-only comments, never shown to the visitor)
+
+  alias Flux.Chat.ConversationNote
+
+  @doc "Agent-only notes on a conversation, oldest first."
+  def list_conversation_notes(%Scope{} = scope, conversation_id) do
+    ConversationNote
+    |> Repo.scoped(scope)
+    |> where([n], n.conversation_id == ^conversation_id)
+    |> order_by([n], asc: n.inserted_at, asc: n.id)
+    |> Repo.all()
+  end
+
+  @doc "Adds an internal note; the author is the scope's account email."
+  def add_conversation_note(%Scope{} = scope, conversation_id, body) do
+    body = body |> to_string() |> String.trim()
+
+    with :ok <- RBAC.authorize(scope, :app_monitor),
+         true <- body != "" || {:error, :blank},
+         %Conversation{} = conversation <-
+           Repo.one(Repo.scoped(where(Conversation, id: ^conversation_id), scope)) ||
+             {:error, :not_found} do
+      {:ok,
+       Repo.insert!(%ConversationNote{
+         workspace_id: conversation.workspace_id,
+         conversation_id: conversation.id,
+         author_email: scope.account && scope.account.email,
+         body: String.slice(body, 0, 4_000)
+       })}
+    end
+  end
+
+  @doc "Deletes an internal note."
+  def delete_conversation_note(%Scope{} = scope, note_id) do
+    with :ok <- RBAC.authorize(scope, :app_monitor),
+         %ConversationNote{} = note <-
+           Repo.one(Repo.scoped(where(ConversationNote, id: ^note_id), scope)) ||
+             {:error, :not_found} do
+      Repo.delete(note)
+    end
+  end
+
   ## Canned replies (saved snippets for the monitor's human agents)
 
   @doc "The workspace's saved replies as string-keyed title/body maps, newest first."
@@ -618,6 +789,34 @@ defmodule Flux.Chat do
 
   def subscribe_conversation(conversation_id),
     do: Phoenix.PubSub.subscribe(Flux.PubSub, conversation_topic(conversation_id))
+
+  @doc "PubSub topic carrying app-wide monitor nudges (new conversations/messages)."
+  def monitor_topic(app_id), do: "app_monitor:#{app_id}"
+
+  def subscribe_monitor(app_id),
+    do: Phoenix.PubSub.subscribe(Flux.PubSub, monitor_topic(app_id))
+
+  # Something changed in this conversation — open monitor pages refresh.
+  defp notify_monitor(app_id, conversation_id) do
+    Phoenix.PubSub.broadcast(
+      Flux.PubSub,
+      monitor_topic(app_id),
+      {:monitor_update, conversation_id}
+    )
+  end
+
+  @doc """
+  Broadcasts a transient typing signal on the conversation topic. The
+  site shows `:agent` signals, the monitor shows `:visitor` ones — each
+  side ignores its own.
+  """
+  def broadcast_typing(conversation_id, who) when who in [:visitor, :agent] do
+    Phoenix.PubSub.broadcast(
+      Flux.PubSub,
+      conversation_topic(conversation_id),
+      {:typing, conversation_id, who}
+    )
+  end
 
   @doc "Console-originated conversations (no end-user ref), newest first."
   def console_conversations(%Scope{} = scope, app_id, limit \\ 15) do
@@ -914,6 +1113,17 @@ defmodule Flux.Chat do
         files: files
       })
 
+    # A fresh message reopens a resolved thread; either way the open
+    # monitor pages get a nudge.
+    if conversation.resolved_at != nil do
+      from(c in Conversation,
+        where: c.id == ^conversation.id and c.workspace_id == ^workspace_id
+      )
+      |> Repo.update_all(set: [resolved_at: nil])
+    end
+
+    notify_monitor(app.id, conversation.id)
+
     # Untitled conversations take their first question as the title
     # (manual renames are never overwritten).
     first_exchange? = conversation.title in [nil, ""]
@@ -1133,7 +1343,8 @@ defmodule Flux.Chat do
         email,
         (app && app.name) || "the team",
         String.slice(content, 0, 500),
-        app && app.site_token
+        app && app.site_token,
+        conversation.workspace_id
       )
     end
 
@@ -1153,7 +1364,12 @@ defmodule Flux.Chat do
          email when is_binary(email) <- conversation.visitor_email || {:error, :no_email} do
       transcript = render_transcript(scope, app, conversation)
 
-      case Flux.Accounts.AccountNotifier.deliver_transcript(email, app.name, transcript) do
+      case Flux.Accounts.AccountNotifier.deliver_transcript(
+             email,
+             app.name,
+             transcript,
+             app.workspace_id
+           ) do
         {:ok, _email} -> :ok
         {:error, reason} -> {:error, reason}
       end
@@ -2319,7 +2535,7 @@ defmodule Flux.Chat do
     with {:ok, _user, assistant} <- send_message(scope, app, conversation, content) do
       {:ok, _pid} =
         Task.Supervisor.start_child(Flux.GenerationSupervisor, fn ->
-          await_and_mail_reply(assistant.id, from, app.name)
+          await_and_mail_reply(assistant.id, from, app.name, app.workspace_id)
         end)
 
       {:ok, conversation.id}
@@ -2328,7 +2544,7 @@ defmodule Flux.Chat do
 
   # send_message subscribed the *caller*; this task polls the row
   # instead so it works from any process.
-  defp await_and_mail_reply(message_id, to, app_name) do
+  defp await_and_mail_reply(message_id, to, app_name, workspace_id) do
     Enum.reduce_while(1..150, nil, fn _try, _acc ->
       case Repo.get(Message, message_id, skip_workspace_guard: true) do
         %{status: :streaming} ->
@@ -2336,7 +2552,7 @@ defmodule Flux.Chat do
           {:cont, nil}
 
         %{status: :completed, content: content} when is_binary(content) and content != "" ->
-          Flux.Accounts.AccountNotifier.deliver_channel_reply(to, app_name, content)
+          Flux.Accounts.AccountNotifier.deliver_channel_reply(to, app_name, content, workspace_id)
           {:halt, :ok}
 
         _failed_or_gone ->
@@ -3097,6 +3313,21 @@ defmodule Flux.Chat do
       |> Repo.update!()
 
     Phoenix.PubSub.broadcast(Flux.PubSub, topic(message.id), {:done, message})
+
+    # Monitor pages refresh live, and webhook receivers hear about the
+    # finished turn (thin payload — fetch details via /v1).
+    case Repo.get(Conversation, message.conversation_id, skip_workspace_guard: true) do
+      %Conversation{} = conversation -> notify_monitor(conversation.app_id, conversation.id)
+      _gone -> :ok
+    end
+
+    Flux.Webhooks.dispatch(message.workspace_id, "message.completed", %{
+      "message_id" => message.id,
+      "conversation_id" => message.conversation_id,
+      "status" => to_string(status),
+      "usage" => usage
+    })
+
     {:ok, message}
   end
 

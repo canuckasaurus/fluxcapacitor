@@ -23,7 +23,8 @@ defmodule Flux.Repo do
                       model_artifacts notifications retrieval_cases webhook_deliveries
                       workflow_templates dataset_url_sources prompt_snippets mcp_servers
                       conversation_evals workspace_env_vars prompt_snippet_versions
-                      run_comments app_snapshots rag_document_revisions)
+                      run_comments app_snapshots rag_document_revisions
+                      conversation_notes)
                  )
 
   @doc """
