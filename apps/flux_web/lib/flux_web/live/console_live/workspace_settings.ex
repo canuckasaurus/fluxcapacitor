@@ -38,6 +38,8 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
        max_concurrent_runs: Accounts.max_concurrent_runs(scope),
        guardrails: Flux.Guardrails.config(Flux.Accounts.Scope.workspace_id(scope)),
        moderation: Flux.Guardrails.moderation_config(Flux.Accounts.Scope.workspace_id(scope)),
+       moderation_api:
+         Flux.Guardrails.moderation_api_config(Flux.Accounts.Scope.workspace_id(scope)),
        ip_allowlist: Flux.IPAllowlist.list(Flux.Accounts.Scope.workspace_id(scope)),
        alert_url: Accounts.alert_url(scope),
        alert_secret: Accounts.alert_secret(scope),
@@ -299,6 +301,28 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
 
       _error ->
         {:noreply, put_flash(socket, :error, "Could not save the prices.")}
+    end
+  end
+
+  def handle_event(
+        "set_moderation_api",
+        %{"url" => url, "action" => action, "fail" => fail},
+        socket
+      ) do
+    case Flux.Guardrails.configure_moderation_api(socket.assigns.current_scope, url, action, fail) do
+      {:ok, _workspace} ->
+        workspace_id = Flux.Accounts.Scope.workspace_id(socket.assigns.current_scope)
+
+        {:noreply,
+         socket
+         |> put_flash(:info, "Moderation endpoint saved.")
+         |> assign(moderation_api: Flux.Guardrails.moderation_api_config(workspace_id))}
+
+      {:error, message} when is_binary(message) ->
+        {:noreply, put_flash(socket, :error, message)}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not save the moderation endpoint.")}
     end
   end
 
@@ -1087,6 +1111,45 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
               </option>
             </select>
             <button class="btn btn-primary btn-sm">Save moderation</button>
+          </div>
+        </form>
+
+        <div class="divider my-1" />
+
+        <h3 class="text-sm font-semibold">External moderation API</h3>
+        <p class="text-sm opacity-70">
+          Checked text POSTs to your endpoint as <span class="font-mono">{"{text, context}"}</span>; it answers <span class="font-mono">{"{flagged, reason}"}</span>. Runs alongside the
+          patterns and the model judge — blank disables. <b>fail open</b>
+          lets traffic through when the endpoint is down; <b>fail closed</b>
+          blocks it.
+        </p>
+
+        <form phx-submit="set_moderation_api" id="moderation-api-form" class="space-y-2">
+          <input
+            type="url"
+            name="url"
+            value={@moderation_api && @moderation_api.url}
+            placeholder="https://moderation.example.com/check"
+            class="input input-bordered input-sm w-full max-w-md"
+          />
+          <div class="flex gap-2 items-center">
+            <select name="action" class="select select-bordered select-sm w-32">
+              <option value="block" selected={(@moderation_api && @moderation_api.action) != "flag"}>
+                block
+              </option>
+              <option value="flag" selected={@moderation_api && @moderation_api.action == "flag"}>
+                flag
+              </option>
+            </select>
+            <select name="fail" class="select select-bordered select-sm w-36">
+              <option value="open" selected={(@moderation_api && @moderation_api.fail) != "closed"}>
+                fail open
+              </option>
+              <option value="closed" selected={@moderation_api && @moderation_api.fail == "closed"}>
+                fail closed
+              </option>
+            </select>
+            <button class="btn btn-primary btn-sm">Save endpoint</button>
           </div>
         </form>
       </div>

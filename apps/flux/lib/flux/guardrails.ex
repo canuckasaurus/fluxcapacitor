@@ -142,6 +142,83 @@ defmodule Flux.Guardrails do
     """
   end
 
+  ## External moderation endpoint (opt-in, user-hosted HTTP API)
+
+  @doc "The external moderation config: `%{url, action, fail}` or nil."
+  def moderation_api_config(workspace_id) do
+    case Repo.get(Workspace, workspace_id) do
+      %{custom_config: %{"moderation_api" => %{"url" => url} = config}}
+      when is_binary(url) and url != "" ->
+        %{url: url, action: config["action"] || "block", fail: config["fail"] || "open"}
+
+      _off ->
+        nil
+    end
+  end
+
+  @doc """
+  Saves the external moderation endpoint (blank URL disables). The
+  endpoint gets `{"text", "context"}` POSTed and answers
+  `{"flagged": bool, "reason": …}`. `action` decides what a flagged
+  input does (`block`/`flag`); `fail` decides what an unreachable
+  endpoint means — `"open"` lets traffic through, `"closed"` blocks it.
+  """
+  def configure_moderation_api(%Scope{} = scope, url, action, fail)
+      when action in ["block", "flag"] and fail in ["open", "closed"] do
+    case String.trim(to_string(url)) do
+      "" ->
+        update_key(scope, "moderation_api", nil)
+
+      url ->
+        with :ok <- Flux.SSRF.verify_url(url) do
+          update_key(scope, "moderation_api", %{"url" => url, "action" => action, "fail" => fail})
+        end
+    end
+  end
+
+  # `{:deny, reason}` when the endpoint flags the text (or is down in
+  # fail-closed mode), :ok otherwise — including when no API is set.
+  defp api_verdict(workspace_id, text, context) do
+    case moderation_api_config(workspace_id) do
+      nil ->
+        :ok
+
+      %{url: url, fail: fail} ->
+        client = Application.get_env(:flux, :moderation_api_client, &default_api_client/2)
+
+        case client.(url, %{"text" => String.slice(text, 0, 8_000), "context" => context}) do
+          {:ok, %{"flagged" => true} = body} ->
+            {:deny, to_string(body["reason"] || "flagged by the moderation API")}
+
+          {:ok, _clean} ->
+            :ok
+
+          {:error, _reason} when fail == "closed" ->
+            {:deny, "the moderation API was unreachable (fail-closed)"}
+
+          {:error, _reason} ->
+            :ok
+        end
+    end
+  end
+
+  defp default_api_client(url, payload) do
+    with :ok <- Flux.SSRF.verify_url(url),
+         {:ok, %{status: 200, body: %{} = body}} <-
+           Req.post(
+             url: url,
+             json: payload,
+             redirect: false,
+             max_retries: 0,
+             receive_timeout: 5_000
+           ) do
+      {:ok, body}
+    else
+      {:ok, %{status: status}} -> {:error, "HTTP #{status}"}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   @doc "First matching pattern in the text, or nil."
   def violation(workspace_id, text) when is_binary(text) do
     case config(workspace_id) do
@@ -248,6 +325,12 @@ defmodule Flux.Guardrails do
   end
 
   defp check_input_moderation(workspace_id, text, context) do
+    with :ok <- model_moderation_gate(workspace_id, text, context) do
+      api_moderation_gate(workspace_id, text, context)
+    end
+  end
+
+  defp model_moderation_gate(workspace_id, text, context) do
     case moderation_verdict(workspace_id, text) do
       :ok ->
         :ok
@@ -256,6 +339,21 @@ defmodule Flux.Guardrails do
         notify(workspace_id, "moderation: #{reason}", context)
 
         case moderation_config(workspace_id) do
+          %{action: "flag"} -> :ok
+          _block -> {:error, :guardrail}
+        end
+    end
+  end
+
+  defp api_moderation_gate(workspace_id, text, context) do
+    case api_verdict(workspace_id, text, context) do
+      :ok ->
+        :ok
+
+      {:deny, reason} ->
+        notify(workspace_id, "moderation API: #{reason}", context)
+
+        case moderation_api_config(workspace_id) do
           %{action: "flag"} -> :ok
           _block -> {:error, :guardrail}
         end
@@ -272,6 +370,11 @@ defmodule Flux.Guardrails do
     case moderation_verdict(workspace_id, text) do
       :ok -> :ok
       {:deny, reason} -> notify(workspace_id, "moderation: #{reason}", context)
+    end
+
+    case api_verdict(workspace_id, text, context) do
+      :ok -> :ok
+      {:deny, reason} -> notify(workspace_id, "moderation API: #{reason}", context)
     end
   end
 
