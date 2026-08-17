@@ -164,9 +164,14 @@ orchestrator, no queue infrastructure beyond Postgres.
   app's theme, so shared links unfurl with the app's identity, and can
   be **passcode-protected** (asked once per browser session); the
   floating **chat-bubble embed themes itself** (color, corner, icon,
-  one-time greeting) from the app settings, apps carry an **emoji
+  one-time greeting) from the app settings, embedding can be **locked
+  to listed origins** (the site's `frame-ancestors` CSP narrows from
+  `*` to your list), apps carry an **emoji
   icon**, and an **inbound email trigger** starts fluxes straight from
-  a Mailgun/SES-style mail webhook.
+  a Mailgun/SES-style mail webhook. On the human side of the monitor,
+  conversations **assign to a member** (dropdown, mine/unassigned
+  filters — beyond self-claim on the handoff queue) and handoff
+  answers insert **one-click saved replies** shared by the workspace.
   Conversations get **model-written titles** after the first exchange
   (manual renames always win). API
   tokens are **perpetual or expiring by choice** (30/90/365 days),
@@ -189,7 +194,9 @@ orchestrator, no queue infrastructure beyond Postgres.
   when the provider has a speech endpoint, browser voices otherwise.
   Guardrails gain **model-backed moderation** — the workspace default
   model judges content against your policy alongside the regex
-  patterns — and a **workspace system prompt** bakes org-wide rules
+  patterns — an **external moderation API** (checked text POSTs to
+  your own endpoint; block or flag on a hit, fail-open or fail-closed
+  when it's down) — and a **workspace system prompt** bakes org-wide rules
   into every app's model calls, written once in settings. Chat apps run **model A/B tests**: a challenger model takes
   a chosen share of conversations (stable per conversation) and the
   monitoring page compares replies, feedback, and tokens per variant —
@@ -232,14 +239,20 @@ orchestrator, no queue infrastructure beyond Postgres.
   **Retrieval evals** (golden question → expected-passage cases, hit rate
   + MRR per dataset) make chunking and backend changes measurable — and
   a **cron on the dataset re-scores them unattended**, raising a
-  notification when hit rate or MRR drops.
+  notification when hit rate or MRR drops. A dataset can also be an
+  **external knowledge base**: retrieval queries POST to a user-hosted
+  endpoint (the widely-spoken `/retrieval` webhook contract, Bearer
+  key optional) and its records ride into answers, citations, hit
+  testing, and evals like local chunks.
 - **Plugins** — one SDK (`packages/flux_plugin`) with five capability
   behaviours: **model providers** (OpenAI, Anthropic, Gemini, **Azure
   OpenAI** deployments, **Amazon Bedrock** Claude models with hand-rolled
   SigV4, any OpenAI-compatible endpoint), **tools**, **datasources** (external document
   collections that sync into datasets), **triggers** (polled event sources
   that start runs), and **endpoints** (plugins that serve HTTP). Installed
-  per workspace, credentials encrypted per workspace. Built-in **LlamaIndex
+  per workspace, credentials encrypted per workspace — several keys of
+  one provider can join a **load-balancing pool** (round-robin
+  rotation, failover to the next key on 429s and provider outages). Built-in **LlamaIndex
   tool plugin** (retrieve from LlamaCloud managed indexes or call
   llama_deploy workflow services as functions inside a flux), plus **Notion**,
   **S3-compatible**, and **Google Drive** (service-account) datasources.
@@ -290,7 +303,9 @@ orchestrator, no queue infrastructure beyond Postgres.
   audit entry: the GDPR answer.
   Costs stay honest with **workspace price overrides** (self-hosted and
   fine-tuned models priced per million tokens), **per-flux monthly
-  budgets** beside the workspace one, and same-named document re-uploads
+  budgets** beside the workspace one — and per-app monthly cost budgets
+  **warn at 80% and 100%** (once per level) before the cutoff bites —
+  and same-named document re-uploads
   **replace in place** instead of duplicating. Datasets also take
   **image uploads** (described and text-transcribed by the workspace
   vision model, indexed like any document), **typed metadata per
@@ -499,7 +514,7 @@ scratch drive, and a labeling project wired to the Model trainer flux
 ## Testing
 
 ```bash
-mix test                             # full umbrella suite (~1056 tests), hermetic
+mix test                             # full umbrella suite (~1075 tests), hermetic
 ```
 
 The suite runs with no network: providers stub through `Req.Test` or the

@@ -32,8 +32,17 @@ All per-workspace, in Settings → Cost controls:
 - **Per-node caching** — deterministic nodes (HTTP, code) opt in with
   `cache_minutes` on the canvas; identical inputs skip the call.
 - **Per-app daily token limits** — refusals return 429 on the API.
+- **Per-app monthly cost budget** — caps an app's estimated USD spend
+  for the month (Chat settings). The team is warned at 80% and again
+  at 100% (`budget_warning`, once per level per month, emailable like
+  any notification kind); past the cap the app answers like a spent
+  daily limit.
 - **Per-app rate limits** — each app can override the 120 req/min
   pipeline default for its own tokens (Chat settings).
+- **Credential load balancing** — under Plugins, flag several keys of
+  one provider into the pool ("Pool"): calls rotate across pooled keys
+  round-robin and fail over to the next key on 429/quota/5xx errors.
+  Unpooled setups keep resolving the default key.
 
 Track spend on the Runs page (cost by flux, CSV export), the
 dashboard rollups, and the Grafana panels (tokens/h, est. USD/h).
@@ -46,6 +55,18 @@ checked against chat and run inputs. `block` refuses the input;
 (routable to webhooks). Outputs are always flag-only — the tokens are
 already spent, so the team gets told instead of the user getting a
 hole in the reply.
+
+Two more gates run beside the patterns:
+
+- **Model-backed moderation** — the workspace default model judges
+  inputs against a written policy (one extra call per checked
+  message). Judge failures allow.
+- **External moderation API** — checked text POSTs to your own
+  endpoint as `{"text", "context"}`; it answers
+  `{"flagged": bool, "reason": …}` within 5 s. Choose `block` or
+  `flag` for hits, and `fail open` (endpoint down ⇒ traffic passes)
+  or `fail closed` (endpoint down ⇒ inputs refuse) for outages. The
+  endpoint URL is SSRF-guarded.
 
 ## Chat channels
 

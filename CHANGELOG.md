@@ -7,6 +7,29 @@ at `docs/PARITY-PLAN.md`.
 
 ## Unreleased
 
+### Batch 40
+- External knowledge bases: register a user-hosted retrieval endpoint
+  as a dataset (Dify-compatible `/retrieval` contract) — its records
+  flow into answers, citations, hit testing, and retrieval evals like
+  local chunks. API key DEK-encrypted; endpoint SSRF-guarded.
+- External moderation API: guardrails can POST checked text to your
+  own endpoint alongside the regex patterns and the model judge —
+  block or flag on a hit, fail-open or fail-closed when it's down.
+- Credential load balancing: flag several provider keys into a pool
+  and calls rotate across them round-robin, failing over to the next
+  key on rate limits and provider outages.
+- Embed origin lockdown: an app can list the origins allowed to
+  iframe its published site; the site's `frame-ancestors` CSP narrows
+  from `*` to exactly that list.
+- Conversation assignment: assign any conversation to a specific
+  member from the monitor (beyond self-claim on handoffs), with
+  mine/unassigned filters so two humans stop answering one visitor.
+- Canned replies: workspace-shared reply snippets, inserted into a
+  handoff answer with one click.
+- Budget alert emails: apps at 80% and then 100% of their monthly
+  cost budget notify the team once per level — the hard cutoff is no
+  longer the first warning.
+
 ### Batch 39
 - Passkeys (WebAuthn): register platform authenticators from account
   settings and sign in without a password — pure-Elixir `wax`, no

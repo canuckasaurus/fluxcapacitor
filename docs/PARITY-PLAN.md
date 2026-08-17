@@ -1518,3 +1518,46 @@ One migration (two tables + two columns), one new dep (wax_).
 1056 tests. The bench holds: custom domains, Japanese locale,
 require-2FA, member suspension, visitor blocklist, trusted 2FA
 devices, CSAT surveys, site share QR, credential load balancing.
+
+**64. Batch 40 — eight picked, one dissolved, one reshaped.** Item 20
+(notification email preferences) dissolved on contact: per-account
+notification_email_kinds plus quiet hours already shipped end-to-end —
+grep before you build. Conversation assignment was an honest reshape:
+claim/release on the handoff queue existed since the handoff work, so
+the new parts are assigning *any* conversation to *any* member (the
+existing assign_handoff was already generic — it just had no UI beyond
+self-claim) and mine/unassigned filters. The seven: **external
+knowledge** (datasets grew external_endpoint/knowledge_id/api_key —
+embedding columns went nullable since external datasets embed nothing;
+retrieve/4 split into local_retrieve and external_retrieve, the
+endpoint's records mapped to hit-shaped maps so every consumer —
+knowledge nodes, hit testing, retrieval evals, retrieve_many's score
+sort — works unchanged; key DEK-encrypted, endpoint SSRF-verified at
+save and per call); **external moderation API** (workspace
+custom_config "moderation_api" with block/flag + fail-open/closed;
+api_verdict runs beside the pattern and model-judge gates in both the
+input path and flag_output; client injectable via
+:moderation_api_client for tests); **credential load balancing**
+(provider_credentials.balanced; fetch_config resolves through
+fetch_configs, which rotates a balanced pool by a VM-wide monotonic
+counter — no process owns the rotor; invoke_with_failover walks the
+candidate list on 429/quota/5xx-shaped errors only, and both the chat
+generate path and the workflow LLM node ride it); **embed origins**
+(apps.embed_origins; the router's allow_embedding plug — pipelines run
+after route match, so path_params has the site token — narrows
+frame-ancestors from * to 'self' + the list); **conversation
+assignment** (assignee dropdown on the selected conversation, list
+badges, mine/unassigned filters; list_conversations preloads
+assigned_account); **canned replies** (workspace custom_config list
+managed from the monitor; a chip click prefills that conversation's
+reply input via an assigns map — no JS hook needed); **budget alerts**
+(apps.budget_alerts holds the highest level warned per month key;
+hourly scheduler tick compares month_cost_estimate to the budget and
+notifies budget_warning at 80 then 100, once each — riding the
+existing notification email opt-ins for free). Also fixed a batch-39
+straggler: the passkey-attestation credo extraction had landed two
+defps between handle_event clauses (grouping warning). One migration
+(five columns + two DROP NOT NULLs), no new deps. 1075 tests. Bench:
+custom domains, Japanese locale, require-2FA, member suspension,
+visitor blocklist, trusted 2FA devices, CSAT surveys, site share QR,
+SSO-only login, conversation share links, sign-in-as.

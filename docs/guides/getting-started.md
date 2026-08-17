@@ -75,8 +75,13 @@ lands in the dev mailbox at `/dev/mailbox`).
    versions modal, which sends a share of live traffic to another
    published version and reports runs/success/tokens per arm.
 4. **Apps** → create a chat, completion, or chatflow app. Publish it as
-   a public site, embed it with the iframe/bubble snippets, or mint an
-   API key and call `/v1` (see the [service API guide](service-api.md)).
+   a public site, embed it with the iframe/bubble snippets (optionally
+   locking embedding to listed origins — the site's `frame-ancestors`
+   CSP narrows from `*` to your list), or mint an API key and call
+   `/v1` (see the [service API guide](service-api.md)). The monitor
+   handles the human side: claim or **assign conversations to a
+   member** (mine/unassigned filters keep two humans off one visitor)
+   and answer with one-click **saved replies**.
 5. **Knowledge** → create a dataset (echo embeddings work for trying it
    out), add documents by upload, paste, or URL, watch them index, and
    hit-test retrieval. Wire a `knowledge` node to the dataset in any
@@ -98,11 +103,17 @@ lands in the dev mailbox at `/dev/mailbox`).
    `FLUX_VECTOR_DIMS` for an HNSW approximate index) or
    `FLUX_VECTOR_BACKEND=arango` (AQL cosine next to the entity graph),
    and `FLUX_ARANGO_URL` (the `rag` profile) for deeper related-entity
-   graph traversal.
+   graph traversal. A dataset can also be **external**: register a
+   user-hosted retrieval endpoint (`Connect external`) and queries POST
+   to it (`{query, knowledge_id, retrieval_setting}` →
+   `{"records": [{content, score, title, metadata}]}`, Bearer-key
+   optional) — the records flow into answers, citations, hit testing,
+   and retrieval evals like local chunks, while the documents stay on
+   your side.
 
 ## Testing
 
-`mix test` at the umbrella root runs everything (~1056 tests) with no
+`mix test` at the umbrella root runs everything (~1075 tests) with no
 network — fake providers, injected converters, temp-dir storage. To run
 a single app's tests, `cd` into the app first; `mix test apps/flux`
 from the root silently runs nothing. Golden replay fixtures, `/v1`
