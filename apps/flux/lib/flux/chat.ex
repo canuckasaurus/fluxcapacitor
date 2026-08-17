@@ -185,6 +185,26 @@ defmodule Flux.Chat do
 
   def get_app_by_site_token(_other), do: {:error, :not_found}
 
+  @doc """
+  The CSP `frame-ancestors` sources locking down who may iframe a
+  published app site, or nil for the embed-anywhere default (also what
+  flux sites and unknown tokens get).
+  """
+  def embed_frame_ancestors("site_" <> _rest = token) do
+    case Repo.get_by(App, [site_token: token], skip_workspace_guard: true) do
+      %App{embed_origins: origins} when is_binary(origins) ->
+        case String.split(origins, ~r/\s+/, trim: true) do
+          [] -> nil
+          list -> list
+        end
+
+      _default ->
+        nil
+    end
+  end
+
+  def embed_frame_ancestors(_other), do: nil
+
   @doc "A workspace-only scope for anonymous public-site visitors."
   def site_scope(%App{} = app) do
     %Scope{
@@ -516,6 +536,51 @@ defmodule Flux.Chat do
     end
   end
 
+  ## Canned replies (saved snippets for the monitor's human agents)
+
+  @doc "The workspace's saved replies as string-keyed title/body maps, newest first."
+  def list_canned_replies(%Scope{} = scope) do
+    case Repo.get(Flux.Accounts.Workspace, Scope.workspace_id(scope)) do
+      %{custom_config: %{"canned_replies" => replies}} when is_list(replies) -> replies
+      _none -> []
+    end
+  end
+
+  @doc "Saves (upserts by title) a canned reply for human agents."
+  def save_canned_reply(%Scope{} = scope, title, body) do
+    title = title |> to_string() |> String.trim() |> String.slice(0, 80)
+    body = body |> to_string() |> String.trim() |> String.slice(0, 4_000)
+
+    with :ok <- RBAC.authorize(scope, :app_monitor),
+         true <- (title != "" and body != "") || {:error, :blank} do
+      replies =
+        [%{"title" => title, "body" => body}] ++
+          Enum.reject(list_canned_replies(scope), &(&1["title"] == title))
+
+      put_canned_replies(scope, Enum.take(replies, 50))
+    end
+  end
+
+  @doc "Deletes a canned reply by title."
+  def delete_canned_reply(%Scope{} = scope, title) do
+    with :ok <- RBAC.authorize(scope, :app_monitor) do
+      put_canned_replies(
+        scope,
+        Enum.reject(list_canned_replies(scope), &(&1["title"] == title))
+      )
+    end
+  end
+
+  defp put_canned_replies(scope, replies) do
+    workspace = Repo.get(Flux.Accounts.Workspace, Scope.workspace_id(scope))
+
+    workspace
+    |> Ecto.Changeset.change(
+      custom_config: Map.put(workspace.custom_config || %{}, "canned_replies", replies)
+    )
+    |> Repo.update()
+  end
+
   @doc """
   Stores the pre-chat identity a visitor typed (collect_visitor_info
   apps). Site-scope callable; blank values clear nothing — identity is
@@ -603,6 +668,7 @@ defmodule Flux.Chat do
     |> where([c], c.app_id == ^app_id and is_nil(c.deleted_at))
     |> order_by([c], desc: c.inserted_at)
     |> limit(^limit)
+    |> preload(:assigned_account)
     |> Repo.all()
   end
 
@@ -1331,6 +1397,49 @@ defmodule Flux.Chat do
       end
     end)
   end
+
+  @doc """
+  Hourly tick: apps at ≥80% (then ≥100%) of their monthly cost budget
+  land a `budget_warning` notification, once per level per month — the
+  hard cutoff shouldn't be the first anyone hears of it. Subscribed
+  members get it by email like any other notification kind.
+  """
+  def check_app_budget_alerts(now \\ DateTime.utc_now(:second)) do
+    if now.minute == 5 do
+      month = Calendar.strftime(now, "%Y-%m")
+
+      apps =
+        App
+        |> where([a], not is_nil(a.monthly_cost_budget) and is_nil(a.deleted_at))
+        |> Repo.all(skip_workspace_guard: true)
+
+      for app <- apps do
+        spent = month_cost_estimate(app)
+        level = budget_level(spent, app.monthly_cost_budget)
+
+        if level > ((app.budget_alerts || %{})[month] || 0) do
+          percent = trunc(spent / app.monthly_cost_budget * 100)
+
+          Flux.Notifications.notify(
+            app.workspace_id,
+            "budget_warning",
+            "App #{app.name} is at #{percent}% of its $#{app.monthly_cost_budget} monthly " <>
+              "budget (~$#{Float.round(spent, 2)} estimated).",
+            "/console/apps/#{app.id}/chat"
+          )
+
+          # Old month keys age out with the replace — one key at a time.
+          app |> Ecto.Changeset.change(budget_alerts: %{month => level}) |> Repo.update()
+        end
+      end
+    end
+
+    :ok
+  end
+
+  defp budget_level(spent, budget) when spent >= budget, do: 100
+  defp budget_level(spent, budget) when spent >= budget * 0.8, do: 80
+  defp budget_level(_spent, _budget), do: 0
 
   ## Annotations
 
@@ -2353,13 +2462,12 @@ defmodule Flux.Chat do
       Phoenix.PubSub.broadcast(Flux.PubSub, topic(assistant_message.id), {:chunk, delta})
     end
 
-    credentials =
-      case Providers.fetch_config(app.workspace_id, app.provider_plugin_id) do
-        {:ok, config} -> config
-        {:error, :not_configured} -> %{}
-      end
+    result =
+      Providers.invoke_with_failover(app.workspace_id, app.provider_plugin_id, fn credentials ->
+        runtime().invoke_llm(app.provider_plugin_id, credentials, request, emit)
+      end)
 
-    case runtime().invoke_llm(app.provider_plugin_id, credentials, request, emit) do
+    case result do
       {:ok, result} ->
         Flux.ProviderHealth.record(app.provider_plugin_id, :ok)
 

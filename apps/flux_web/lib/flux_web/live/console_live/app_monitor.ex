@@ -32,6 +32,10 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
          selected_conversation_ids: MapSet.new(),
          all_labels: Chat.conversation_labels(scope, app.id),
          label_filter: nil,
+         assignment_filter: :all,
+         members: Flux.Accounts.scim_list_members(Flux.Accounts.Scope.workspace_id(scope)),
+         canned_replies: Chat.list_canned_replies(scope),
+         reply_prefill: %{},
          usage: Chat.usage_stats(scope, app.id),
          feedback_filter: :all,
          feedback: Chat.list_feedback(scope, app.id),
@@ -127,6 +131,68 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
 
   def handle_event("filter_label", %{"label" => label}, socket) do
     {:noreply, assign(socket, label_filter: (label == "" && nil) || label)}
+  end
+
+  def handle_event("filter_assignment", %{"filter" => filter}, socket)
+      when filter in ["all", "mine", "unassigned"] do
+    {:noreply, assign(socket, assignment_filter: String.to_existing_atom(filter))}
+  end
+
+  def handle_event(
+        "assign_conversation",
+        %{"conversation-id" => conversation_id, "account-id" => account_id},
+        socket
+      ) do
+    scope = socket.assigns.current_scope
+    account_id = (account_id == "" && nil) || account_id
+
+    case Chat.assign_handoff(scope, conversation_id, account_id) do
+      {:ok, _conversation} ->
+        {:noreply,
+         assign(socket,
+           conversations: Chat.list_conversations(scope, socket.assigns.app.id, 50),
+           handoffs: Chat.handoff_queue(scope, socket.assigns.app.id)
+         )}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not assign the conversation.")}
+    end
+  end
+
+  def handle_event("save_canned_reply", %{"title" => title, "body" => body}, socket) do
+    case Chat.save_canned_reply(socket.assigns.current_scope, title, body) do
+      {:ok, _workspace} ->
+        {:noreply,
+         assign(socket, canned_replies: Chat.list_canned_replies(socket.assigns.current_scope))}
+
+      {:error, :blank} ->
+        {:noreply, put_flash(socket, :error, "A saved reply needs a title and a body.")}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not save the reply.")}
+    end
+  end
+
+  def handle_event("delete_canned_reply", %{"title" => title}, socket) do
+    Chat.delete_canned_reply(socket.assigns.current_scope, title)
+
+    {:noreply,
+     assign(socket, canned_replies: Chat.list_canned_replies(socket.assigns.current_scope))}
+  end
+
+  def handle_event(
+        "use_canned",
+        %{"conversation-id" => conversation_id, "title" => title},
+        socket
+      ) do
+    case Enum.find(socket.assigns.canned_replies, &(&1["title"] == title)) do
+      nil ->
+        {:noreply, socket}
+
+      reply ->
+        prefill = Map.put(socket.assigns.reply_prefill, conversation_id, reply["body"])
+        {:noreply, assign(socket, reply_prefill: prefill)}
+    end
   end
 
   def handle_event("filter_feedback", %{"filter" => filter}, socket)
@@ -1032,6 +1098,19 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
               View
             </button>
           </p>
+          <div :if={@canned_replies != []} class="flex flex-wrap gap-1">
+            <button
+              :for={reply <- @canned_replies}
+              type="button"
+              class="btn btn-ghost btn-xs"
+              phx-click="use_canned"
+              phx-value-conversation-id={conversation.id}
+              phx-value-title={reply["title"]}
+              title={reply["body"]}
+            >
+              <.icon name="hero-bolt" class="size-3" /> {reply["title"]}
+            </button>
+          </div>
           <form
             phx-submit="human_reply"
             class="flex gap-2"
@@ -1041,6 +1120,7 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
             <input
               type="text"
               name="content"
+              value={Map.get(@reply_prefill, conversation.id)}
               placeholder="Reply as a human — the visitor sees it live"
               class="input input-bordered input-sm flex-1"
               autocomplete="off"
@@ -1048,6 +1128,43 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
             <button class="btn btn-primary btn-sm">Send</button>
           </form>
         </div>
+      </div>
+
+      <div class="card border border-base-200 p-4 space-y-2" id="canned-replies-card">
+        <h2 class="font-semibold text-sm">
+          <.icon name="hero-bolt" class="size-4 inline" /> Saved replies
+        </h2>
+        <p class="text-xs opacity-60">
+          One-click snippets for human replies — shared by the whole workspace.
+        </p>
+        <p :for={reply <- @canned_replies} class="text-sm flex items-start gap-2">
+          <span class="font-semibold shrink-0">{reply["title"]}</span>
+          <span class="opacity-70 truncate">{reply["body"]}</span>
+          <button
+            class="btn btn-ghost btn-xs text-error ml-auto"
+            phx-click="delete_canned_reply"
+            phx-value-title={reply["title"]}
+          >
+            Remove
+          </button>
+        </p>
+        <form phx-submit="save_canned_reply" class="flex gap-2 flex-wrap" id="canned-reply-form">
+          <input
+            type="text"
+            name="title"
+            placeholder="Title (greeting, refund-policy, ...)"
+            class="input input-bordered input-sm w-56"
+            autocomplete="off"
+          />
+          <input
+            type="text"
+            name="body"
+            placeholder="The reply text inserted on click"
+            class="input input-bordered input-sm flex-1 min-w-64"
+            autocomplete="off"
+          />
+          <button class="btn btn-outline btn-sm">Save reply</button>
+        </form>
       </div>
 
       <div
@@ -1134,14 +1251,31 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
 
       <p :if={@conversations == []} class="text-sm opacity-60">No conversations yet.</p>
 
-      <form :if={@all_labels != []} phx-change="filter_label" id="label-filter" class="w-fit">
-        <select name="label" class="select select-bordered select-sm">
-          <option value="">All labels</option>
-          <option :for={label <- @all_labels} value={label} selected={@label_filter == label}>
-            {label}
-          </option>
-        </select>
-      </form>
+      <div class="flex gap-2 items-center">
+        <form :if={@all_labels != []} phx-change="filter_label" id="label-filter" class="w-fit">
+          <select name="label" class="select select-bordered select-sm">
+            <option value="">All labels</option>
+            <option :for={label <- @all_labels} value={label} selected={@label_filter == label}>
+              {label}
+            </option>
+          </select>
+        </form>
+
+        <form
+          :if={@conversations != []}
+          phx-change="filter_assignment"
+          id="assignment-filter"
+          class="w-fit"
+        >
+          <select name="filter" class="select select-bordered select-sm">
+            <option value="all" selected={@assignment_filter == :all}>Everyone's</option>
+            <option value="mine" selected={@assignment_filter == :mine}>Mine</option>
+            <option value="unassigned" selected={@assignment_filter == :unassigned}>
+              Unassigned
+            </option>
+          </select>
+        </form>
+      </div>
 
       <div
         :if={@can_edit and @selected_conversation_ids != MapSet.new()}
@@ -1174,7 +1308,10 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
 
       <div
         :for={conversation <- @conversations}
-        :if={@label_filter == nil or @label_filter in conversation.labels}
+        :if={
+          (@label_filter == nil or @label_filter in conversation.labels) and
+            assignment_match?(conversation, @assignment_filter, @current_scope.account.id)
+        }
         class="card border border-base-200"
       >
         <div class="flex items-center">
@@ -1218,6 +1355,13 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
             >
               handoff
             </span>
+            <span
+              :if={conversation.assigned_account}
+              class="badge badge-info badge-sm"
+              title="Assigned member"
+            >
+              {conversation.assigned_account.email}
+            </span>
             <span class="ml-auto text-xs opacity-60">
               {Calendar.strftime(conversation.inserted_at, "%Y-%m-%d %H:%M")}
             </span>
@@ -1244,6 +1388,26 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
             </p>
             <p class="whitespace-pre-wrap">{conversation.summary}</p>
           </div>
+          <form
+            phx-change="assign_conversation"
+            class="flex gap-2 items-center"
+            id={"assign-#{conversation.id}"}
+          >
+            <input type="hidden" name="conversation-id" value={conversation.id} />
+            <span class="text-xs opacity-70">Assigned to</span>
+            <select name="account-id" class="select select-bordered select-xs w-64">
+              <option value="" selected={conversation.assigned_account_id == nil}>
+                Unassigned
+              </option>
+              <option
+                :for={member <- @members}
+                value={member.account_id}
+                selected={conversation.assigned_account_id == member.account_id}
+              >
+                {member.account.email}
+              </option>
+            </select>
+          </form>
           <form
             :if={@can_edit}
             phx-submit="set_labels"
@@ -1286,6 +1450,14 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
     </Layouts.console>
     """
   end
+
+  defp assignment_match?(_conversation, :all, _account_id), do: true
+
+  defp assignment_match?(conversation, :mine, account_id),
+    do: conversation.assigned_account_id == account_id
+
+  defp assignment_match?(conversation, :unassigned, _account_id),
+    do: conversation.assigned_account_id == nil
 
   defp format_sla(seconds) when seconds < 60, do: "#{seconds}s"
   defp format_sla(seconds) when seconds < 3600, do: "#{div(seconds, 60)}m"

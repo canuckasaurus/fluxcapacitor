@@ -55,6 +55,7 @@ defmodule Flux.Workflows.ScheduleWorker do
     Workflows.run_scheduled_publishes(now)
     Flux.Backup.run_scheduled(now)
     Flux.Idempotency.prune(now)
+    Flux.Chat.check_app_budget_alerts(now)
 
     # Remembered URL sources re-fetch nightly (runtime-resolved — flux
     # never compile-depends on flux_rag).

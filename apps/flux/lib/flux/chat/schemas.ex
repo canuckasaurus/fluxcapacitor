@@ -49,6 +49,12 @@ defmodule Flux.Chat.App do
     # Monthly estimated-USD cap; past it the app answers like a spent
     # daily limit. nil = uncapped.
     field :monthly_cost_budget, :float
+    # Highest budget threshold already notified, per month key
+    # ("2026-08" => 80|100) — machine-managed, never cast.
+    field :budget_alerts, :map, default: %{}
+    # Origins allowed to iframe the published site (whitespace/newline
+    # separated); blank keeps the embed-anywhere default.
+    field :embed_origins, :string
     field :site_theme, :map, default: %{}
     field :site_token, :string
     field :site_enabled, :boolean, default: false
@@ -91,6 +97,7 @@ defmodule Flux.Chat.App do
       :collect_visitor_info,
       :tags,
       :monthly_cost_budget,
+      :embed_origins,
       :site_theme
     ])
     |> validate_number(:monthly_cost_budget, greater_than: 0)

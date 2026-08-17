@@ -593,6 +593,23 @@ defmodule FluxWeb.ConsoleLive.AppChat do
     end
   end
 
+  def handle_event("save_embed_origins", %{"origins" => origins}, socket) do
+    case Chat.update_app(socket.assigns.current_scope, socket.assigns.app, %{
+           "embed_origins" => presence(origins)
+         }) do
+      {:ok, app} ->
+        message =
+          if app.embed_origins,
+            do: "Embedding locked to the listed origins.",
+            else: "Embedding open to any origin."
+
+        {:noreply, socket |> put_flash(:info, message) |> assign(app: app)}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not save the embed origins.")}
+    end
+  end
+
   def handle_event("save_theme", params, socket) do
     theme =
       %{
@@ -1670,6 +1687,24 @@ defmodule FluxWeb.ConsoleLive.AppChat do
           <pre class="rounded-box bg-base-200 p-3 text-xs overflow-x-auto">{embed_snippet(@app)}</pre>
           <p class="text-xs opacity-60">Or as a floating chat bubble:</p>
           <pre class="rounded-box bg-base-200 p-3 text-xs overflow-x-auto">{bubble_snippet(@app)}</pre>
+          <form
+            phx-submit="save_embed_origins"
+            id="embed-origins-form"
+            class="flex items-end gap-2 flex-wrap"
+          >
+            <label class="form-control flex-1 min-w-64">
+              <span class="label-text text-xs opacity-70 mb-1">
+                Allowed embed origins (one per line; blank = embeddable anywhere)
+              </span>
+              <textarea
+                name="origins"
+                rows="2"
+                placeholder="https://www.example.com\nhttps://docs.example.com"
+                class="textarea textarea-bordered textarea-sm w-full font-mono"
+              >{@app.embed_origins}</textarea>
+            </label>
+            <button class="btn btn-outline btn-sm">Save origins</button>
+          </form>
           <form
             phx-submit="save_theme"
             id="site-theme-form"

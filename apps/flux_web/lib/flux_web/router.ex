@@ -273,11 +273,19 @@ defmodule FluxWeb.Router do
   end
 
   # Published sites are meant to be iframed from anywhere; undo the
-  # SAMEORIGIN default set by put_secure_browser_headers for this scope only.
+  # SAMEORIGIN default set by put_secure_browser_headers for this scope
+  # only. Apps that configured embed origins get those (plus 'self')
+  # as the frame-ancestors instead of the wildcard.
   defp allow_embedding(conn, _opts) do
+    ancestors =
+      case Flux.Chat.embed_frame_ancestors(conn.path_params["token"]) do
+        nil -> "*"
+        origins -> Enum.join(["'self'" | origins], " ")
+      end
+
     conn
     |> delete_resp_header("x-frame-options")
-    |> put_resp_header("content-security-policy", "frame-ancestors *")
+    |> put_resp_header("content-security-policy", "frame-ancestors " <> ancestors)
   end
 
   # A stable anonymous visitor ref in the signed session cookie, so
