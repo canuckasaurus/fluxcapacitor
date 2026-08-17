@@ -2731,12 +2731,6 @@ defmodule Flux.Workflows do
   end
 
   defp invoke_llm_fresh(workspace_id, request, chunk_emit, cache_key, cache_ttl) do
-    credentials =
-      case Providers.fetch_config(workspace_id, request.provider_plugin_id) do
-        {:ok, config} -> config
-        {:error, :not_configured} -> %{}
-      end
-
     tools =
       for tool <- Map.get(request, :tools, []) do
         %Flux.Plugin.ModelProvider.ToolDef{
@@ -2759,7 +2753,12 @@ defmodule Flux.Workflows do
 
     emit = fn %{delta: delta} -> chunk_emit.(delta) end
 
-    case runtime().invoke_llm(request.provider_plugin_id, credentials, provider_request, emit) do
+    result =
+      Providers.invoke_with_failover(workspace_id, request.provider_plugin_id, fn credentials ->
+        runtime().invoke_llm(request.provider_plugin_id, credentials, provider_request, emit)
+      end)
+
+    case result do
       {:ok, result} ->
         Flux.ProviderHealth.record(request.provider_plugin_id, :ok)
 

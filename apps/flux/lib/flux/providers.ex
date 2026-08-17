@@ -289,20 +289,115 @@ defmodule Flux.Providers do
   @doc """
   Decrypted credential config for a plugin, or `{:error, :not_configured}`.
   With several named credentials, the default one wins (oldest as a
-  tiebreak for rows predating the default flag).
+  tiebreak for rows predating the default flag) — unless any are flagged
+  `balanced`, in which case calls rotate round-robin across the pool.
   """
   def fetch_config(workspace_id, plugin_id) do
-    query =
+    case fetch_configs(workspace_id, plugin_id) do
+      [config | _rest] -> {:ok, config}
+      [] -> {:error, :not_configured}
+    end
+  end
+
+  @doc """
+  Every decrypted candidate config for a plugin, failover order: with a
+  load-balancing pool the rotation pick leads and the rest of the pool
+  follows (so a failed call can move to the next key); without one it's
+  just the default credential. `[]` when nothing is configured.
+  """
+  def fetch_configs(workspace_id, plugin_id) do
+    credentials =
       from(c in ProviderCredential,
         where: c.workspace_id == ^workspace_id and c.plugin_id == ^plugin_id,
-        order_by: [desc: c.is_default, asc: c.inserted_at, asc: c.id],
-        limit: 1
+        order_by: [desc: c.is_default, asc: c.inserted_at, asc: c.id]
+      )
+      |> Repo.all()
+
+    pool = Enum.filter(credentials, & &1.balanced)
+
+    candidates =
+      case pool do
+        [] ->
+          Enum.take(credentials, 1)
+
+        pool ->
+          # VM-wide monotonic counter as the rotor: successive calls land
+          # on successive keys without any process owning the state.
+          turn = rem(System.unique_integer([:positive, :monotonic]), length(pool))
+          Enum.drop(pool, turn) ++ Enum.take(pool, turn)
+      end
+
+    for credential <- candidates,
+        {:ok, json} <- [Crypto.decrypt(workspace_id, credential.encrypted_config)] do
+      Jason.decode!(json)
+    end
+  end
+
+  @doc "Flags a credential into (or out of) the load-balancing pool."
+  def set_credential_balanced(%Scope{} = scope, credential_id, balanced?)
+      when is_boolean(balanced?) do
+    with :ok <- RBAC.authorize(scope, :plugin_model_config),
+         %ProviderCredential{} = credential <-
+           Repo.one(Repo.scoped(where(ProviderCredential, id: ^credential_id), scope)) ||
+             {:error, :not_found},
+         {:ok, updated} <-
+           credential |> Ecto.Changeset.change(balanced: balanced?) |> Repo.update() do
+      Flux.Audit.record(scope, "provider.credential_balanced_set",
+        resource_type: "provider_credential",
+        resource_id: credential.id,
+        metadata: %{"name" => credential.name, "balanced" => balanced?}
       )
 
-    with %ProviderCredential{} = credential <- Repo.one(query) || {:error, :not_configured},
-         {:ok, json} <- Crypto.decrypt(workspace_id, credential.encrypted_config) do
-      {:ok, Jason.decode!(json)}
+      {:ok, updated}
     end
+  end
+
+  @doc """
+  Runs `fun` (credentials → `{:ok, _} | {:error, reason}`) with the
+  plugin's resolved credentials, moving to the next pooled key when a
+  call fails with something that smells like a rate limit or provider
+  outage. Providers with no stored credentials run once with `%{}`
+  (keyless plugins like Echo).
+  """
+  def invoke_with_failover(workspace_id, plugin_id, fun) when is_function(fun, 1) do
+    case fetch_configs(workspace_id, plugin_id) do
+      [] -> fun.(%{})
+      candidates -> try_candidates(candidates, fun)
+    end
+  end
+
+  defp try_candidates([config], fun), do: fun.(config)
+
+  defp try_candidates([config | rest], fun) do
+    case fun.(config) do
+      {:error, reason} = error ->
+        if retryable_provider_error?(reason), do: try_candidates(rest, fun), else: error
+
+      result ->
+        result
+    end
+  end
+
+  # The failures another key can plausibly fix: rate limits, quota
+  # exhaustion, and provider-side outages. Bad requests stay bad.
+  defp retryable_provider_error?(reason) do
+    text = reason |> inspect() |> String.downcase()
+
+    Enum.any?(
+      [
+        "429",
+        "rate limit",
+        "rate_limit",
+        "quota",
+        "overloaded",
+        "timeout",
+        "500",
+        "502",
+        "503",
+        "529"
+      ],
+      &String.contains?(text, &1)
+    )
   end
 
   @doc """

@@ -140,6 +140,13 @@ defmodule FluxWeb.ConsoleLive.Plugins do
     end
   end
 
+  def handle_event("toggle_balanced", %{"credential-id" => id, "balanced" => balanced}, socket) do
+    case Providers.set_credential_balanced(socket.assigns.current_scope, id, balanced == "true") do
+      {:ok, _credential} -> {:noreply, refresh(socket)}
+      _error -> {:noreply, put_flash(socket, :error, "Could not update the pool.")}
+    end
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -270,10 +277,26 @@ defmodule FluxWeb.ConsoleLive.Plugins do
             >
               <span class="font-mono text-xs">{credential.name}</span>
               <span :if={credential.is_default} class="badge badge-primary badge-xs">default</span>
+              <span
+                :if={credential.balanced}
+                class="badge badge-accent badge-xs"
+                title="In the load-balancing pool: calls rotate across pooled keys and fail over on rate limits"
+              >
+                pooled
+              </span>
               <span :if={credential.validated_at} class="text-xs opacity-50">
                 validated {Calendar.strftime(credential.validated_at, "%Y-%m-%d")}
               </span>
               <div :if={@can_manage} class="ml-auto flex gap-1">
+                <button
+                  class="btn btn-ghost btn-xs"
+                  phx-click="toggle_balanced"
+                  phx-value-credential-id={credential.id}
+                  phx-value-balanced={to_string(not credential.balanced)}
+                  title="Pooled keys share traffic round-robin and take over from each other on 429/5xx"
+                >
+                  {if credential.balanced, do: "Leave pool", else: "Pool"}
+                </button>
                 <button
                   class="btn btn-ghost btn-xs"
                   phx-click="revalidate"

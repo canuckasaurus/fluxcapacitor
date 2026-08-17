@@ -11,6 +11,9 @@ defmodule Flux.Providers.ProviderCredential do
     field :plugin_id, :string
     field :name, :string, default: "default"
     field :is_default, :boolean, default: false
+    # In the load-balancing pool: calls rotate across balanced keys and
+    # fail over between them on rate-limit/server errors.
+    field :balanced, :boolean, default: false
     field :encrypted_config, :string, redact: true
     field :validated_at, :utc_datetime
 
