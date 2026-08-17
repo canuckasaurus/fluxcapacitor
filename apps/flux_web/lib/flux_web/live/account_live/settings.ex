@@ -337,6 +337,21 @@ defmodule FluxWeb.AccountLive.Settings do
     {:ok, socket}
   end
 
+  defp verify_passkey_attestation(_params, nil), do: :error
+
+  defp verify_passkey_attestation(params, challenge) do
+    with {:ok, attestation_object} <-
+           Base.url_decode64(params["attestation_object"] || "", padding: false),
+         {:ok, client_data_json} <-
+           Base.url_decode64(params["client_data_json"] || "", padding: false),
+         {:ok, {auth_data, _attestation_result}} <-
+           Wax.register(attestation_object, client_data_json, challenge) do
+      {:ok, auth_data.attested_credential_data.credential_public_key}
+    else
+      _invalid -> :error
+    end
+  end
+
   defp browser_label(user_agent) do
     cond do
       user_agent =~ "Edg/" -> "Edge"
@@ -466,21 +481,6 @@ defmodule FluxWeb.AccountLive.Settings do
          socket
          |> put_flash(:error, "Passkey registration didn't verify — try again.")
          |> assign(passkey_challenge: nil)}
-    end
-  end
-
-  defp verify_passkey_attestation(_params, nil), do: :error
-
-  defp verify_passkey_attestation(params, challenge) do
-    with {:ok, attestation_object} <-
-           Base.url_decode64(params["attestation_object"] || "", padding: false),
-         {:ok, client_data_json} <-
-           Base.url_decode64(params["client_data_json"] || "", padding: false),
-         {:ok, {auth_data, _attestation_result}} <-
-           Wax.register(attestation_object, client_data_json, challenge) do
-      {:ok, auth_data.attested_credential_data.credential_public_key}
-    else
-      _invalid -> :error
     end
   end
 
