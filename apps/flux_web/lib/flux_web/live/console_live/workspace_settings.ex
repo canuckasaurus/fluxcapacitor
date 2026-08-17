@@ -43,6 +43,8 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
        ip_allowlist: Flux.IPAllowlist.list(Flux.Accounts.Scope.workspace_id(scope)),
        alert_url: Accounts.alert_url(scope),
        alert_secret: Accounts.alert_secret(scope),
+       handoff_alert_minutes: Accounts.handoff_alert_minutes(scope),
+       mail_branding: Accounts.mail_branding(scope),
        can_webhooks: RBAC.can?(scope, :api_extension_manage),
        webhooks: Flux.Webhooks.list_endpoints(scope),
        webhook_deliveries: Flux.Webhooks.list_deliveries(scope, 25),
@@ -301,6 +303,47 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
 
       _error ->
         {:noreply, put_flash(socket, :error, "Could not save the prices.")}
+    end
+  end
+
+  def handle_event("set_handoff_alert", %{"minutes" => minutes}, socket) do
+    parsed =
+      case Integer.parse(to_string(minutes)) do
+        {n, ""} when n > 0 and n <= 1440 -> n
+        _blank_or_invalid -> nil
+      end
+
+    case Accounts.set_handoff_alert_minutes(socket.assigns.current_scope, parsed) do
+      {:ok, _workspace} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, (parsed && "Handoff alert set.") || "Handoff alert turned off.")
+         |> assign(handoff_alert_minutes: parsed)}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not save the handoff alert.")}
+    end
+  end
+
+  def handle_event(
+        "set_mail_branding",
+        %{"from_name" => from_name, "reply_to" => reply_to},
+        socket
+      ) do
+    case Accounts.set_mail_branding(socket.assigns.current_scope, from_name, reply_to) do
+      {:ok, workspace} ->
+        scope = %{socket.assigns.current_scope | workspace: workspace}
+
+        {:noreply,
+         socket
+         |> put_flash(:info, "Email branding saved.")
+         |> assign(current_scope: scope, mail_branding: Accounts.mail_branding(scope))}
+
+      {:error, :invalid_reply_to} ->
+        {:noreply, put_flash(socket, :error, "The reply-to doesn't look like an email address.")}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not save the email branding.")}
     end
   end
 
@@ -1175,6 +1218,58 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
           Deliveries are signed: <span class="font-mono">x-flux-signature: sha256=HMAC(body)</span>
           with secret <span class="font-mono select-all">{@alert_secret}</span>
         </p>
+
+        <div class="divider my-1" />
+
+        <h3 class="text-sm font-semibold">Handoff SLA alert</h3>
+        <p class="text-sm opacity-70">
+          A visitor waiting for a human longer than this many minutes fires a
+          <span class="font-mono">handoff</span>
+          notification, once per request. Blank turns it off.
+        </p>
+        <form phx-submit="set_handoff_alert" id="handoff-alert-form" class="flex gap-2">
+          <input
+            type="number"
+            name="minutes"
+            min="1"
+            max="1440"
+            value={@handoff_alert_minutes}
+            placeholder="15"
+            class="input input-bordered input-sm w-28"
+          />
+          <button class="btn btn-primary btn-sm">Save</button>
+        </form>
+      </div>
+
+      <div
+        :if={@can_rename}
+        class="card border border-base-200 p-6 space-y-3"
+        id="mail-branding-card"
+      >
+        <h2 class="font-semibold">Email branding</h2>
+        <p class="text-sm opacity-70">
+          Outbound workspace mail — invites, notification emails, transcripts,
+          away notes, and email-channel replies — sends with this from-name
+          and reply-to instead of the platform default. Account mail (magic
+          links, security alerts) stays platform-branded.
+        </p>
+        <form phx-submit="set_mail_branding" id="mail-branding-form" class="flex gap-2 flex-wrap">
+          <input
+            type="text"
+            name="from_name"
+            value={@mail_branding["from_name"]}
+            placeholder="From name (Acme Support)"
+            class="input input-bordered input-sm w-56"
+          />
+          <input
+            type="email"
+            name="reply_to"
+            value={@mail_branding["reply_to"]}
+            placeholder="Reply-to (support@acme.com)"
+            class="input input-bordered input-sm w-64"
+          />
+          <button class="btn btn-primary btn-sm">Save branding</button>
+        </form>
       </div>
 
       <div :if={@can_webhooks} class="card border border-base-200 p-6 space-y-3" id="webhooks-card">

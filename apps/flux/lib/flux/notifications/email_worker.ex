@@ -11,7 +11,8 @@ defmodule Flux.Notifications.EmailWorker do
       email,
       kind,
       title,
-      args["path"]
+      args["path"],
+      args["workspace_id"]
     )
 
     :ok

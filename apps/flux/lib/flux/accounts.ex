@@ -1177,6 +1177,61 @@ defmodule Flux.Accounts do
     end
   end
 
+  @doc """
+  Saves the workspace mail branding (from-name and reply-to on outbound
+  workspace mail). Both blank clears it back to the platform default.
+  """
+  def set_mail_branding(%Scope{} = scope, from_name, reply_to) do
+    case build_mail_branding(presence_trim(from_name), presence_trim(reply_to)) do
+      {:ok, branding} -> update_custom_config(scope, "mail_branding", branding)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # Both blank clears the branding; a malformed reply-to refuses.
+  defp build_mail_branding(nil, nil), do: {:ok, nil}
+
+  defp build_mail_branding(from_name, reply_to) do
+    if reply_to != nil and not (reply_to =~ ~r/^[^@,;\s]+@[^@,;\s]+$/) do
+      {:error, :invalid_reply_to}
+    else
+      branding =
+        %{}
+        |> then(&((from_name && Map.put(&1, "from_name", String.slice(from_name, 0, 80))) || &1))
+        |> then(&((reply_to && Map.put(&1, "reply_to", reply_to)) || &1))
+
+      {:ok, branding}
+    end
+  end
+
+  @doc "The workspace mail branding map (or empty)."
+  def mail_branding(%Scope{} = scope) do
+    case scope.workspace do
+      %{custom_config: %{"mail_branding" => %{} = branding}} -> branding
+      _unbranded -> %{}
+    end
+  end
+
+  @doc "Minutes before an unanswered handoff alerts the team (nil = off)."
+  def set_handoff_alert_minutes(%Scope{} = scope, minutes)
+      when is_nil(minutes) or (is_integer(minutes) and minutes > 0 and minutes <= 24 * 60) do
+    update_custom_config(scope, "handoff_alert_minutes", minutes)
+  end
+
+  def handoff_alert_minutes(%Scope{} = scope) do
+    case scope.workspace do
+      %{custom_config: %{"handoff_alert_minutes" => minutes}} when is_integer(minutes) -> minutes
+      _off -> nil
+    end
+  end
+
+  defp presence_trim(value) do
+    case String.trim(to_string(value || "")) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
   @doc ~S(Digest cadence: "weekly" default, "daily", or "off".)
   def set_digest_frequency(%Scope{} = scope, frequency)
       when frequency in ["weekly", "daily", "off"] do

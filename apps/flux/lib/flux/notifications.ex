@@ -64,7 +64,13 @@ defmodule Flux.Notifications do
 
     for account <- Flux.Accounts.accounts_subscribed_to(workspace_id, kind) do
       if Flux.Accounts.in_quiet_hours?(account, now.hour) do
-        %{email: account.email, kind: kind, title: to_string(title), path: path}
+        %{
+          email: account.email,
+          kind: kind,
+          title: to_string(title),
+          path: path,
+          workspace_id: workspace_id
+        }
         |> Flux.Notifications.EmailWorker.new(scheduled_at: quiet_end(account, now))
         |> Oban.insert()
       else
@@ -72,7 +78,8 @@ defmodule Flux.Notifications do
           account.email,
           kind,
           to_string(title),
-          path
+          path,
+          workspace_id
         )
       end
     end
