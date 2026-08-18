@@ -100,6 +100,8 @@ defmodule FluxWeb.SiteLive.AppSite do
        transcribing: false,
        agent_typing: false,
        last_typing_at: 0,
+       csat_comment_open: false,
+       csat_thanks: false,
        open_now: Chat.within_business_hours?(app)
      )}
   end
@@ -109,12 +111,20 @@ defmodule FluxWeb.SiteLive.AppSite do
   # the away-mail check.
   defp subscribe_and_track(socket, app, conversation) do
     if connected?(socket) do
-      if conversation, do: Chat.subscribe_conversation(conversation.id)
+      if conversation do
+        Chat.subscribe_conversation(conversation.id)
+        # The tab is open: any waiting human replies just got seen.
+        Chat.mark_replies_seen(Chat.site_scope(app), conversation.id)
+      end
+
       FluxWeb.SitePresence.track(self(), app.id, conversation && conversation.id)
     end
 
     :ok
   end
+
+  defp csat_star(%{csat_score: rated}, score) when is_integer(rated) and score <= rated, do: "★"
+  defp csat_star(_conversation, _score), do: "☆"
 
   defp resume_conversation(%App{mode: mode} = app, scope, end_user_ref)
        when mode in [:chat, :advanced_chat] do
@@ -170,6 +180,41 @@ defmodule FluxWeb.SiteLive.AppSite do
 
   @impl true
   def handle_event("validate_upload", _params, socket), do: {:noreply, socket}
+
+  def handle_event("rate", %{"score" => score}, socket) do
+    with %{} = conversation <- socket.assigns.conversation,
+         {score, ""} when score in 1..5 <- Integer.parse(to_string(score)),
+         {:ok, rated} <-
+           Chat.rate_conversation(socket.assigns.site_scope, conversation.id, score) do
+      {:noreply, assign(socket, conversation: rated, csat_comment_open: true)}
+    else
+      _invalid -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("rate_comment", %{"comment" => comment}, socket) do
+    with %{csat_score: score} = conversation when is_integer(score) <-
+           socket.assigns.conversation,
+         {:ok, rated} <-
+           Chat.rate_conversation(socket.assigns.site_scope, conversation.id, score, comment) do
+      {:noreply, assign(socket, conversation: rated, csat_comment_open: false, csat_thanks: true)}
+    else
+      _invalid -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("leave_email", %{"email" => email}, socket) do
+    with %{} = conversation <- socket.assigns.conversation,
+         {:ok, updated} <-
+           Chat.set_visitor_identity(socket.assigns.site_scope, conversation.id, "", email) do
+      {:noreply,
+       socket
+       |> put_flash(:info, gettext("Got it — we'll email you when someone replies."))
+       |> assign(conversation: updated)}
+    else
+      _invalid -> {:noreply, socket}
+    end
+  end
 
   # Keyup on the composer: at most one typing broadcast per 2 seconds,
   # so the monitor sees "visitor is typing" without a message storm.
@@ -431,6 +476,9 @@ defmodule FluxWeb.SiteLive.AppSite do
   def handle_info({:human_reply, message}, socket) do
     conversation = socket.assigns.conversation
 
+    # Delivered to an open tab: the agent sees "seen" immediately.
+    Chat.mark_replies_seen(socket.assigns.site_scope, message.conversation_id)
+
     {:noreply,
      assign(socket,
        messages: socket.assigns.messages ++ [message],
@@ -676,6 +724,20 @@ defmodule FluxWeb.SiteLive.AppSite do
                 </a>
               </div>
               <div
+                :if={message.role == :assistant and Enum.any?(message.files, & &1["download_token"])}
+                class="chat-footer mt-1 flex flex-wrap gap-1"
+              >
+                <a
+                  :for={file <- message.files}
+                  :if={file["download_token"]}
+                  href={"/files/#{file["download_token"]}"}
+                  target="_blank"
+                  class="btn btn-outline btn-xs"
+                >
+                  <.icon name="hero-paper-clip" class="size-3" /> {file["name"]}
+                </a>
+              </div>
+              <div
                 :if={message.role == :assistant and message.citations != []}
                 class="chat-footer opacity-60 text-xs mt-0.5"
               >
@@ -880,6 +942,55 @@ defmodule FluxWeb.SiteLive.AppSite do
                 "We're outside our usual hours right now — leave a message (and your email) and we'll follow up."
               )}
           </p>
+          <form
+            :if={not @open_now and @conversation != nil and @conversation.visitor_email == nil}
+            phx-submit="leave_email"
+            id="away-email-form"
+            class="flex gap-2"
+          >
+            <input
+              type="email"
+              name="email"
+              required
+              placeholder={gettext("you@example.com")}
+              autocomplete="email"
+              class="input input-bordered input-sm w-56"
+            />
+            <button class="btn btn-outline btn-sm">{gettext("Email me the reply")}</button>
+          </form>
+          <div
+            :if={@conversation != nil and @messages != []}
+            class="flex items-center gap-1 text-sm flex-wrap"
+            id="csat"
+          >
+            <span class="opacity-60">{gettext("Rate this conversation:")}</span>
+            <button
+              :for={score <- 1..5}
+              type="button"
+              class="btn btn-ghost btn-xs px-1"
+              phx-click="rate"
+              phx-value-score={score}
+              aria-label={gettext("Rate %{score} of 5", score: score)}
+            >
+              {csat_star(@conversation, score)}
+            </button>
+            <form
+              :if={@csat_comment_open}
+              phx-submit="rate_comment"
+              id="csat-comment-form"
+              class="flex gap-1"
+            >
+              <input
+                type="text"
+                name="comment"
+                placeholder={gettext("Anything to add?")}
+                class="input input-bordered input-xs w-48"
+                autocomplete="off"
+              />
+              <button class="btn btn-outline btn-xs">{gettext("Send")}</button>
+            </form>
+            <span :if={@csat_thanks} class="text-xs opacity-60">{gettext("Thanks!")}</span>
+          </div>
           <p :if={@agent_typing} class="text-sm opacity-70" id="agent-typing">
             <.icon name="hero-pencil" class="size-4 inline" />
             {gettext("Someone on the team is typing…")}

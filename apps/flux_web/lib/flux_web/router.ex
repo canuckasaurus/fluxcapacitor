@@ -175,6 +175,8 @@ defmodule FluxWeb.Router do
     pipe_through :browser
 
     get "/runs/:token", RunShareController, :show
+    # Read-only conversation transcripts (revocable convshare_ tokens).
+    get "/conversations/:token", ConversationShareController, :show
   end
 
   ## Public published app sites (token in path is the authorization)
@@ -209,12 +211,13 @@ defmodule FluxWeb.Router do
     post "/email/:token", TriggerController, :email
   end
 
-  ## Inbound chat channels (the emch_ token in the path is the authorization)
+  ## Inbound chat channels (the token in the path is the authorization)
 
   scope "/channels", FluxWeb do
     pipe_through :api
 
     post "/email/:token", ChannelController, :email
+    post "/slack/:token", ChannelController, :slack
   end
 
   # SCIM 2.0 provisioning (IdP-driven); the bearer token names the workspace.

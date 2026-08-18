@@ -38,6 +38,47 @@ defmodule FluxWeb.ChannelController do
     end
   end
 
+  # Slack Events API: answer the URL-verification handshake, turn
+  # message events into chat turns, and 202 fast (Slack retries slow
+  # webhooks). Bot and edited messages are ignored to avoid loops.
+  def slack(conn, %{"type" => "url_verification", "challenge" => challenge}) do
+    json(conn, %{"challenge" => challenge})
+  end
+
+  def slack(conn, %{"token" => token} = params) do
+    with {:ok, app} <- Chat.get_app_by_slack_channel_token(token),
+         {:ok, channel, user, text, thread_ts} <- slack_message(params),
+         {:ok, conversation_id} <- Chat.slack_inbound(app, channel, user, text, thread_ts) do
+      conn |> put_status(202) |> json(%{conversation_id: conversation_id, status: "replying"})
+    else
+      {:error, :not_found} ->
+        conn |> put_status(404) |> json(%{code: "not_found", message: "Unknown channel token"})
+
+      {:error, :guardrail} ->
+        conn |> put_status(202) |> json(%{status: "refused"})
+
+      {:error, :quota_exceeded} ->
+        conn |> put_status(429) |> json(%{code: "quota_exceeded", message: "App limit spent"})
+
+      :ignore ->
+        conn |> put_status(202) |> json(%{status: "ignored"})
+    end
+  end
+
+  defp slack_message(%{
+         "event" =>
+           %{"type" => "message", "channel" => channel, "user" => user, "text" => text} = event
+       })
+       when is_binary(text) and text != "" do
+    if Map.has_key?(event, "bot_id") or Map.has_key?(event, "subtype") do
+      :ignore
+    else
+      {:ok, channel, user, text, event["thread_ts"] || event["ts"]}
+    end
+  end
+
+  defp slack_message(_params), do: :ignore
+
   defp sender_field(params) do
     params["from"] || params["sender"] || params["From"] ||
       get_in(params, ["envelope", "from"])

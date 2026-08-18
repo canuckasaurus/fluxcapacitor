@@ -458,6 +458,32 @@ defmodule FluxWeb.ConsoleLive.AppChat do
     end
   end
 
+  def handle_event("enable_slack_channel", %{"bot_token" => bot_token}, socket) do
+    case Chat.enable_slack_channel(socket.assigns.current_scope, socket.assigns.app, bot_token) do
+      {:ok, app} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Slack channel enabled — paste the webhook URL into your Slack app.")
+         |> assign(app: app)}
+
+      {:error, :bot_token_required} ->
+        {:noreply, put_flash(socket, :error, "Paste the bot token (xoxb-…).")}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not enable the Slack channel.")}
+    end
+  end
+
+  def handle_event("disable_slack_channel", _params, socket) do
+    case Chat.disable_slack_channel(socket.assigns.current_scope, socket.assigns.app) do
+      {:ok, app} ->
+        {:noreply, socket |> put_flash(:info, "Slack channel disabled.") |> assign(app: app)}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not disable the Slack channel.")}
+    end
+  end
+
   def handle_event("disable_email_channel", _params, socket) do
     case Chat.disable_email_channel(socket.assigns.current_scope, socket.assigns.app) do
       {:ok, app} ->
@@ -883,6 +909,12 @@ defmodule FluxWeb.ConsoleLive.AppChat do
       end
     end)
     |> Enum.take(5)
+  end
+
+  # The public link as a scannable code — phones join the chat without
+  # anyone typing a URL.
+  defp site_qr(app) do
+    url(~p"/site/#{app.site_token}") |> EQRCode.encode() |> EQRCode.svg(width: 120)
   end
 
   defp embed_snippet(app) do
@@ -1370,6 +1402,48 @@ defmodule FluxWeb.ConsoleLive.AppChat do
       <div
         :if={@app.mode in [:chat, :advanced_chat] and @can_edit}
         class="card border border-base-200 p-6 space-y-3"
+        id="slack-channel-card"
+      >
+        <h2 class="font-semibold">Slack channel</h2>
+        <p class="text-sm opacity-70">
+          Point a Slack app's Events API request URL here (subscribe to
+          <span class="font-mono">message.channels</span>
+          or <span class="font-mono">message.im</span>) and channel messages
+          become chat turns — the reply posts back threaded, via your bot
+          token (<span class="font-mono">chat:write</span>
+          scope, stored
+          encrypted). Bot messages are ignored, so it never answers itself.
+        </p>
+        <pre :if={@app.slack_channel_token} class="rounded bg-base-200 p-2 text-xs overflow-x-auto">POST {url(~p"/channels/slack/#{@app.slack_channel_token}")}</pre>
+        <form
+          :if={@app.slack_channel_token == nil}
+          phx-submit="enable_slack_channel"
+          id="slack-channel-form"
+          class="flex gap-2"
+        >
+          <input
+            type="password"
+            name="bot_token"
+            required
+            placeholder="xoxb-…"
+            autocomplete="off"
+            class="input input-bordered input-sm w-72"
+          />
+          <button class="btn btn-outline btn-sm">Enable Slack channel</button>
+        </form>
+        <button
+          :if={@app.slack_channel_token}
+          type="button"
+          class="btn btn-ghost btn-sm text-error w-fit"
+          phx-click="disable_slack_channel"
+        >
+          Disable
+        </button>
+      </div>
+
+      <div
+        :if={@app.mode in [:chat, :advanced_chat] and @can_edit}
+        class="card border border-base-200 p-6 space-y-3"
       >
         <h2 class="font-semibold">Chat settings</h2>
         <form id="chat-settings-form" phx-submit="save_chat_settings" class="space-y-3">
@@ -1714,6 +1788,9 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               {url(~p"/site/#{@app.site_token}")}
             </a>
           </p>
+          <div class="w-fit rounded-box border border-base-200 bg-white p-2" id="site-qr">
+            {Phoenix.HTML.raw(site_qr(@app))}
+          </div>
           <p class="text-xs opacity-60">Embed it on any page:</p>
           <pre class="rounded-box bg-base-200 p-3 text-xs overflow-x-auto">{embed_snippet(@app)}</pre>
           <p class="text-xs opacity-60">Or as a floating chat bubble:</p>
