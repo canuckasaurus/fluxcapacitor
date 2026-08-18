@@ -179,6 +179,10 @@ defmodule Flux.RAG.Segment do
     field(:parent_content, :string)
     field(:embedding, {:array, :float})
     field(:enabled, :boolean, default: true)
+    # Retrieval feedback: flagged from a bad citation in the monitor,
+    # queued on the knowledge page for curation.
+    field(:flagged_at, :utc_datetime)
+    field(:flag_note, :string)
 
     timestamps(type: :utc_datetime, updated_at: false)
   end

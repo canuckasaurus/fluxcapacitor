@@ -33,7 +33,8 @@ defmodule Flux.Notifications do
   end
 
   @kinds ~w(run_failed gate_blocked eval_regressed labeling_completed export_ready
-            budget_warning guardrail digest handoff cost_report api_key_expiring)
+            budget_warning guardrail digest handoff cost_report api_key_expiring
+            webhook_disabled)
 
   @doc """
   Records a notification (worker-safe: takes a workspace id, no scope).

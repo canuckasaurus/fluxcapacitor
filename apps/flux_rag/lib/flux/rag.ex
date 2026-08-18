@@ -99,6 +99,78 @@ defmodule Flux.RAG do
   @doc "Whether this dataset's retrieval is served by an external endpoint."
   def external?(%Dataset{external_endpoint: endpoint}), do: endpoint not in [nil, ""]
 
+  ## Retrieval feedback (bad citations flagged from the monitor)
+
+  @doc """
+  Flags a segment as a bad retrieval — raised from a citation in the
+  app monitor, so it only needs the monitor permission. Flagged
+  segments queue on the knowledge page for curation.
+  """
+  def flag_segment(%Scope{} = scope, segment_id, note \\ nil) do
+    note = note |> to_string() |> String.trim() |> String.slice(0, 255)
+
+    with :ok <- RBAC.authorize(scope, :app_monitor),
+         %Segment{} = segment <-
+           Repo.one(Repo.scoped(where(Segment, id: ^segment_id), scope)) ||
+             {:error, :not_found} do
+      segment
+      |> Ecto.Changeset.change(
+        flagged_at: DateTime.utc_now(:second),
+        flag_note: (note != "" && note) || nil
+      )
+      |> Repo.update()
+    end
+  end
+
+  @doc "Clears a segment's retrieval flag (handled, or a false alarm)."
+  def unflag_segment(%Scope{} = scope, segment_id) do
+    with :ok <- RBAC.authorize(scope, :dataset_edit),
+         %Segment{} = segment <-
+           Repo.one(Repo.scoped(where(Segment, id: ^segment_id), scope)) ||
+             {:error, :not_found} do
+      segment
+      |> Ecto.Changeset.change(flagged_at: nil, flag_note: nil)
+      |> Repo.update()
+    end
+  end
+
+  @doc "Flagged segments across the workspace, newest first, with their sources."
+  def list_flagged_segments(%Scope{} = scope, limit \\ 50) do
+    segments =
+      Segment
+      |> Repo.scoped(scope)
+      |> where([s], not is_nil(s.flagged_at))
+      |> order_by([s], desc: s.flagged_at)
+      |> limit(^limit)
+      |> Repo.all()
+
+    # Assoc preloads run unscoped and trip the tenancy guard — load the
+    # sources through scoped queries instead.
+    document_ids = segments |> Enum.map(& &1.document_id) |> Enum.uniq()
+
+    documents =
+      Document
+      |> Repo.scoped(scope)
+      |> where([d], d.id in ^document_ids)
+      |> Repo.all()
+      |> Map.new(&{&1.id, &1})
+
+    dataset_ids = documents |> Map.values() |> Enum.map(& &1.dataset_id) |> Enum.uniq()
+
+    datasets =
+      Dataset
+      |> Repo.scoped(scope)
+      |> where([d], d.id in ^dataset_ids)
+      |> Repo.all()
+      |> Map.new(&{&1.id, &1})
+
+    Enum.map(segments, fn segment ->
+      document = documents[segment.document_id]
+      document = document && %{document | dataset: datasets[document.dataset_id]}
+      %{segment | document: document}
+    end)
+  end
+
   @doc """
   Registers an external knowledge base as a dataset: retrieval queries
   POST to the user-hosted endpoint (the Dify-compatible `/retrieval`

@@ -63,7 +63,8 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
      )
      |> assign(
        datasets: RAG.list_datasets(scope),
-       trashed_datasets: RAG.list_trashed_datasets(scope)
+       trashed_datasets: RAG.list_trashed_datasets(scope),
+       flagged_segments: RAG.list_flagged_segments(scope)
      )}
   end
 
@@ -774,6 +775,19 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
     {:noreply, refresh_segments(socket)}
   end
 
+  def handle_event("unflag_segment", %{"segment-id" => id}, socket) do
+    scope = socket.assigns.current_scope
+    RAG.unflag_segment(scope, id)
+    {:noreply, assign(socket, flagged_segments: RAG.list_flagged_segments(scope))}
+  end
+
+  def handle_event("disable_flagged_segment", %{"segment-id" => id}, socket) do
+    scope = socket.assigns.current_scope
+    RAG.set_segment_enabled(scope, id, false)
+    RAG.unflag_segment(scope, id)
+    {:noreply, assign(socket, flagged_segments: RAG.list_flagged_segments(scope))}
+  end
+
   def handle_event("delete_segment", %{"segment-id" => id}, socket) do
     RAG.delete_segment(socket.assigns.current_scope, id)
     {:noreply, socket |> refresh_segments() |> refresh_documents()}
@@ -1035,6 +1049,55 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
             <button type="button" class="btn btn-ghost" phx-click="cancel">Cancel</button>
           </div>
         </form>
+      </div>
+
+      <div
+        :if={@flagged_segments != []}
+        class="card border border-warning/40 p-4 space-y-2"
+        id="flagged-segments"
+      >
+        <h2 class="font-semibold text-sm">
+          <.icon name="hero-flag" class="size-4 inline text-warning" />
+          Flagged retrievals ({length(@flagged_segments)})
+        </h2>
+        <p class="text-xs opacity-60">
+          Snippets flagged as bad citations from app monitors — edit the
+          source document, disable the chunk, or clear the flag.
+        </p>
+        <div
+          :for={segment <- @flagged_segments}
+          class="rounded-box border border-base-200 p-2 space-y-1"
+          id={"flagged-#{segment.id}"}
+        >
+          <p class="text-xs opacity-60">
+            {segment.document.dataset.name} · {segment.document.name} · flagged {Calendar.strftime(
+              segment.flagged_at,
+              "%Y-%m-%d %H:%M"
+            )}
+            <span :if={segment.flag_note}>· {segment.flag_note}</span>
+            <span :if={not segment.enabled} class="badge badge-ghost badge-xs">disabled</span>
+          </p>
+          <p class="text-sm whitespace-pre-wrap break-words max-h-20 overflow-y-auto">
+            {segment.content}
+          </p>
+          <div class="flex gap-1">
+            <button
+              class="btn btn-ghost btn-xs"
+              phx-click="unflag_segment"
+              phx-value-segment-id={segment.id}
+            >
+              Clear flag
+            </button>
+            <button
+              :if={@can_edit and segment.enabled}
+              class="btn btn-outline btn-xs text-error"
+              phx-click="disable_flagged_segment"
+              phx-value-segment-id={segment.id}
+            >
+              Disable chunk
+            </button>
+          </div>
+        </div>
       </div>
 
       <div class="flex gap-4 items-start">

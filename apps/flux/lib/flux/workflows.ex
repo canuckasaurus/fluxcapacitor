@@ -2516,7 +2516,13 @@ defmodule Flux.Workflows do
                  %{
                    content: hit.content,
                    document_name: hit.document.name,
-                   score: hit.score
+                   score: hit.score,
+                   # Ids ride into citations: deep links and the
+                   # flag-bad-retrieval button need them (nil for
+                   # external datasets).
+                   segment_id: Map.get(hit, :id),
+                   document_id: Map.get(hit, :document_id),
+                   dataset_id: Map.get(hit, :dataset_id)
                  }
                end)}
 

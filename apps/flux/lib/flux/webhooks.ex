@@ -249,7 +249,57 @@ defmodule Flux.Webhooks do
         )
         |> Repo.update()
 
+        track_endpoint_health(delivery.endpoint_id, status)
+
         :ok
+    end
+  end
+
+  # An endpoint failing this many attempts in a row disables itself —
+  # retrying into the void forever helps nobody. One success resets.
+  @disable_after 15
+
+  defp track_endpoint_health(nil, _status), do: :ok
+
+  defp track_endpoint_health(endpoint_id, status) do
+    case Repo.get(Endpoint, endpoint_id, skip_workspace_guard: true) do
+      nil ->
+        :ok
+
+      endpoint ->
+        cond do
+          is_integer(status) and status in 200..299 ->
+            if endpoint.consecutive_failures > 0 do
+              endpoint |> Ecto.Changeset.change(consecutive_failures: 0) |> Repo.update()
+            end
+
+            :ok
+
+          endpoint.consecutive_failures + 1 >= @disable_after and endpoint.enabled ->
+            endpoint
+            |> Ecto.Changeset.change(
+              consecutive_failures: endpoint.consecutive_failures + 1,
+              enabled: false
+            )
+            |> Repo.update()
+
+            Flux.Notifications.notify(
+              endpoint.workspace_id,
+              "webhook_disabled",
+              "Webhook #{endpoint.url} was disabled after #{@disable_after} failed " <>
+                "deliveries in a row. Fix the receiver and re-enable it in settings.",
+              "/console/settings"
+            )
+
+            :ok
+
+          true ->
+            endpoint
+            |> Ecto.Changeset.change(consecutive_failures: endpoint.consecutive_failures + 1)
+            |> Repo.update()
+
+            :ok
+        end
     end
   end
 

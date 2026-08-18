@@ -1390,9 +1390,11 @@ defmodule Flux.Engine.Nodes.KnowledgeRetrieval do
                 "document" => hit.document_name,
                 "content" => hit.content,
                 "score" => hit.score,
-                # Ids let the console deep-link into the knowledge browser.
+                # Ids let the console deep-link into the knowledge
+                # browser and flag a bad retrieval back to its segment.
                 "document_id" => Map.get(hit, :document_id),
-                "dataset_id" => Map.get(hit, :dataset_id)
+                "dataset_id" => Map.get(hit, :dataset_id),
+                "segment_id" => Map.get(hit, :segment_id)
               }
             end)
 

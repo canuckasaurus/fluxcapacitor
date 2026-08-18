@@ -20,6 +20,9 @@ defmodule Flux.Webhooks.Endpoint do
     # incoming-webhook URL renders it readable in a channel.
     field :format, :string, default: "json"
     field :enabled, :boolean, default: true
+    # Failed delivery attempts since the last success; at the threshold
+    # the endpoint disables itself with a notification.
+    field :consecutive_failures, :integer, default: 0
 
     timestamps(type: :utc_datetime)
   end
