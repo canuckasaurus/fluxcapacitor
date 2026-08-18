@@ -1599,3 +1599,43 @@ currently-checked checkboxes, so clearing needs an explicit empty
 member suspension, visitor blocklist, trusted 2FA devices, CSAT
 surveys, site share QR, SSO-only login, conversation share links,
 sign-in-as.
+
+**66. Batch 42 — ten picked, the desk rounds out.** Three bench items
+finally landed and the support loop closed end to end. **CSAT**
+(conversations.csat_score/comment; star row on the site above the
+composer, re-rating overwrites; count + average beside the monitor's
+resolution tallies); **conversation share links** (revocable
+convshare_ tokens — signed Phoenix.Tokens can't be revoked, so a
+column it is; ConversationShareController renders the read-only page
+at /share/conversations/:token); **site share QR** (eqrcode was
+already a dep for TOTP — the share card renders the site URL as an
+inline SVG); **Slack channel** (the email-channel pattern, third
+transport: slch_ webhook token + DEK-encrypted bot token on apps;
+ChannelController.slack answers the url_verification handshake, drops
+bot/subtype messages so the bot never answers itself, and a supervised
+task polls the reply row then chat.postMessage's it back threaded —
+client injectable via :flux, :slack_client); **auto-assignment**
+(memberships.available toggled from the monitor header; request_handoff
+round-robins across available members via the same VM-wide monotonic
+rotor the credential pool uses, workspace opt-in "handoff_auto_assign");
+**human reply attachments** (a singular reply-with-attachment form in
+the selected conversation detail — one live_file_input can't render
+per handoff row; create_upload learned a :downloadable flag that mints
+the same file_ token run files use, so /files/:token just works);
+**read receipts** (messages.seen_at; the site marks human replies seen
+on mount and on live delivery, the monitor shows "seen HH:MM" via the
+monitor-feed nudge); **retrieval feedback** (segment ids now ride the
+knowledge retriever → engine citations; a ⚑ on a monitor citation
+flags rag_segments.flagged_at, and the knowledge page queues flagged
+chunks for clear-or-disable — note assoc preloads run unscoped and
+trip the tenancy guard, so the flagged list loads its sources through
+scoped queries by hand); **webhook auto-disable**
+(endpoint.consecutive_failures tracked in record_attempt; fifteen
+straight failures flip enabled off and notify the new
+webhook_disabled kind, one success resets); **away-message capture**
+(outside business hours the site shows a leave-your-email form wired
+into set_visitor_identity, feeding the away-mail loop). One migration
+(nine columns across six tables + two unique indexes), no new deps.
+1104 tests. Bench: custom domains, Japanese locale, require-2FA,
+member suspension, visitor blocklist, trusted 2FA devices, SSO-only
+login, sign-in-as.

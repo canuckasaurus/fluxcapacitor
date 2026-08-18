@@ -76,17 +76,32 @@ Two more gates run beside the patterns:
   one conversation per correspondent, and the finished reply is mailed
   back from the platform's from-address. Guardrails and app limits
   apply like any other turn.
+- **Slack**: App → Slack channel takes a bot token (`chat:write`,
+  stored encrypted) and mints an Events API request URL
+  (`/channels/slack/slch_…`). Subscribe the Slack app to
+  `message.channels`/`message.im`: channel messages become chat turns
+  (one conversation per channel + user) and replies post back
+  threaded. Bot and edited messages are ignored, so it never answers
+  itself. The URL-verification handshake is handled automatically.
 
 The human side of chat runs from the app monitor: a **live feed** (new
 conversations and messages appear without a reload, changed threads
 marked "new"), **typing indicators** both ways during handoffs,
-**assignment** with mine/unassigned filters, **internal notes** the
-visitor never sees, **resolve states** (a fresh visitor message
-reopens), one-click **saved replies**, and a per-app **business-hours
-schedule** (UTC; outside it the site shows an away note and stops
-offering a human). A **handoff SLA alert** (Settings → Failure alerts)
-fires a notification when a visitor waits longer than the configured
-minutes, once per request.
+**assignment** with mine/unassigned filters — plus opt-in
+**auto-assignment** (Settings → Failure alerts) that round-robins new
+handoffs across members marked **available** (the toggle sits in the
+monitor header) — **internal notes** the visitor never sees,
+**resolve states** (a fresh visitor message reopens), one-click
+**saved replies**, **reply attachments** (the visitor gets a download
+chip), **read receipts** ("seen HH:MM" once the visitor's tab has the
+reply), **CSAT** (visitors rate 1–5 on the site; count + average on
+the monitor), revocable **share links** for single transcripts, and a
+per-app **business-hours schedule** (UTC; outside it the site shows an
+away note with a **leave-your-email form** and stops offering a
+human). A **handoff SLA alert** (Settings → Failure alerts) fires a
+notification when a visitor waits longer than the configured minutes,
+once per request. Citations in the monitor carry a **flag button** —
+flagged chunks queue on the Knowledge page for curation.
 
 ## Notifications & webhooks
 
@@ -100,7 +115,10 @@ without polling, …), payloads
 are HMAC-SHA256 signed (`x-flux-signature`), deliveries are logged
 with per-attempt outcomes and manual retry, and the **Send test**
 button fires a `webhook.test` event so you can verify a receiver
-before anything real depends on it.
+before anything real depends on it. An endpoint that fails fifteen
+deliveries in a row **disables itself** with a `webhook_disabled`
+notification (one success resets the counter) — re-enable it in
+settings once the receiver is fixed.
 
 ## Observability
 

@@ -7,6 +7,33 @@ at `docs/PARITY-PLAN.md`.
 
 ## Unreleased
 
+### Batch 42
+- CSAT surveys: visitors rate a conversation 1-5 (plus a comment) right
+  on the site; the monitor rolls up count and average and shows each
+  thread's score.
+- Slack chat channel: a Slack app's Events API pointed at the minted
+  webhook turns channel messages into chat turns, replies post back
+  threaded via the bot token (stored encrypted); bot echoes ignored.
+- Handoff auto-assignment: an availability toggle on the monitor and
+  round-robin routing of new handoffs across available members
+  (workspace opt-in).
+- Human reply attachments: agents attach a file to a console reply and
+  the visitor gets a download chip (`/files/` token URL).
+- Read receipts: a visitor tab that sees a human reply marks it seen;
+  the monitor shows "seen HH:MM".
+- Conversation share links: revocable read-only transcript pages
+  (`/share/conversations/…`), minted from the monitor.
+- Site share QR: the public site link as a scannable code on the share
+  card.
+- Retrieval feedback: flag a bad citation in the monitor and the
+  segment queues on the knowledge page — clear the flag or disable the
+  chunk.
+- Webhook auto-disable: fifteen straight failed deliveries turn an
+  endpoint off with a `webhook_disabled` notification; one success
+  resets the counter.
+- Away-message capture: outside business hours the site's away note
+  grows a leave-your-email form feeding the existing away-mail loop.
+
 ### Batch 41
 - Internal notes: agent-only comments on a conversation in the
   monitor — author and time stamped, never shown to the visitor.

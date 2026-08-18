@@ -85,8 +85,16 @@ lands in the dev mailbox at `/dev/mailbox`).
    two humans off one visitor), answer with one-click **saved
    replies**, leave **internal notes** the visitor never sees, and
    **resolve** finished threads (a fresh visitor message reopens
-   them). **Business hours** put the site on a weekly schedule, and a
-   **handoff SLA alert** warns when a visitor waits too long.
+   them). Replies can **carry file attachments**, show **read
+   receipts** once the visitor's tab sees them, and handoffs can
+   **auto-assign round-robin** across available members. Visitors
+   **rate conversations 1–5** (CSAT rolls up on the monitor), single
+   transcripts share via **revocable read-only links**, and the share
+   card includes a **QR code** for the public site. **Business hours**
+   put the site on a weekly schedule (with a leave-your-email form
+   after hours), and a **handoff SLA alert** warns when a visitor
+   waits too long. Chat also rides **email and Slack channels** —
+   webhooks in, replies mailed or posted back.
 5. **Knowledge** → create a dataset (echo embeddings work for trying it
    out), add documents by upload, paste, or URL, watch them index, and
    hit-test retrieval. Wire a `knowledge` node to the dataset in any
@@ -118,7 +126,7 @@ lands in the dev mailbox at `/dev/mailbox`).
 
 ## Testing
 
-`mix test` at the umbrella root runs everything (~1089 tests) with no
+`mix test` at the umbrella root runs everything (~1104 tests) with no
 network — fake providers, injected converters, temp-dir storage. To run
 a single app's tests, `cd` into the app first; `mix test apps/flux`
 from the root silently runs nothing. Golden replay fixtures, `/v1`
