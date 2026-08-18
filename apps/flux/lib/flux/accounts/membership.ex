@@ -25,6 +25,9 @@ defmodule Flux.Accounts.Membership do
     field :role, Ecto.Enum, values: @roles
     field :current, :boolean, default: false
     field :last_active_at, :utc_datetime
+    # Support-desk availability: auto-assignment only routes handoffs
+    # to available members.
+    field :available, :boolean, default: true
 
     timestamps(type: :utc_datetime)
   end

@@ -44,6 +44,7 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
        alert_url: Accounts.alert_url(scope),
        alert_secret: Accounts.alert_secret(scope),
        handoff_alert_minutes: Accounts.handoff_alert_minutes(scope),
+       auto_assign: Accounts.handoff_auto_assign?(scope),
        mail_branding: Accounts.mail_branding(scope),
        can_webhooks: RBAC.can?(scope, :api_extension_manage),
        webhooks: Flux.Webhooks.list_endpoints(scope),
@@ -303,6 +304,23 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
 
       _error ->
         {:noreply, put_flash(socket, :error, "Could not save the prices.")}
+    end
+  end
+
+  def handle_event("toggle_auto_assign", _params, socket) do
+    enabled? = not socket.assigns.auto_assign
+
+    case Accounts.set_handoff_auto_assign(socket.assigns.current_scope, enabled?) do
+      {:ok, workspace} ->
+        scope = %{socket.assigns.current_scope | workspace: workspace}
+
+        {:noreply,
+         socket
+         |> put_flash(:info, (enabled? && "Auto-assignment on.") || "Auto-assignment off.")
+         |> assign(current_scope: scope, auto_assign: enabled?)}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not update auto-assignment.")}
     end
   end
 
@@ -1239,6 +1257,22 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
           />
           <button class="btn btn-primary btn-sm">Save</button>
         </form>
+
+        <div class="divider my-1" />
+
+        <h3 class="text-sm font-semibold">Handoff auto-assignment</h3>
+        <p class="text-sm opacity-70">
+          New handoffs round-robin across members marked available (the
+          toggle lives on each app monitor) instead of waiting for a claim.
+        </p>
+        <button
+          type="button"
+          phx-click="toggle_auto_assign"
+          id="auto-assign-toggle"
+          class={["btn btn-sm btn-outline", @auto_assign && "btn-success"]}
+        >
+          {(@auto_assign && "On — turn off") || "Off — turn on"}
+        </button>
       </div>
 
       <div

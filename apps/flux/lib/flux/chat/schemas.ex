@@ -46,6 +46,10 @@ defmodule Flux.Chat.App do
     field :tags, {:array, :string}, default: []
     # Inbound-email webhook token (emch_…); nil = channel off.
     field :email_channel_token, :string
+    # Slack channel: inbound events token (slch_…) + the bot token
+    # replies post with (DEK-encrypted, set via enable_slack_channel).
+    field :slack_channel_token, :string
+    field :slack_bot_token, :string, redact: true
     # Monthly estimated-USD cap; past it the app answers like a spent
     # daily limit. nil = uncapped.
     field :monthly_cost_budget, :float
@@ -150,6 +154,11 @@ defmodule Flux.Chat.Conversation do
     # Resolve state: a human marked the thread done; a fresh visitor
     # message clears it.
     field :resolved_at, :utc_datetime
+    # CSAT: the visitor's 1-5 rating and optional comment.
+    field :csat_score, :integer
+    field :csat_comment, :string
+    # Read-only public transcript link; nil = not shared.
+    field :share_token, :string
     # Set when a site visitor asks for a human; cleared on console reply.
     field :handoff_requested_at, :utc_datetime
     # Set once the overdue-handoff SLA warning fired for this request.
@@ -195,6 +204,8 @@ defmodule Flux.Chat.Message do
     field :feedback, Ecto.Enum, values: [:like, :dislike]
     # Optional free-text alongside the rating — the "what was wrong".
     field :feedback_comment, :string
+    # Read receipt: when the visitor's open tab saw this human reply.
+    field :seen_at, :utc_datetime
     # Console-side bookmark: pinned messages surface in a strip above
     # the thread for quick reference.
     field :pinned, :boolean, default: false

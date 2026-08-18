@@ -51,6 +51,8 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
           quality: Chat.quality_stats(scope, app.id),
           topics: Chat.topic_clusters(scope, app.id),
           live_visitors: FluxWeb.SitePresence.visitor_count(app.id),
+          available: Flux.Accounts.available?(scope),
+          csat: Chat.csat_stats(scope, app.id),
           annotations: Chat.list_annotations(scope, app.id),
           can_edit: RBAC.can?(scope, :app_edit),
           labeling_projects: Flux.Labeling.list_projects(scope),
@@ -58,6 +60,7 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
           selected_id: nil,
           messages: []
         )
+        |> allow_upload(:reply_file, accept: :any, max_entries: 1, max_file_size: 10_000_000)
 
       {:ok, subscribe_typing_topics(socket, Enum.map(handoffs, & &1.id))}
     else
@@ -155,13 +158,14 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
         socket
       ) do
     scope = socket.assigns.current_scope
+    files = consume_reply_files(socket)
 
     case String.trim(to_string(content)) do
       "" ->
         {:noreply, socket}
 
       content ->
-        case Chat.human_reply(scope, conversation_id, content) do
+        case Chat.human_reply(scope, conversation_id, content, files: files) do
           {:ok, _message} ->
             {:noreply,
              socket
@@ -171,6 +175,45 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
           _error ->
             {:noreply, put_flash(socket, :error, "Could not send the reply.")}
         end
+    end
+  end
+
+  def handle_event("validate_reply_upload", _params, socket), do: {:noreply, socket}
+
+  def handle_event("toggle_availability", _params, socket) do
+    scope = socket.assigns.current_scope
+
+    case Flux.Accounts.set_availability(scope, not socket.assigns.available) do
+      {:ok, membership} ->
+        {:noreply, assign(socket, available: membership.available)}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not update your availability.")}
+    end
+  end
+
+  def handle_event("share_conversation", %{"conversation-id" => id}, socket) do
+    case Chat.enable_conversation_share(socket.assigns.current_scope, id) do
+      {:ok, _conversation} -> {:noreply, refresh_conversations(socket)}
+      _error -> {:noreply, put_flash(socket, :error, "Could not share the conversation.")}
+    end
+  end
+
+  def handle_event("revoke_share", %{"conversation-id" => id}, socket) do
+    case Chat.disable_conversation_share(socket.assigns.current_scope, id) do
+      {:ok, _conversation} -> {:noreply, refresh_conversations(socket)}
+      _error -> {:noreply, put_flash(socket, :error, "Could not revoke the link.")}
+    end
+  end
+
+  def handle_event("flag_citation", %{"segment-id" => segment_id}, socket) do
+    case Flux.RAG.flag_segment(socket.assigns.current_scope, segment_id, "bad citation") do
+      {:ok, _segment} ->
+        {:noreply,
+         put_flash(socket, :info, "Flagged — it queues on the Knowledge page for curation.")}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not flag that snippet.")}
     end
   end
 
@@ -673,6 +716,18 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
           </p>
         </div>
         <div class="flex gap-2">
+          <button
+            type="button"
+            phx-click="toggle_availability"
+            id="availability-toggle"
+            class={[
+              "btn btn-sm btn-outline",
+              (@available && "btn-success") || "btn-warning"
+            ]}
+            title="Auto-assignment only routes handoffs to available members"
+          >
+            {(@available && "Available") || "Away"}
+          </button>
           <.link
             href={~p"/console/apps/#{@app.id}/monitor-export?kind=usage"}
             class="btn btn-sm btn-ghost"
@@ -1421,6 +1476,10 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
         <span class="text-xs opacity-60" id="resolution-counts">
           {@resolution.open} open · {@resolution.resolved} resolved (30d)
         </span>
+
+        <span :if={@csat.count > 0} class="text-xs opacity-60" id="csat-stats">
+          · CSAT {@csat.average}/5 ({@csat.count} rating{(@csat.count == 1 && "") || "s"}, 30d)
+        </span>
       </div>
 
       <div
@@ -1627,6 +1686,54 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
               </option>
             </select>
           </form>
+          <p :if={conversation.csat_score} class="text-xs" id={"csat-#{conversation.id}"}>
+            <span class="font-semibold">CSAT:</span> {conversation.csat_score}/5
+            <span :if={conversation.csat_comment} class="opacity-70">
+              — {conversation.csat_comment}
+            </span>
+          </p>
+          <div class="flex gap-2 items-center flex-wrap" id={"share-#{conversation.id}"}>
+            <button
+              :if={conversation.share_token == nil}
+              class="btn btn-ghost btn-xs"
+              phx-click="share_conversation"
+              phx-value-conversation-id={conversation.id}
+            >
+              <.icon name="hero-link" class="size-3" /> Share transcript
+            </button>
+            <span :if={conversation.share_token} class="font-mono text-xs select-all">
+              {url(~p"/share/conversations/#{conversation.share_token}")}
+            </span>
+            <button
+              :if={conversation.share_token}
+              class="btn btn-ghost btn-xs text-error"
+              phx-click="revoke_share"
+              phx-value-conversation-id={conversation.id}
+            >
+              Revoke link
+            </button>
+          </div>
+          <form
+            phx-submit="human_reply"
+            phx-change="validate_reply_upload"
+            class="flex gap-2 items-center flex-wrap"
+            id={"detail-reply-#{conversation.id}"}
+          >
+            <input type="hidden" name="conversation-id" value={conversation.id} />
+            <input
+              type="text"
+              name="content"
+              value={Map.get(@reply_prefill, conversation.id)}
+              placeholder="Reply as a human — attach a file if it helps"
+              class="input input-bordered input-sm flex-1 min-w-64"
+              autocomplete="off"
+              phx-keyup="agent_typing"
+              phx-value-conversation-id={conversation.id}
+              phx-debounce="300"
+            />
+            <.live_file_input upload={@uploads.reply_file} class="file-input file-input-xs w-52" />
+            <button class="btn btn-primary btn-sm">Send</button>
+          </form>
           <form
             :if={@can_edit}
             phx-submit="set_labels"
@@ -1661,7 +1768,30 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
                 <span :if={message.usage != %{}}>
                   · {message.usage["input_tokens"]}in/{message.usage["output_tokens"]}out
                 </span>
+                <span :if={message.seen_at} title="The visitor's open tab saw this reply">
+                  · seen {Calendar.strftime(message.seen_at, "%H:%M")}
+                </span>
+                <span :for={file <- message.files} :if={file["download_token"]}>
+                  · 📎 {file["name"]}
+                </span>
               </p>
+              <div :if={message.citations != []} class="flex flex-wrap gap-1 mt-0.5">
+                <span
+                  :for={citation <- message.citations}
+                  class="badge badge-outline badge-xs gap-1"
+                >
+                  {citation["document"]}
+                  <button
+                    :if={citation["segment_id"]}
+                    phx-click="flag_citation"
+                    phx-value-segment-id={citation["segment_id"]}
+                    title="Flag this snippet as a bad retrieval"
+                    aria-label="Flag bad retrieval"
+                  >
+                    ⚑
+                  </button>
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -1683,6 +1813,34 @@ defmodule FluxWeb.ConsoleLive.AppMonitor do
     end
 
     assign(socket, typing_topics: MapSet.union(socket.assigns.typing_topics, new_ids))
+  end
+
+  # Attachments on a human reply become downloadable uploads; the
+  # message carries name + token so the visitor gets a chip.
+  defp consume_reply_files(socket) do
+    scope = socket.assigns.current_scope
+
+    consume_uploaded_entries(socket, :reply_file, fn %{path: path}, entry ->
+      case Chat.create_upload(scope, socket.assigns.app, %{
+             path: path,
+             filename: entry.client_name,
+             content_type: entry.client_type,
+             downloadable: true
+           }) do
+        {:ok, file} ->
+          {:ok,
+           %{
+             "id" => file.id,
+             "name" => file.name,
+             "content_type" => file.content_type,
+             "download_token" => file.download_token
+           }}
+
+        _error ->
+          {:ok, nil}
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
   end
 
   defp refresh_conversations(socket) do

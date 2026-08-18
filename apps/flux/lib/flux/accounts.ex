@@ -1212,6 +1212,43 @@ defmodule Flux.Accounts do
     end
   end
 
+  @doc "Toggles the member's support-desk availability in the current workspace."
+  def set_availability(%Scope{} = scope, available?) when is_boolean(available?) do
+    case scope.membership do
+      %Flux.Accounts.Membership{} = membership ->
+        membership |> Ecto.Changeset.change(available: available?) |> Repo.update()
+
+      _none ->
+        {:error, :no_membership}
+    end
+  end
+
+  @doc "Whether the scope's member is marked available for handoffs."
+  def available?(%Scope{membership: %Flux.Accounts.Membership{available: available}}),
+    do: available
+
+  def available?(_scope), do: true
+
+  @doc "Account ids of available members, stable order for round-robin."
+  def available_member_ids(workspace_id) do
+    Repo.all(
+      from(m in Flux.Accounts.Membership,
+        where: m.workspace_id == ^workspace_id and m.available == true,
+        order_by: [asc: m.inserted_at, asc: m.id],
+        select: m.account_id
+      )
+    )
+  end
+
+  @doc "Turns round-robin handoff auto-assignment on or off."
+  def set_handoff_auto_assign(%Scope{} = scope, enabled?) when is_boolean(enabled?) do
+    update_custom_config(scope, "handoff_auto_assign", enabled? || nil)
+  end
+
+  def handoff_auto_assign?(%Scope{} = scope) do
+    match?(%{custom_config: %{"handoff_auto_assign" => true}}, scope.workspace)
+  end
+
   @doc "Minutes before an unanswered handoff alerts the team (nil = off)."
   def set_handoff_alert_minutes(%Scope{} = scope, minutes)
       when is_nil(minutes) or (is_integer(minutes) and minutes > 0 and minutes <= 24 * 60) do

@@ -417,6 +417,7 @@ defmodule Flux.Chat do
           "app_id" => app.id
         })
 
+        flagged = maybe_auto_assign(app, flagged)
         notify_monitor(app.id, conversation.id)
 
         {:ok, flagged}
@@ -429,12 +430,33 @@ defmodule Flux.Chat do
     end
   end
 
+  # Round-robin new handoffs across available members when the
+  # workspace opted in — nobody has to claim, everybody gets a turn.
+  defp maybe_auto_assign(app, conversation) do
+    with %{custom_config: %{"handoff_auto_assign" => true}} <-
+           Repo.get(Flux.Accounts.Workspace, app.workspace_id),
+         [_ | _] = member_ids <- Flux.Accounts.available_member_ids(app.workspace_id) do
+      turn = rem(System.unique_integer([:positive, :monotonic]), length(member_ids))
+
+      {:ok, assigned} =
+        conversation
+        |> Ecto.Changeset.change(assigned_account_id: Enum.at(member_ids, turn))
+        |> Repo.update()
+
+      assigned
+    else
+      _off_or_nobody -> conversation
+    end
+  end
+
   @doc """
   A teammate answers from the console: inserts a completed assistant
   message (marked human), clears the handoff flag, and broadcasts on the
   conversation topic so an open site chat sees it live.
   """
-  def human_reply(%Scope{} = scope, conversation_id, content)
+  def human_reply(scope, conversation_id, content, opts \\ [])
+
+  def human_reply(%Scope{} = scope, conversation_id, content, opts)
       when is_binary(content) and content != "" do
     with %Conversation{} = conversation <- get_conversation(scope, conversation_id) do
       maybe_mail_away_visitor(conversation, content)
@@ -446,6 +468,7 @@ defmodule Flux.Chat do
           role: :assistant,
           content: content,
           status: :completed,
+          files: Keyword.get(opts, :files, []),
           usage: %{"human" => true, "author" => (scope.account && scope.account.email) || ""}
         })
 
@@ -663,6 +686,116 @@ defmodule Flux.Chat do
            |> Repo.update() do
       {:ok, Repo.preload(updated, :assigned_account, force: true)}
     end
+  end
+
+  @doc "Stores the visitor's 1-5 rating (re-rating overwrites). Site-scope callable."
+  def rate_conversation(%Scope{} = scope, conversation_id, score, comment \\ nil)
+      when score in 1..5 do
+    case Repo.one(Repo.scoped(where(Conversation, id: ^conversation_id), scope)) do
+      nil ->
+        {:error, :not_found}
+
+      conversation ->
+        comment = comment |> to_string() |> String.trim() |> String.slice(0, 1_000)
+
+        with {:ok, updated} <-
+               conversation
+               |> Ecto.Changeset.change(
+                 csat_score: score,
+                 csat_comment: (comment != "" && comment) || nil
+               )
+               |> Repo.update() do
+          notify_monitor(updated.app_id, updated.id)
+          {:ok, updated}
+        end
+    end
+  end
+
+  @doc "CSAT rollup for the monitor (last 30 days): count and average score."
+  def csat_stats(%Scope{} = scope, app_id) do
+    cutoff = DateTime.add(DateTime.utc_now(:second), -30, :day)
+
+    Conversation
+    |> Repo.scoped(scope)
+    |> where([c], c.app_id == ^app_id and not is_nil(c.csat_score))
+    |> where([c], is_nil(c.deleted_at) and c.inserted_at >= ^cutoff)
+    |> select([c], {count(c.id), avg(c.csat_score)})
+    |> Repo.one()
+    |> case do
+      {0, _average} -> %{count: 0, average: nil}
+      {count, average} -> %{count: count, average: Float.round(decimal_to_float(average), 2)}
+    end
+  end
+
+  defp decimal_to_float(%Decimal{} = decimal), do: Decimal.to_float(decimal)
+  defp decimal_to_float(number) when is_number(number), do: number * 1.0
+
+  ## Public conversation share links (read-only transcript pages)
+
+  @doc "Mints (or keeps) the conversation's public transcript token."
+  def enable_conversation_share(%Scope{} = scope, conversation_id) do
+    with :ok <- RBAC.authorize(scope, :app_monitor),
+         %Conversation{} = conversation <-
+           Repo.one(Repo.scoped(where(Conversation, id: ^conversation_id), scope)) ||
+             {:error, :not_found} do
+      case conversation.share_token do
+        nil ->
+          token = "convshare_" <> Base.url_encode64(:crypto.strong_rand_bytes(18), padding: false)
+          conversation |> Ecto.Changeset.change(share_token: token) |> Repo.update()
+
+        _already_shared ->
+          {:ok, conversation}
+      end
+    end
+  end
+
+  @doc "Revokes the public transcript link."
+  def disable_conversation_share(%Scope{} = scope, conversation_id) do
+    with :ok <- RBAC.authorize(scope, :app_monitor),
+         %Conversation{} = conversation <-
+           Repo.one(Repo.scoped(where(Conversation, id: ^conversation_id), scope)) ||
+             {:error, :not_found} do
+      conversation |> Ecto.Changeset.change(share_token: nil) |> Repo.update()
+    end
+  end
+
+  @doc "Resolves a share token to `{conversation, app, messages}` for the public page."
+  def get_shared_conversation("convshare_" <> _rest = token) do
+    case Repo.get_by(Conversation, [share_token: token], skip_workspace_guard: true) do
+      %Conversation{deleted_at: nil} = conversation ->
+        app = Repo.get(App, conversation.app_id, skip_workspace_guard: true)
+        messages = list_messages(site_scope(app), conversation.id)
+        {:ok, conversation, app, messages}
+
+      _revoked_or_missing ->
+        {:error, :not_found}
+    end
+  end
+
+  def get_shared_conversation(_other), do: {:error, :not_found}
+
+  @doc """
+  Marks the conversation's human replies seen — called by the visitor's
+  open tab, so agents know the answer landed. Site-scope callable.
+  """
+  def mark_replies_seen(%Scope{} = scope, conversation_id) do
+    now = DateTime.utc_now(:second)
+
+    {count, _} =
+      Message
+      |> Repo.scoped(scope)
+      |> where([m], m.conversation_id == ^conversation_id and m.role == :assistant)
+      |> where([m], is_nil(m.seen_at) and fragment("? \\? 'human'", m.usage))
+      |> Repo.update_all(set: [seen_at: now])
+
+    if count > 0 do
+      case Repo.one(Repo.scoped(where(Conversation, id: ^conversation_id), scope)) do
+        %Conversation{} = conversation -> notify_monitor(conversation.app_id, conversation.id)
+        _gone -> :ok
+      end
+    end
+
+    :ok
   end
 
   ## Internal notes (agent-only comments, never shown to the visitor)
@@ -1501,6 +1634,12 @@ defmodule Flux.Chat do
            size: byte_size(binary),
            content_type: Map.get(upload, :content_type),
            end_user_ref: Map.get(upload, :end_user_ref),
+           # Agent attachments get a /files/:token URL so the visitor
+           # can download what the human sent back.
+           download_token:
+             (Map.get(upload, :downloadable) &&
+                "file_" <> Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)) ||
+               nil,
            extracted_text: extract_document_text(filename, Map.get(upload, :content_type), binary)
          })}
       end
@@ -2559,6 +2698,111 @@ defmodule Flux.Chat do
           {:halt, :error}
       end
     end)
+  end
+
+  ## Slack channel (inbound events webhook + bot-token replies)
+
+  @doc """
+  Enables the Slack channel: mints the events-webhook token and stores
+  the bot token DEK-encrypted (replies post with it).
+  """
+  def enable_slack_channel(%Scope{} = scope, %App{} = app, bot_token) do
+    bot_token = String.trim(to_string(bot_token))
+
+    with :ok <- RBAC.authorize(scope, :app_edit),
+         true <- bot_token != "" || {:error, :bot_token_required},
+         {:ok, encrypted} <- Flux.Crypto.encrypt(app.workspace_id, bot_token) do
+      token = "slch_" <> Base.url_encode64(:crypto.strong_rand_bytes(18), padding: false)
+
+      app
+      |> Ecto.Changeset.change(slack_channel_token: token, slack_bot_token: encrypted)
+      |> Repo.update()
+    end
+  end
+
+  def disable_slack_channel(%Scope{} = scope, %App{} = app) do
+    with :ok <- RBAC.authorize(scope, :app_edit) do
+      app
+      |> Ecto.Changeset.change(slack_channel_token: nil, slack_bot_token: nil)
+      |> Repo.update()
+    end
+  end
+
+  def get_app_by_slack_channel_token("slch_" <> _rest = token) do
+    case Repo.get_by(App, [slack_channel_token: token], skip_workspace_guard: true) do
+      %App{deleted_at: nil} = app -> {:ok, app}
+      _missing -> {:error, :not_found}
+    end
+  end
+
+  def get_app_by_slack_channel_token(_other), do: {:error, :not_found}
+
+  @doc """
+  One Slack message becomes a chat turn: channel + user key the
+  conversation, and the reply posts back (threaded when the message
+  carried a thread_ts). Returns fast — the await-and-post loop runs in
+  a supervised task so the Events API never retries on timeout.
+  """
+  def slack_inbound(%App{} = app, channel, user, text, thread_ts \\ nil)
+      when is_binary(channel) and is_binary(user) and is_binary(text) and text != "" do
+    scope = site_scope(app)
+    ref = "slack:#{channel}:#{user}"
+
+    conversation =
+      latest_conversation(scope, app.id, ref) ||
+        create_conversation(scope, app, %{end_user_ref: ref})
+
+    with {:ok, _user_message, assistant} <- send_message(scope, app, conversation, text) do
+      {:ok, _pid} =
+        Task.Supervisor.start_child(Flux.GenerationSupervisor, fn ->
+          await_and_post_slack_reply(assistant.id, app, channel, thread_ts)
+        end)
+
+      {:ok, conversation.id}
+    end
+  end
+
+  defp await_and_post_slack_reply(message_id, app, channel, thread_ts) do
+    Enum.reduce_while(1..150, nil, fn _try, _acc ->
+      case Repo.get(Message, message_id, skip_workspace_guard: true) do
+        %{status: :streaming} ->
+          Process.sleep(1_000)
+          {:cont, nil}
+
+        %{status: :completed, content: content} when is_binary(content) and content != "" ->
+          post_slack_message(app, channel, thread_ts, content)
+          {:halt, :ok}
+
+        _failed_or_gone ->
+          {:halt, :error}
+      end
+    end)
+  end
+
+  defp post_slack_message(app, channel, thread_ts, text) do
+    client = Application.get_env(:flux, :slack_client, &default_slack_client/2)
+
+    with {:ok, bot_token} <- Flux.Crypto.decrypt(app.workspace_id, app.slack_bot_token) do
+      payload =
+        %{"channel" => channel, "text" => String.slice(text, 0, 4_000)}
+        |> then(&((thread_ts && Map.put(&1, "thread_ts", thread_ts)) || &1))
+
+      client.(bot_token, payload)
+    end
+  end
+
+  defp default_slack_client(bot_token, payload) do
+    case Req.post(
+           url: "https://slack.com/api/chat.postMessage",
+           json: payload,
+           headers: [{"authorization", "Bearer " <> bot_token}],
+           max_retries: 1,
+           receive_timeout: 15_000
+         ) do
+      {:ok, %{status: 200, body: %{"ok" => true}}} -> :ok
+      {:ok, %{body: body}} -> {:error, inspect(body)}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   @doc "Resolves a raw bearer token to `{app, token}`; touches last_used_at."
