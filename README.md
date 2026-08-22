@@ -293,6 +293,12 @@ orchestrator, no queue infrastructure beyond Postgres.
   node's picker, with results landing on the Files page — and **LLM
   nodes see images**: point a `vision_variable` at an uploaded image
   and it rides the prompt to vision-capable models.
+  **Bring any HTTP API as tools, no plugin required**: paste an
+  **OpenAPI spec** (JSON or YAML) on the Tools page — or **import it
+  straight from a URL**, SSRF-guarded — and every operation in the
+  spec becomes a callable tool in the tool and agent node pickers,
+  with per-toolset **encrypted auth** (write-only secrets) and
+  **private template variables**.
   **MCP goes both ways**: register any Model Context Protocol server
   (Streamable HTTP, encrypted auth headers) and its tools join the picker
   for tool and agent nodes — and FluxCapacitor is itself an MCP server at

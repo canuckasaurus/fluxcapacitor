@@ -149,6 +149,14 @@ templated, and the URL is SSRF-guarded. Outputs `status`, `body`
 Calls one operation of an imported OpenAPI toolset or an installed tool
 plugin, with templated arguments. Outputs `status`, `body`, `text`.
 
+Toolsets come from **Console → Tools**: paste any OpenAPI spec (JSON
+or YAML), or import one from a URL (SSRF-guarded) — every operation in
+the spec becomes a callable tool. Each toolset stores its auth
+(API keys, headers) encrypted with write-only secrets, plus private
+variables you can template into requests. The same toolsets are
+attachable to agent nodes, several at once, mixed with plugin and MCP
+tools.
+
 ### `knowledge_retrieval`
 
 Hybrid (keyword + vector + entity) retrieval across the datasets you

@@ -95,7 +95,16 @@ lands in the dev mailbox at `/dev/mailbox`).
    after hours), and a **handoff SLA alert** warns when a visitor
    waits too long. Chat also rides **email and Slack channels** —
    webhooks in, replies mailed or posted back.
-5. **Knowledge** → create a dataset (echo embeddings work for trying it
+5. **Tools** → turn any HTTP API into flux tools without writing a
+   plugin: paste an **OpenAPI spec** (JSON or YAML) or **import it
+   from a URL** (SSRF-guarded), and every operation in the spec
+   becomes a callable tool. Configure each toolset's **auth** (API
+   keys/headers, stored encrypted, secrets write-only) and **private
+   variables** for templating into requests. Imported operations show
+   up in the `tool` node's picker and attach to **agent nodes** —
+   several toolsets at once, mixed freely with plugin tools and the
+   **MCP servers** registered on the same page.
+6. **Knowledge** → create a dataset (echo embeddings work for trying it
    out), add documents by upload, paste, or URL, watch them index, and
    hit-test retrieval. Wire a `knowledge` node to the dataset in any
    flux. Per-dataset settings cover chunk size/overlap,
@@ -149,7 +158,7 @@ map.
 | Stored files, model registry, scheduled export archives | `/console/files` |
 | Notification feed: failures, regressions, completions | `/console/notifications` |
 | Providers, tool/datasource plugins, credentials | `/console/plugins` |
-| API toolsets (OpenAPI imports) | `/console/tools` |
+| API toolsets (OpenAPI paste or URL import), MCP servers, toolset auth | `/console/tools` |
 | Members, roles, invitations | `/console/members` |
 | Audit trail | `/console/audit` |
 | Workspace settings, SCIM, plan, export, retention, outgoing webhooks | `/console/settings` |
