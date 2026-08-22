@@ -1113,7 +1113,18 @@ defmodule Flux.RAG do
   # The ingestion body, called by IndexWorker (and directly by tests):
   # clear old segments → split (dataset chunk settings) → embed →
   # insert → flip status. Idempotent, so re-index just re-runs it.
+  # Serialized per document — a direct call and the enqueued
+  # IndexWorker running concurrently would otherwise delete each
+  # other's fresh segments mid-flight (FK violations on the entity
+  # mentions were how that surfaced). :global.trans holds no DB
+  # resources across the embedding calls, unlike an advisory lock.
   def index_document(document_id) do
+    :global.trans({{:index_document, document_id}, self()}, fn ->
+      do_index_document(document_id)
+    end)
+  end
+
+  defp do_index_document(document_id) do
     document = Repo.get!(Document, document_id, skip_workspace_guard: true)
     dataset = Repo.get!(Dataset, document.dataset_id, skip_workspace_guard: true)
 
