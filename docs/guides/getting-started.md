@@ -45,8 +45,11 @@ lands in the dev mailbox at `/dev/mailbox`).
    Claude models), or *OpenAI compatible* (Grok/Together/Ollama/vLLM)
    and paste a key — credentials are validated against the provider and
    stored encrypted per workspace. Several named keys can coexist; the
-   default one is what nodes resolve. The dashboard's **Getting started
-   checklist** tracks these first steps.
+   default one is what nodes resolve — and any provider **clones into
+   named instances**, so ten OpenAI-compatible endpoints coexist as ten
+   providers. The dashboard's **Getting started checklist** tracks
+   these first steps. Full detail (pooling, instances, pricing,
+   playground): [Models & providers](models-and-providers.md).
 3. **Fluxes** → *New Flux* opens the canvas, or pick a card from the
    **template gallery** (triage, RAG answer, human review, model
    trainer, report writer, intent router — plus anything your team has
@@ -94,7 +97,9 @@ lands in the dev mailbox at `/dev/mailbox`).
    put the site on a weekly schedule (with a leave-your-email form
    after hours), and a **handoff SLA alert** warns when a visitor
    waits too long. Chat also rides **email and Slack channels** —
-   webhooks in, replies mailed or posted back.
+   webhooks in, replies mailed or posted back. The full tour of
+   publishing, channels, and the support desk:
+   [Apps & chat](apps-and-chat.md).
 5. **Tools** → turn any HTTP API into flux tools without writing a
    plugin: paste an **OpenAPI spec** (JSON or YAML) or **import it
    from a URL** (SSRF-guarded), and every operation in the spec
@@ -103,7 +108,8 @@ lands in the dev mailbox at `/dev/mailbox`).
    variables** for templating into requests. Imported operations show
    up in the `tool` node's picker and attach to **agent nodes** —
    several toolsets at once, mixed freely with plugin tools and the
-   **MCP servers** registered on the same page.
+   **MCP servers** registered on the same page. All four extension
+   paths compared: [Tools & extensions](tools-and-extensions.md).
 6. **Knowledge** → create a dataset (echo embeddings work for trying it
    out), add documents by upload, paste, or URL, watch them index, and
    hit-test retrieval. Wire a `knowledge` node to the dataset in any
@@ -131,11 +137,12 @@ lands in the dev mailbox at `/dev/mailbox`).
    `{"records": [{content, score, title, metadata}]}`, Bearer-key
    optional) — the records flow into answers, citations, hit testing,
    and retrieval evals like local chunks, while the documents stay on
-   your side.
+   your side. Chunking modes, retrieval tuning, and the quality loop
+   in depth: [Knowledge](knowledge.md).
 
 ## Testing
 
-`mix test` at the umbrella root runs everything (~1104 tests) with no
+`mix test` at the umbrella root runs everything (~1113 tests) with no
 network — fake providers, injected converters, temp-dir storage. To run
 a single app's tests, `cd` into the app first; `mix test apps/flux`
 from the root silently runs nothing. Golden replay fixtures, `/v1`

@@ -3,6 +3,9 @@
 Running FluxCapacitor for a team: cost controls, safety rails,
 observability, and backups. Everything here lives in **Settings**,
 the **admin panel** (`FLUX_ADMIN_EMAILS`), or an environment variable.
+Feature-area guides: [Models & providers](models-and-providers.md) ·
+[Apps & chat](apps-and-chat.md) · [Knowledge](knowledge.md) ·
+[Tools & extensions](tools-and-extensions.md).
 
 ## Health & self-checks
 
@@ -68,40 +71,13 @@ Two more gates run beside the patterns:
   or `fail closed` (endpoint down ⇒ inputs refuse) for outages. The
   endpoint URL is SSRF-guarded.
 
-## Chat channels
+## Chat channels & the support desk
 
-- **Inbound email**: App → Email channel mints a webhook URL
-  (`/channels/email/emch_…`). Point a mail provider's inbound route
-  (Mailgun, SES, Postmark) at it: sender + body become a chat turn,
-  one conversation per correspondent, and the finished reply is mailed
-  back from the platform's from-address. Guardrails and app limits
-  apply like any other turn.
-- **Slack**: App → Slack channel takes a bot token (`chat:write`,
-  stored encrypted) and mints an Events API request URL
-  (`/channels/slack/slch_…`). Subscribe the Slack app to
-  `message.channels`/`message.im`: channel messages become chat turns
-  (one conversation per channel + user) and replies post back
-  threaded. Bot and edited messages are ignored, so it never answers
-  itself. The URL-verification handshake is handled automatically.
-
-The human side of chat runs from the app monitor: a **live feed** (new
-conversations and messages appear without a reload, changed threads
-marked "new"), **typing indicators** both ways during handoffs,
-**assignment** with mine/unassigned filters — plus opt-in
-**auto-assignment** (Settings → Failure alerts) that round-robins new
-handoffs across members marked **available** (the toggle sits in the
-monitor header) — **internal notes** the visitor never sees,
-**resolve states** (a fresh visitor message reopens), one-click
-**saved replies**, **reply attachments** (the visitor gets a download
-chip), **read receipts** ("seen HH:MM" once the visitor's tab has the
-reply), **CSAT** (visitors rate 1–5 on the site; count + average on
-the monitor), revocable **share links** for single transcripts, and a
-per-app **business-hours schedule** (UTC; outside it the site shows an
-away note with a **leave-your-email form** and stops offering a
-human). A **handoff SLA alert** (Settings → Failure alerts) fires a
-notification when a visitor waits longer than the configured minutes,
-once per request. Citations in the monitor carry a **flag button** —
-flagged chunks queue on the Knowledge page for curation.
+Moved to their own guide: [Apps & chat](apps-and-chat.md) covers the
+email and Slack channels, publishing, and the whole support desk
+(handoffs, assignment, notes, resolve states, CSAT, SLA alerts).
+Operational knobs that live here in Settings: **auto-assignment** and
+the **handoff SLA alert** minutes (both under Failure alerts).
 
 ## Notifications & webhooks
 

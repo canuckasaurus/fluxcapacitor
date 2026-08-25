@@ -50,6 +50,11 @@ Every flux begins here. Declare the run's input variables
 them and exposes each as `{{start.<name>}}`. Chatflows also get
 `{{sys.query}}` and `{{sys.history}}` without declaring anything.
 
+**Example**: declare `ticket` (paragraph, required) and `priority`
+(select: low/high) — API callers then POST
+`{"inputs": {"ticket": "…", "priority": "high"}}` and downstream
+nodes read `{{start.ticket}}`.
+
 ### `llm`
 
 Calls a chat model and streams the reply. Pick a provider+model, write
@@ -59,6 +64,11 @@ a `system_prompt` and `prompt` (both templated), optionally attach an
 the user message to vision-capable models), and a
 fallback model that takes over when the primary errors. Outputs `text`,
 `usage`, `model_used`, `fallback_used`.
+
+**Example**: prompt `Summarize in three bullets:\n{{start.ticket}}`
+with an output schema `{"summary": "string", "sentiment": "string"}`
+— downstream nodes read `{{llm.output.summary}}` instead of parsing
+prose.
 
 ### `agent`
 
@@ -72,6 +82,11 @@ the call and the loop continues in the same run; denial feeds the model
 a refusal it can adapt to. Outputs `text`, `output`, `status`,
 `iterations`, `tool_calls`.
 
+**Example**: instructions `Research the company and draft an intro
+email`, tools = a search toolset + the CRM toolset,
+`max_iterations: 6`, `approval_tools: ["crm_create_contact"]` — the
+agent searches freely but pauses for a human before touching the CRM.
+
 ### `if_else`
 
 A case chain (if / elif / else). Each case is a condition set over
@@ -79,17 +94,29 @@ variable-pool references; the run leaves on the matching case's handle,
 or `false` when nothing matches. Several edges on one handle fan out
 into parallel branches.
 
+**Example**: case 1 `{{classifier.class}} equals "refund"` → the
+refund branch; case 2 `{{start.amount}} greater than 1000` → the
+escalation branch; `false` → the default answer.
+
 ### `question_classifier`
 
 Forces an LLM to sort the input into one of your `classes`; the run
 continues on that class's handle. Use it to route support questions,
 detect intent, or triage. Outputs `class`.
 
+**Example**: classes `billing`, `technical`, `feedback` over
+`{{sys.query}}` — three handles, three specialist branches, and
+`{{classifier.class}}` available downstream for logging.
+
 ### `parameter_extractor`
 
 Forces an LLM to extract the `parameters` you declare (name, type,
 description, required) from free text into structured pool values —
 one output key per parameter.
+
+**Example**: parameters `name` (string), `order_id` (string,
+required), `refund_amount` (number) over `{{start.email_body}}` —
+downstream nodes read `{{extractor.order_id}}` directly.
 
 ### `template`
 
@@ -98,11 +125,18 @@ Renders text from the variable pool. The `simple` engine substitutes
 `{% if %}` chains, and `{% for %}` loops. Or pick a saved doc template
 from the workspace library. Outputs `output`.
 
+**Example** (jinja):
+`{% for hit in retrieval.citations %}- {{ hit.document }}{% endfor %}`
+renders a source list from a retrieval node's citations.
+
 ### `variable_aggregator`
 
 Takes the first non-empty of several source references — the way to
 merge branches (e.g. either classifier path) back into one variable.
 Outputs `output`.
+
+**Example**: sources `{{billing_llm.text}}`, `{{technical_llm.text}}`
+— whichever branch ran fills `{{merge.output}}` for the answer node.
 
 ### `variable_assigner`
 
@@ -110,10 +144,17 @@ Writes values into `{{conversation.*}}` variables that persist across a
 chatflow conversation — remember a user's name, accumulate state,
 build multi-turn forms.
 
+**Example**: assign `customer_name = {{extractor.name}}` on the first
+turn; every later turn's prompt can greet with
+`{{conversation.customer_name}}`.
+
 ### `list_operator`
 
 Filters, sorts, and slices a list from the pool without code. Outputs
 the transformed `output` plus `count`.
+
+**Example**: over `{{http.body.items}}` — filter `status == "open"`,
+sort by `created_at` descending, take the first 5.
 
 ### `code`
 
@@ -138,11 +179,29 @@ Two file lanes close the **train → serve** loop:
   stored run-output files next to the code before it runs — load that
   model and predict in a later flux.
 
+**Example** (python):
+
+```python
+def main(ticket: str) -> dict:
+    import joblib
+    model = joblib.load("./attachments/intent-v3.pkl")
+    return {"intent": model.predict([ticket])[0]}
+```
+
+With `attachments: [{"file_id": "registry:ticket-intent", "name":
+"intent-v3.pkl"}]` the registry's latest version loads at run time.
+
 ### `http_request`
 
 Calls an external HTTP API — method, URL, headers, and body are all
 templated, and the URL is SSRF-guarded. Outputs `status`, `body`
 (parsed JSON when possible), and raw `text`.
+
+**Example**: `POST https://api.example.com/tickets` with body
+`{"title": "{{llm.output.summary}}", "priority":
+"{{start.priority}}"}` and an `Authorization: Bearer {{env.API_KEY}}`
+header — read `{{http.body.id}}` downstream, route the `error` handle
+to a fallback branch.
 
 ### `tool`
 
@@ -162,7 +221,13 @@ tools.
 Hybrid (keyword + vector + entity) retrieval across the datasets you
 check, using RRF ranking. `top_k` left blank defers to each dataset's
 own retrieval settings. Outputs `result` (joined passages),
-`citations`, `count`.
+`citations`, `count`. See the [Knowledge guide](knowledge.md) for
+chunking, retrieval modes, and quality measurement.
+
+**Example**: query `{{sys.query}}`, tag filter
+`{{start.category}}` — the LLM prompt interpolates
+`Context:\n{{retrieval.result}}` and the answer template appends
+sources from `{{retrieval.citations}}`.
 
 ### `subflux`
 
@@ -170,6 +235,11 @@ Calls another published flux as one node: `inputs` maps the sub-flux's
 start variables from templates, and its end outputs become this node's
 outputs (`{{node.<key>}}`). Pinnable to a version; one level deep, same
 as iteration and loop. The call-site companion to extract-to-flux.
+
+**Example**: a shared "summarize" flux (start: `text` → llm → end:
+`summary`) called with `inputs: {"text": "{{start.ticket}}"}` —
+read `{{subflux.summary}}`, pin `subflux_version: "v3"` for
+reproducibility.
 
 ### `delay`
 
@@ -179,10 +249,17 @@ pacing for rate-limited APIs and cooling-off steps. Anything longer
 belongs on a schedule trigger, and the error says so. Outputs
 `waited_ms`.
 
+**Example**: `seconds: 1.5` between two HTTP nodes keeps a
+40-req/min API happy inside an iteration.
+
 ### `document_extractor`
 
 Turns an uploaded file (from a file-type start variable) into plain
 text — native for text/HTML formats. Outputs `text`, `name`, `size`.
+
+**Example**: start variable `contract` (file) →
+`document_extractor.variable: {{start.contract}}` → the LLM prompt
+reads `{{extract.text}}`.
 
 ### `iteration`
 
@@ -193,6 +270,10 @@ and `count`. By default the *latest* published version runs;
 `subflux_version` (`"v3"` or `3`) pins a specific one so composed
 fluxes stay reproducible while the sub-flux evolves.
 
+**Example**: `variable: {{list.output}}`, `max_items: 20` over a
+"score one lead" sub-flux — `{{iterate.output}}` is the list of each
+item's end outputs, in order.
+
 ### `loop`
 
 A bounded while: runs a published sub-flux repeatedly, feeding each
@@ -201,12 +282,20 @@ round's outputs in as the next round's input, until the break
 `rounds`, `condition_met`, `history`. Accepts the same
 `subflux_version` pin as iteration.
 
+**Example**: a "refine draft" sub-flux looping until
+`{{loop.score}} greater than 8` or `max_loops: 5` — each round sees
+the previous round's draft and score as its inputs.
+
 ### `human_input`
 
 Pauses the run and asks a person. Configure the `prompt` and optional
 choice `options`; the run parks as `paused` and resumes from the
 console, a public site, or `POST /v1/workflows/runs/:id/resume`. The
 reply lands in `output`.
+
+**Example**: prompt `Approve this draft?\n{{llm.text}}` with options
+`approve` / `revise` — an `if_else` on `{{review.output}}` routes
+publication or another editing pass.
 
 ### `labeling`
 
@@ -219,6 +308,11 @@ the label resumes the run with the project's answer shape as outputs:
 `output`. Skipped tasks leave the run parked. Labels captured this way
 also stay in the project for JSONL export — review and training data
 from the same click.
+
+**Example**: `data: [{"name": "Ticket", "value": "{{start.ticket}}"},
+{"name": "Model says", "value": "{{classifier.class}}"}]` into a
+single-select "Ticket intent" project — the labeler's pick resumes
+the run as `{{label.choice}}`.
 
 ### `document`
 
@@ -233,6 +327,10 @@ rows. `output_name` templates the filename. Outputs `url` (a tokenized
 download link that works from the console, public sites, and the API),
 `name`, `file_id`, and `size`.
 
+**Example**: an "engagement letter" template with
+`{{ client_name }}` tags, `output_name: letter-{{start.client}}` —
+the answer node links `{{doc.url}}`.
+
 ### `file_output`
 
 Writes templated `content` to a **downloadable run file** — the
@@ -244,6 +342,11 @@ converter as the document node (`FLUX_PDF_URL`, fails honestly when
 unset). `output_name` templates the filename stem. Outputs `url` (a
 tokenized download link), `name`, `file_id`, `size`, and `format`.
 
+**Example**: `format: pdf`, content
+`# Weekly report\n\n{{llm.text}}`, `output_name:
+report-{{start.week}}` — a styled PDF lands on the Files page and
+`{{report.url}}` downloads it.
+
 ### `interview`
 
 Pauses the run and asks a **stored interview** (a reusable question set
@@ -254,16 +357,27 @@ number, select membership, boolean) and land as one output per question
 plus `output` (the whole map). Works from the console, public flux
 sites, and `POST /v1/workflows/runs/:id/resume` with `{"inputs": {…}}`.
 
+**Example**: an "intake" interview (name, matter type, budget) — the
+run pauses with the whole form, and resumes with
+`{{intake.name}}`, `{{intake.matter_type}}`, `{{intake.budget}}`.
+
 ### `answer`
 
 Streams the user-facing reply in chat contexts (and records it on the
 run). The `answer` template is where you interpolate whatever the flux
 computed. A flux may answer several times.
 
+**Example**: `{{llm.text}}\n\n_Sources: {{retrieval.citations}}_` —
+the model's reply with a source footer.
+
 ### `end`
 
 Declares the run's final outputs explicitly as key → templated value
 mappings — what `/v1` callers and parent fluxes receive.
+
+**Example**: `summary → {{llm.output.summary}}`, `intent →
+{{classifier.class}}` — the run's API response carries exactly those
+two keys.
 
 ## Sub-fluxes (iteration & loop)
 

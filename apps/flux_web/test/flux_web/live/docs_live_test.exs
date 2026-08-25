@@ -30,6 +30,42 @@ defmodule FluxWeb.DocsLiveTest do
     assert html =~ "mix flux.demo"
   end
 
+  test "the new feature guides render with their sections", %{conn: conn} do
+    {:ok, _lv, html} = live(conn, ~p"/console/docs/models-and-providers")
+    assert html =~ "Provider instances"
+    assert html =~ "Key pooling"
+
+    {:ok, _lv, html} = live(conn, ~p"/console/docs/apps-and-chat")
+    assert html =~ "support desk"
+    assert html =~ "Chat channels"
+
+    {:ok, _lv, html} = live(conn, ~p"/console/docs/knowledge")
+    assert html =~ "External knowledge bases"
+    assert html =~ "Chunking"
+
+    {:ok, _lv, html} = live(conn, ~p"/console/docs/tools-and-extensions")
+    assert html =~ "OpenAPI toolsets"
+    assert html =~ "Which path do I want?"
+  end
+
+  test "search finds sections across guides and links to their anchors", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/console/docs")
+
+    html = lv |> form("#docs-search", %{"q" => "business hours"}) |> render_change()
+    assert html =~ "docs-search-results"
+    assert html =~ "/console/docs/apps-and-chat#"
+
+    html = lv |> form("#docs-search", %{"q" => "provider instances"}) |> render_change()
+    assert html =~ "/console/docs/models-and-providers#provider-instances"
+
+    html = lv |> form("#docs-search", %{"q" => "xyzzy-plugh-nothing"}) |> render_change()
+    assert html =~ "Nothing matched"
+
+    # Clearing the box clears the results panel.
+    html = lv |> form("#docs-search", %{"q" => ""}) |> render_change()
+    refute html =~ "docs-search-results"
+  end
+
   test "the API reference renders from the live OpenAPI spec", %{conn: conn} do
     {:ok, _lv, html} = live(conn, ~p"/console/docs/api-reference")
 

@@ -11,10 +11,14 @@ defmodule FluxWeb.ConsoleLive.Docs do
 
   @guides [
     {"getting-started", "Getting started"},
+    {"models-and-providers", "Models & providers"},
     {"node-reference", "Node reference"},
-    {"plugin-sdk", "Plugin SDK"},
+    {"apps-and-chat", "Apps & chat"},
+    {"knowledge", "Knowledge"},
+    {"tools-and-extensions", "Tools & extensions"},
     {"service-api", "Service API"},
-    {"operations", "Operations"}
+    {"operations", "Operations"},
+    {"plugin-sdk", "Plugin SDK"}
   ]
 
   for {slug, _title} <- @guides do
@@ -56,6 +60,62 @@ defmodule FluxWeb.ConsoleLive.Docs do
   # cached), so it can never drift from what `GET /v1/spec` serves.
   def guides, do: @guides ++ [{"api-reference", "API reference"}]
 
+  # Full-text search index, built at compile time: every h2/h3 section
+  # of every guide becomes one searchable entry with its anchor, so a
+  # query lands the reader on the exact heading.
+  @search_index (for {slug, title} <- @guides,
+                     markdown = File.read!(Path.join(@guides_dir, slug <> ".md")),
+                     section <- Regex.split(~r/^(?=##+ )/m, markdown),
+                     String.trim(section) != "" do
+                   {heading, body} =
+                     case String.split(section, "\n", parts: 2) do
+                       ["#" <> _ = heading_line | rest] ->
+                         {String.trim_leading(heading_line, "# "), Enum.join(rest, "\n")}
+
+                       [only] ->
+                         {title, only}
+                     end
+
+                   anchor =
+                     heading
+                     |> String.downcase()
+                     |> String.replace(~r/[^a-z0-9_]+/, "-")
+                     |> String.trim("-")
+
+                   text =
+                     body
+                     |> String.replace(~r/[`*_#|\[\]()>-]/, " ")
+                     |> String.replace(~r/\s+/, " ")
+                     |> String.trim()
+
+                   %{
+                     slug: slug,
+                     guide: title,
+                     anchor: anchor,
+                     heading: heading,
+                     haystack: String.downcase(heading <> " " <> text),
+                     snippet: String.slice(text, 0, 180)
+                   }
+                 end)
+
+  @doc "Sections whose heading or body contain every search term."
+  def search(query) do
+    terms = query |> String.downcase() |> String.split(~r/\s+/, trim: true)
+
+    if terms == [] do
+      []
+    else
+      @search_index
+      |> Enum.filter(fn entry -> Enum.all?(terms, &String.contains?(entry.haystack, &1)) end)
+      |> Enum.sort_by(fn entry ->
+        heading = String.downcase(entry.heading)
+        # Heading hits rank above body-only hits.
+        {-Enum.count(terms, &String.contains?(heading, &1)), entry.guide}
+      end)
+      |> Enum.take(12)
+    end
+  end
+
   defp resolve(slug) do
     cond do
       slug == "api-reference" -> {"api-reference", {"API reference", api_reference_html()}}
@@ -81,8 +141,16 @@ defmodule FluxWeb.ConsoleLive.Docs do
       page_title: "Docs — #{title}",
       slug: slug,
       guide_title: title,
-      guide_html: html
+      guide_html: html,
+      search_query: "",
+      search_results: nil
     )
+  end
+
+  @impl true
+  def handle_event("search", %{"q" => query}, socket) do
+    results = if String.trim(query) == "", do: nil, else: search(query)
+    {:noreply, assign(socket, search_query: query, search_results: results)}
   end
 
   ## API reference generation
@@ -247,6 +315,39 @@ defmodule FluxWeb.ConsoleLive.Docs do
         </div>
         <a href={FluxWeb.docs_url()} target="_blank" class="btn btn-ghost btn-sm">
           View on GitHub <.icon name="hero-arrow-top-right-on-square" class="size-3" />
+        </a>
+      </div>
+
+      <form phx-change="search" id="docs-search" class="w-full max-w-md">
+        <input
+          type="search"
+          name="q"
+          value={@search_query}
+          placeholder="Search every guide — e.g. business hours, pooling, chunking…"
+          class="input input-bordered input-sm w-full"
+          autocomplete="off"
+          phx-debounce="200"
+        />
+      </form>
+
+      <div
+        :if={@search_results != nil}
+        class="card border border-base-200 p-4 space-y-2"
+        id="docs-search-results"
+      >
+        <p :if={@search_results == []} class="text-sm opacity-60">
+          Nothing matched — try fewer or different words.
+        </p>
+        <a
+          :for={result <- @search_results || []}
+          href={~p"/console/docs/#{result.slug}" <> "#" <> result.anchor}
+          class="block rounded-box px-3 py-2 hover:bg-base-200/60"
+        >
+          <p class="text-sm font-semibold">
+            {result.heading}
+            <span class="badge badge-ghost badge-xs ml-1">{result.guide}</span>
+          </p>
+          <p class="text-xs opacity-60">{result.snippet}…</p>
         </a>
       </div>
 
