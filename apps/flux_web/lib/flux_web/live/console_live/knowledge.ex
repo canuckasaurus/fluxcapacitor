@@ -20,8 +20,12 @@ defmodule FluxWeb.ConsoleLive.Knowledge do
 
     installed = MapSet.new(Flux.Tools.list_installed_plugin_ids(scope))
 
+    # Instances of datasource plugins (two Notion workspaces, several S3
+    # buckets) sync like any other source — they carry their own
+    # credentials, so no install gate applies.
     datasource_plugins =
-      Enum.filter(plugin_runtime().list_datasource_plugins(), &MapSet.member?(installed, &1.id))
+      Enum.filter(plugin_runtime().list_datasource_plugins(), &MapSet.member?(installed, &1.id)) ++
+        Providers.instance_manifests(scope, :datasource)
 
     {:ok,
      socket

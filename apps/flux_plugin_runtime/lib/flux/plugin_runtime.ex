@@ -106,13 +106,31 @@ defmodule Flux.PluginRuntime do
     end
   end
 
-  @doc "Resolves a plugin module by manifest id."
+  @doc """
+  Resolves a plugin module by manifest id. Instance ids
+  (`base@name`, minted when a workspace clones a provider) resolve to
+  the base plugin's module — the instance's own credentials arrive
+  through the normal credential arguments, so the module never knows
+  it's an instance.
+  """
   def fetch_plugin(plugin_id) do
-    case Enum.find(plugin_modules(), &(&1.manifest().id == plugin_id)) do
+    base_id = base_plugin_id(plugin_id)
+
+    case Enum.find(plugin_modules(), &(&1.manifest().id == base_id)) do
       nil -> {:error, :unknown_plugin}
       module -> {:ok, module}
     end
   end
+
+  @doc "The base plugin id of an instance id (`base@name` → `base`); others pass through."
+  def base_plugin_id(plugin_id) when is_binary(plugin_id) do
+    case String.split(plugin_id, "@", parts: 2) do
+      [base, _instance] -> base
+      [base] -> base
+    end
+  end
+
+  def base_plugin_id(plugin_id), do: plugin_id
 
   def models(plugin_id, credentials) do
     with {:ok, module} <- fetch_plugin(plugin_id) do

@@ -9,7 +9,7 @@ defmodule FluxWeb.ConsoleLive.Plugins do
   def mount(_params, _session, socket) do
     {:ok,
      socket
-     |> assign(page_title: "Plugins", editing: nil, form: nil)
+     |> assign(page_title: "Plugins", editing: nil, form: nil, cloning: nil, renaming: nil)
      |> refresh()}
   end
 
@@ -20,9 +20,12 @@ defmodule FluxWeb.ConsoleLive.Plugins do
     assign(socket,
       # Datasource plugins with credential schemas (e.g. a feed URL) are
       # configured through the same credential store as model providers.
+      # Workspace-created instances render as their own cards after the
+      # builtins.
       plugins:
         Providers.list_provider_plugins() ++
-          Enum.filter(plugin_runtime().list_datasource_plugins(), &(&1.credential_schema != [])),
+          Enum.filter(plugin_runtime().list_datasource_plugins(), &(&1.credential_schema != [])) ++
+          Providers.instance_manifests(scope),
       credentials_by_plugin: Enum.group_by(credentials, & &1.plugin_id),
       can_manage: RBAC.can?(scope, :plugin_model_config),
       can_install: RBAC.can?(scope, :plugin_install),
@@ -140,6 +143,70 @@ defmodule FluxWeb.ConsoleLive.Plugins do
     end
   end
 
+  def handle_event("start_clone", %{"plugin-id" => plugin_id}, socket) do
+    {:noreply, assign(socket, cloning: plugin_id, form: to_form(%{}, as: :credentials))}
+  end
+
+  def handle_event("cancel_clone", _params, socket) do
+    {:noreply, assign(socket, cloning: nil, form: nil)}
+  end
+
+  def handle_event("clone", %{"credentials" => config} = params, socket) do
+    case Providers.create_provider_instance(
+           socket.assigns.current_scope,
+           socket.assigns.cloning,
+           params["instance_name"],
+           config
+         ) do
+      {:ok, _instance_id, _credential} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Instance created — it's now its own provider.")
+         |> assign(cloning: nil, form: nil)
+         |> refresh()}
+
+      {:error, :name_taken} ->
+        {:noreply, put_flash(socket, :error, "An instance with that name already exists.")}
+
+      {:error, :invalid_name} ->
+        {:noreply, put_flash(socket, :error, "Give the instance a name (letters and numbers).")}
+
+      {:error, {:invalid_credentials, reason}} ->
+        {:noreply, put_flash(socket, :error, "The provider rejected the credentials: #{reason}")}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not create the instance.")}
+    end
+  end
+
+  def handle_event("start_rename", %{"plugin-id" => plugin_id}, socket) do
+    {:noreply, assign(socket, renaming: plugin_id)}
+  end
+
+  def handle_event("rename_instance", %{"label" => label}, socket) do
+    case Providers.rename_provider_instance(
+           socket.assigns.current_scope,
+           socket.assigns.renaming,
+           label
+         ) do
+      {:ok, _workspace} ->
+        {:noreply, socket |> assign(renaming: nil) |> refresh()}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not rename the instance.")}
+    end
+  end
+
+  def handle_event("delete_instance", %{"plugin-id" => plugin_id}, socket) do
+    case Providers.delete_provider_instance(socket.assigns.current_scope, plugin_id) do
+      :ok ->
+        {:noreply, socket |> put_flash(:info, "Instance removed.") |> refresh()}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not remove the instance.")}
+    end
+  end
+
   def handle_event("toggle_balanced", %{"credential-id" => id, "balanced" => balanced}, socket) do
     case Providers.set_credential_balanced(socket.assigns.current_scope, id, balanced == "true") do
       {:ok, _credential} -> {:noreply, refresh(socket)}
@@ -245,12 +312,19 @@ defmodule FluxWeb.ConsoleLive.Plugins do
         <div
           :for={plugin <- @plugins}
           class="card border border-base-200 p-6 space-y-3"
-          id={"plugin-#{plugin.id}"}
+          id={"plugin-#{String.replace(plugin.id, "@", "--")}"}
         >
           <div class="flex items-center justify-between">
             <div>
               <h2 class="font-semibold flex items-center gap-2">
                 {plugin.name} <span class="badge badge-ghost badge-sm">v{plugin.version}</span>
+                <span
+                  :if={Providers.instance_id?(plugin.id)}
+                  class="badge badge-info badge-sm"
+                  title={"A named copy of #{Providers.base_plugin_id(plugin.id)} with its own credentials"}
+                >
+                  instance
+                </span>
                 <span
                   :if={@credentials_by_plugin[plugin.id] || plugin.credential_schema == []}
                   class="badge badge-success badge-sm"
@@ -266,8 +340,89 @@ defmodule FluxWeb.ConsoleLive.Plugins do
               <button class="btn btn-sm" phx-click="edit" phx-value-plugin-id={plugin.id}>
                 {if @credentials_by_plugin[plugin.id], do: "Add key", else: "Configure"}
               </button>
+              <button
+                :if={not Providers.instance_id?(plugin.id)}
+                class="btn btn-sm btn-ghost"
+                phx-click="start_clone"
+                phx-value-plugin-id={plugin.id}
+                title="Create a named copy with its own credentials — e.g. several OpenAI-compatible endpoints side by side"
+              >
+                Clone
+              </button>
+              <button
+                :if={Providers.instance_id?(plugin.id)}
+                class="btn btn-sm btn-ghost"
+                phx-click="start_rename"
+                phx-value-plugin-id={plugin.id}
+              >
+                Rename
+              </button>
+              <button
+                :if={Providers.instance_id?(plugin.id)}
+                class="btn btn-sm btn-ghost text-error"
+                phx-click="delete_instance"
+                phx-value-plugin-id={plugin.id}
+                data-confirm={"Remove #{plugin.name} and its credentials? Apps pointing at it will need a new provider."}
+              >
+                Remove instance
+              </button>
             </div>
           </div>
+
+          <form
+            :if={@renaming == plugin.id}
+            phx-submit="rename_instance"
+            class="flex gap-2"
+            id={"rename-form-#{String.replace(plugin.id, "@", "--")}"}
+          >
+            <input
+              type="text"
+              name="label"
+              value={plugin.name}
+              class="input input-bordered input-sm w-64"
+              autocomplete="off"
+            />
+            <button class="btn btn-primary btn-sm">Save name</button>
+          </form>
+
+          <.form
+            :if={@cloning == plugin.id}
+            for={@form}
+            id={"clone-form-#{plugin.id}"}
+            phx-submit="clone"
+            class="space-y-3 border-t border-base-200 pt-4"
+          >
+            <p class="text-sm opacity-70">
+              The clone becomes its own provider — own credentials, own
+              models, its own entry in every model picker. Point several
+              at different endpoints and they coexist.
+            </p>
+            <.input
+              name="instance_name"
+              value=""
+              type="text"
+              label="Instance name (e.g. groq-prod, local-vllm)"
+              required
+            />
+            <div :for={field <- plugin.credential_schema}>
+              <.input
+                field={@form[String.to_atom(field.key)]}
+                name={"credentials[#{field.key}]"}
+                type={if field.type == :secret, do: "password", else: "text"}
+                label={field.label}
+                placeholder={field.placeholder}
+                required={field.required}
+              />
+              <p :if={field.help} class="text-xs opacity-60 mt-1">{field.help}</p>
+            </div>
+
+            <div class="flex gap-2">
+              <button class="btn btn-primary btn-sm">Validate &amp; create instance</button>
+              <button type="button" class="btn btn-ghost btn-sm" phx-click="cancel_clone">
+                Cancel
+              </button>
+            </div>
+          </.form>
 
           <div :if={credentials = @credentials_by_plugin[plugin.id]} class="space-y-1">
             <div

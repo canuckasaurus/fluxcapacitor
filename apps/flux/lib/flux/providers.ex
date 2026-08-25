@@ -150,6 +150,185 @@ defmodule Flux.Providers do
   @doc "All model-provider plugin manifests known to the runtime."
   def list_provider_plugins, do: runtime().list_model_providers()
 
+  ## Provider instances (clone a config-driven plugin under a new name)
+
+  # An instance id is `base@slug` — the runtime resolves it to the base
+  # plugin's module, but credentials, health, and app references all key
+  # on the full instance id, so ten OpenAI-compatible endpoints coexist
+  # as ten independent providers.
+
+  @doc "The base plugin id of an instance id (`base@name` → `base`); others pass through."
+  def base_plugin_id(plugin_id) when is_binary(plugin_id) do
+    case String.split(plugin_id, "@", parts: 2) do
+      [base, _instance] -> base
+      [base] -> base
+    end
+  end
+
+  @doc "Whether the id names a workspace-created provider instance."
+  def instance_id?(plugin_id), do: is_binary(plugin_id) and String.contains?(plugin_id, "@")
+
+  @doc """
+  Clones a config-driven plugin as a named instance: `base@slug` gets
+  its own credentials (validated against the base plugin) and shows up
+  as its own provider everywhere. This is also how a "custom provider"
+  is made — clone `openai_compatible` and point it at any endpoint.
+  """
+  def create_provider_instance(%Scope{} = scope, base_plugin_id, name, config)
+      when is_map(config) do
+    slug =
+      name
+      |> to_string()
+      |> String.downcase()
+      |> String.replace(~r/[^a-z0-9\-\s_]/, "")
+      |> String.replace(~r/[\s_]+/, "-")
+      |> String.trim("-")
+      |> String.slice(0, 40)
+
+    instance_id = base_plugin_id <> "@" <> slug
+
+    with :ok <- RBAC.authorize(scope, :plugin_model_config),
+         true <- slug != "" || {:error, :invalid_name},
+         true <- not instance_id?(base_plugin_id) || {:error, :nested_instance},
+         true <-
+           clonable?(base_plugin_id) || {:error, :not_clonable},
+         [] <-
+           ProviderCredential
+           |> Repo.scoped(scope)
+           |> where([c], c.plugin_id == ^instance_id)
+           |> Repo.all(),
+         {:ok, credential} <- upsert_credential(scope, instance_id, config) do
+      set_instance_label(scope, instance_id, String.trim(to_string(name)))
+
+      Flux.Audit.record(scope, "provider.instance_create",
+        resource_type: "provider_credential",
+        resource_id: instance_id,
+        metadata: %{"base" => base_plugin_id, "name" => name}
+      )
+
+      {:ok, instance_id, credential}
+    else
+      [_ | _] -> {:error, :name_taken}
+      other -> other
+    end
+  end
+
+  # Any provider or datasource plugin that takes credentials can clone;
+  # keyless plugins (echo) have nothing to instantiate.
+  defp clonable?(base_plugin_id) do
+    Enum.any?(
+      runtime().list_model_providers() ++ runtime().list_datasource_plugins(),
+      &(&1.id == base_plugin_id and &1.credential_schema != [])
+    )
+  end
+
+  @doc "Renames an instance's display label (the id — and app references — never change)."
+  def rename_provider_instance(%Scope{} = scope, instance_id, label) do
+    label = label |> to_string() |> String.trim() |> String.slice(0, 80)
+
+    with :ok <- RBAC.authorize(scope, :plugin_model_config),
+         true <- instance_id?(instance_id) || {:error, :not_an_instance},
+         true <- label != "" || {:error, :invalid_name} do
+      set_instance_label(scope, instance_id, label)
+    end
+  end
+
+  @doc "Deletes an instance: its credentials and label go; apps pointing at it will error until repointed."
+  def delete_provider_instance(%Scope{} = scope, instance_id) do
+    with :ok <- RBAC.authorize(scope, :plugin_model_config),
+         true <- instance_id?(instance_id) || {:error, :not_an_instance} do
+      {count, _} =
+        ProviderCredential
+        |> Repo.scoped(scope)
+        |> where([c], c.plugin_id == ^instance_id)
+        |> Repo.delete_all()
+
+      set_instance_label(scope, instance_id, nil)
+
+      Flux.Audit.record(scope, "provider.instance_delete",
+        resource_type: "provider_credential",
+        resource_id: instance_id,
+        metadata: %{"credentials_removed" => count}
+      )
+
+      :ok
+    end
+  end
+
+  @doc "The instance's display label (falls back to a humanized slug)."
+  def instance_label(workspace_id, instance_id) do
+    labels =
+      case Repo.get(Flux.Accounts.Workspace, workspace_id) do
+        %{custom_config: %{"provider_instance_labels" => %{} = labels}} -> labels
+        _none -> %{}
+      end
+
+    labels[instance_id] ||
+      instance_id |> String.split("@") |> List.last() |> String.replace("-", " ")
+  end
+
+  defp set_instance_label(scope, instance_id, label) do
+    workspace = Repo.get(Flux.Accounts.Workspace, Scope.workspace_id(scope))
+    labels = (workspace.custom_config || %{})["provider_instance_labels"] || %{}
+
+    labels =
+      if label, do: Map.put(labels, instance_id, label), else: Map.delete(labels, instance_id)
+
+    custom_config =
+      if labels == %{} do
+        Map.delete(workspace.custom_config || %{}, "provider_instance_labels")
+      else
+        Map.put(workspace.custom_config || %{}, "provider_instance_labels", labels)
+      end
+
+    workspace |> Ecto.Changeset.change(custom_config: custom_config) |> Repo.update()
+  end
+
+  @doc """
+  Manifests for the workspace's provider instances: the base plugin's
+  manifest re-badged with the instance id and label. `category` filters
+  (`:model` for pickers, `:datasource` for sync dropdowns).
+  """
+  def instance_manifests(%Scope{} = scope, category \\ nil) do
+    workspace_id = Scope.workspace_id(scope)
+
+    instance_ids =
+      ProviderCredential
+      |> Repo.scoped(scope)
+      |> where([c], like(c.plugin_id, "%@%"))
+      |> select([c], c.plugin_id)
+      |> distinct(true)
+      |> Repo.all()
+      |> Enum.sort()
+
+    # Early out before touching the runtime — the common case, and it
+    # keeps minimal test fakes (which only stub what they use) working.
+    if instance_ids == [] do
+      []
+    else
+      base_manifests =
+        Map.new(runtime().list_model_providers() ++ runtime().list_datasource_plugins(), fn m ->
+          {m.id, m}
+        end)
+
+      Enum.flat_map(
+        instance_ids,
+        &instance_manifest(&1, base_manifests, category, workspace_id)
+      )
+    end
+  end
+
+  defp instance_manifest(instance_id, base_manifests, category, workspace_id) do
+    case base_manifests[base_plugin_id(instance_id)] do
+      %{category: manifest_category} = manifest
+      when category == nil or manifest_category == category ->
+        [%{manifest | id: instance_id, name: instance_label(workspace_id, instance_id)}]
+
+      _missing_or_filtered ->
+        []
+    end
+  end
+
   @doc "Credentials configured in the scope's workspace (config stays encrypted)."
   def list_credentials(%Scope{} = scope) do
     ProviderCredential
@@ -428,7 +607,11 @@ defmodule Flux.Providers do
     workspace_id = Scope.workspace_id(scope)
     configured = MapSet.new(list_credentials(scope), & &1.plugin_id)
 
-    for manifest <- list_provider_plugins(),
+    # Workspace-created instances list after the builtin providers, each
+    # under its own label — ten OpenAI-compatible endpoints, ten entries.
+    manifests = list_provider_plugins() ++ instance_manifests(scope, :model)
+
+    for manifest <- manifests,
         manifest.credential_schema == [] or MapSet.member?(configured, manifest.id),
         # Config-driven catalogs (e.g. openai_compatible) need the stored
         # credentials to know which models they offer.
