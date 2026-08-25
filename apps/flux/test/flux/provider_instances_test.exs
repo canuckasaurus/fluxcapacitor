@@ -99,6 +99,18 @@ defmodule Flux.ProviderInstancesTest do
     assert [%{id: ^second_id}] = Providers.instance_manifests(scope, :model)
   end
 
+  test "instance count is unbounded — well past ten", %{scope: scope} do
+    for n <- 1..25 do
+      {:ok, _id, _credential} =
+        Providers.create_provider_instance(scope, "compat", "endpoint #{n}", %{
+          "base_url" => "https://host-#{n}.example.com/v1"
+        })
+    end
+
+    assert length(Providers.instance_manifests(scope, :model)) == 25
+    assert length(Providers.available_models(scope)) >= 25
+  end
+
   test "guards: duplicate names, blank names, keyless bases", %{scope: scope} do
     {:ok, _id, _credential} =
       Providers.create_provider_instance(scope, "compat", "prod", %{"base_url" => "https://x"})
