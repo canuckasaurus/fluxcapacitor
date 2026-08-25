@@ -187,17 +187,30 @@ defmodule Flux.Providers do
 
     instance_id = base_plugin_id <> "@" <> slug
 
+    workspace_id = Scope.workspace_id(scope)
+
     with :ok <- RBAC.authorize(scope, :plugin_model_config),
          true <- slug != "" || {:error, :invalid_name},
          true <- not instance_id?(base_plugin_id) || {:error, :nested_instance},
          true <-
            clonable?(base_plugin_id) || {:error, :not_clonable},
-         [] <-
-           ProviderCredential
-           |> Repo.scoped(scope)
-           |> where([c], c.plugin_id == ^instance_id)
-           |> Repo.all(),
-         {:ok, credential} <- upsert_credential(scope, instance_id, config) do
+         :ok <- validate_with_plugin(instance_id, config),
+         {:ok, encrypted} <- Crypto.encrypt(workspace_id, Jason.encode!(config)),
+         # A plain insert, not the credential upsert: two concurrent
+         # creates of the same name must NOT silently overwrite each
+         # other — the unique index makes the loser an honest
+         # :name_taken instead.
+         {:ok, credential} <-
+           %ProviderCredential{}
+           |> ProviderCredential.changeset(%{
+             workspace_id: workspace_id,
+             plugin_id: instance_id,
+             name: "default",
+             is_default: true,
+             encrypted_config: encrypted,
+             validated_at: DateTime.utc_now(:second)
+           })
+           |> Repo.insert() do
       set_instance_label(scope, instance_id, String.trim(to_string(name)))
 
       Flux.Audit.record(scope, "provider.instance_create",
@@ -208,8 +221,18 @@ defmodule Flux.Providers do
 
       {:ok, instance_id, credential}
     else
-      [_ | _] -> {:error, :name_taken}
-      other -> other
+      {:error, %Ecto.Changeset{errors: errors}} ->
+        if Keyword.has_key?(errors, :name) or
+             Enum.any?(errors, fn {_field, {_message, meta}} ->
+               meta[:constraint] == :unique
+             end) do
+          {:error, :name_taken}
+        else
+          {:error, :invalid_credentials}
+        end
+
+      other ->
+        other
     end
   end
 
