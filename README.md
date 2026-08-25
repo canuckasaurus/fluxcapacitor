@@ -293,6 +293,11 @@ orchestrator, no queue infrastructure beyond Postgres.
   node's picker, with results landing on the Files page — and **LLM
   nodes see images**: point a `vision_variable` at an uploaded image
   and it rides the prompt to vision-capable models.
+  Any credential-taking provider **clones into named instances** —
+  ten OpenAI-compatible endpoints (or two Notion workspaces) coexist
+  as ten independent providers, each renameable, each with its own
+  keys, models, and health row; cloning `openai_compatible` is how a
+  **custom provider** is made without writing a plugin.
   **Bring any HTTP API as tools, no plugin required**: paste an
   **OpenAPI spec** (JSON or YAML) on the Tools page — or **import it
   straight from a URL**, SSRF-guarded — and every operation in the
@@ -514,11 +519,19 @@ webhook; retention sweeps prune old runs nightly.
 The guides live in `docs/guides` and also render **inside the console** at
 `/console/docs` (they compile into the release):
 
-- [Getting started](docs/guides/getting-started.md) — clone to published app, including `mix flux.demo`, production notes, and localization
-- [Node reference](docs/guides/node-reference.md) — all 25 node types in detail, branching, parallel fan-out, sub-fluxes
-- [Plugin SDK](docs/guides/plugin-sdk.md) — the five capability behaviours with a worked example
+- [Getting started](docs/guides/getting-started.md) — clone to published app, including `mix flux.demo` and the manual path
+- [Models & providers](docs/guides/models-and-providers.md) — credentials, key pooling, **provider instances** (clone any provider under a new name), pricing, playground
+- [Node reference](docs/guides/node-reference.md) — all 25 node types with a worked example each, branching, parallel fan-out, sub-fluxes
+- [Apps & chat](docs/guides/apps-and-chat.md) — app modes, publishing/embeds, the support desk, email & Slack channels, budgets
+- [Knowledge](docs/guides/knowledge.md) — ingestion, chunking modes, hybrid retrieval tuning, evals, external knowledge bases, backends
+- [Tools & extensions](docs/guides/tools-and-extensions.md) — OpenAPI toolsets, MCP both ways, custom providers, when to reach for the SDK
 - [Service API](docs/guides/service-api.md) — the `/v1` surface, SSE framing, webhooks, SCIM
 - [Operations](docs/guides/operations.md) — cost controls, guardrails, health probes, `mix flux.doctor`, metrics, backups
+- [Plugin SDK](docs/guides/plugin-sdk.md) — the five capability behaviours with a worked example
+
+The in-console copy is **full-text searchable** — every section of
+every guide indexes at build time, and results land on the exact
+heading.
 
 ## Getting started
 
@@ -547,7 +560,7 @@ scratch drive, and a labeling project wired to the Model trainer flux
 ## Testing
 
 ```bash
-mix test                             # full umbrella suite (~1104 tests), hermetic
+mix test                             # full umbrella suite (~1113 tests), hermetic
 ```
 
 The suite runs with no network: providers stub through `Req.Test` or the

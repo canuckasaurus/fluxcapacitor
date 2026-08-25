@@ -7,6 +7,20 @@ at `docs/PARITY-PLAN.md`.
 
 ## Unreleased
 
+### Batch 43
+- Provider instances: clone any credential-taking provider (or
+  datasource) into a named instance — ten OpenAI-compatible endpoints
+  coexist as ten providers, renameable without breaking references,
+  each with its own keys, model catalog, health row, and pool.
+  Cloning `openai_compatible` is the no-code way to add a custom
+  provider.
+- Docs overhaul: four new guides — Models & providers, Apps & chat,
+  Knowledge, Tools & extensions — carved out of the crowded
+  operations/getting-started pages; every node-reference section now
+  carries a worked example; and the in-console docs gained
+  **full-text search** across every section of every guide, with
+  results landing on the exact heading.
+
 ### Batch 42
 - CSAT surveys: visitors rate a conversation 1-5 (plus a comment) right
   on the site; the monitor rolls up count and average and shows each

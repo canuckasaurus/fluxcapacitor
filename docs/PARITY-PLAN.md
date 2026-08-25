@@ -1639,3 +1639,32 @@ into set_visitor_identity, feeding the away-mail loop). One migration
 1104 tests. Bench: custom domains, Japanese locale, require-2FA,
 member suspension, visitor blocklist, trusted 2FA devices, SSO-only
 login, sign-in-as.
+
+**67. Batch 43 — provider instances and the docs overhaul.** The ask:
+"ten OpenAI-compatible models," custom plugins, and docs that explain
+everything. **Provider instances**: an instance id is `base@slug`;
+the runtime's single `fetch_plugin/1` chokepoint strips the suffix to
+resolve the module, so every capability (LLM, embeddings, models,
+validate, speech, image, rerank, datasource sync) works for instances
+with zero per-capability code — while credentials, apps, health
+logging, and the key pool all key on the full instance id, keeping
+instances fully independent. Labels live in workspace custom_config
+("provider_instance_labels"), so **rename never changes the id** and
+app references survive. `instance_manifests(scope, category)` re-badges
+the base manifest; available_models appends them, which propagates to
+every model picker for free (app settings, LLM/agent nodes,
+playground, evals, knowledge embeddings). Datasource instances (two
+Notion workspaces) join the knowledge auto-sync dropdown the same way.
+Clone/rename/remove UI rides the existing provider cards; "custom
+provider" = clone openai_compatible, documented as such rather than
+pretending runtime code loading. **Docs overhaul**: four new guides
+(models-and-providers, apps-and-chat, knowledge, tools-and-extensions)
+carved from the overgrown operations/getting-started pages with
+worked examples per section; every node-reference node got an
+example; and the docs LiveView grew a compile-time **search index**
+(every h2/h3 section of every guide → slug/anchor/heading/text) with
+an all-terms filter, heading-hits-first ranking, and results linking
+straight to the anchored heading. No migration, no new deps. 1113
+tests. Bench unchanged: custom domains, Japanese locale, require-2FA,
+member suspension, visitor blocklist, trusted 2FA devices, SSO-only
+login, sign-in-as.
