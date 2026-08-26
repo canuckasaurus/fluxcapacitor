@@ -23,6 +23,9 @@ defmodule Flux.Tools.ApiToolset do
     field :operations, {:array, :map}, default: []
     field :encrypted_auth, :string, redact: true
     field :encrypted_variables, :string, redact: true
+    # Set on URL imports so the toolset can re-import when the spec
+    # changes upstream (auth and variables survive the refresh).
+    field :source_url, :string
 
     timestamps(type: :utc_datetime)
   end

@@ -30,6 +30,30 @@ defmodule FluxWeb.ConsoleLive.Tools do
      |> load_toolsets()}
   end
 
+  defp reimport(socket, id, spec) do
+    with %ApiToolset{} = toolset <- Tools.get_toolset(socket.assigns.current_scope, id),
+         {:ok, _updated, diff} <-
+           Tools.reimport_toolset(socket.assigns.current_scope, toolset, spec) do
+      {:noreply,
+       socket
+       |> put_flash(
+         :info,
+         "Toolset refreshed — #{diff.added} operation(s) added, #{diff.removed} removed."
+       )
+       |> load_toolsets()}
+    else
+      {:error, :no_source} ->
+        {:noreply,
+         put_flash(socket, :error, "This toolset was pasted — paste an updated spec to refresh.")}
+
+      {:error, message} when is_binary(message) ->
+        {:noreply, put_flash(socket, :error, "Could not re-import: #{message}")}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not re-import the toolset.")}
+    end
+  end
+
   defp load_toolsets(socket) do
     toolsets = Tools.list_toolsets(socket.assigns.current_scope)
     summaries = Map.new(toolsets, &{&1.id, Tools.security_summary(&1)})
@@ -197,6 +221,14 @@ defmodule FluxWeb.ConsoleLive.Tools do
     {:noreply, assign(socket, expanded_id: expanded)}
   end
 
+  def handle_event("reimport", %{"id" => id}, socket) do
+    reimport(socket, id, nil)
+  end
+
+  def handle_event("reimport_paste", %{"toolset-id" => id, "spec" => spec}, socket) do
+    reimport(socket, id, spec)
+  end
+
   def handle_event("delete", %{"id" => id}, socket) do
     with %ApiToolset{} = toolset <- Tools.get_toolset(socket.assigns.current_scope, id),
          {:ok, _deleted} <- Tools.delete_toolset(socket.assigns.current_scope, toolset) do
@@ -280,6 +312,7 @@ defmodule FluxWeb.ConsoleLive.Tools do
             <span>Name (optional — defaults to the spec title)</span>
             <input type="text" name="name" class="input w-full" placeholder="Petstore" />
           </label>
+
           <label class="floating-label">
             <span>OpenAPI 3.x / Swagger 2 — JSON or YAML</span> <textarea
               name="spec"
@@ -288,6 +321,7 @@ defmodule FluxWeb.ConsoleLive.Tools do
               placeholder={"{\n  \"openapi\": \"3.0.0\",\n  ...\n}"}
             ></textarea>
           </label>
+
           <div class="flex gap-2">
             <button class="btn btn-primary">Import</button>
             <button type="button" class="btn btn-ghost" phx-click="cancel">Cancel</button>
@@ -302,8 +336,7 @@ defmodule FluxWeb.ConsoleLive.Tools do
             class="input input-bordered input-sm flex-1"
             title="Fetch a spec by URL instead — same import, SSRF-guarded"
             required
-          />
-          <button class="btn btn-outline btn-sm">Import from URL</button>
+          /> <button class="btn btn-outline btn-sm">Import from URL</button>
         </form>
       </div>
 
@@ -341,11 +374,13 @@ defmodule FluxWeb.ConsoleLive.Tools do
           ]}>
             auth: {@summaries[toolset.id].auth_type}
           </span>
+
           <.icon
             name={(@expanded_id == toolset.id && "hero-chevron-up") || "hero-chevron-down"}
             class="size-4 opacity-60"
           />
         </button>
+
         <div :if={@expanded_id == toolset.id} class="border-t border-base-200 p-4 space-y-6">
           <div class="overflow-x-auto">
             <table class="table table-sm">
@@ -399,6 +434,7 @@ defmodule FluxWeb.ConsoleLive.Tools do
                       {type}
                     </option>
                   </select>
+
                   <select name="in" class="select select-sm">
                     <option value="header">header</option>
 
@@ -465,7 +501,31 @@ defmodule FluxWeb.ConsoleLive.Tools do
             </div>
           </div>
 
-          <div :if={@can_manage} class="flex justify-end">
+          <div :if={@can_manage} class="flex items-center justify-between gap-2">
+            <div class="flex items-center gap-2">
+              <button
+                :if={toolset.source_url}
+                class="btn btn-outline btn-sm"
+                phx-click="reimport"
+                phx-value-id={toolset.id}
+                title={"Re-fetch #{toolset.source_url} and refresh the operations — auth and variables survive"}
+                id={"reimport-#{toolset.id}"}
+              >
+                <.icon name="hero-arrow-path" class="size-4" /> Re-import from URL
+              </button>
+
+              <form phx-submit="reimport_paste" class="flex gap-2" id={"reimport-paste-#{toolset.id}"}>
+                <input type="hidden" name="toolset-id" value={toolset.id} />
+                <input
+                  type="text"
+                  name="spec"
+                  placeholder="Or paste an updated spec…"
+                  class="input input-bordered input-sm w-64"
+                  autocomplete="off"
+                /> <button class="btn btn-ghost btn-sm">Update</button>
+              </form>
+            </div>
+
             <button
               class="btn btn-ghost btn-sm text-error"
               phx-click="delete"
@@ -480,6 +540,7 @@ defmodule FluxWeb.ConsoleLive.Tools do
 
       <div :if={@can_mcp} class="card border border-base-200 p-6 space-y-3" id="mcp-servers">
         <h2 class="font-semibold">MCP servers</h2>
+
         <p class="text-sm opacity-70">
           Point the workspace at a Model Context Protocol server (Streamable
           HTTP) and its tools join the picker — tool and agent nodes call
@@ -497,10 +558,12 @@ defmodule FluxWeb.ConsoleLive.Tools do
           <span class="badge badge-ghost badge-sm">{length(server.tools)} tool(s)</span>
           <details :if={server.tools != []} class="text-xs">
             <summary class="cursor-pointer opacity-70">show</summary>
+
             <span :for={tool <- server.tools} class="badge badge-outline badge-xs mr-1">
               {tool["name"]}
             </span>
           </details>
+
           <span class="ml-auto flex gap-1">
             <button
               class="btn btn-ghost btn-xs"
@@ -510,6 +573,7 @@ defmodule FluxWeb.ConsoleLive.Tools do
             >
               Refresh
             </button>
+
             <button
               class="btn btn-ghost btn-xs text-error"
               phx-click="delete_mcp_server"
@@ -542,13 +606,13 @@ defmodule FluxWeb.ConsoleLive.Tools do
             placeholder="Authorization header (optional)"
             class="input input-bordered input-sm w-64"
             autocomplete="off"
-          />
-          <button class="btn btn-primary btn-sm">Connect</button>
+          /> <button class="btn btn-primary btn-sm">Connect</button>
         </form>
       </div>
 
       <div class="card border border-base-200 p-6 space-y-3" id="prompt-library">
         <h2 class="font-semibold">Prompt library</h2>
+
         <p class="text-sm opacity-70">
           Named, reusable prompt snippets — insert them from any LLM or
           agent panel in the editor. Saving an existing name overwrites it.
@@ -565,28 +629,31 @@ defmodule FluxWeb.ConsoleLive.Tools do
             name="name"
             placeholder="tone-of-voice"
             class="input input-bordered input-sm w-44"
-          />
-          <textarea
+          /> <textarea
             name="content"
             rows="2"
             placeholder="You are concise, friendly, and never speculate…"
             class="textarea textarea-bordered textarea-sm flex-1 min-w-60"
-          ></textarea>
-          <button class="btn btn-sm btn-primary">Save snippet</button>
+          ></textarea> <button class="btn btn-sm btn-primary">Save snippet</button>
         </form>
 
         <table :if={@snippets != []} class="table table-sm">
           <thead>
             <tr>
               <th>Name</th>
+
               <th>Content</th>
+
               <th></th>
             </tr>
           </thead>
+
           <tbody>
             <tr :for={snippet <- @snippets} id={"snippet-#{snippet.id}"}>
               <td class="font-mono text-xs">{snippet.name}</td>
+
               <td class="text-xs opacity-70 max-w-md truncate">{snippet.content}</td>
+
               <td class="text-right whitespace-nowrap">
                 <button
                   class="btn btn-ghost btn-xs"
@@ -595,6 +662,7 @@ defmodule FluxWeb.ConsoleLive.Tools do
                 >
                   {(@history_snippet_id == snippet.id && "Hide history") || "History"}
                 </button>
+
                 <button
                   :if={@can_manage}
                   class="btn btn-ghost btn-xs text-error"
@@ -608,6 +676,7 @@ defmodule FluxWeb.ConsoleLive.Tools do
             </tr>
           </tbody>
         </table>
+
         <div
           :if={@history_snippet_id && @snippet_versions != []}
           class="rounded-box border border-base-200 p-3 space-y-2"
@@ -616,6 +685,7 @@ defmodule FluxWeb.ConsoleLive.Tools do
           <p class="text-xs font-semibold opacity-70">
             Earlier versions (edits archive the previous content)
           </p>
+
           <div :for={version <- @snippet_versions} class="flex items-center gap-2 text-xs">
             <span class="badge badge-ghost badge-sm">v{version.version}</span>
             <span class="opacity-60">
@@ -633,12 +703,14 @@ defmodule FluxWeb.ConsoleLive.Tools do
             </button>
           </div>
         </div>
+
         <p
           :if={@history_snippet_id && @snippet_versions == []}
           class="text-xs opacity-60"
         >
           No earlier versions — edits archive the previous content here.
         </p>
+
         <p :if={@snippets == []} class="text-sm opacity-60">No snippets yet.</p>
       </div>
     </Layouts.console>

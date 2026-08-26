@@ -55,10 +55,18 @@ defmodule Flux.Tools do
   def import_toolset_from_url(%Scope{} = scope, url) when is_binary(url) do
     url = String.trim(url)
 
+    with {:ok, body} <- fetch_spec(url),
+         {:ok, toolset} <- create_toolset(scope, nil, body) do
+      # Remember where it came from so it can re-import later.
+      toolset |> Ecto.Changeset.change(source_url: url) |> Repo.update()
+    end
+  end
+
+  defp fetch_spec(url) do
     with :ok <- Flux.SSRF.verify_url(url),
          {:ok, %{status: 200, body: body}} <-
            Req.get(url: url, decode_body: false, retry: false, max_redirects: 2) do
-      create_toolset(scope, nil, body)
+      {:ok, body}
     else
       {:error, message} when is_binary(message) -> {:error, message}
       {:ok, %{status: status}} -> {:error, "the URL answered HTTP #{status}"}
@@ -66,6 +74,53 @@ defmodule Flux.Tools do
       other -> other
     end
   end
+
+  @doc """
+  Refreshes a toolset's operations from a new spec — its remembered
+  source URL, or pasted text. Auth, private variables, the name, and
+  every node referencing the toolset survive; only the operation set
+  (and base URL/description from the spec) change. Returns
+  `{:ok, toolset, %{added: n, removed: n}}`.
+  """
+  def reimport_toolset(%Scope{} = scope, %ApiToolset{} = toolset, spec_text \\ nil) do
+    with :ok <- RBAC.authorize(scope, :tool_manage),
+         :ok <- owned(scope, toolset),
+         {:ok, spec_text} <- reimport_source(toolset, spec_text),
+         {:ok, parsed} <- OpenAPI.parse(spec_text) do
+      old_ids = MapSet.new(toolset.operations, & &1["operation_id"])
+      new_ids = MapSet.new(parsed.operations, & &1["operation_id"])
+
+      {:ok, updated} =
+        toolset
+        |> ApiToolset.changeset(%{
+          "description" => parsed.description,
+          "base_url" => parsed.base_url
+        })
+        |> Ecto.Changeset.put_change(:operations, parsed.operations)
+        |> Repo.update()
+
+      diff = %{
+        added: MapSet.difference(new_ids, old_ids) |> MapSet.size(),
+        removed: MapSet.difference(old_ids, new_ids) |> MapSet.size()
+      }
+
+      Flux.Audit.record(scope, "toolset.reimport",
+        resource_type: "api_toolset",
+        resource_id: toolset.id,
+        metadata: %{"added" => diff.added, "removed" => diff.removed}
+      )
+
+      {:ok, updated, diff}
+    end
+  end
+
+  defp reimport_source(_toolset, spec_text) when is_binary(spec_text) and spec_text != "",
+    do: {:ok, spec_text}
+
+  defp reimport_source(%ApiToolset{source_url: url}, _blank) when is_binary(url) and url != "",
+    do: fetch_spec(url)
+
+  defp reimport_source(_toolset, _blank), do: {:error, :no_source}
 
   def update_toolset(%Scope{} = scope, %ApiToolset{} = toolset, attrs) do
     with :ok <- RBAC.authorize(scope, :tool_manage),
