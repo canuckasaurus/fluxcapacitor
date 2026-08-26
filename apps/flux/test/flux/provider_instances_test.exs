@@ -145,6 +145,7 @@ defmodule Flux.ProviderInstancesTest do
       Enum.filter(Providers.list_credentials(scope), &(&1.plugin_id == "compat"))
 
     {:ok, _pooled} = Providers.set_credential_balanced(scope, base_credential.id, true)
+
     assert [%{"base_url" => "https://clone.example.com"}] =
              Providers.fetch_configs(workspace.id, instance_id)
 
