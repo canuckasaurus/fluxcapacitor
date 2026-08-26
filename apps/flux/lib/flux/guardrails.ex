@@ -249,6 +249,49 @@ defmodule Flux.Guardrails do
   end
 
   @doc """
+  App-aware input gate: honors the app's guardrail scope. `"off"`
+  skips the pattern checks (moderation gates still run — those are
+  workspace policy), `"extra"` checks the app's own patterns on top
+  of the workspace's, `"inherit"` (default) is plain
+  `sanitize_input/3`.
+  """
+  def sanitize_input_for_app(app, text, context) do
+    case app.guardrails_mode do
+      "off" ->
+        with :ok <- check_input_moderation(app.workspace_id, text, context), do: {:ok, text}
+
+      "extra" ->
+        case app_violation(app, text) do
+          nil ->
+            sanitize_input(app.workspace_id, text, context)
+
+          pattern ->
+            notify(app.workspace_id, pattern, context)
+            {:error, :guardrail}
+        end
+
+      _inherit ->
+        sanitize_input(app.workspace_id, text, context)
+    end
+  end
+
+  # First matching app-level extra pattern, or nil.
+  defp app_violation(%{guardrail_patterns: patterns}, text) when is_binary(patterns) do
+    patterns
+    |> String.split(~r/\r?\n/, trim: true)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.find(fn pattern ->
+      case Regex.compile(pattern, "i") do
+        {:ok, regex} -> Regex.match?(regex, text)
+        {:error, _reason} -> false
+      end
+    end)
+  end
+
+  defp app_violation(_app, _text), do: nil
+
+  @doc """
   Like `check_input/3` but returns the text to actually use: with the
   `redact` action, matched patterns are masked (`•••`) before the model
   ever sees them — PII protection that doesn't refuse the message.

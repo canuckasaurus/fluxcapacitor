@@ -426,6 +426,36 @@ defmodule Flux.Workflows do
   defp validate_pin(_scope, _workflow, _version), do: {:error, :version_not_found}
 
   @doc """
+  Everything waiting on a human, for the pending-work inbox: paused
+  runs with their flux names and whatever the pause is asking
+  (human-input prompt, interview questions, tool approval), oldest
+  wait first.
+  """
+  def list_paused_runs(%Scope{} = scope, limit \\ 100) do
+    WorkflowRun
+    |> Repo.scoped(scope)
+    |> where([r], r.status == :paused)
+    |> join(:left, [r], w in Workflow, on: w.id == r.workflow_id)
+    |> order_by([r], asc: r.updated_at)
+    |> limit(^limit)
+    |> select([r, w], %{run: r, workflow_name: w.name})
+    |> Repo.all()
+    |> Enum.map(fn %{run: run, workflow_name: workflow_name} ->
+      %{
+        run: run,
+        workflow_name: workflow_name || "Flux",
+        waiting_on: pause_kind(run.snapshot)
+      }
+    end)
+  end
+
+  defp pause_kind(%{"prompt" => %{"questions" => [_ | _]}}), do: "interview"
+  defp pause_kind(%{"prompt" => %{"type" => "tool_approval"}}), do: "tool approval"
+  defp pause_kind(%{"prompt" => %{"type" => "labeling"}}), do: "labeling"
+  defp pause_kind(%{"prompt" => prompt}) when is_binary(prompt), do: "human input"
+  defp pause_kind(_snapshot), do: "paused"
+
+  @doc """
   Daily 08:30 UTC tick: one notification per workspace counting runs
   that have sat paused (human input, tool approval) for over 24 hours —
   paused work otherwise waits in silence.
@@ -824,7 +854,10 @@ defmodule Flux.Workflows do
     graph_map = Keyword.get(opts, :graph, workflow.graph)
     inputs = Flux.Guardrails.maybe_redact_inputs(workflow.workspace_id, inputs)
 
-    with :ok <- check_token_budget(workflow.workspace_id),
+    with :ok <-
+           (Flux.Accounts.workspace_suspended?(workflow.workspace_id) &&
+              {:error, :workspace_suspended}) || :ok,
+         :ok <- check_token_budget(workflow.workspace_id),
          :ok <- check_flux_budget(workflow),
          :ok <- check_concurrency(workflow.workspace_id, Keyword.get(opts, :source, :draft)),
          :ok <-

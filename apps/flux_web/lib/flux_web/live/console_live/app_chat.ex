@@ -636,6 +636,26 @@ defmodule FluxWeb.ConsoleLive.AppChat do
     end
   end
 
+  def handle_event(
+        "save_app_guardrails",
+        %{"mode" => mode, "patterns" => patterns},
+        socket
+      ) do
+    case Chat.set_app_guardrails(socket.assigns.current_scope, socket.assigns.app, mode, patterns) do
+      {:ok, app} ->
+        {:noreply, socket |> put_flash(:info, "Guardrail scope saved.") |> assign(app: app)}
+
+      {:error, {:invalid_pattern, pattern}} ->
+        {:noreply, put_flash(socket, :error, "Invalid regex: #{pattern}")}
+
+      {:error, :patterns_required} ->
+        {:noreply, put_flash(socket, :error, "Extra mode needs at least one pattern.")}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not save the guardrail scope.")}
+    end
+  end
+
   def handle_event("save_business_hours", params, socket) do
     days = Enum.filter(List.wrap(params["days"]), &(&1 in ~w(mon tue wed thu fri sat sun)))
 
@@ -958,8 +978,10 @@ defmodule FluxWeb.ConsoleLive.AppChat do
       <div class="flex items-center justify-between">
         <div>
           <h1 class="text-2xl font-bold">{@app.name}</h1>
+
           <p class="opacity-60 text-sm">{@app.provider_plugin_id} · {@app.model}</p>
         </div>
+
         <div class="flex gap-2 items-center">
           <form
             :if={@app.mode in [:chat, :advanced_chat]}
@@ -975,6 +997,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               aria-label="Search conversations"
             />
           </form>
+
           <form
             :if={@app.mode in [:chat, :advanced_chat] and @conversations != []}
             phx-change="switch_conversation"
@@ -988,6 +1011,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               <option value="" selected={@conversation == nil} disabled hidden>
                 Conversations…
               </option>
+
               <option
                 :for={conversation <- @conversations}
                 value={conversation.id}
@@ -998,6 +1022,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               </option>
             </select>
           </form>
+
           <button
             :if={@app.mode in [:chat, :advanced_chat] and @conversation != nil}
             class="btn btn-sm btn-ghost btn-square"
@@ -1007,6 +1032,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
           >
             <.icon name="hero-pencil" class="size-4" />
           </button>
+
           <button
             :if={@app.mode in [:chat, :advanced_chat] and @conversation != nil}
             class="btn btn-sm btn-ghost btn-square text-error"
@@ -1017,6 +1043,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
           >
             <.icon name="hero-trash" class="size-4" />
           </button>
+
           <.link
             :if={@app.mode in [:chat, :advanced_chat] and @conversation != nil}
             href={~p"/console/apps/#{@app.id}/conversations/#{@conversation.id}/export"}
@@ -1026,6 +1053,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
           >
             <.icon name="hero-arrow-down-tray" class="size-4" />
           </.link>
+
           <button
             :if={@app.mode in [:chat, :advanced_chat]}
             class="btn btn-sm btn-ghost"
@@ -1033,6 +1061,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
           >
             New conversation
           </button>
+
           <.link
             :if={Flux.RBAC.can?(@current_scope, :app_import_export_dsl)}
             href={~p"/console/apps/#{@app.id}/export"}
@@ -1041,6 +1070,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
           >
             <.icon name="hero-arrow-up-tray" class="size-4" /> Export
           </.link>
+
           <.link
             :if={Flux.RBAC.can?(@current_scope, :app_monitor)}
             navigate={~p"/console/apps/#{@app.id}/monitor"}
@@ -1065,8 +1095,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
           placeholder="Conversation title"
           class="input input-sm input-bordered max-w-60"
           autofocus
-        />
-        <button class="btn btn-sm btn-primary">Rename</button>
+        /> <button class="btn btn-sm btn-primary">Rename</button>
         <button type="button" class="btn btn-sm btn-ghost" phx-click="start_rename">Cancel</button>
       </form>
 
@@ -1078,6 +1107,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
         <summary class="cursor-pointer opacity-70">
           Conversation variables ({map_size(@conversation.variables)})
         </summary>
+
         <div class="mt-1 rounded-box bg-base-200 p-2 space-y-1">
           <p :for={{name, value} <- Enum.sort(@conversation.variables)} class="font-mono">
             <span class="font-semibold">{name}</span>
@@ -1098,6 +1128,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
           <p class="text-xs font-semibold opacity-70">
             <.icon name="hero-bookmark" class="size-3 inline" /> Pinned
           </p>
+
           <div
             :for={message <- Enum.filter(@messages, & &1.pinned)}
             class="flex items-start gap-2 text-sm"
@@ -1115,10 +1146,12 @@ defmodule FluxWeb.ConsoleLive.AppChat do
             </button>
           </div>
         </div>
+
         <div id="chat-messages" class="space-y-3 max-h-[28rem] overflow-y-auto">
           <p :if={@messages == [] and @streaming_id == nil} class="text-sm opacity-60">
             Say something to start the conversation.
           </p>
+
           <div
             :for={message <- @messages}
             class={["chat", (message.role == :user && "chat-end") || "chat-start"]}
@@ -1160,6 +1193,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
                   <span class="whitespace-pre-wrap">{message.content}</span>
               <% end %>
             </div>
+
             <div
               :if={message.role == :assistant and message.status == :completed}
               class="chat-footer mt-1 flex gap-1"
@@ -1172,6 +1206,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               >
                 <.icon name="hero-clipboard" class="size-3" /> Copy
               </button>
+
               <button
                 type="button"
                 class="btn btn-ghost btn-xs"
@@ -1182,6 +1217,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               >
                 <.icon name="hero-speaker-wave" class="size-3" /> Listen
               </button>
+
               <button
                 :if={@streaming_id == nil and message.id == last_assistant_id(@messages)}
                 class="btn btn-ghost btn-xs"
@@ -1191,6 +1227,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               >
                 <.icon name="hero-arrow-path" class="size-3" /> Regenerate
               </button>
+
               <button
                 type="button"
                 class="btn btn-ghost btn-xs"
@@ -1199,10 +1236,12 @@ defmodule FluxWeb.ConsoleLive.AppChat do
                 title={(message.pinned && "Unpin this reply") || "Pin this reply for quick reference"}
                 aria-label={(message.pinned && "Unpin this reply") || "Pin this reply"}
               >
-                <.icon name="hero-bookmark" class={["size-3", message.pinned && "text-primary"]} />
-                {(message.pinned && "Unpin") || "Pin"}
+                <.icon name="hero-bookmark" class={["size-3", message.pinned && "text-primary"]} /> {(message.pinned &&
+                                                                                                        "Unpin") ||
+                  "Pin"}
               </button>
             </div>
+
             <div
               :if={
                 message.role == :user and @streaming_id == nil and
@@ -1221,6 +1260,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
                 <.icon name="hero-pencil" class="size-3" /> Edit
               </button>
             </div>
+
             <div
               :if={message.role == :user and (message.files || []) != []}
               class="chat-footer mt-1 flex flex-wrap gap-1"
@@ -1229,6 +1269,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
                 <.icon name="hero-photo" class="size-3" /> {file["name"]}
               </span>
             </div>
+
             <div
               :if={message.role == :assistant and (message.usage["files"] || []) != []}
               class="chat-footer mt-1 flex flex-wrap gap-1"
@@ -1243,6 +1284,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
                 <.icon name="hero-document-arrow-down" class="size-3" /> {file["name"]}
               </a>
             </div>
+
             <div
               :if={message.role == :assistant and message.citations != []}
               class="chat-footer opacity-60 text-xs mt-0.5"
@@ -1264,12 +1306,14 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               </span>
             </div>
           </div>
+
           <div :if={@streaming_id} class="chat chat-start" id="streaming-bubble">
             <div class="chat-bubble">
               <div class="markdown-chat">{FluxWeb.Markdown.render(@streaming_text)}</div>
               <span class="animate-pulse">▌</span>
             </div>
           </div>
+
           <div
             :if={@followups != [] and @streaming_id == nil}
             class="flex flex-wrap gap-2"
@@ -1292,8 +1336,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               :for={entry <- @uploads.image.entries}
               class="badge badge-outline gap-1"
             >
-              <.icon name="hero-photo" class="size-3" />
-              {entry.client_name}
+              <.icon name="hero-photo" class="size-3" /> {entry.client_name}
               <button
                 type="button"
                 phx-click="cancel_upload"
@@ -1305,6 +1348,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               </button>
             </span>
           </div>
+
           <div class="flex gap-2 items-center">
             <label
               class="btn btn-ghost btn-sm btn-square"
@@ -1326,6 +1370,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
             >
               <.icon name="hero-microphone" class="size-4" />
             </button>
+
             <input
               type="text"
               name="content"
@@ -1334,8 +1379,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               placeholder={(@transcribing && "Transcribing…") || "Type a message…"}
               class="input input-bordered flex-1"
               disabled={@streaming_id != nil}
-            />
-            <button :if={@streaming_id == nil} class="btn btn-primary">Send</button>
+            /> <button :if={@streaming_id == nil} class="btn btn-primary">Send</button>
             <button :if={@streaming_id} type="button" class="btn btn-warning" phx-click="stop">
               Stop
             </button>
@@ -1345,6 +1389,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
 
       <div :if={@app.mode == :chat and @can_edit} class="card border border-base-200 p-6 space-y-3">
         <h2 class="font-semibold">System prompt</h2>
+
         <form id="system-prompt-form" phx-submit="save_system_prompt" phx-change="prompt_draft_change">
           <textarea
             name="system_prompt"
@@ -1361,11 +1406,47 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               form="snippet-insert-form"
             >
               <option value="">Insert a library snippet…</option>
+
               <option :for={snippet <- @snippets} value={snippet.id}>{snippet.name}</option>
             </select>
           </div>
         </form>
+
         <form :if={@snippets != []} id="snippet-insert-form" phx-change="insert_snippet"></form>
+      </div>
+
+      <div :if={@can_edit} class="card border border-base-200 p-6 space-y-3" id="app-guardrails-card">
+        <h2 class="font-semibold">Guardrail scope</h2>
+
+        <p class="text-sm opacity-70">
+          Workspace guardrails apply to every app by default. This app can
+          opt out of the pattern checks (moderation still applies) or add
+          its own extra patterns on top — the public bot can run stricter
+          rules than the internal one.
+        </p>
+
+        <form phx-submit="save_app_guardrails" id="app-guardrails-form" class="space-y-2">
+          <select name="mode" class="select select-bordered select-sm w-64">
+            <option value="inherit" selected={@app.guardrails_mode == "inherit"}>
+              Inherit workspace guardrails
+            </option>
+
+            <option value="extra" selected={@app.guardrails_mode == "extra"}>
+              Workspace guardrails + extra patterns
+            </option>
+
+            <option value="off" selected={@app.guardrails_mode == "off"}>
+              Skip pattern checks for this app
+            </option>
+          </select>
+          <textarea
+            name="patterns"
+            rows="3"
+            placeholder="One case-insensitive regex per line (extra mode)\ninternal-codename-\\w+"
+            class="textarea textarea-bordered textarea-sm w-full font-mono"
+          >{@app.guardrail_patterns}</textarea>
+          <button class="btn btn-primary btn-sm">Save scope</button>
+        </form>
       </div>
 
       <div
@@ -1374,6 +1455,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
         id="email-channel-card"
       >
         <h2 class="font-semibold">Email channel</h2>
+
         <p class="text-sm opacity-70">
           Point your mail provider's inbound webhook (Mailgun routes, SES,
           Postmark) here and every email becomes a chat turn — the reply
@@ -1388,6 +1470,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
           >
             {(@app.email_channel_token && "Rotate token") || "Enable email channel"}
           </button>
+
           <button
             :if={@app.email_channel_token}
             type="button"
@@ -1405,6 +1488,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
         id="slack-channel-card"
       >
         <h2 class="font-semibold">Slack channel</h2>
+
         <p class="text-sm opacity-70">
           Point a Slack app's Events API request URL here (subscribe to
           <span class="font-mono">message.channels</span>
@@ -1428,9 +1512,9 @@ defmodule FluxWeb.ConsoleLive.AppChat do
             placeholder="xoxb-…"
             autocomplete="off"
             class="input input-bordered input-sm w-72"
-          />
-          <button class="btn btn-outline btn-sm">Enable Slack channel</button>
+          /> <button class="btn btn-outline btn-sm">Enable Slack channel</button>
         </form>
+
         <button
           :if={@app.slack_channel_token}
           type="button"
@@ -1446,11 +1530,13 @@ defmodule FluxWeb.ConsoleLive.AppChat do
         class="card border border-base-200 p-6 space-y-3"
       >
         <h2 class="font-semibold">Chat settings</h2>
+
         <form id="chat-settings-form" phx-submit="save_chat_settings" class="space-y-3">
           <label class="form-control block">
             <span class="label-text text-sm mb-1">
               Icon (an emoji for the app card and site header)
             </span>
+
             <input
               type="text"
               name="icon"
@@ -1460,6 +1546,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               class="input input-bordered input-sm w-24"
             />
           </label>
+
           <label class="form-control block">
             <span class="label-text text-sm mb-1">
               Opening statement (shown before the first message)
@@ -1470,18 +1557,20 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               class="textarea textarea-bordered w-full"
             >{@app.opening_statement}</textarea>
           </label>
+
           <label class="form-control block">
-            <span class="label-text text-sm mb-1">Suggested questions (one per line)</span>
-            <textarea
+            <span class="label-text text-sm mb-1">Suggested questions (one per line)</span> <textarea
               name="suggested_questions_text"
               rows="3"
               class="textarea textarea-bordered w-full"
             >{Enum.join(@app.suggested_questions, "\n")}</textarea>
           </label>
+
           <label class="form-control block">
             <span class="label-text text-sm mb-1">
               Daily token limit (blank = unlimited; refusals return 429 on the API)
             </span>
+
             <input
               type="number"
               name="daily_token_limit"
@@ -1490,10 +1579,12 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               class="input input-bordered input-sm w-48"
             />
           </label>
+
           <label class="form-control block">
             <span class="label-text text-sm mb-1">
               Monthly cost budget (estimated USD; blank = uncapped, past it the app answers 429)
             </span>
+
             <input
               type="number"
               name="monthly_cost_budget"
@@ -1503,10 +1594,12 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               class="input input-bordered input-sm w-48"
             />
           </label>
+
           <label class="form-control block">
             <span class="label-text text-sm mb-1">
               API rate limit (requests/minute for this app's tokens; blank = pipeline default 120)
             </span>
+
             <input
               type="number"
               name="rate_limit_per_minute"
@@ -1516,10 +1609,12 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               class="input input-bordered input-sm w-48"
             />
           </label>
+
           <label class="form-control block">
             <span class="label-text text-sm mb-1">
               Annotation similarity threshold (0–1, blank = exact matches only)
             </span>
+
             <input
               type="number"
               name="annotation_threshold"
@@ -1531,6 +1626,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               class="input input-bordered input-sm w-48"
             />
           </label>
+
           <label class="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
@@ -1539,6 +1635,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               checked={@app.suggest_followups}
             /> Suggest follow-up questions after each reply (one extra model call per turn)
           </label>
+
           <label class="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
@@ -1548,12 +1645,14 @@ defmodule FluxWeb.ConsoleLive.AppChat do
             />
             Ask site visitors for their name/email (optional pre-chat form, stored on the conversation)
           </label>
+
           <label class="form-control block">
             <span class="label-text text-sm mb-1">
               Prompt B (A/B test an alternative system prompt)
             </span>
             <textarea name="prompt_b" rows="2" class="textarea textarea-bordered w-full">{@app.prompt_b}</textarea>
           </label>
+
           <label class="form-control">
             <span class="label-text text-sm mb-1">Prompt B share (% of conversations)</span>
             <input
@@ -1565,6 +1664,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               class="input input-bordered input-sm w-24"
             />
           </label>
+
           <label class="form-control block">
             <span class="label-text text-sm mb-1">
               Additional fallbacks (plugin|model per line, tried in order after the fallback model)
@@ -1576,12 +1676,15 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               class="textarea textarea-bordered w-full font-mono text-xs"
             >{Enum.map_join(@app.fallbacks || [], "\n", fn f -> "#{f["provider_plugin_id"]}|#{f["model"]}" end)}</textarea>
           </label>
+
           <label :if={@app.mode == :chat} class="form-control block">
             <span class="label-text text-sm mb-1">
               Fallback model (one retry when the primary provider errors)
             </span>
+
             <select name="fallback_choice" class="select select-bordered select-sm w-full max-w-md">
               <option value="" selected={@app.fallback_model in [nil, ""]}>No fallback</option>
+
               <option
                 :for={%{plugin_id: pid, plugin_name: pname, model: m} <- @models}
                 value={"#{pid}|#{m.name}"}
@@ -1591,13 +1694,16 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               </option>
             </select>
           </label>
+
           <div :if={@app.mode == :chat} class="flex flex-wrap gap-2 items-end">
             <label class="form-control block">
               <span class="label-text text-sm mb-1">
                 A/B challenger model (splits conversations against the primary)
               </span>
+
               <select name="ab_choice" class="select select-bordered select-sm w-full max-w-md">
                 <option value="" selected={@app.ab_model in [nil, ""]}>No A/B test</option>
+
                 <option
                   :for={%{plugin_id: pid, plugin_name: pname, model: m} <- @models}
                   value={"#{pid}|#{m.name}"}
@@ -1607,6 +1713,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
                 </option>
               </select>
             </label>
+
             <label class="form-control block">
               <span class="label-text text-sm mb-1">% of conversations</span>
               <input
@@ -1625,10 +1732,12 @@ defmodule FluxWeb.ConsoleLive.AppChat do
 
       <div :if={@app.mode == :completion} class="card border border-base-200 p-6 space-y-4">
         <h2 class="font-semibold">Run</h2>
+
         <form phx-submit="run_completion" id="completion-form" class="space-y-3">
           <p :if={@app.input_form == []} class="text-sm opacity-60">
             No form variables defined — the prompt template runs as-is.
           </p>
+
           <div :for={field <- @app.input_form} class="form-control">
             <label class="label-text text-sm mb-1">
               {(field["label"] != "" && field["label"]) || field["variable"]}
@@ -1656,10 +1765,12 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               class="input input-bordered w-full"
             />
           </div>
+
           <div class="flex gap-2">
             <button :if={@streaming_id == nil} class="btn btn-primary btn-sm">
               <.icon name="hero-play" class="size-4" /> Run
             </button>
+
             <button :if={@streaming_id} type="button" class="btn btn-warning btn-sm" phx-click="stop">
               Stop
             </button>
@@ -1681,6 +1792,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
         class="card border border-base-200 p-6 space-y-3"
       >
         <h2 class="font-semibold">Configuration</h2>
+
         <form
           id="settings-form"
           phx-submit="save_settings"
@@ -1700,6 +1812,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
           </label>
 
           <p class="text-sm font-semibold">Form variables</p>
+
           <div
             :for={{row, index} <- Enum.with_index(@var_rows)}
             class="flex items-center gap-2 flex-wrap"
@@ -1723,9 +1836,12 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               <option value="text-input" selected={row["type"] in [nil, "", "text-input"]}>
                 Text
               </option>
+
               <option value="paragraph" selected={row["type"] == "paragraph"}>Paragraph</option>
+
               <option value="number" selected={row["type"] == "number"}>Number</option>
             </select>
+
             <label class="flex items-center gap-1 text-xs">
               <input type="hidden" name={"vars[#{index}][required]"} value="false" />
               <input
@@ -1736,6 +1852,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
                 class="checkbox checkbox-xs"
               /> required
             </label>
+
             <button
               type="button"
               class="btn btn-ghost btn-xs text-error"
@@ -1758,6 +1875,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
       <div :if={@can_manage} class="card border border-base-200 p-6 space-y-3" id="site-publishing">
         <div class="flex items-center justify-between">
           <h2 class="font-semibold">Site publishing</h2>
+
           <button
             :if={not @app.site_enabled}
             class="btn btn-sm btn-primary"
@@ -1765,6 +1883,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
           >
             <.icon name="hero-globe-alt" class="size-4" /> Publish site
           </button>
+
           <button
             :if={@app.site_enabled}
             class="btn btn-sm btn-ghost text-error"
@@ -1774,9 +1893,11 @@ defmodule FluxWeb.ConsoleLive.AppChat do
             Unpublish
           </button>
         </div>
+
         <p :if={not @app.site_enabled} class="text-sm opacity-60">
           Publish this app at a public URL anyone can use — no login required.
         </p>
+
         <div :if={@app.site_enabled} class="space-y-2">
           <p class="text-sm">
             Live at
@@ -1788,9 +1909,11 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               {url(~p"/site/#{@app.site_token}")}
             </a>
           </p>
+
           <div class="w-fit rounded-box border border-base-200 bg-white p-2" id="site-qr">
             {Phoenix.HTML.raw(site_qr(@app))}
           </div>
+
           <p class="text-xs opacity-60">Embed it on any page:</p>
           <pre class="rounded-box bg-base-200 p-3 text-xs overflow-x-auto">{embed_snippet(@app)}</pre>
           <p class="text-xs opacity-60">Or as a floating chat bubble:</p>
@@ -1813,6 +1936,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
             </label>
             <button class="btn btn-outline btn-sm">Save origins</button>
           </form>
+
           <form
             phx-submit="save_business_hours"
             id="business-hours-form"
@@ -1829,10 +1953,10 @@ defmodule FluxWeb.ConsoleLive.AppChat do
                   value={day}
                   checked={day in (@app.business_hours["days"] || [])}
                   class="checkbox checkbox-xs"
-                />
-                <span class="label-text text-xs">{day}</span>
+                /> <span class="label-text text-xs">{day}</span>
               </label>
             </div>
+
             <label class="form-control">
               <span class="label-text text-xs opacity-70 mb-1">Open (UTC hour)</span>
               <input
@@ -1844,6 +1968,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
                 class="input input-bordered input-sm w-20"
               />
             </label>
+
             <label class="form-control">
               <span class="label-text text-xs opacity-70 mb-1">Close</span>
               <input
@@ -1855,10 +1980,12 @@ defmodule FluxWeb.ConsoleLive.AppChat do
                 class="input input-bordered input-sm w-20"
               />
             </label>
+
             <label class="form-control flex-1 min-w-48">
               <span class="label-text text-xs opacity-70 mb-1">
                 Away note (shown outside hours; no days checked = always open)
               </span>
+
               <input
                 type="text"
                 name="note"
@@ -1868,6 +1995,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
             </label>
             <button class="btn btn-outline btn-sm">Save hours</button>
           </form>
+
           <form
             phx-submit="save_theme"
             id="site-theme-form"
@@ -1882,6 +2010,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
                 class="h-8 w-14 cursor-pointer rounded border border-base-300"
               />
             </label>
+
             <label class="form-control">
               <span class="label-text text-xs opacity-70 mb-1">Title override</span>
               <input
@@ -1892,6 +2021,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
                 class="input input-bordered input-sm w-44"
               />
             </label>
+
             <label class="form-control flex-1 min-w-48">
               <span class="label-text text-xs opacity-70 mb-1">Logo URL (optional)</span>
               <input
@@ -1902,17 +2032,20 @@ defmodule FluxWeb.ConsoleLive.AppChat do
                 class="input input-bordered input-sm w-full"
               />
             </label>
+
             <label class="form-control">
               <span class="label-text text-xs opacity-70 mb-1">Bubble corner</span>
               <select name="bubble_position" class="select select-bordered select-sm w-28">
                 <option value="right" selected={@app.site_theme["bubble_position"] != "left"}>
                   right
                 </option>
+
                 <option value="left" selected={@app.site_theme["bubble_position"] == "left"}>
                   left
                 </option>
               </select>
             </label>
+
             <label class="form-control">
               <span class="label-text text-xs opacity-70 mb-1">Bubble greeting (optional)</span>
               <input
@@ -1924,6 +2057,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
                 class="input input-bordered input-sm w-44"
               />
             </label>
+
             <label class="form-control w-full">
               <span class="label-text text-xs opacity-70 mb-1">
                 Custom CSS (advanced — applies to the public site)
@@ -1937,6 +2071,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
             </label>
             <button class="btn btn-primary btn-sm">Save theme</button>
           </form>
+
           <form
             phx-submit="set_site_passcode"
             id="site-passcode-form"
@@ -1946,6 +2081,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               <span class="label-text text-xs opacity-70 mb-1">
                 Passcode {(@app.site_passcode_hash && "(set)") || "(off)"}
               </span>
+
               <input
                 type="text"
                 name="passcode"
@@ -1954,6 +2090,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
                 class="input input-bordered input-sm w-44"
               />
             </label>
+
             <button class="btn btn-sm">
               {(@app.site_passcode_hash && "Update passcode") || "Set passcode"}
             </button>
@@ -1964,6 +2101,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
       <div :if={@can_edit} class="card border border-base-200 p-6 space-y-3" id="snapshots-card">
         <div class="flex items-center justify-between gap-2">
           <h2 class="font-semibold">Settings snapshots</h2>
+
           <form phx-submit="save_snapshot" class="flex gap-2 items-center" id="save-snapshot-form">
             <input
               type="text"
@@ -1972,15 +2110,16 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               maxlength="80"
               autocomplete="off"
               class="input input-bordered input-sm w-52"
-            />
-            <button class="btn btn-sm">Save snapshot</button>
+            /> <button class="btn btn-sm">Save snapshot</button>
           </form>
         </div>
+
         <p class="text-sm opacity-70">
           Named copies of this app's settings (prompts, params, models) —
           the undo that app edits never had. Restoring applies the copy
           back through the normal validation.
         </p>
+
         <div
           :for={snapshot <- @snapshots}
           class="flex items-center gap-2 py-1 border-b border-base-200 last:border-0 text-sm"
@@ -1990,6 +2129,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
           <span class="text-xs opacity-60">
             {Calendar.strftime(snapshot.inserted_at, "%Y-%m-%d %H:%M")}
           </span>
+
           <button
             class="btn btn-outline btn-xs ml-auto"
             phx-click="restore_snapshot"
@@ -1998,6 +2138,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
           >
             Restore
           </button>
+
           <button
             class="btn btn-ghost btn-xs text-error"
             phx-click="delete_snapshot"
@@ -2012,13 +2153,18 @@ defmodule FluxWeb.ConsoleLive.AppChat do
       <div :if={@can_manage} class="card border border-base-200 p-6 space-y-3">
         <div class="flex items-center justify-between gap-2">
           <h2 class="font-semibold">API keys</h2>
+
           <form phx-submit="create-token" class="flex gap-2 items-center" id="create-token-form">
             <select name="lifetime" class="select select-bordered select-sm" aria-label="Key lifetime">
               <option value="">Never expires</option>
+
               <option value="30">Expires in 30 days</option>
+
               <option value="90">Expires in 90 days</option>
+
               <option value="365">Expires in 1 year</option>
             </select>
+
             <input
               type="number"
               name="rate_limit"
@@ -2027,32 +2173,39 @@ defmodule FluxWeb.ConsoleLive.AppChat do
               placeholder="req/min"
               title="Optional per-key rate limit; blank uses the app or pipeline default"
               class="input input-bordered input-sm w-28"
-            />
-            <button class="btn btn-sm">Create key</button>
+            /> <button class="btn btn-sm">Create key</button>
           </form>
         </div>
+
         <div :if={@new_token} class="alert alert-info text-sm">
           <span>
             Copy this key now — it won't be shown again:
             <code class="font-mono select-all">{@new_token}</code>
           </span>
         </div>
+
         <table :if={@api_tokens != []} class="table table-sm">
           <thead>
             <tr>
               <th>Key</th>
+
               <th>Expires</th>
+
               <th>Last used</th>
+
               <th></th>
             </tr>
           </thead>
+
           <tbody>
             <tr :for={token <- @api_tokens} id={"token-#{token.id}"}>
               <td class="font-mono">{token.prefix}</td>
+
               <td class="text-sm">
                 <span :if={token.expires_at == nil} class="badge badge-ghost badge-sm">
                   never
                 </span>
+
                 <span
                   :if={token.expires_at != nil}
                   class={[
@@ -2064,11 +2217,13 @@ defmodule FluxWeb.ConsoleLive.AppChat do
                     Calendar.strftime(token.expires_at, "%b %d, %Y")}
                 </span>
               </td>
+
               <td class="text-sm opacity-70">
                 {if token.last_used_at,
                   do: Calendar.strftime(token.last_used_at, "%b %d %H:%M"),
                   else: "never"}
               </td>
+
               <td class="text-right">
                 <button
                   class="btn btn-ghost btn-xs text-error"
@@ -2081,6 +2236,7 @@ defmodule FluxWeb.ConsoleLive.AppChat do
             </tr>
           </tbody>
         </table>
+
         <p class="text-xs opacity-60">
           Use with
           <code>

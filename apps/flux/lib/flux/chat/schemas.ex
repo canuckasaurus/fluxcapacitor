@@ -63,6 +63,11 @@ defmodule Flux.Chat.App do
     # "close" => h, "note" => "..."}. Empty means always open.
     # Machine-shaped by the app page, never free-cast.
     field :business_hours, :map, default: %{}
+    # Guardrail scope: "inherit" workspace rules, "off" skips the
+    # pattern checks, "extra" adds the app's own patterns. Set via
+    # Chat.set_app_guardrails (regexes validated there), never cast.
+    field :guardrails_mode, :string, default: "inherit"
+    field :guardrail_patterns, :string
     field :site_theme, :map, default: %{}
     field :site_token, :string
     field :site_enabled, :boolean, default: false

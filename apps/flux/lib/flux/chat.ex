@@ -51,12 +51,28 @@ defmodule Flux.Chat do
 
   def create_app(%Scope{} = scope, attrs) do
     with :ok <- RBAC.authorize(scope, :app_create_and_management),
+         :ok <- check_model_allowed(Scope.workspace_id(scope), attrs),
          {:ok, app} <-
            %App{workspace_id: Scope.workspace_id(scope), created_by_id: Scope.account_id(scope)}
            |> App.changeset(attrs)
            |> Repo.insert() do
       Flux.Audit.record(scope, "app.create", resource: app, metadata: %{"name" => app.name})
       {:ok, app}
+    end
+  end
+
+  # The workspace model allowlist gates the primary model on app
+  # writes (the pickers are already filtered; this stops raw API
+  # payloads and stale forms).
+  defp check_model_allowed(workspace_id, attrs) do
+    plugin = attrs["provider_plugin_id"] || attrs[:provider_plugin_id]
+    model = attrs["model"] || attrs[:model]
+
+    if is_binary(plugin) and plugin != "" and is_binary(model) and model != "" and
+         not Providers.model_allowed?(workspace_id, plugin, model) do
+      {:error, :model_not_allowed}
+    else
+      :ok
     end
   end
 
@@ -99,7 +115,8 @@ defmodule Flux.Chat do
 
   def update_app(%Scope{} = scope, %App{} = app, attrs) do
     with :ok <- RBAC.authorize(scope, :app_edit),
-         true <- app.workspace_id == Scope.workspace_id(scope) || {:error, :not_found} do
+         true <- app.workspace_id == Scope.workspace_id(scope) || {:error, :not_found},
+         :ok <- check_model_allowed(app.workspace_id, attrs) do
       app |> App.changeset(attrs) |> Repo.update()
     end
   end
@@ -840,6 +857,156 @@ defmodule Flux.Chat do
     end
   end
 
+  @doc """
+  Sets the app's guardrail scope: `"inherit"`, `"off"`, or `"extra"`
+  with its own newline-separated patterns (validated as regexes).
+  """
+  def set_app_guardrails(%Scope{} = scope, %App{} = app, mode, patterns_text \\ nil)
+      when mode in ["inherit", "off", "extra"] do
+    patterns =
+      patterns_text
+      |> to_string()
+      |> String.split(~r/\r?\n/, trim: true)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+
+    invalid = Enum.find(patterns, &match?({:error, _reason}, Regex.compile(&1, "i")))
+
+    cond do
+      invalid != nil ->
+        {:error, {:invalid_pattern, invalid}}
+
+      mode == "extra" and patterns == [] ->
+        {:error, :patterns_required}
+
+      true ->
+        with :ok <- RBAC.authorize(scope, :app_edit),
+             {:ok, updated} <-
+               app
+               |> Ecto.Changeset.change(
+                 guardrails_mode: mode,
+                 guardrail_patterns: (mode == "extra" && Enum.join(patterns, "\n")) || nil
+               )
+               |> Repo.update() do
+          Flux.Audit.record(scope, "app.guardrails_scope",
+            resource: updated,
+            metadata: %{"mode" => mode, "patterns" => length(patterns)}
+          )
+
+          {:ok, updated}
+        end
+    end
+  end
+
+  @doc """
+  Drafts a human reply from the conversation's recent context, using
+  the app's model (or the workspace default for chatflows). Never
+  auto-sent — the agent edits and sends.
+  """
+  def draft_reply(%Scope{} = scope, conversation_id) do
+    with %Conversation{} = conversation <- get_conversation(scope, conversation_id),
+         %App{} = app <-
+           Repo.get(App, conversation.app_id, skip_workspace_guard: true) ||
+             {:error, :not_found} do
+      transcript =
+        scope
+        |> list_messages(conversation.id)
+        |> Enum.take(-12)
+        |> Enum.map_join("\n", fn message ->
+          role = (message.role == :user && "Visitor") || "Assistant"
+          "#{role}: #{String.slice(message.content || "", 0, 800)}"
+        end)
+
+      prompt = """
+      You are drafting a reply for a human support agent to review and
+      send. Read the conversation and draft one concise, helpful,
+      friendly reply to the visitor's latest message. Reply with the
+      draft only — no preamble, no sign-off placeholders.
+
+      Conversation:
+      #{transcript}
+      """
+
+      draft_via_model(app, prompt)
+    end
+  end
+
+  # The app's own model when it has one (direct-model apps), otherwise
+  # the workspace default (chatflows have no bound provider).
+  defp draft_via_model(%App{provider_plugin_id: plugin, model: model} = app, prompt)
+       when is_binary(plugin) and plugin != "" and is_binary(model) and model != "" do
+    request = %Flux.Plugin.ModelProvider.Request{
+      model: model,
+      messages: [%{role: :user, content: prompt}],
+      params: %{}
+    }
+
+    result =
+      Providers.invoke_with_failover(app.workspace_id, plugin, fn credentials ->
+        runtime().invoke_llm(plugin, credentials, request, fn _chunk -> :ok end)
+      end)
+
+    case result do
+      {:ok, reply} -> {:ok, String.trim(reply.content)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp draft_via_model(%App{} = app, prompt) do
+    case Flux.Workflows.invoke_default_llm_for_workspace(app.workspace_id, [
+           %{role: :user, content: prompt}
+         ]) do
+      {:ok, content} when is_binary(content) -> {:ok, String.trim(content)}
+      _error_or_no_model -> {:error, :no_model}
+    end
+  end
+
+  @doc """
+  Daily 04:15 UTC tick: workspaces with `auto_resolve_days` set get
+  open conversations whose last message is older than that quietly
+  resolved — the open count stays honest without anyone clicking.
+  """
+  def auto_resolve_idle(now \\ DateTime.utc_now(:second)) do
+    if now.hour == 4 and now.minute == 15 do
+      workspaces =
+        from(w in Flux.Accounts.Workspace,
+          where: fragment("(? ->> 'auto_resolve_days') is not null", w.custom_config),
+          select: {w.id, fragment("(? ->> 'auto_resolve_days')::int", w.custom_config)}
+        )
+        |> Repo.all()
+
+      for {workspace_id, days} <- workspaces, is_integer(days) and days > 0 do
+        cutoff = DateTime.add(now, -days, :day)
+
+        last_messages =
+          from(m in Message,
+            where: m.workspace_id == ^workspace_id,
+            group_by: m.conversation_id,
+            select: %{conversation_id: m.conversation_id, last_at: max(m.inserted_at)}
+          )
+
+        idle_ids =
+          from(c in Conversation,
+            join: last in subquery(last_messages),
+            on: last.conversation_id == c.id,
+            where: c.workspace_id == ^workspace_id and is_nil(c.resolved_at),
+            where: is_nil(c.deleted_at) and last.last_at < ^cutoff,
+            select: c.id
+          )
+          |> Repo.all()
+
+        if idle_ids != [] do
+          from(c in Conversation,
+            where: c.workspace_id == ^workspace_id and c.id in ^idle_ids
+          )
+          |> Repo.update_all(set: [resolved_at: now])
+        end
+      end
+    end
+
+    :ok
+  end
+
   ## Canned replies (saved snippets for the monitor's human agents)
 
   @doc "The workspace's saved replies as string-keyed title/body maps, newest first."
@@ -1217,15 +1384,21 @@ defmodule Flux.Chat do
 
   def send_message(%Scope{} = scope, %App{} = app, %Conversation{} = conversation, content, opts)
       when is_binary(content) do
-    if quota_exceeded?(app) do
-      {:error, :quota_exceeded}
-    else
-      # Redact-mode guardrails mask the stored message too — the model
-      # and the transcript both see the sanitized text.
-      case Flux.Guardrails.sanitize_input(app.workspace_id, content, "chat (#{app.name})") do
-        {:ok, content} -> do_send_message(scope, app, conversation, content, opts)
-        {:error, :guardrail} -> {:error, :guardrail}
-      end
+    cond do
+      Flux.Accounts.workspace_suspended?(app.workspace_id) ->
+        {:error, :workspace_suspended}
+
+      quota_exceeded?(app) ->
+        {:error, :quota_exceeded}
+
+      true ->
+        # Redact-mode guardrails mask the stored message too — the model
+        # and the transcript both see the sanitized text. The app's own
+        # guardrail scope (inherit/off/extra) applies here.
+        case Flux.Guardrails.sanitize_input_for_app(app, content, "chat (#{app.name})") do
+          {:ok, content} -> do_send_message(scope, app, conversation, content, opts)
+          {:error, :guardrail} -> {:error, :guardrail}
+        end
     end
   end
 
