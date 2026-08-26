@@ -7,6 +7,34 @@ at `docs/PARITY-PLAN.md`.
 
 ## Unreleased
 
+### Batch 44
+- Workspace model allowlist: owners restrict which provider/model
+  pairs members can pick — pickers filter and app saves refuse the
+  rest.
+- Instance-admin workspace suspension: runs and API refuse with an
+  honest `workspace_suspended`, members see a console banner, data
+  stays; one click to lift.
+- Per-app guardrail overrides: an app can opt out of the workspace
+  pattern checks (moderation still applies) or add its own extra
+  patterns.
+- AI-drafted replies: a "Draft with AI" button in the monitor drafts
+  from conversation context via the app's model — the agent edits and
+  sends, never auto-sent.
+- Auto-resolve idle conversations: open threads quietly resolve after
+  N days of visitor silence (a fresh message reopens, as always).
+- Pending-work inbox: one console page for everything waiting on a
+  human — paused runs with their pause kind, handoff queues per app,
+  and the labeling queue.
+- Toolset re-import: refresh an OpenAPI toolset from its remembered
+  source URL or a fresh paste — operations diff in, auth and
+  variables survive.
+- Per-provider rate caps: a requests/minute ceiling per provider (or
+  instance), so parallel branches and batches can't stampede a
+  low-tier key or a self-hosted endpoint.
+- Console IP allowlist: the API allowlist can now also gate console
+  logins (opt-in; `FLUX_CONSOLE_IP_BYPASS=1` is the lockout escape
+  hatch).
+
 ### Batch 43
 - Provider instances: clone any credential-taking provider (or
   datasource) into a named instance — ten OpenAI-compatible endpoints

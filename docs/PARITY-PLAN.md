@@ -1668,3 +1668,44 @@ straight to the anchored heading. No migration, no new deps. 1113
 tests. Bench unchanged: custom domains, Japanese locale, require-2FA,
 member suspension, visitor blocklist, trusted 2FA devices, SSO-only
 login, sign-in-as.
+
+**68. Batch 44 — governance and the last desk mile.** Nine picked.
+**Model allowlist** (workspace custom_config "model_allowlist" of
+"plugin|model" entries; available_models filters — every picker
+inherits for free — and create/update_app refuse
+:model_not_allowed, so raw API payloads can't sneak past the pickers;
+the settings card reads the catalog `unfiltered: true` so excluded
+models stay re-checkable). **Workspace suspension**
+(workspaces.suspended_at; enforcement at three choke points —
+send_message, start_run, ServiceAuth 403 workspace_suspended — plus a
+console banner; admin panel suspend/unsuspend on the existing
+overview). **Per-app guardrails** (apps.guardrails_mode
+inherit/off/extra + guardrail_patterns; sanitize_input_for_app
+composes with the workspace gates — "off" skips patterns but keeps
+moderation, which is workspace policy). **AI-drafted replies**
+(Chat.draft_reply builds a transcript prompt through the app's model
+or the workspace default for chatflows; the monitor button runs it in
+a task → {:draft_ready} → reply_prefill — the LiveView never blocks
+on a provider). **Auto-resolve idle** (workspace auto_resolve_days;
+daily 04:15 tick joins a last-message subquery — Ecto lesson:
+subqueries must select maps, not tuples). **Pending-work inbox**
+(/console/inbox + sidebar entry: Workflows.list_paused_runs decodes
+each pause's ask from the snapshot — human input / interview /
+tool approval / labeling — plus per-app handoff queues and the
+unlabeled-task count). **Toolset re-import**
+(api_toolsets.source_url stored on URL imports;
+Tools.reimport_toolset re-fetches or takes a paste, swaps operations,
+reports an added/removed diff, and auth/variables/name survive).
+**Per-provider rate caps** (workspace "provider_rate_caps" map;
+Flux.ProviderThrottle — ETS fixed-window counters, restart forgives
+the minute — enforced in invoke_with_failover with a deliberately
+non-retryable error, since every pooled key shares its provider's
+cap). **Console IP allowlist** (opt-in flag reuses the API CIDR
+list; an :enforce_console_ip plug after authentication, with
+FLUX_CONSOLE_IP_BYPASS=1 as the documented lockout escape). One
+migration (four columns), no new deps. Tooling scar: a `git stash`
+round-trip CRLF'd fifteen tracked files and credo's consistency check
+caught it — `sed -i 's/\r$//'` on the flagged list fixed it; avoid
+stash on this checkout. 1135 tests. Bench: custom domains, Japanese
+locale, require-2FA, member suspension, visitor blocklist, trusted
+2FA devices, SSO-only login, sign-in-as.

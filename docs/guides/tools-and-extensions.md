@@ -27,7 +27,11 @@ Each toolset stores:
 
 A security summary per toolset shows what auth is set. Agent nodes
 attach **several toolsets at once** (colliding operation names are
-deduped).
+deduped). When the upstream spec changes, **re-import** the toolset —
+one click for URL imports (the source is remembered), or paste the
+updated spec — and the operations refresh with an added/removed
+count while auth, variables, and every node referencing the toolset
+survive.
 
 **Example** — a weather API in three steps: paste its OpenAPI spec →
 set `X-Api-Key` under auth → drop a `tool` node, pick

@@ -90,8 +90,10 @@ the handoff queue. From there:
   across members marked **Available** (the toggle in the monitor
   header).
 - **Reply as a human** — the visitor sees it live; replies can carry
-  **file attachments** (the visitor gets a download chip) and insert
-  one-click **saved replies** shared by the workspace.
+  **file attachments** (the visitor gets a download chip), insert
+  one-click **saved replies** shared by the workspace, or start from
+  an **AI draft** ("Draft with AI" — the app's model drafts from
+  conversation context, you edit and send; never auto-sent).
 - **Read receipts** — "seen HH:MM" once the visitor's open tab has
   the reply.
 - **Away-mail** — replying to a visitor who left (and shared an
@@ -102,9 +104,20 @@ the handoff queue. From there:
 
 **Working the queue.** Threads carry **internal notes** (never shown
 to the visitor), **resolve states** (open/resolved filters and 30-day
-tallies; a fresh visitor message reopens automatically), **labels**
-with filters and bulk operations, and revocable **share links** —
-read-only transcript pages for a single conversation.
+tallies; a fresh visitor message reopens automatically — and
+**auto-resolve** can quietly close threads after N days of visitor
+silence, Settings → Failure alerts), **labels** with filters and bulk
+operations, and revocable **share links** — read-only transcript
+pages for a single conversation. The **Inbox** page
+(`/console/inbox`) gathers everything waiting on a human across the
+workspace: paused runs with what they're asking, each app's handoff
+queue, and the labeling backlog.
+
+**Per-app guardrail scope.** Workspace guardrails apply to every app
+by default; an app can **opt out of the pattern checks** (moderation
+gates still run — those are workspace policy) or run **extra patterns
+of its own** on top — the public marketing bot stricter than the
+internal one.
 
 **Quality.** The monitor rolls up usage, feedback and quality trends,
 **topic clusters**, per-visitor stats, **CSAT** count + average, and

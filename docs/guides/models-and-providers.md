@@ -85,6 +85,28 @@ distinct providers:
 | `local-vllm` | `http://vllm.internal:8000/v1` |
 | `lm-studio` | `http://127.0.0.1:1234/v1` |
 
+## Per-provider rate caps
+
+Any provider or instance can carry a **requests/minute ceiling**
+(the "Rate cap" field on its card): past it, calls refuse with an
+honest error instead of stampeding the endpoint — parallel branches,
+batches, and busy chats all count against the same bucket. Use it to
+protect a low-tier key or a self-hosted server that falls over under
+fan-out. The cap is per provider id, so every pooled key shares it
+(failover deliberately doesn't dodge it).
+
+## Model allowlist
+
+**Settings → Model allowlist** restricts which provider/model pairs
+members can pick: pickers only offer checked models, and app saves
+refuse anything else (so a raw API payload can't sneak past the UI).
+No boxes checked clears the restriction. Note a restriction is an
+explicit list — models added later stay excluded until re-checked.
+
+**Example**: check only `Anthropic — Claude Sonnet` and your
+`local-vllm` instance's model — the expensive frontier models
+disappear from every picker in the workspace.
+
 ## Default model & parameters
 
 **Settings → Default model** picks the workspace default — what LLM

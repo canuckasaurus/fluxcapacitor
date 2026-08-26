@@ -231,7 +231,14 @@ a fallback) provisions or resolves an account exactly like OIDC.
   `ip_forbidden` even with a valid key, and the attempt lands in the
   audit trail as `api.ip_rejected`. The check runs on the socket's
   remote address — behind a reverse proxy, forward the client address
-  (or the list ends up describing your proxy).
+  (or the list ends up describing your proxy). The same list can
+  optionally gate **console logins** too (the toggle beneath it);
+  `FLUX_CONSOLE_IP_BYPASS=1` disables the console check instance-wide
+  — the lockout escape hatch.
+- **Workspace suspension**: the instance admin panel can suspend any
+  workspace — runs and chat refuse, API tokens answer 403
+  `workspace_suspended`, members see a console banner, data stays —
+  and unsuspend it just as fast.
 - **Per-key rate limits**: any API key (app, flux, or workspace kind)
   can carry its own requests/minute cap, set when minting. A capped
   key gets its own bucket; key limit beats the app's chat-settings

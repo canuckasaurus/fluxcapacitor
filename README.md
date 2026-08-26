@@ -179,13 +179,22 @@ orchestrator, no queue infrastructure beyond Postgres.
   (dropdown, mine/unassigned filters — beyond self-claim on the
   handoff queue) or **auto-assign round-robin** across members marked
   available (a toggle in the monitor header), handoff answers insert
-  **one-click saved replies** and **carry file attachments** (the
-  visitor gets a download chip), **read receipts** show "seen" once
+  **one-click saved replies**, **carry file attachments** (the
+  visitor gets a download chip), or start from an **AI draft** (the
+  app's model drafts from context; the agent edits and sends, never
+  auto-sent), **read receipts** show "seen" once
   the visitor's tab has the reply, threads carry **internal notes**
   the visitor never sees, **resolve states** (a fresh visitor message
-  reopens them, open/resolved tallies on the page), and **CSAT
+  reopens them, open/resolved tallies on the page — and idle threads
+  **auto-resolve** after N quiet days), and **CSAT
   ratings** (visitors rate 1–5 with a comment on the site; count and
-  average roll up on the monitor). Single conversations share via
+  average roll up on the monitor). A **pending-work inbox**
+  (`/console/inbox`) gathers everything waiting on a human — paused
+  runs with what they're asking, handoff queues, the labeling
+  backlog. Apps can also scope guardrails per app (opt out of pattern
+  checks or add **extra patterns** of their own), and instance admins
+  can **suspend a workspace** outright — runs and API refuse, data
+  stays. Single conversations share via
   **revocable read-only transcript links**, the share card renders a
   **QR code** for the public site, a **handoff SLA alert** fires when
   a visitor waits longer than the configured minutes, and per-app
@@ -303,7 +312,14 @@ orchestrator, no queue infrastructure beyond Postgres.
   straight from a URL**, SSRF-guarded — and every operation in the
   spec becomes a callable tool in the tool and agent node pickers,
   with per-toolset **encrypted auth** (write-only secrets) and
-  **private template variables**.
+  **private template variables** — and toolsets **re-import** from
+  their remembered source URL (or a fresh paste) when the spec
+  changes, operations diffing in while auth and references survive.
+  A **per-provider rate cap** puts a requests/minute ceiling on any
+  provider or instance, so fan-out can't stampede a low-tier key or a
+  self-hosted endpoint, and a **workspace model allowlist** restricts
+  which models members may pick — pickers filter and app saves refuse
+  the rest.
   **MCP goes both ways**: register any Model Context Protocol server
   (Streamable HTTP, encrypted auth headers) and its tools join the picker
   for tool and agent nodes — and FluxCapacitor is itself an MCP server at
@@ -560,7 +576,7 @@ scratch drive, and a labeling project wired to the Model trainer flux
 ## Testing
 
 ```bash
-mix test                             # full umbrella suite (~1113 tests), hermetic
+mix test                             # full umbrella suite (~1135 tests), hermetic
 ```
 
 The suite runs with no network: providers stub through `Req.Test` or the

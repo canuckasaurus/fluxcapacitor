@@ -142,7 +142,7 @@ lands in the dev mailbox at `/dev/mailbox`).
 
 ## Testing
 
-`mix test` at the umbrella root runs everything (~1113 tests) with no
+`mix test` at the umbrella root runs everything (~1135 tests) with no
 network — fake providers, injected converters, temp-dir storage. To run
 a single app's tests, `cd` into the app first; `mix test apps/flux`
 from the root silently runs nothing. Golden replay fixtures, `/v1`
@@ -162,6 +162,7 @@ map.
 | Datasets, documents, segments, hit testing | `/console/knowledge` |
 | Data labeling: projects, tagging queue, consensus + agreement, gold standards + labeler accuracy, JSONL export | `/console/labeling` |
 | Workspace-wide run history: filters, text search, cost totals, per-node drill-in with token attribution | `/console/runs` |
+| Pending-work inbox: paused runs, handoff queues, labeling backlog | `/console/inbox` |
 | Stored files, model registry, scheduled export archives | `/console/files` |
 | Notification feed: failures, regressions, completions | `/console/notifications` |
 | Providers, tool/datasource plugins, credentials | `/console/plugins` |
