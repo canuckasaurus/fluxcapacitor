@@ -562,9 +562,17 @@ defmodule Flux.Providers do
   (keyless plugins like Echo).
   """
   def invoke_with_failover(workspace_id, plugin_id, fun) when is_function(fun, 1) do
-    case fetch_configs(workspace_id, plugin_id) do
-      [] -> fun.(%{})
-      candidates -> try_candidates(candidates, fun)
+    cap = provider_rate_cap(workspace_id, plugin_id)
+
+    if Flux.ProviderThrottle.allow?(workspace_id, plugin_id, cap) do
+      case fetch_configs(workspace_id, plugin_id) do
+        [] -> fun.(%{})
+        candidates -> try_candidates(candidates, fun)
+      end
+    else
+      # Deliberately not retryable-shaped: every pooled key shares the
+      # provider's cap, so failing over would just burn the next key.
+      {:error, "provider capped at #{cap} calls/minute — retry shortly"}
     end
   end
 
@@ -626,13 +634,20 @@ defmodule Flux.Providers do
   Models available to the workspace: every configured plugin's catalog, plus
   keyless plugins (empty credential schema, e.g. the Echo dev provider).
   """
-  def available_models(%Scope{} = scope) do
+  def available_models(%Scope{} = scope, opts \\ []) do
     workspace_id = Scope.workspace_id(scope)
     configured = MapSet.new(list_credentials(scope), & &1.plugin_id)
 
     # Workspace-created instances list after the builtin providers, each
     # under its own label — ten OpenAI-compatible endpoints, ten entries.
     manifests = list_provider_plugins() ++ instance_manifests(scope, :model)
+
+    # The allowlist-editing UI needs the full catalog; everything else
+    # sees only what the workspace permits.
+    allowlist =
+      if Keyword.get(opts, :unfiltered, false),
+        do: nil,
+        else: Flux.Accounts.model_allowlist(workspace_id)
 
     for manifest <- manifests,
         manifest.credential_schema == [] or MapSet.member?(configured, manifest.id),
@@ -644,8 +659,59 @@ defmodule Flux.Providers do
              _not_configured -> %{}
            end),
         {:ok, models} = runtime().models(manifest.id, config),
-        model <- models do
+        model <- models,
+        allowed_by?(allowlist, manifest.id, model.name) do
       %{plugin_id: manifest.id, plugin_name: manifest.name, model: model}
+    end
+  end
+
+  @doc """
+  Whether the workspace's model allowlist permits this provider+model.
+  No allowlist means everything is allowed; entries are
+  `"plugin_id|model"` exactly as the pickers encode choices.
+  """
+  def model_allowed?(workspace_id, plugin_id, model) do
+    allowed_by?(Flux.Accounts.model_allowlist(workspace_id), plugin_id, model)
+  end
+
+  defp allowed_by?(nil, _plugin_id, _model), do: true
+  defp allowed_by?(entries, plugin_id, model), do: "#{plugin_id}|#{model}" in entries
+
+  ## Per-provider rate caps
+
+  @doc "Sets (or with nil, clears) a provider's requests/minute ceiling."
+  def set_provider_rate_cap(%Scope{} = scope, plugin_id, cap)
+      when is_nil(cap) or (is_integer(cap) and cap > 0 and cap <= 100_000) do
+    with :ok <- RBAC.authorize(scope, :plugin_model_config) do
+      workspace = Repo.get(Flux.Accounts.Workspace, Scope.workspace_id(scope))
+
+      workspace
+      |> Ecto.Changeset.change(custom_config: caps_config(workspace, plugin_id, cap))
+      |> Repo.update()
+    end
+  end
+
+  defp caps_config(workspace, plugin_id, cap) do
+    caps = (workspace.custom_config || %{})["provider_rate_caps"] || %{}
+    caps = if cap, do: Map.put(caps, plugin_id, cap), else: Map.delete(caps, plugin_id)
+
+    if caps == %{} do
+      Map.delete(workspace.custom_config || %{}, "provider_rate_caps")
+    else
+      Map.put(workspace.custom_config || %{}, "provider_rate_caps", caps)
+    end
+  end
+
+  @doc "The provider's requests/minute cap, or nil."
+  def provider_rate_cap(workspace_id, plugin_id) do
+    provider_rate_caps(workspace_id)[plugin_id]
+  end
+
+  @doc "Every configured provider rate cap, as plugin_id => rpm."
+  def provider_rate_caps(workspace_id) do
+    case Repo.get(Flux.Accounts.Workspace, workspace_id) do
+      %{custom_config: %{"provider_rate_caps" => %{} = caps}} -> caps
+      _uncapped -> %{}
     end
   end
 

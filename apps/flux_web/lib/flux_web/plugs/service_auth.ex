@@ -17,7 +17,8 @@ defmodule FluxWeb.Plugs.ServiceAuth do
     with ["Bearer " <> raw] <- get_req_header(conn, "authorization"),
          {:ok, assigns} <- resolve(raw),
          :ok <- check_dataset_scope(conn, assigns),
-         :ok <- check_ip(conn, assigns[:workspace_id]) do
+         :ok <- check_ip(conn, assigns[:workspace_id]),
+         :ok <- check_suspended(assigns[:workspace_id]) do
       workspace_id = assigns[:workspace_id]
 
       # Token possession grants editor-level authority in the workspace,
@@ -69,6 +70,18 @@ defmodule FluxWeb.Plugs.ServiceAuth do
         )
         |> halt()
 
+      {:error, :workspace_suspended} ->
+        conn
+        |> put_resp_content_type("application/json")
+        |> send_resp(
+          403,
+          Jason.encode!(%{
+            code: "workspace_suspended",
+            message: "This workspace is suspended — contact your administrator"
+          })
+        )
+        |> halt()
+
       _unauthorized ->
         conn
         |> put_resp_content_type("application/json")
@@ -89,6 +102,16 @@ defmodule FluxWeb.Plugs.ServiceAuth do
   end
 
   defp check_dataset_scope(_conn, _assigns), do: :ok
+
+  # A suspended workspace's tokens all refuse — the API face of the
+  # instance-admin suspension.
+  defp check_suspended(workspace_id) do
+    if Flux.Accounts.workspace_suspended?(workspace_id) do
+      {:error, :workspace_suspended}
+    else
+      :ok
+    end
+  end
 
   # Workspace IP allowlist: a valid token from the wrong network is
   # still refused, and the attempt lands in the audit trail.

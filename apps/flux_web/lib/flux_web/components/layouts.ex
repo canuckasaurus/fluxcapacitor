@@ -42,6 +42,7 @@ defmodule FluxWeb.Layouts do
           <span class="text-lg flux-wordmark">FluxCapacitor</span>
         </a>
       </div>
+
       <div class="flex-none">
         <ul class="flex px-1 space-x-2 items-center">
           <li>
@@ -49,16 +50,19 @@ defmodule FluxWeb.Layouts do
               {gettext("Docs")}
             </a>
           </li>
+
           <li :if={@current_scope}>
             <.link navigate={~p"/console"} class="btn btn-primary btn-sm">
               {gettext("Console")} <span aria-hidden="true">&rarr;</span>
             </.link>
           </li>
+
           <li :if={is_nil(@current_scope)}>
             <.link navigate={~p"/accounts/log-in"} class="btn btn-ghost btn-sm">
               {gettext("Log in")}
             </.link>
           </li>
+
           <li>
             <.theme_toggle />
           </li>
@@ -71,7 +75,6 @@ defmodule FluxWeb.Layouts do
         {render_slot(@inner_block)}
       </div>
     </main>
-
     <.flash_group flash={@flash} />
     """
   end
@@ -104,20 +107,35 @@ defmodule FluxWeb.Layouts do
     ~H"""
     <div class="drawer lg:drawer-open bg-base-100">
       <input id="console-drawer" type="checkbox" class="drawer-toggle" />
-
       <div class="drawer-content min-h-screen min-w-0 flex flex-col">
         <div
           :if={announcement = Flux.InstanceSettings.get("announcement")}
           class="bg-warning/20 border-b border-warning/40 px-4 py-2 text-sm text-center"
           id="instance-announcement"
         >
-          <.icon name="hero-megaphone" class="size-4 inline mr-1" />
-          {announcement}
+          <.icon name="hero-megaphone" class="size-4 inline mr-1" /> {announcement}
         </div>
+
+        <div
+          :if={
+            match?(
+              %{workspace: %{suspended_at: %DateTime{}}},
+              @current_scope
+            )
+          }
+          class="bg-error/20 border-b border-error/40 px-4 py-2 text-sm text-center"
+          id="workspace-suspended-banner"
+        >
+          <.icon name="hero-no-symbol" class="size-4 inline mr-1" /> {gettext(
+            "This workspace is suspended — runs and API calls are refused. Contact your administrator."
+          )}
+        </div>
+
         <header class="navbar min-h-12 gap-1 border-b border-base-200 lg:hidden">
           <label for="console-drawer" class="btn btn-ghost btn-sm btn-square" aria-label="Open menu">
             <.icon name="hero-bars-3" class="size-5" />
           </label>
+
           <.link navigate={~p"/console"} class="flex items-center gap-2">
             <.icon name="hero-bolt-solid" class="size-5 flux-bolt" />
             <span class="flux-wordmark">FluxCapacitor</span>
@@ -154,9 +172,7 @@ defmodule FluxWeb.Layouts do
               icon="hero-home"
               label="Dashboard"
               active={@active == :dashboard}
-            />
-
-            <.sidebar_section label={gettext("Build")} />
+            /> <.sidebar_section label={gettext("Build")} />
             <.sidebar_link
               navigate={~p"/console/fluxes"}
               icon="hero-squares-2x2"
@@ -180,9 +196,7 @@ defmodule FluxWeb.Layouts do
               icon="hero-clipboard-document-check"
               label={gettext("Interviews")}
               active={@active == :interviews}
-            />
-
-            <.sidebar_section label={gettext("Ground")} />
+            /> <.sidebar_section label={gettext("Ground")} />
             <.sidebar_link
               navigate={~p"/console/knowledge"}
               icon="hero-book-open"
@@ -212,14 +226,18 @@ defmodule FluxWeb.Layouts do
               icon="hero-puzzle-piece"
               label={gettext("Plugins")}
               active={@active == :plugins}
-            />
-
-            <.sidebar_section label={gettext("Operate")} />
+            /> <.sidebar_section label={gettext("Operate")} />
             <.sidebar_link
               navigate={~p"/console/runs"}
               icon="hero-play-circle"
               label={gettext("Runs")}
               active={@active == :runs}
+            />
+            <.sidebar_link
+              navigate={~p"/console/inbox"}
+              icon="hero-inbox"
+              label={gettext("Inbox")}
+              active={@active == :inbox}
             />
             <.sidebar_link
               navigate={~p"/console/files"}
@@ -245,6 +263,7 @@ defmodule FluxWeb.Layouts do
                 {unread}
               </span>
             </.link>
+
             <.sidebar_link
               navigate={~p"/console/members"}
               icon="hero-user-group"
@@ -271,7 +290,6 @@ defmodule FluxWeb.Layouts do
               label={gettext("Settings")}
               active={@active == :settings}
             />
-
             <div class="pt-2">
               <.sidebar_link
                 navigate={~p"/console/docs"}
@@ -285,16 +303,19 @@ defmodule FluxWeb.Layouts do
           <div class="px-4 py-4 border-t border-base-200 space-y-3">
             <div :if={@current_scope.workspace} class="text-xs">
               <div class="opacity-60">Workspace</div>
+
               <details class="dropdown dropdown-top w-full">
                 <summary class="font-semibold truncate cursor-pointer list-none flex items-center gap-1">
                   {@current_scope.workspace.name}
                   <.icon name="hero-chevron-up-down-micro" class="size-3 opacity-60 shrink-0" />
                 </summary>
+
                 <ul class="dropdown-content menu bg-base-100 rounded-box z-20 w-52 p-2 shadow border border-base-200">
                   <li :for={{workspace, _membership} <- @workspaces}>
                     <span :if={workspace.id == @current_scope.workspace.id} class="font-semibold">
                       {workspace.name} ✓
                     </span>
+
                     <.link
                       :if={workspace.id != @current_scope.workspace.id}
                       href={~p"/console/workspaces/switch/#{workspace.id}"}
@@ -303,6 +324,7 @@ defmodule FluxWeb.Layouts do
                       {workspace.name}
                     </.link>
                   </li>
+
                   <li class="border-t border-base-200 mt-1 pt-1">
                     <.link navigate={~p"/console/workspaces/new"}>
                       <.icon name="hero-plus-micro" class="size-3" /> New workspace
@@ -311,10 +333,13 @@ defmodule FluxWeb.Layouts do
                 </ul>
               </details>
             </div>
+
             <div class="text-xs">
               <div class="opacity-60">Signed in as</div>
+
               <div class="font-semibold truncate">{@current_scope.account.email}</div>
             </div>
+
             <div class="flex items-center gap-2">
               <.link navigate={~p"/accounts/settings"} class="btn btn-ghost btn-xs">Settings</.link>
               <.link href={~p"/accounts/log-out"} method="delete" class="btn btn-ghost btn-xs">
@@ -326,7 +351,6 @@ defmodule FluxWeb.Layouts do
         </aside>
       </div>
     </div>
-
     <.flash_group flash={@flash} />
     """
   end
@@ -351,7 +375,9 @@ defmodule FluxWeb.Layouts do
       <.icon name={@icon} class="size-10 flux-bolt mx-auto" />
       <span :if={@plate} class="outatime-plate mx-auto">{@plate}</span>
       <h2 class="font-semibold text-lg">{@title}</h2>
+
       <div class="opacity-70 text-sm">{render_slot(@inner_block)}</div>
+
       <div :if={@actions != []} class="flex justify-center gap-2">
         {render_slot(@actions)}
       </div>
@@ -384,8 +410,7 @@ defmodule FluxWeb.Layouts do
         !@active && "hover:bg-base-200"
       ]}
     >
-      <.icon name={@icon} class="size-4" />
-      {@label}
+      <.icon name={@icon} class="size-4" /> {@label}
     </.link>
     """
   end
@@ -403,9 +428,7 @@ defmodule FluxWeb.Layouts do
   def flash_group(assigns) do
     ~H"""
     <div id={@id} aria-live="polite">
-      <.flash kind={:info} flash={@flash} />
-      <.flash kind={:error} flash={@flash} />
-
+      <.flash kind={:info} flash={@flash} /> <.flash kind={:error} flash={@flash} />
       <.flash
         id="client-error"
         kind={:error}
@@ -442,7 +465,6 @@ defmodule FluxWeb.Layouts do
     ~H"""
     <div class="card relative flex flex-row items-center border-2 border-base-300 bg-base-300 rounded-full">
       <div class="absolute w-1/2 h-full rounded-full border-1 border-base-200 bg-base-100 brightness-200 left-0 [[data-theme=dark]_&]:left-1/2 transition-[left]" />
-
       <button
         class="flex p-2 cursor-pointer w-1/2 justify-center"
         phx-click={JS.dispatch("phx:set-theme")}

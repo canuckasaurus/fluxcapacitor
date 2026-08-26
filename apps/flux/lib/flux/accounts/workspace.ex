@@ -18,6 +18,8 @@ defmodule Flux.Accounts.Workspace do
     field :name, :string
     field :status, :string, default: "normal"
     field :custom_config, :map, default: %{}
+    # Instance-admin suspension: runs and API refuse while set.
+    field :suspended_at, :utc_datetime
 
     has_many :memberships, Flux.Accounts.Membership
 

@@ -1249,6 +1249,80 @@ defmodule Flux.Accounts do
     match?(%{custom_config: %{"handoff_auto_assign" => true}}, scope.workspace)
   end
 
+  ## Workspace suspension (instance admin)
+
+  @doc "Suspends a workspace: runs and API refuse, members see a notice. Data stays."
+  def suspend_workspace(workspace_id) do
+    case Repo.get(Workspace, workspace_id) do
+      nil ->
+        {:error, :not_found}
+
+      workspace ->
+        workspace
+        |> Ecto.Changeset.change(suspended_at: DateTime.utc_now(:second))
+        |> Repo.update()
+    end
+  end
+
+  @doc "Lifts a suspension."
+  def unsuspend_workspace(workspace_id) do
+    case Repo.get(Workspace, workspace_id) do
+      nil -> {:error, :not_found}
+      workspace -> workspace |> Ecto.Changeset.change(suspended_at: nil) |> Repo.update()
+    end
+  end
+
+  @doc "Whether the workspace is currently suspended."
+  def workspace_suspended?(nil), do: false
+
+  def workspace_suspended?(workspace_id) do
+    match?(%{suspended_at: %DateTime{}}, Repo.get(Workspace, workspace_id))
+  end
+
+  ## Model allowlist (workspace governance over which models members pick)
+
+  @doc """
+  Restricts the workspace to the listed `"plugin_id|model"` entries.
+  An empty list clears the restriction (everything allowed).
+  """
+  def set_model_allowlist(%Scope{} = scope, entries) when is_list(entries) do
+    entries = entries |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == "")) |> Enum.uniq()
+
+    with :ok <- Flux.RBAC.authorize(scope, :plugin_model_config) do
+      update_custom_config(scope, "model_allowlist", (entries == [] && nil) || entries)
+    end
+  end
+
+  @doc "The allowlist entries, or nil when unrestricted."
+  def model_allowlist(workspace_id) do
+    case Repo.get(Workspace, workspace_id) do
+      %{custom_config: %{"model_allowlist" => [_ | _] = entries}} -> entries
+      _unrestricted -> nil
+    end
+  end
+
+  @doc "Days of visitor silence before a conversation auto-resolves (nil = off)."
+  def set_auto_resolve_days(%Scope{} = scope, days)
+      when is_nil(days) or (is_integer(days) and days > 0 and days <= 365) do
+    update_custom_config(scope, "auto_resolve_days", days)
+  end
+
+  def auto_resolve_days(%Scope{} = scope) do
+    case scope.workspace do
+      %{custom_config: %{"auto_resolve_days" => days}} when is_integer(days) -> days
+      _off -> nil
+    end
+  end
+
+  @doc "Whether console access is confined to the API IP allowlist too."
+  def set_console_ip_allowlist(%Scope{} = scope, enabled?) when is_boolean(enabled?) do
+    update_custom_config(scope, "console_ip_allowlist", enabled? || nil)
+  end
+
+  def console_ip_allowlist?(%Scope{} = scope) do
+    match?(%{custom_config: %{"console_ip_allowlist" => true}}, scope.workspace)
+  end
+
   @doc "Minutes before an unanswered handoff alerts the team (nil = off)."
   def set_handoff_alert_minutes(%Scope{} = scope, minutes)
       when is_nil(minutes) or (is_integer(minutes) and minutes > 0 and minutes <= 24 * 60) do

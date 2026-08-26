@@ -34,6 +34,7 @@ defmodule FluxWeb.ConsoleLive.Plugins do
       installed_plugin_ids: MapSet.new(Flux.Tools.list_installed_plugin_ids(scope)),
       endpoint_tokens: endpoint_tokens(scope),
       models: Providers.available_models(scope),
+      rate_caps: Providers.provider_rate_caps(Flux.Accounts.Scope.workspace_id(scope)),
       default_model: Providers.default_model(scope)
     )
   end
@@ -140,6 +141,25 @@ defmodule FluxWeb.ConsoleLive.Plugins do
     case Providers.set_default_credential(socket.assigns.current_scope, id) do
       :ok -> {:noreply, socket |> put_flash(:info, "Default credential set.") |> refresh()}
       _error -> {:noreply, put_flash(socket, :error, "Could not set the default.")}
+    end
+  end
+
+  def handle_event("set_rate_cap", %{"plugin-id" => plugin_id, "cap" => cap}, socket) do
+    parsed =
+      case Integer.parse(to_string(cap)) do
+        {n, ""} when n > 0 -> n
+        _blank_or_invalid -> nil
+      end
+
+    case Providers.set_provider_rate_cap(socket.assigns.current_scope, plugin_id, parsed) do
+      {:ok, _workspace} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, (parsed && "Rate cap set.") || "Rate cap removed.")
+         |> refresh()}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not save the rate cap.")}
     end
   end
 
@@ -289,6 +309,7 @@ defmodule FluxWeb.ConsoleLive.Plugins do
           >
             installed
           </span>
+
           <button
             :if={@can_install and not MapSet.member?(@installed_plugin_ids, plugin.id)}
             class="btn btn-sm btn-primary"
@@ -297,6 +318,7 @@ defmodule FluxWeb.ConsoleLive.Plugins do
           >
             Install
           </button>
+
           <button
             :if={@can_install and MapSet.member?(@installed_plugin_ids, plugin.id)}
             class="btn btn-sm btn-ghost text-error"
@@ -325,6 +347,7 @@ defmodule FluxWeb.ConsoleLive.Plugins do
                 >
                   instance
                 </span>
+
                 <span
                   :if={@credentials_by_plugin[plugin.id] || plugin.credential_schema == []}
                   class="badge badge-success badge-sm"
@@ -340,6 +363,7 @@ defmodule FluxWeb.ConsoleLive.Plugins do
               <button class="btn btn-sm" phx-click="edit" phx-value-plugin-id={plugin.id}>
                 {if @credentials_by_plugin[plugin.id], do: "Add key", else: "Configure"}
               </button>
+
               <button
                 :if={not Providers.instance_id?(plugin.id)}
                 class="btn btn-sm btn-ghost"
@@ -349,6 +373,7 @@ defmodule FluxWeb.ConsoleLive.Plugins do
               >
                 Clone
               </button>
+
               <button
                 :if={Providers.instance_id?(plugin.id)}
                 class="btn btn-sm btn-ghost"
@@ -357,6 +382,7 @@ defmodule FluxWeb.ConsoleLive.Plugins do
               >
                 Rename
               </button>
+
               <button
                 :if={Providers.instance_id?(plugin.id)}
                 class="btn btn-sm btn-ghost text-error"
@@ -370,6 +396,30 @@ defmodule FluxWeb.ConsoleLive.Plugins do
           </div>
 
           <form
+            :if={@can_manage and plugin.credential_schema != []}
+            phx-submit="set_rate_cap"
+            class="flex gap-2 items-center"
+            id={"rate-cap-form-#{String.replace(plugin.id, "@", "--")}"}
+          >
+            <input type="hidden" name="plugin-id" value={plugin.id} />
+            <span
+              class="text-xs opacity-60"
+              title="Requests/minute ceiling across every caller — parallel branches and batches queue up as refusals past it"
+            >
+              Rate cap
+            </span>
+
+            <input
+              type="number"
+              name="cap"
+              min="1"
+              value={@rate_caps[plugin.id]}
+              placeholder="∞"
+              class="input input-bordered input-xs w-24"
+            /> <button class="btn btn-ghost btn-xs">Save</button>
+          </form>
+
+          <form
             :if={@renaming == plugin.id}
             phx-submit="rename_instance"
             class="flex gap-2"
@@ -381,8 +431,7 @@ defmodule FluxWeb.ConsoleLive.Plugins do
               value={plugin.name}
               class="input input-bordered input-sm w-64"
               autocomplete="off"
-            />
-            <button class="btn btn-primary btn-sm">Save name</button>
+            /> <button class="btn btn-primary btn-sm">Save name</button>
           </form>
 
           <.form
@@ -397,6 +446,7 @@ defmodule FluxWeb.ConsoleLive.Plugins do
               models, its own entry in every model picker. Point several
               at different endpoints and they coexist.
             </p>
+
             <.input
               name="instance_name"
               value=""
@@ -439,9 +489,11 @@ defmodule FluxWeb.ConsoleLive.Plugins do
               >
                 pooled
               </span>
+
               <span :if={credential.validated_at} class="text-xs opacity-50">
                 validated {Calendar.strftime(credential.validated_at, "%Y-%m-%d")}
               </span>
+
               <div :if={@can_manage} class="ml-auto flex gap-1">
                 <button
                   class="btn btn-ghost btn-xs"
@@ -452,6 +504,7 @@ defmodule FluxWeb.ConsoleLive.Plugins do
                 >
                   {if credential.balanced, do: "Leave pool", else: "Pool"}
                 </button>
+
                 <button
                   class="btn btn-ghost btn-xs"
                   phx-click="revalidate"
@@ -460,6 +513,7 @@ defmodule FluxWeb.ConsoleLive.Plugins do
                 >
                   Test
                 </button>
+
                 <button
                   :if={not credential.is_default}
                   class="btn btn-ghost btn-xs"
@@ -468,6 +522,7 @@ defmodule FluxWeb.ConsoleLive.Plugins do
                 >
                   Make default
                 </button>
+
                 <button
                   class="btn btn-ghost btn-xs text-error"
                   phx-click="remove"

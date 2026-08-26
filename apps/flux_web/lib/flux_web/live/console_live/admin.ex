@@ -93,6 +93,30 @@ defmodule FluxWeb.ConsoleLive.Admin do
     end
   end
 
+  def handle_event("suspend_workspace", %{"workspace-id" => workspace_id}, socket) do
+    with true <- Accounts.instance_admin?(socket.assigns.current_scope.account),
+         {:ok, workspace} <- Accounts.suspend_workspace(workspace_id) do
+      {:noreply,
+       socket
+       |> put_flash(:info, "#{workspace.name} suspended — runs and API now refuse.")
+       |> assign(overview: Accounts.instance_overview())}
+    else
+      _error -> {:noreply, put_flash(socket, :error, "Could not suspend that workspace.")}
+    end
+  end
+
+  def handle_event("unsuspend_workspace", %{"workspace-id" => workspace_id}, socket) do
+    with true <- Accounts.instance_admin?(socket.assigns.current_scope.account),
+         {:ok, workspace} <- Accounts.unsuspend_workspace(workspace_id) do
+      {:noreply,
+       socket
+       |> put_flash(:info, "#{workspace.name} unsuspended.")
+       |> assign(overview: Accounts.instance_overview())}
+    else
+      _error -> {:noreply, put_flash(socket, :error, "Could not unsuspend that workspace.")}
+    end
+  end
+
   def handle_event("restore_workspace", %{"workspace-id" => workspace_id}, socket) do
     with true <- Accounts.instance_admin?(socket.assigns.current_scope.account),
          {:ok, workspace} <- Accounts.restore_workspace(workspace_id) do
@@ -130,6 +154,7 @@ defmodule FluxWeb.ConsoleLive.Admin do
     >
       <div>
         <h1 class="text-2xl font-bold">Instance admin</h1>
+
         <p class="opacity-70 mt-1">
           Every workspace on this deployment — plans, people, and 30-day volume.
         </p>
@@ -140,17 +165,32 @@ defmodule FluxWeb.ConsoleLive.Admin do
           <thead>
             <tr>
               <th>Workspace</th>
+
               <th>Plan</th>
+
               <th>Members</th>
+
               <th>Runs (30d)</th>
+
               <th>Tokens (30d)</th>
+
               <th>Storage</th>
+
               <th>Created</th>
+
+              <th></th>
             </tr>
           </thead>
+
           <tbody>
             <tr :for={row <- @overview} id={"admin-ws-#{row.workspace.id}"}>
-              <td class="font-semibold">{row.workspace.name}</td>
+              <td class="font-semibold">
+                {row.workspace.name}
+                <span :if={row.workspace.suspended_at} class="badge badge-error badge-xs ml-1">
+                  suspended
+                </span>
+              </td>
+
               <td>
                 <form phx-change="set_plan">
                   <input type="hidden" name="workspace-id" value={row.workspace.id} />
@@ -161,12 +201,38 @@ defmodule FluxWeb.ConsoleLive.Admin do
                   </select>
                 </form>
               </td>
+
               <td class="text-xs">{row.members}</td>
+
               <td class="text-xs">{row.runs_30d}</td>
+
               <td class="font-mono text-xs">{row.tokens_30d}</td>
+
               <td class="font-mono text-xs">{format_bytes(row.storage_bytes)}</td>
+
               <td class="text-xs opacity-70">
                 {Calendar.strftime(row.workspace.inserted_at, "%Y-%m-%d")}
+              </td>
+
+              <td>
+                <button
+                  :if={row.workspace.suspended_at == nil}
+                  class="btn btn-ghost btn-xs text-error"
+                  phx-click="suspend_workspace"
+                  phx-value-workspace-id={row.workspace.id}
+                  data-confirm={"Suspend #{row.workspace.name}? Runs and API calls will refuse until unsuspended. Data stays."}
+                >
+                  Suspend
+                </button>
+
+                <button
+                  :if={row.workspace.suspended_at}
+                  class="btn btn-outline btn-xs"
+                  phx-click="unsuspend_workspace"
+                  phx-value-workspace-id={row.workspace.id}
+                >
+                  Unsuspend
+                </button>
               </td>
             </tr>
           </tbody>
@@ -175,23 +241,32 @@ defmodule FluxWeb.ConsoleLive.Admin do
 
       <div class="card border border-base-200 p-6 space-y-3" id="provider-health">
         <h2 class="font-semibold">Provider health (since boot)</h2>
+
         <p :if={@provider_health == []} class="text-sm opacity-60">
           No model calls yet.
         </p>
+
         <table :if={@provider_health != []} class="table table-sm max-w-xl">
           <thead>
             <tr>
               <th>Provider</th>
+
               <th>Calls</th>
+
               <th>Errors</th>
+
               <th>Error rate</th>
             </tr>
           </thead>
+
           <tbody>
             <tr :for={row <- @provider_health}>
               <td class="font-mono text-xs">{row.provider}</td>
+
               <td>{row.calls}</td>
+
               <td class={row.errors > 0 && "text-error"}>{row.errors}</td>
+
               <td>
                 <span class={[
                   "badge badge-sm",
@@ -208,22 +283,32 @@ defmodule FluxWeb.ConsoleLive.Admin do
           <summary class="text-xs opacity-60 cursor-pointer">
             Recent calls ({length(@recent_calls)})
           </summary>
+
           <table class="table table-xs max-w-2xl mt-2">
             <thead>
               <tr>
                 <th>When</th>
+
                 <th>Provider</th>
+
                 <th>Model</th>
+
                 <th>Latency</th>
+
                 <th>Outcome</th>
               </tr>
             </thead>
+
             <tbody>
               <tr :for={call <- @recent_calls}>
                 <td class="text-xs opacity-60">{Calendar.strftime(call.at, "%H:%M:%S")}</td>
+
                 <td class="font-mono text-xs">{call.provider}</td>
+
                 <td class="font-mono text-xs">{call.model}</td>
+
                 <td class="font-mono text-xs">{call.latency_ms}ms</td>
+
                 <td>
                   <span class={[
                     "badge badge-sm",
@@ -237,29 +322,33 @@ defmodule FluxWeb.ConsoleLive.Admin do
           </table>
         </details>
       </div>
+
       <div class="card border border-base-200 p-6 space-y-2" id="status-note-card">
         <h2 class="font-semibold">Status page incident note</h2>
+
         <p class="text-sm opacity-70">
           Shown on the public <a href="/status" class="link">/status</a>
           page while non-blank — for planned maintenance and incident updates.
         </p>
+
         <form phx-submit="save_status_note" id="status-note-form" class="space-y-2">
           <textarea
             name="note"
             rows="2"
             placeholder="e.g. Provider X is degraded; replies may be slow."
             class="textarea textarea-bordered textarea-sm w-full max-w-xl"
-          >{@status_note}</textarea>
-          <button class="btn btn-primary btn-sm">Save note</button>
+          >{@status_note}</textarea> <button class="btn btn-primary btn-sm">Save note</button>
         </form>
       </div>
 
       <div class="card border border-base-200 p-6 space-y-2" id="announcement-card">
         <h2 class="font-semibold">Console announcement</h2>
+
         <p class="text-sm opacity-70">
           Shown as a banner atop every console page while non-blank — for
           maintenance windows and migration notices. Blank to clear.
         </p>
+
         <form phx-submit="save_announcement" id="announcement-form" class="space-y-2">
           <textarea
             name="note"
@@ -277,12 +366,14 @@ defmodule FluxWeb.ConsoleLive.Admin do
         id="archived-workspaces"
       >
         <h2 class="font-semibold">Archived workspaces</h2>
+
         <div :for={workspace <- @archived} class="flex items-center gap-3 text-sm">
           <.icon name="hero-archive-box" class="size-4 opacity-60" />
           <span class="font-semibold">{workspace.name}</span>
           <span class="text-xs opacity-60">
             archived {Calendar.strftime(workspace.updated_at, "%Y-%m-%d")}
           </span>
+
           <button
             class="btn btn-ghost btn-xs ml-auto"
             phx-click="restore_workspace"
@@ -305,22 +396,35 @@ defmodule FluxWeb.ConsoleLive.Admin do
           <thead>
             <tr>
               <th>Queue</th>
+
               <th>Available</th>
+
               <th>Executing</th>
+
               <th>Scheduled</th>
+
               <th>Retryable</th>
+
               <th>Discarded</th>
+
               <th>Completed</th>
             </tr>
           </thead>
+
           <tbody>
             <tr :for={row <- @queue_stats}>
               <td class="font-mono text-xs">{row.queue}</td>
+
               <td>{row.available}</td>
+
               <td>{row.executing}</td>
+
               <td>{row.scheduled}</td>
+
               <td class={row.retryable > 0 && "text-warning font-semibold"}>{row.retryable}</td>
+
               <td class={row.discarded > 0 && "text-error font-semibold"}>{row.discarded}</td>
+
               <td class="opacity-60">{row.completed}</td>
             </tr>
           </tbody>
@@ -328,6 +432,7 @@ defmodule FluxWeb.ConsoleLive.Admin do
 
         <div :if={@problem_jobs != []} class="space-y-2">
           <h3 class="text-sm font-semibold">Needs attention</h3>
+
           <div
             :for={job <- @problem_jobs}
             class="flex items-start gap-2 text-xs border-b border-base-200 last:border-0 py-2"
@@ -339,21 +444,26 @@ defmodule FluxWeb.ConsoleLive.Admin do
             ]}>
               {job.state}
             </span>
+
             <div class="min-w-0 flex-1">
               <p class="font-mono truncate">{job.worker}</p>
+
               <p class="opacity-60">
                 {job.queue} · attempt {job.attempt}/{job.max_attempts}
                 <span :if={job.attempted_at}>
                   · {Calendar.strftime(job.attempted_at, "%m-%d %H:%M:%S")}
                 </span>
               </p>
+
               <p :if={job.last_error} class="text-error/80 truncate" title={job.last_error}>
                 {job.last_error}
               </p>
             </div>
+
             <button class="btn btn-ghost btn-xs" phx-click="retry_job" phx-value-id={job.id}>
               Retry
             </button>
+
             <button
               class="btn btn-ghost btn-xs text-error"
               phx-click="discard_job"

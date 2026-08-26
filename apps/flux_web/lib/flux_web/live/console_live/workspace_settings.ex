@@ -45,6 +45,10 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
        alert_secret: Accounts.alert_secret(scope),
        handoff_alert_minutes: Accounts.handoff_alert_minutes(scope),
        auto_assign: Accounts.handoff_auto_assign?(scope),
+       auto_resolve_days: Accounts.auto_resolve_days(scope),
+       all_models: Providers.available_models(scope, unfiltered: true),
+       model_allowlist: Accounts.model_allowlist(Flux.Accounts.Scope.workspace_id(scope)),
+       console_ip: Accounts.console_ip_allowlist?(scope),
        mail_branding: Accounts.mail_branding(scope),
        can_webhooks: RBAC.can?(scope, :api_extension_manage),
        webhooks: Flux.Webhooks.list_endpoints(scope),
@@ -304,6 +308,69 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
 
       _error ->
         {:noreply, put_flash(socket, :error, "Could not save the prices.")}
+    end
+  end
+
+  def handle_event("set_model_allowlist", params, socket) do
+    entries = List.wrap(params["allowed"])
+
+    case Accounts.set_model_allowlist(socket.assigns.current_scope, entries) do
+      {:ok, workspace} ->
+        scope = %{socket.assigns.current_scope | workspace: workspace}
+
+        {:noreply,
+         socket
+         |> put_flash(
+           :info,
+           (entries == [] && "Model restriction cleared — everything allowed.") ||
+             "Model allowlist saved (#{length(entries)} allowed)."
+         )
+         |> assign(current_scope: scope, model_allowlist: Accounts.model_allowlist(workspace.id))}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not save the model allowlist.")}
+    end
+  end
+
+  def handle_event("set_auto_resolve", %{"days" => days}, socket) do
+    parsed =
+      case Integer.parse(to_string(days)) do
+        {n, ""} when n > 0 and n <= 365 -> n
+        _blank_or_invalid -> nil
+      end
+
+    case Accounts.set_auto_resolve_days(socket.assigns.current_scope, parsed) do
+      {:ok, workspace} ->
+        scope = %{socket.assigns.current_scope | workspace: workspace}
+
+        {:noreply,
+         socket
+         |> put_flash(:info, (parsed && "Auto-resolve set.") || "Auto-resolve turned off.")
+         |> assign(current_scope: scope, auto_resolve_days: parsed)}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not save auto-resolve.")}
+    end
+  end
+
+  def handle_event("toggle_console_ip", _params, socket) do
+    enabled? = not socket.assigns.console_ip
+
+    case Accounts.set_console_ip_allowlist(socket.assigns.current_scope, enabled?) do
+      {:ok, workspace} ->
+        scope = %{socket.assigns.current_scope | workspace: workspace}
+
+        {:noreply,
+         socket
+         |> put_flash(
+           :info,
+           (enabled? && "Console access now honors the IP allowlist.") ||
+             "Console access unrestricted."
+         )
+         |> assign(current_scope: scope, console_ip: enabled?)}
+
+      _error ->
+        {:noreply, put_flash(socket, :error, "Could not update console access.")}
     end
   end
 
@@ -799,6 +866,7 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
           <a :if={@can_api_keys} href="#api-keys-card" class="badge badge-ghost badge-sm">
             API keys
           </a>
+
           <a :if={@can_rename} href="#export-card" class="badge badge-ghost badge-sm">
             Export / Import
           </a>
@@ -870,6 +938,7 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
               class="input input-bordered input-sm w-36"
             />
           </label>
+
           <label class="form-control">
             <span class="label-text text-xs opacity-70 mb-1">Max tokens</span>
             <input
@@ -987,16 +1056,16 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
         <p class="text-xs opacity-60" id="embedding-cache-stats">
           Embedding cache (always on, 24h TTL): {@embedding_cache_stats.hits} hits / {@embedding_cache_stats.misses} misses ({@embedding_cache_stats.hit_rate}% hit rate), {@embedding_cache_stats.entries} vectors held.
         </p>
-
         <div class="divider my-1" />
-
         <h3 class="text-sm font-semibold">Model price overrides</h3>
+
         <p class="text-sm opacity-70">
           One per line: <span class="font-mono text-xs">model-prefix $in/M $out/M</span>
           — prices your self-hosted or fine-tuned models so cost rollups
           stop reading $0. Overrides beat the built-in table on prefix
           match; blank clears.
         </p>
+
         <form phx-submit="set_pricing" id="pricing-form" class="space-y-2">
           <textarea
             name="pricing"
@@ -1014,24 +1083,26 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
         id="workspace-prompt-card"
       >
         <h2 class="font-semibold">Workspace system prompt</h2>
+
         <p class="text-sm opacity-70">
           An org-wide prefix baked into every chat app's model calls —
           compliance boilerplate and tone rules live once instead of
           per app. Blank disables.
         </p>
+
         <form phx-submit="set_system_prompt" id="workspace-prompt-form" class="space-y-2">
           <textarea
             name="prompt"
             rows="3"
             placeholder="e.g. Never provide legal advice. Answer in the customer's language."
             class="textarea textarea-bordered textarea-sm w-full max-w-xl"
-          >{@workspace_system_prompt}</textarea>
-          <button class="btn btn-primary btn-sm">Save</button>
+          >{@workspace_system_prompt}</textarea> <button class="btn btn-primary btn-sm">Save</button>
         </form>
       </div>
 
       <div :if={@can_env} class="card border border-base-200 p-6 space-y-3" id="env-vars-card">
         <h2 class="font-semibold">Environment variables</h2>
+
         <p class="text-sm opacity-70">
           Workspace-wide values every flux reaches as <span class="font-mono">{"{{env.NAME}}"}</span>
           — API keys and shared config live once. Encrypted at rest; <b>secret</b>
@@ -1043,16 +1114,21 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
           <thead>
             <tr>
               <th>Name</th>
+
               <th>Value</th>
+
               <th></th>
             </tr>
           </thead>
+
           <tbody>
             <tr :for={var <- @env_vars} id={"env-var-#{var.name}"}>
               <td class="font-mono">{var.name}</td>
+
               <td class="font-mono">
                 {(var.is_secret && "••••••") || var.value}
               </td>
+
               <td>
                 <button
                   class="btn btn-ghost btn-xs text-error"
@@ -1130,9 +1206,11 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
               >
                 block
               </option>
+
               <option value="flag" selected={@guardrails && @guardrails.action == "flag"}>
                 flag
               </option>
+
               <option
                 value="redact"
                 selected={@guardrails && @guardrails.action == "redact"}
@@ -1144,10 +1222,9 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
             <button class="btn btn-primary btn-sm">Save guardrails</button>
           </div>
         </form>
-
         <div class="divider my-1" />
-
         <h3 class="text-sm font-semibold">Model-backed moderation</h3>
+
         <p class="text-sm opacity-70">
           The workspace default model judges inputs against this policy
           (<b>block</b> refuses, <b>flag</b> lets through; outputs are
@@ -1167,6 +1244,7 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
               <option value="block" selected={(@moderation && @moderation.action) != "flag"}>
                 block
               </option>
+
               <option value="flag" selected={@moderation && @moderation.action == "flag"}>
                 flag
               </option>
@@ -1174,10 +1252,9 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
             <button class="btn btn-primary btn-sm">Save moderation</button>
           </div>
         </form>
-
         <div class="divider my-1" />
-
         <h3 class="text-sm font-semibold">External moderation API</h3>
+
         <p class="text-sm opacity-70">
           Checked text POSTs to your endpoint as <span class="font-mono">{"{text, context}"}</span>; it answers <span class="font-mono">{"{flagged, reason}"}</span>. Runs alongside the
           patterns and the model judge — blank disables. <b>fail open</b>
@@ -1198,14 +1275,17 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
               <option value="block" selected={(@moderation_api && @moderation_api.action) != "flag"}>
                 block
               </option>
+
               <option value="flag" selected={@moderation_api && @moderation_api.action == "flag"}>
                 flag
               </option>
             </select>
+
             <select name="fail" class="select select-bordered select-sm w-36">
               <option value="open" selected={(@moderation_api && @moderation_api.fail) != "closed"}>
                 fail open
               </option>
+
               <option value="closed" selected={@moderation_api && @moderation_api.fail == "closed"}>
                 fail closed
               </option>
@@ -1236,15 +1316,15 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
           Deliveries are signed: <span class="font-mono">x-flux-signature: sha256=HMAC(body)</span>
           with secret <span class="font-mono select-all">{@alert_secret}</span>
         </p>
-
         <div class="divider my-1" />
-
         <h3 class="text-sm font-semibold">Handoff SLA alert</h3>
+
         <p class="text-sm opacity-70">
           A visitor waiting for a human longer than this many minutes fires a
           <span class="font-mono">handoff</span>
           notification, once per request. Blank turns it off.
         </p>
+
         <form phx-submit="set_handoff_alert" id="handoff-alert-form" class="flex gap-2">
           <input
             type="number"
@@ -1254,17 +1334,16 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
             value={@handoff_alert_minutes}
             placeholder="15"
             class="input input-bordered input-sm w-28"
-          />
-          <button class="btn btn-primary btn-sm">Save</button>
+          /> <button class="btn btn-primary btn-sm">Save</button>
         </form>
-
         <div class="divider my-1" />
-
         <h3 class="text-sm font-semibold">Handoff auto-assignment</h3>
+
         <p class="text-sm opacity-70">
           New handoffs round-robin across members marked available (the
           toggle lives on each app monitor) instead of waiting for a claim.
         </p>
+
         <button
           type="button"
           phx-click="toggle_auto_assign"
@@ -1273,6 +1352,26 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
         >
           {(@auto_assign && "On — turn off") || "Off — turn on"}
         </button>
+        <div class="divider my-1" />
+        <h3 class="text-sm font-semibold">Auto-resolve idle conversations</h3>
+
+        <p class="text-sm opacity-70">
+          Open conversations quietly resolve after this many days without
+          a visitor message (a fresh message reopens them, as always).
+          Blank turns it off.
+        </p>
+
+        <form phx-submit="set_auto_resolve" id="auto-resolve-form" class="flex gap-2">
+          <input
+            type="number"
+            name="days"
+            min="1"
+            max="365"
+            value={@auto_resolve_days}
+            placeholder="14"
+            class="input input-bordered input-sm w-28"
+          /> <button class="btn btn-primary btn-sm">Save</button>
+        </form>
       </div>
 
       <div
@@ -1281,12 +1380,14 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
         id="mail-branding-card"
       >
         <h2 class="font-semibold">Email branding</h2>
+
         <p class="text-sm opacity-70">
           Outbound workspace mail — invites, notification emails, transcripts,
           away notes, and email-channel replies — sends with this from-name
           and reply-to instead of the platform default. Account mail (magic
           links, security alerts) stays platform-branded.
         </p>
+
         <form phx-submit="set_mail_branding" id="mail-branding-form" class="flex gap-2 flex-wrap">
           <input
             type="text"
@@ -1301,8 +1402,7 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
             value={@mail_branding["reply_to"]}
             placeholder="Reply-to (support@acme.com)"
             class="input input-bordered input-sm w-64"
-          />
-          <button class="btn btn-primary btn-sm">Save branding</button>
+          /> <button class="btn btn-primary btn-sm">Save branding</button>
         </form>
       </div>
 
@@ -1342,6 +1442,7 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
                 >
                   {(webhook.enabled && "Disable") || "Enable"}
                 </button>
+
                 <button
                   class="btn btn-ghost btn-xs"
                   phx-click="test_webhook"
@@ -1350,6 +1451,7 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
                 >
                   Send test
                 </button>
+
                 <button
                   class="btn btn-ghost btn-xs"
                   phx-click="rotate_webhook_secret"
@@ -1359,6 +1461,7 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
                 >
                   Rotate secret
                 </button>
+
                 <button
                   class="btn btn-ghost btn-xs text-error"
                   phx-click="delete_webhook"
@@ -1387,6 +1490,7 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
               title="slack wraps events in Block Kit for Slack incoming-webhook URLs"
             >
               <option value="json">JSON</option>
+
               <option value="slack">Slack</option>
             </select>
             <button class="btn btn-primary btn-sm">Add webhook</button>
@@ -1409,22 +1513,30 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
           <summary class="text-sm font-semibold cursor-pointer">
             Delivery log ({length(@webhook_deliveries)} recent)
           </summary>
+
           <table class="table table-xs mt-2">
             <thead>
               <tr>
                 <th>When</th>
+
                 <th>Event</th>
+
                 <th>Status</th>
+
                 <th>Attempts</th>
+
                 <th></th>
               </tr>
             </thead>
+
             <tbody>
               <tr :for={delivery <- @webhook_deliveries} id={"delivery-#{delivery.id}"}>
                 <td class="text-xs opacity-70">
                   {Calendar.strftime(delivery.inserted_at, "%m-%d %H:%M:%S")}
                 </td>
+
                 <td class="text-xs">{delivery.event}</td>
+
                 <td>
                   <span class={[
                     "badge badge-xs",
@@ -1434,11 +1546,14 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
                   ]}>
                     {delivery.status || (delivery.attempts == 0 && "queued") || "error"}
                   </span>
+
                   <span :if={delivery.last_error} class="text-xs opacity-60 ml-1">
                     {delivery.last_error}
                   </span>
                 </td>
+
                 <td class="text-xs">{delivery.attempts}</td>
+
                 <td>
                   <button
                     class="btn btn-ghost btn-xs"
@@ -1472,25 +1587,34 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
           <thead>
             <tr>
               <th>Key</th>
+
               <th>Expires</th>
+
               <th>Last used</th>
+
               <th>Limit</th>
+
               <th></th>
             </tr>
           </thead>
+
           <tbody>
             <tr :for={token <- @ws_tokens} id={"ws-token-#{token.id}"}>
               <td class="font-mono text-xs">{token.prefix}</td>
+
               <td class="text-xs">
                 {(token.expires_at && Calendar.strftime(token.expires_at, "%Y-%m-%d")) || "never"}
               </td>
+
               <td class="text-xs opacity-70">
                 {(token.last_used_at && Calendar.strftime(token.last_used_at, "%Y-%m-%d %H:%M")) ||
                   "—"}
               </td>
+
               <td class="text-xs opacity-70">
                 {(token.rate_limit_per_minute && "#{token.rate_limit_per_minute}/min") || "default"}
               </td>
+
               <td>
                 <button
                   class="btn btn-ghost btn-xs text-error"
@@ -1508,10 +1632,14 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
         <form phx-submit="create_ws_token" id="create-ws-token-form" class="flex gap-2 items-center">
           <select name="expires_in_days" class="select select-bordered select-sm w-44">
             <option value="">Never expires</option>
+
             <option value="30">Expires in 30 days</option>
+
             <option value="90">Expires in 90 days</option>
+
             <option value="365">Expires in 365 days</option>
           </select>
+
           <input
             type="number"
             name="rate_limit"
@@ -1520,8 +1648,7 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
             placeholder="req/min (default)"
             title="Optional per-key rate limit; blank uses the pipeline default"
             class="input input-bordered input-sm w-36"
-          />
-          <button class="btn btn-primary btn-sm">Mint API key</button>
+          /> <button class="btn btn-primary btn-sm">Mint API key</button>
         </form>
       </div>
 
@@ -1536,7 +1663,9 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
           <span class="text-sm opacity-70">Activity digest:</span>
           <select name="frequency" class="select select-bordered select-sm w-32">
             <option value="weekly" selected={@digest_frequency == "weekly"}>weekly</option>
+
             <option value="daily" selected={@digest_frequency == "daily"}>daily</option>
+
             <option value="off" selected={@digest_frequency == "off"}>off</option>
           </select>
         </form>
@@ -1553,6 +1682,7 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
             title="Used when a member has not picked a language and their browser does not say"
           >
             <option value="" selected={@workspace_locale == nil}>browser default</option>
+
             <option
               :for={locale <- @known_locales}
               value={locale}
@@ -1570,6 +1700,7 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
             lines (roles: admin, editor, normal, dataset_operator);
             owners and unmatched members are never touched.
           </p>
+
           <div class="flex gap-2 items-start">
             <input
               type="text"
@@ -1577,8 +1708,7 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
               value={elem(@oidc_role_mapping, 0)}
               placeholder="groups"
               class="input input-bordered input-sm w-36"
-            />
-            <textarea
+            /> <textarea
               name="mapping"
               rows="3"
               placeholder="platform-admins=admin\nbuilders=editor"
@@ -1595,19 +1725,20 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
             value={@console_logo}
             placeholder="https://…/logo.png (blank restores the wordmark)"
             class="input input-bordered input-sm w-96"
-          />
-          <button class="btn btn-primary btn-sm">Save logo</button>
+          /> <button class="btn btn-primary btn-sm">Save logo</button>
         </form>
       </div>
 
       <div :if={@can_rename} class="card border border-base-200 p-6 space-y-3" id="ip-allowlist-card">
         <h2 class="font-semibold">API IP allowlist</h2>
+
         <p class="text-sm opacity-70">
           One address or CIDR per line (e.g. <code>203.0.113.0/24</code>).
           When set, service-API calls from other addresses get 403 — even
           with a valid key. Blank turns it off. Behind a reverse proxy,
           make sure the client address reaches the app.
         </p>
+
         <form phx-submit="set_ip_allowlist" id="ip-allowlist-form" class="space-y-2">
           <textarea
             name="cidrs"
@@ -1616,6 +1747,68 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
             class="textarea textarea-bordered w-full font-mono text-xs"
           >{Enum.join(@ip_allowlist, "\n")}</textarea>
           <button class="btn btn-primary btn-sm">Save allowlist</button>
+        </form>
+        <div class="divider my-1" />
+        <h3 class="text-sm font-semibold">Console access</h3>
+
+        <p class="text-sm opacity-70">
+          Extend the same allowlist to console logins. Locked-down
+          deployments only — the escape hatch is the <code>FLUX_CONSOLE_IP_BYPASS=1</code>
+          environment variable, which disables the console check
+          instance-wide without touching the API one.
+        </p>
+
+        <button
+          type="button"
+          phx-click="toggle_console_ip"
+          id="console-ip-toggle"
+          class={["btn btn-sm btn-outline", @console_ip && "btn-warning"]}
+        >
+          {(@console_ip && "Enforced — turn off") || "Off — enforce for console"}
+        </button>
+      </div>
+
+      <div
+        :if={@can_model}
+        class="card border border-base-200 p-6 space-y-3"
+        id="model-allowlist-card"
+      >
+        <h2 class="font-semibold">Model allowlist</h2>
+
+        <p class="text-sm opacity-70">
+          Restrict which models members can pick — pickers only offer
+          checked models, and app saves refuse the rest. No boxes
+          checked (or "Allow everything") clears the restriction; note
+          that a restriction won't include models added later until you
+          re-check them here.
+        </p>
+
+        <form phx-submit="set_model_allowlist" id="model-allowlist-form" class="space-y-2">
+          <label
+            :for={%{plugin_id: pid, plugin_name: pname, model: m} <- @all_models}
+            class="label cursor-pointer justify-start gap-2 py-0.5"
+          >
+            <input
+              type="checkbox"
+              name="allowed[]"
+              value={"#{pid}|#{m.name}"}
+              checked={@model_allowlist == nil or "#{pid}|#{m.name}" in @model_allowlist}
+              class="checkbox checkbox-xs"
+            /> <span class="label-text text-sm">{pname} — {m.label}</span>
+          </label>
+
+          <div class="flex gap-2">
+            <button class="btn btn-primary btn-sm">Save allowlist</button>
+            <button
+              type="submit"
+              name="allowed"
+              value=""
+              class="btn btn-ghost btn-sm"
+              title="Clear the restriction entirely"
+            >
+              Allow everything
+            </button>
+          </div>
         </form>
       </div>
 
@@ -1638,9 +1831,9 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
             placeholder="cron, e.g. 0 3 * * * (blank = off)"
             class="input input-bordered input-sm w-56 font-mono"
             title="Writes the export archive to storage on this schedule; it appears on the Files page."
-          />
-          <button class="btn btn-outline btn-sm">Schedule backups</button>
+          /> <button class="btn btn-outline btn-sm">Schedule backups</button>
         </form>
+
         <form
           action={~p"/console/workspace-import"}
           method="post"
@@ -1705,6 +1898,7 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
           <button class="btn btn-primary btn-sm" phx-click="enable_scim">
             {(@scim_enabled && "Rotate token") || "Enable SCIM"}
           </button>
+
           <button
             :if={@scim_enabled}
             class="btn btn-ghost btn-sm text-error"

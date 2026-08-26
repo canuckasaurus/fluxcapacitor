@@ -291,6 +291,28 @@ defmodule FluxWeb.Router do
     |> put_resp_header("content-security-policy", "frame-ancestors " <> ancestors)
   end
 
+  # Workspaces that opted in confine the console to the same IP
+  # allowlist as the API. Lockout escape hatch: FLUX_CONSOLE_IP_BYPASS=1
+  # disables this check instance-wide (the API check stays).
+  defp enforce_console_ip(conn, _opts) do
+    scope = conn.assigns[:current_scope]
+    workspace = scope && scope.workspace
+
+    enforced? =
+      workspace != nil and
+        match?(%{custom_config: %{"console_ip_allowlist" => true}}, workspace) and
+        System.get_env("FLUX_CONSOLE_IP_BYPASS") != "1"
+
+    if enforced? and not Flux.IPAllowlist.allowed?(workspace.id, conn.remote_ip) do
+      conn
+      |> put_resp_content_type("text/plain")
+      |> send_resp(403, "This workspace restricts console access by IP address.")
+      |> halt()
+    else
+      conn
+    end
+  end
+
   # A stable anonymous visitor ref in the signed session cookie, so
   # returning visitors get their public-site conversation back.
   defp ensure_site_visitor(conn, _opts) do
@@ -322,7 +344,7 @@ defmodule FluxWeb.Router do
   ## Console (authenticated product area)
 
   scope "/console", FluxWeb do
-    pipe_through [:browser, :require_authenticated_account]
+    pipe_through [:browser, :require_authenticated_account, :enforce_console_ip]
 
     post "/workspaces/switch/:id", WorkspaceController, :switch
     get "/palette", PaletteController, :index
@@ -365,6 +387,7 @@ defmodule FluxWeb.Router do
       live "/knowledge", ConsoleLive.Knowledge, :index
       live "/labeling", ConsoleLive.Labeling, :index
       live "/runs", ConsoleLive.Runs, :index
+      live "/inbox", ConsoleLive.Inbox, :index
       live "/files", ConsoleLive.Files, :index
       live "/notifications", ConsoleLive.Notifications, :index
       live "/admin", ConsoleLive.Admin, :index

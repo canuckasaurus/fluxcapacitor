@@ -19,6 +19,7 @@ defmodule Flux.Application do
       Flux.LLMCache,
       Flux.EmbeddingCache,
       Flux.ProviderHealth,
+      Flux.ProviderThrottle,
       {Oban, Application.fetch_env!(:flux, Oban)}
     ]
 
