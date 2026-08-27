@@ -7,6 +7,38 @@ at `docs/PARITY-PLAN.md`.
 
 ## Unreleased
 
+### Hardening pass
+
+A full-system audit (SSRF, tenancy/authorization, injection, crash
+paths) and the fixes it surfaced.
+
+- **SSRF**: Web Push endpoints, Bedrock `region`, and the Google Drive
+  `token_uri` are now guarded/pinned; every user-URL HTTP call
+  (toolset execution, the `http_request` node, MCP, webhooks, flux/
+  toolset import, all provider plugins, S3) stops following redirects,
+  which a 302 could use to reach an internal address.
+- **Cross-tenant**: an `app-` token (or a site visitor) can no longer
+  rename, delete, stop, or rate another app's conversation/message in
+  the same workspace — every such path now verifies app ownership.
+- **Authorization**: added the missing permission checks to
+  `human_reply`, `set_conversation_labels`, `toggle_pin_message`,
+  `revoke_api_token` (app + flux), `start_batch`, `replay_run`, the
+  tool-approval `resume_run`, and the Inbox page — read-only members
+  and service tokens can no longer drive them.
+- **Injection**: CSV exports gain a spreadsheet-formula-injection guard
+  (visitor chat content flows into operator CSVs); custom-site-CSS
+  `</style>` breakout is closed (stored XSS); `embed_origins` are
+  validated so they can't inject extra CSP directives.
+- **Resilience**: a misbehaving provider no longer crashes every
+  model-picker page; malformed stored credential JSON no longer
+  crashes credential resolution; a crashed generation task's message
+  is reaped from `:streaming` (was wedging the site composer forever);
+  the LLM and embedding caches sweep expired entries instead of growing
+  unbounded; the stream buffer tolerates its GenServer restarting;
+  deferred notification emails can't double-send on retry.
+- **Tenancy guard**: the `workspace_keys` (DEK) and `idempotency_keys`
+  tables joined the workspace-scoping backstop.
+
 ### Batch 45
 - Assignee notifications: being assigned a conversation emails and
   browser-pushes *that member* directly (self-claims stay quiet);

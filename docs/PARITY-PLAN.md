@@ -1710,6 +1710,61 @@ stash on this checkout. 1135 tests. Bench: custom domains, Japanese
 locale, require-2FA, member suspension, visitor blocklist, trusted
 2FA devices, SSO-only login, sign-in-as.
 
+**70. Hardening exercise — four parallel audits, fixed the confirmed.**
+Ran four read-only subagent audits (SSRF/outbound HTTP, tenancy/
+authz, injection/egress, crash-paths), verified each finding against
+the code, fixed the high-severity confirmed ones with regression
+tests. **SSRF**: three unguarded sinks closed — WebPush.subscribe now
+Flux.SSRF-verifies the browser endpoint (and the send re-verifies +
+redirect:false), Bedrock `region` is regex-validated before host
+interpolation (was `0@169.254.169.254/`-injectable), Google Drive's
+token_uri is pinned to Google (was honoring user-JSON's arbitrary
+host for the signed JWT). Plus the redirect-follows class: SSE
+req_options defaults redirect:false (covers every provider plugin),
+and the direct Req calls (toolset exec + spec fetch, http_request
+node, MCP client, alert_worker, webhooks send_test, flux import,
+ex_aws) each got it — a guard verifies the URL but Req would follow a
+302 internal. (Deferred, noted: DNS-rebinding needs Finch peer-IP
+pinning, not just redirect:false.) **Cross-tenant**: app-token
+rename/delete/stop/feedback and site-visitor feedback now assert the
+conversation/message belongs to the caller's app (set_feedback took
+an :app_id opt; the controller mirrors the messages/2 app_id check —
+the sibling that already did it right). **Authz**: added RBAC to
+human_reply, set_conversation_labels, toggle_pin_message,
+revoke_api_token ×2, start_batch, replay_run, and — targeted —
+resume_run only for tool_approval pauses (human-input/interview stay
+publicly resumable); Inbox mount gained an :app_monitor gate.
+**Injection**: Flux.CSV.encode_field prefixes a "'" on formula-
+trigger cells (=+-@\t\r) and the two hand-rolled encoders (audit,
+usage) now route through it — a visitor chat message reaching an
+operator's conversations CSV can't execute; custom_css strips every
+"<" at save AND render (the old single-pass `</style>` regex was
+reconstruction-bypassable → stored XSS); embed_origins validated to
+bare origins so a ";" can't inject a CSP directive. **Resilience**:
+providers safe_models wraps the model call (a raising provider was
+crashing every picker page — plugins/apps/playground/evals/knowledge/
+editor + /v1/models); fetch_configs/validate_credential use
+Jason.decode not decode! (malformed stored blob); reap_stuck_streams
+(minutely) fails messages wedged >10min at :streaming and broadcasts
+so the site composer unwedges — the retention sweep explicitly
+skipped them; LLMCache/EmbeddingCache gained periodic select_delete
+sweeps (lazy-only expiry leaked unbounded); StreamBuffers rescues
+ArgumentError so a GenServer restart doesn't crash live emit
+callbacks; EmailWorker is unique+result-aware (was swallowing errors
+and double-sending on retry). **Tenancy guard**: workspace_keys (the
+DEK table) and idempotency_keys added to @tenant_tables (every query
+site already references workspace_id or uses the skip flag; the other
+four flagged tables — memberships/roles/plugin_installations queried
+by account_id in their owning modules — deferred to avoid breaking
+legitimate cross-workspace reads). Also capped the two worst
+unbounded /v1 endpoints (messages via a limit opt, dataset single-doc
+fetch via a scoped get_document instead of loading the whole dataset);
+the remaining unbounded list endpoints noted for a pagination pass. No
+migration. Tooling scar (again): a `git stash` for the credo baseline
+diff CRLF'd 30 files — stripped with sed, but stash stays hazardous on
+this checkout. 1167 tests (26 new hardening regressions). Bench
+unchanged.
+
 **69. Batch 45 — four features and a hardening sweep.** **Assignee
 notifications** (assign_handoff and maybe_auto_assign call a shared
 notify_assignee — direct email via the branded notifier + WebPush
