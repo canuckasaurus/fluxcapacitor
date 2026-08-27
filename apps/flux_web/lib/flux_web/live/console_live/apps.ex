@@ -21,6 +21,7 @@ defmodule FluxWeb.ConsoleLive.Apps do
        models: Providers.available_models(scope),
        fluxes: Flux.Workflows.list_workflows(scope),
        can_create: RBAC.can?(scope, :app_create_and_management),
+       conversation_results: nil,
        tag_filter: nil
      )
      |> load_apps()}
@@ -58,6 +59,16 @@ defmodule FluxWeb.ConsoleLive.Apps do
   end
 
   @impl true
+  def handle_event("search_conversations", %{"q" => query}, socket) do
+    results =
+      case String.trim(query) do
+        "" -> nil
+        trimmed -> Chat.search_conversations_global(socket.assigns.current_scope, trimmed)
+      end
+
+    {:noreply, assign(socket, conversation_results: results)}
+  end
+
   def handle_event("filter_tag", %{"tag" => tag}, socket) do
     tag = ((tag == socket.assigns.tag_filter or tag == "") && nil) || tag
     {:noreply, assign(socket, tag_filter: tag)}
@@ -244,6 +255,41 @@ defmodule FluxWeb.ConsoleLive.Apps do
             <.icon name="hero-plus" class="size-4" /> New app
           </button>
         </div>
+      </div>
+
+      <form phx-change="search_conversations" id="global-conversation-search" class="w-full max-w-md">
+        <input
+          type="search"
+          name="q"
+          placeholder="Search conversations across every app…"
+          class="input input-bordered input-sm w-full"
+          autocomplete="off"
+          phx-debounce="300"
+        />
+      </form>
+
+      <div
+        :if={@conversation_results != nil}
+        class="card border border-base-200 p-4 space-y-2"
+        id="global-search-results"
+      >
+        <p :if={@conversation_results == []} class="text-sm opacity-60">
+          No conversations matched.
+        </p>
+        <.link
+          :for={hit <- @conversation_results || []}
+          navigate={~p"/console/apps/#{hit.app_id}/monitor?conversation=#{hit.conversation.id}"}
+          class="block rounded-box px-3 py-2 hover:bg-base-200/60"
+        >
+          <p class="text-sm font-semibold">
+            {hit.conversation.title || "Untitled conversation"}
+            <span class="badge badge-ghost badge-xs ml-1">{hit.app_name}</span>
+            <span class="text-xs opacity-50 font-normal ml-1">
+              {Calendar.strftime(hit.conversation.inserted_at, "%Y-%m-%d")}
+            </span>
+          </p>
+          <p :if={hit.excerpt} class="text-xs opacity-60 truncate">{hit.excerpt}</p>
+        </.link>
       </div>
 
       <div :if={@importing} class="card border border-base-200 p-6 space-y-3">

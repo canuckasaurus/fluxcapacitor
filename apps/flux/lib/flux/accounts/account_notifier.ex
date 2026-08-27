@@ -101,6 +101,26 @@ defmodule Flux.Accounts.AccountNotifier do
     """)
   end
 
+  @doc "Tells a member a conversation was just assigned to them."
+  def deliver_assignment_email(recipient, app_name, conversation_title, path, workspace_id) do
+    base = Application.get_env(:flux, :app_base_url, "")
+    link = (path && base != "" && "\n\nOpen it: #{base}#{path}") || ""
+
+    deliver(
+      recipient,
+      "#{brand_prefix(workspace_id)} A conversation was assigned to you",
+      """
+
+      ==============================
+
+      "#{conversation_title}" in #{app_name} is now yours.#{link}
+
+      ==============================
+      """,
+      workspace_id
+    )
+  end
+
   @doc "Mails a site visitor that a human replied while they were away."
   def deliver_away_reply(recipient, app_name, excerpt, site_token, workspace_id \\ nil) do
     base = Application.get_env(:flux, :app_base_url, "")

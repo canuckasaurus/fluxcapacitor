@@ -63,18 +63,31 @@ defmodule Flux.Chat do
 
   # The workspace model allowlist gates the primary model on app
   # writes (the pickers are already filtered; this stops raw API
-  # payloads and stale forms).
-  defp check_model_allowed(workspace_id, attrs) do
-    plugin = attrs["provider_plugin_id"] || attrs[:provider_plugin_id]
-    model = attrs["model"] || attrs[:model]
+  # payloads and stale forms). On updates the app's current values
+  # fill whichever half the attrs omit — changing only the model
+  # under an existing provider is still a model change.
+  defp check_model_allowed(workspace_id, attrs, app \\ nil) do
+    plugin = attr_or_current(attrs, :provider_plugin_id, app && app.provider_plugin_id)
+    model = attr_or_current(attrs, :model, app && app.model)
+    changing? = has_attr?(attrs, :provider_plugin_id) or has_attr?(attrs, :model)
 
-    if is_binary(plugin) and plugin != "" and is_binary(model) and model != "" and
-         not Providers.model_allowed?(workspace_id, plugin, model) do
+    if changing? and disallowed_model?(workspace_id, plugin, model) do
       {:error, :model_not_allowed}
     else
       :ok
     end
   end
+
+  defp disallowed_model?(workspace_id, plugin, model) do
+    is_binary(plugin) and plugin != "" and is_binary(model) and model != "" and
+      not Providers.model_allowed?(workspace_id, plugin, model)
+  end
+
+  defp attr_or_current(attrs, key, current),
+    do: attrs[to_string(key)] || attrs[key] || current
+
+  defp has_attr?(attrs, key),
+    do: Map.has_key?(attrs, to_string(key)) or Map.has_key?(attrs, key)
 
   @doc "Soft delete: the app moves to the trash (30-day purge, restorable)."
   def delete_app(%Scope{} = scope, %App{} = app) do
@@ -116,7 +129,7 @@ defmodule Flux.Chat do
   def update_app(%Scope{} = scope, %App{} = app, attrs) do
     with :ok <- RBAC.authorize(scope, :app_edit),
          true <- app.workspace_id == Scope.workspace_id(scope) || {:error, :not_found},
-         :ok <- check_model_allowed(app.workspace_id, attrs) do
+         :ok <- check_model_allowed(app.workspace_id, attrs, app) do
       app |> App.changeset(attrs) |> Repo.update()
     end
   end
@@ -454,12 +467,14 @@ defmodule Flux.Chat do
            Repo.get(Flux.Accounts.Workspace, app.workspace_id),
          [_ | _] = member_ids <- Flux.Accounts.available_member_ids(app.workspace_id) do
       turn = rem(System.unique_integer([:positive, :monotonic]), length(member_ids))
+      assignee_id = Enum.at(member_ids, turn)
 
       {:ok, assigned} =
         conversation
-        |> Ecto.Changeset.change(assigned_account_id: Enum.at(member_ids, turn))
+        |> Ecto.Changeset.change(assigned_account_id: assignee_id)
         |> Repo.update()
 
+      notify_assignee(assigned, assignee_id)
       assigned
     else
       _off_or_nobody -> conversation
@@ -701,8 +716,37 @@ defmodule Flux.Chat do
            conversation
            |> Ecto.Changeset.change(assigned_account_id: account_id)
            |> Repo.update() do
+      # Assignment is personal: the assignee (not the whole workspace)
+      # gets told — unless they assigned it to themselves.
+      if account_id && account_id != Scope.account_id(scope) do
+        notify_assignee(updated, account_id)
+      end
+
       {:ok, Repo.preload(updated, :assigned_account, force: true)}
     end
+  end
+
+  # Direct email + browser push to exactly the assigned member.
+  defp notify_assignee(%Conversation{} = conversation, account_id) do
+    account = Repo.get(Flux.Accounts.Account, account_id)
+    app = Repo.get(App, conversation.app_id, skip_workspace_guard: true)
+
+    if account && app do
+      title = conversation.title || "Untitled conversation"
+      path = "/console/apps/#{app.id}/monitor?conversation=#{conversation.id}"
+
+      Flux.Accounts.AccountNotifier.deliver_assignment_email(
+        account.email,
+        app.name,
+        title,
+        path,
+        conversation.workspace_id
+      )
+
+      Flux.WebPush.fan_out([account_id], "Assigned to you: #{title} (#{app.name})", path)
+    end
+
+    :ok
   end
 
   @doc "Stores the visitor's 1-5 rating (re-rating overwrites). Site-scope callable."
@@ -904,7 +948,8 @@ defmodule Flux.Chat do
   auto-sent — the agent edits and sends.
   """
   def draft_reply(%Scope{} = scope, conversation_id) do
-    with %Conversation{} = conversation <- get_conversation(scope, conversation_id),
+    with :ok <- RBAC.authorize(scope, :app_monitor),
+         %Conversation{} = conversation <- get_conversation(scope, conversation_id),
          %App{} = app <-
            Repo.get(App, conversation.app_id, skip_workspace_guard: true) ||
              {:error, :not_found} do
@@ -1139,6 +1184,51 @@ defmodule Flux.Chat do
     |> order_by([c], desc: c.inserted_at)
     |> limit(^limit)
     |> Repo.all()
+  end
+
+  @doc """
+  Workspace-wide conversation search: titles and message bodies across
+  every app, newest first — each hit carries its app's name and the
+  first matching message excerpt for context.
+  """
+  def search_conversations_global(%Scope{} = scope, q, limit \\ 20) do
+    pattern = "%" <> String.replace(to_string(q), ~r/[%_\\]/, "") <> "%"
+    workspace_id = Scope.workspace_id(scope)
+
+    matching_messages =
+      from(m in Message,
+        where: m.workspace_id == ^workspace_id and ilike(m.content, ^pattern),
+        select: m.conversation_id
+      )
+
+    conversations =
+      Conversation
+      |> Repo.scoped(scope)
+      |> join(:inner, [c], a in App, on: a.id == c.app_id)
+      |> where([c], is_nil(c.deleted_at))
+      |> where([c, a], ilike(c.title, ^pattern) or c.id in subquery(matching_messages))
+      |> order_by([c], desc: c.inserted_at)
+      |> limit(^limit)
+      |> select([c, a], %{conversation: c, app_id: a.id, app_name: a.name})
+      |> Repo.all()
+
+    conversation_ids = Enum.map(conversations, & &1.conversation.id)
+
+    excerpts =
+      from(m in Message,
+        where: m.conversation_id in ^conversation_ids and m.workspace_id == ^workspace_id,
+        where: ilike(m.content, ^pattern),
+        order_by: [asc: m.inserted_at],
+        select: {m.conversation_id, m.content}
+      )
+      |> Repo.all()
+      |> Enum.reduce(%{}, fn {conversation_id, content}, acc ->
+        Map.put_new(acc, conversation_id, String.slice(content, 0, 160))
+      end)
+
+    Enum.map(conversations, fn hit ->
+      Map.put(hit, :excerpt, excerpts[hit.conversation.id])
+    end)
   end
 
   @doc "Console conversations whose title or messages match `q` (ILIKE)."
@@ -3732,15 +3822,22 @@ defmodule Flux.Chat do
     Phoenix.PubSub.broadcast(Flux.PubSub, topic(message.id), {:done, message})
 
     # Monitor pages refresh live, and webhook receivers hear about the
-    # finished turn (thin payload — fetch details via /v1).
-    case Repo.get(Conversation, message.conversation_id, skip_workspace_guard: true) do
-      %Conversation{} = conversation -> notify_monitor(conversation.app_id, conversation.id)
-      _gone -> :ok
-    end
+    # finished turn (thin payload — fetch details via /v1). The app id
+    # rides along so app-bound endpoints can filter.
+    app_id =
+      case Repo.get(Conversation, message.conversation_id, skip_workspace_guard: true) do
+        %Conversation{} = conversation ->
+          notify_monitor(conversation.app_id, conversation.id)
+          conversation.app_id
+
+        _gone ->
+          nil
+      end
 
     Flux.Webhooks.dispatch(message.workspace_id, "message.completed", %{
       "message_id" => message.id,
       "conversation_id" => message.conversation_id,
+      "app_id" => app_id,
       "status" => to_string(status),
       "usage" => usage
     })
