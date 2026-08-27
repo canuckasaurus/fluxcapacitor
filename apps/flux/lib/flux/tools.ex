@@ -62,10 +62,16 @@ defmodule Flux.Tools do
     end
   end
 
+  @max_spec_bytes 5_000_000
+
   defp fetch_spec(url) do
     with :ok <- Flux.SSRF.verify_url(url),
          {:ok, %{status: 200, body: body}} <-
-           Req.get(url: url, decode_body: false, retry: false, max_redirects: 2) do
+           Req.get(url: url, decode_body: false, retry: false, max_redirects: 2),
+         body = to_string(body),
+         :ok <-
+           (byte_size(body) <= @max_spec_bytes && :ok) ||
+             {:error, "that spec is over #{div(@max_spec_bytes, 1_000_000)} MB"} do
       {:ok, body}
     else
       {:error, message} when is_binary(message) -> {:error, message}

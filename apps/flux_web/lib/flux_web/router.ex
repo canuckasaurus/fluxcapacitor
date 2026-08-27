@@ -213,8 +213,12 @@ defmodule FluxWeb.Router do
 
   ## Inbound chat channels (the token in the path is the authorization)
 
+  pipeline :channel_rate_limit do
+    plug FluxWeb.Plugs.RateLimit, name: "channels", by: :ip, limit: 120, scale_ms: 60_000
+  end
+
   scope "/channels", FluxWeb do
-    pipe_through :api
+    pipe_through [:api, :channel_rate_limit]
 
     post "/email/:token", ChannelController, :email
     post "/slack/:token", ChannelController, :slack

@@ -12,10 +12,28 @@ defmodule Flux.ProviderThrottle do
 
   def start_link(_opts), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
 
+  @sweep_ms :timer.minutes(10)
+
   @impl true
   def init(_arg) do
     :ets.new(@table, [:named_table, :public, :set, write_concurrency: true])
+    Process.send_after(self(), :sweep, @sweep_ms)
     {:ok, []}
+  end
+
+  # The opportunistic previous-minute delete in allow?/3 misses keys
+  # whose provider goes quiet — without this sweep an idle burst's
+  # counters would sit in ETS forever.
+  @impl true
+  def handle_info(:sweep, state) do
+    cutoff = div(System.system_time(:second), 60) - 2
+
+    :ets.select_delete(@table, [
+      {{{:_, :_, :"$1"}, :_}, [{:<, :"$1", cutoff}], [true]}
+    ])
+
+    Process.send_after(self(), :sweep, @sweep_ms)
+    {:noreply, state}
   end
 
   @doc """
