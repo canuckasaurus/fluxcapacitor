@@ -121,6 +121,10 @@ defmodule FluxWeb.SiteLive.FluxSite do
     if is_binary(accent) and Regex.match?(~r/^#[0-9a-fA-F]{6}$/, accent), do: accent
   end
 
+  # Render-time backstop: strip every "<" so owner CSS can't break out
+  # of the <style> block (legacy rows predate the save-time strip).
+  defp safe_css(css), do: String.replace(to_string(css), "<", "")
+
   defp start_variables(graph) do
     case Enum.find(graph["nodes"] || [], &(&1["type"] == "start")) do
       nil -> []
@@ -172,7 +176,7 @@ defmodule FluxWeb.SiteLive.FluxSite do
   def render(assigns) do
     ~H"""
     <style :if={@workflow.site_theme["custom_css"]}>
-      <%= raw(@workflow.site_theme["custom_css"]) %>
+      <%= raw(safe_css(@workflow.site_theme["custom_css"])) %>
     </style>
     <style :if={valid_accent(@workflow.site_theme["accent"])}>
       .btn-primary {

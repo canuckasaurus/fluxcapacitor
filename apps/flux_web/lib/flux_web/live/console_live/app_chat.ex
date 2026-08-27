@@ -695,12 +695,14 @@ defmodule FluxWeb.ConsoleLive.AppChat do
         "logo_url" => presence(params["logo_url"]),
         "bubble_position" => (params["bubble_position"] == "left" && "left") || nil,
         "bubble_greeting" => presence(params["bubble_greeting"]),
-        # Owner-authored CSS for their own public site; the only thing
-        # to guard is </style> tag breakout.
+        # Owner-authored CSS rendered raw inside a <style> block on the
+        # public site. Stripping every "<" is unbypassable (a single-pass
+        # regex strip reconstructs </style> from "</sty</stylele>") and
+        # valid CSS never needs one — so no tag can open or close.
         "custom_css" =>
           case presence(params["custom_css"]) do
             nil -> nil
-            css -> css |> String.replace(~r/<\/?style/i, "") |> String.slice(0, 4_000)
+            css -> css |> String.replace("<", "") |> String.slice(0, 4_000)
           end
       }
       |> Enum.reject(fn {_key, value} -> value == nil end)

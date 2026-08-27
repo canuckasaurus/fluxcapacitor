@@ -104,8 +104,9 @@ defmodule Flux.Audit do
         ]
       end)
 
-    [["when", "actor", "action", "resource_type", "resource_id", "metadata"] | rows]
-    |> Enum.map_join("\r\n", fn row -> Enum.map_join(row, ",", &csv_cell/1) end)
+    Flux.CSV.encode([
+      ["when", "actor", "action", "resource_type", "resource_id", "metadata"] | rows
+    ])
   end
 
   defp bounded(query, from, to) do
@@ -116,16 +117,6 @@ defmodule Flux.Audit do
     |> then(fn q ->
       (to && where(q, [e], e.inserted_at <= ^DateTime.new!(to, ~T[23:59:59]))) || q
     end)
-  end
-
-  defp csv_cell(value) do
-    text = to_string(value)
-
-    if String.contains?(text, [",", "\"", "\n"]) do
-      "\"" <> String.replace(text, "\"", "\"\"") <> "\""
-    else
-      text
-    end
   end
 
   defp resource_ref(opts) do

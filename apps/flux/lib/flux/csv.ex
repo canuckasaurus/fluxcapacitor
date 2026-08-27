@@ -44,10 +44,18 @@ defmodule Flux.CSV do
     end) <> "\r\n"
   end
 
-  defp encode_field(nil), do: ""
+  @doc """
+  Escapes one value as a CSV field: RFC-4180 quoting plus a
+  **formula-injection guard** — a value that starts with a spreadsheet
+  formula trigger (`= + - @`, tab, or CR) is prefixed with a single
+  quote so Excel/Sheets treat it as text, not code. Visitor-controlled
+  strings (chat messages, conversation titles) land in operator CSV
+  exports, so this is the single choke point every builder must use.
+  """
+  def encode_field(nil), do: ""
 
-  defp encode_field(value) do
-    text = to_string(value)
+  def encode_field(value) do
+    text = value |> to_string() |> guard_formula()
 
     if String.contains?(text, [",", "\"", "\n", "\r"]) do
       "\"" <> String.replace(text, "\"", "\"\"") <> "\""
@@ -55,6 +63,14 @@ defmodule Flux.CSV do
       text
     end
   end
+
+  @formula_triggers ["=", "+", "-", "@", "\t", "\r"]
+
+  defp guard_formula(<<first::utf8, _rest::binary>> = text)
+       when <<first::utf8>> in @formula_triggers,
+       do: "'" <> text
+
+  defp guard_formula(text), do: text
 
   defp pad(row, size) when length(row) >= size, do: Enum.take(row, size)
   defp pad(row, size), do: row ++ List.duplicate("", size - length(row))

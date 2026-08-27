@@ -1476,10 +1476,13 @@ defmodule FluxWeb.ConsoleLive.FluxEditor do
         "accent" => params["accent"],
         "title" => params["title"],
         "logo_url" => params["logo_url"],
+        # Raw-rendered on the public site; strip every "<" so no tag can
+        # open or close (a regex </style> strip is bypassable by
+        # reconstruction; valid CSS never needs a "<").
         "custom_css" =>
           params["custom_css"]
           |> to_string()
-          |> String.replace(~r/<\/?style/i, "")
+          |> String.replace("<", "")
           |> String.slice(0, 4_000)
       }
       |> Enum.map(fn {key, value} -> {key, String.trim(to_string(value))} end)

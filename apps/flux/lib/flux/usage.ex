@@ -463,13 +463,12 @@ defmodule Flux.Usage do
   def flux_costs_csv(%Scope{} = scope, days \\ 30) do
     rows =
       for row <- flux_costs(scope, days) do
-        Enum.join(
-          [row.name, row.runs, row.tokens, :erlang.float_to_binary(row.cost * 1.0, decimals: 6)],
-          ","
-        )
+        [row.name, row.runs, row.tokens, :erlang.float_to_binary(row.cost * 1.0, decimals: 6)]
       end
 
-    Enum.join(["flux,runs,tokens,estimated_cost_usd" | rows], "\n") <> "\n"
+    # Through Flux.CSV so field quoting AND the formula-injection guard
+    # apply — a flux/app name is operator-chosen but still untrusted.
+    Flux.CSV.encode([["flux", "runs", "tokens", "estimated_cost_usd"] | rows])
   end
 
   defp token_totals(scope, since) do
