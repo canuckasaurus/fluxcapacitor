@@ -174,7 +174,9 @@ defmodule Flux.Webhooks do
 
     payload = Map.put(payload, "event", event)
 
-    for endpoint <- endpoints, event in endpoint.events or "*" in endpoint.events do
+    for endpoint <- endpoints,
+        event in endpoint.events or "*" in endpoint.events,
+        app_match?(endpoint, payload) do
       delivery =
         Repo.insert!(%Delivery{
           workspace_id: endpoint.workspace_id,
@@ -197,6 +199,12 @@ defmodule Flux.Webhooks do
 
     :ok
   end
+
+  # An app-bound endpoint receives only that app's events; events that
+  # carry no app_id (runs, evals, notifications…) skip it entirely.
+  defp app_match?(%Endpoint{app_id: nil}, _payload), do: true
+  defp app_match?(%Endpoint{app_id: app_id}, %{"app_id" => app_id}), do: true
+  defp app_match?(_endpoint, _payload), do: false
 
   @doc "Recent deliveries, newest first — the delivery log in settings."
   def list_deliveries(%Scope{} = scope, limit \\ 50) do

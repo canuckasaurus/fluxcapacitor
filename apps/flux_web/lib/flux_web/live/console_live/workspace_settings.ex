@@ -51,6 +51,7 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
        console_ip: Accounts.console_ip_allowlist?(scope),
        mail_branding: Accounts.mail_branding(scope),
        can_webhooks: RBAC.can?(scope, :api_extension_manage),
+       workspace_apps: Chat.list_apps(scope),
        webhooks: Flux.Webhooks.list_endpoints(scope),
        webhook_deliveries: Flux.Webhooks.list_deliveries(scope, 25),
        can_api_keys: RBAC.can?(scope, :app_create_and_management),
@@ -730,7 +731,8 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
     attrs = %{
       "url" => params["url"],
       "events" => Map.get(params, "events", []),
-      "format" => Map.get(params, "format", "json")
+      "format" => Map.get(params, "format", "json"),
+      "app_id" => (params["app_id"] != "" && params["app_id"]) || nil
     }
 
     case Flux.Webhooks.create_endpoint(socket.assigns.current_scope, attrs) do
@@ -1430,7 +1432,18 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
             <tr :for={webhook <- @webhooks} id={"webhook-#{webhook.id}"}>
               <td class="max-w-xs truncate">{webhook.url}</td>
 
-              <td class="text-xs">{Enum.join(webhook.events, ", ")}</td>
+              <td class="text-xs">
+                {Enum.join(webhook.events, ", ")}
+                <span
+                  :if={webhook.app_id}
+                  class="badge badge-info badge-xs ml-1"
+                  title="Only this app's chat events deliver here"
+                >
+                  {Enum.find_value(@workspace_apps, "one app", fn app ->
+                    app.id == webhook.app_id && app.name
+                  end)}
+                </span>
+              </td>
 
               <td class="font-mono text-xs select-all">{webhook.secret}</td>
 
@@ -1484,6 +1497,14 @@ defmodule FluxWeb.ConsoleLive.WorkspaceSettings do
               placeholder="https://hooks.example.com/flux"
               class="input input-bordered input-sm w-full max-w-md"
             />
+            <select
+              name="app_id"
+              class="select select-bordered select-sm w-44"
+              title="Bound to one app, only that app's chat events deliver here (non-app events skip it)"
+            >
+              <option value="">All apps</option>
+              <option :for={app <- @workspace_apps} value={app.id}>{app.name} only</option>
+            </select>
             <select
               name="format"
               class="select select-bordered select-sm w-28"

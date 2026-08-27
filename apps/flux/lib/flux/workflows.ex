@@ -426,6 +426,43 @@ defmodule Flux.Workflows do
   defp validate_pin(_scope, _workflow, _version), do: {:error, :version_not_found}
 
   @doc """
+  Recent per-run averages for the batch cost preview: mean tokens and
+  estimated USD over the flux's last `sample` completed runs. Zero
+  sample means "nothing to estimate from" — say so instead of lying
+  with zeros.
+  """
+  def run_averages(%Scope{} = scope, workflow_id, sample \\ 50) do
+    rows =
+      WorkflowRun
+      |> Repo.scoped(scope)
+      |> where([r], r.workflow_id == ^workflow_id and r.status == :succeeded)
+      |> where([r], not is_nil(r.usage))
+      |> order_by([r], desc: r.inserted_at)
+      |> limit(^sample)
+      |> select([r], r.usage)
+      |> Repo.all()
+
+    case rows do
+      [] ->
+        %{sample: 0, avg_tokens: 0, avg_cost: 0.0}
+
+      usages ->
+        tokens =
+          Enum.map(usages, fn usage ->
+            (usage["input_tokens"] || 0) + (usage["output_tokens"] || 0)
+          end)
+
+        costs = Enum.map(usages, fn usage -> usage["estimated_cost_usd"] || 0.0 end)
+
+        %{
+          sample: length(usages),
+          avg_tokens: div(Enum.sum(tokens), length(usages)),
+          avg_cost: Enum.sum(costs) / length(usages)
+        }
+    end
+  end
+
+  @doc """
   Everything waiting on a human, for the pending-work inbox: paused
   runs with their flux names and whatever the pause is asking
   (human-input prompt, interview questions, tool approval), oldest
@@ -2242,7 +2279,10 @@ defmodule Flux.Workflows do
   published/draft graph from the paused node in a supervised task.
   """
   def resume_run(%Scope{} = scope, run_id, input) do
-    with %WorkflowRun{status: :paused, snapshot: %{} = snapshot} = run <-
+    with :ok <-
+           (Flux.Accounts.workspace_suspended?(Scope.workspace_id(scope)) &&
+              {:error, :workspace_suspended}) || :ok,
+         %WorkflowRun{status: :paused, snapshot: %{} = snapshot} = run <-
            Repo.one(Repo.scoped(where(WorkflowRun, id: ^run_id), scope)) ||
              {:error, :not_found},
          %Workflow{} = workflow <-

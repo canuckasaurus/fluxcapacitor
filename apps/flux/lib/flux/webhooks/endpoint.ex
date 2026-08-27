@@ -12,6 +12,8 @@ defmodule Flux.Webhooks.Endpoint do
 
   schema "webhook_endpoints" do
     belongs_to :workspace, Flux.Accounts.Workspace
+    # Optional app binding: only that app's events deliver here.
+    belongs_to :app, Flux.Chat.App
 
     field :url, :string
     field :secret, :string, redact: true
@@ -29,7 +31,7 @@ defmodule Flux.Webhooks.Endpoint do
 
   def changeset(endpoint, attrs) do
     endpoint
-    |> cast(attrs, [:url, :events, :enabled, :format])
+    |> cast(attrs, [:url, :events, :enabled, :format, :app_id])
     |> validate_inclusion(:format, ["json", "slack"])
     |> validate_required([:url])
     |> validate_length(:url, max: 2048)

@@ -28,7 +28,8 @@ defmodule FluxWeb.ConsoleLive.FluxBatches do
            labeling_projects: Flux.Labeling.list_projects(scope),
            datasets: Flux.RAG.list_datasets(scope),
            selected_labeling_project:
-             scope |> Flux.Labeling.list_projects() |> List.first() |> then(&(&1 && &1.id))
+             scope |> Flux.Labeling.list_projects() |> List.first() |> then(&(&1 && &1.id)),
+           pending_batch: nil
          )
          |> allow_upload(:csv, accept: ~w(.csv .txt), max_entries: 1, max_file_size: 2_000_000)}
 
@@ -62,6 +63,9 @@ defmodule FluxWeb.ConsoleLive.FluxBatches do
     end
   end
 
+  # Step one: parse the CSV and show the confirm panel with a cost
+  # projection — batches are the easiest way to spend real money by
+  # accident, so the launch gets a deliberate second click.
   def handle_event("run_batch", params, socket) do
     scope = socket.assigns.current_scope
     workflow = socket.assigns.workflow
@@ -84,17 +88,17 @@ defmodule FluxWeb.ConsoleLive.FluxBatches do
       end
 
     with [{filename, text}] <- uploads,
-         {:ok, rows} <- Flux.CSV.parse_with_header(text),
-         {:ok, _batch} <-
-           Workflows.start_batch(scope, workflow, rows,
-             name: filename,
-             version: version,
-             concurrency: concurrency
-           ) do
+         {:ok, rows} <- Flux.CSV.parse_with_header(text) do
       {:noreply,
-       socket
-       |> put_flash(:info, "Batch started — #{length(rows)} rows.")
-       |> assign(batches: Workflows.list_batches(scope, workflow.id))}
+       assign(socket,
+         pending_batch: %{
+           filename: filename,
+           rows: rows,
+           version: version,
+           concurrency: concurrency,
+           averages: Workflows.run_averages(scope, workflow.id)
+         }
+       )}
     else
       [] ->
         {:noreply, put_flash(socket, :error, "Choose a CSV file first.")}
@@ -108,12 +112,50 @@ defmodule FluxWeb.ConsoleLive.FluxBatches do
 
       {:error, {:too_many_rows, max}} ->
         {:noreply, put_flash(socket, :error, "Batches cap at #{max} rows — split the file.")}
+    end
+  end
+
+  def handle_event("cancel_pending_batch", _params, socket) do
+    {:noreply, assign(socket, pending_batch: nil)}
+  end
+
+  def handle_event("confirm_batch", _params, socket) do
+    scope = socket.assigns.current_scope
+    workflow = socket.assigns.workflow
+    pending = socket.assigns.pending_batch
+
+    with %{} <- pending || {:error, :nothing_pending},
+         {:ok, _batch} <-
+           Workflows.start_batch(scope, workflow, pending.rows,
+             name: pending.filename,
+             version: pending.version,
+             concurrency: pending.concurrency
+           ) do
+      {:noreply,
+       socket
+       |> put_flash(:info, "Batch started — #{length(pending.rows)} rows.")
+       |> assign(pending_batch: nil, batches: Workflows.list_batches(scope, workflow.id))}
+    else
+      {:error, :nothing_pending} ->
+        {:noreply, socket}
 
       {:error, {:invalid_graph, [error | _rest]}} ->
-        {:noreply, put_flash(socket, :error, "The target graph is invalid: #{error}")}
+        {:noreply,
+         socket
+         |> put_flash(:error, "The target graph is invalid: #{error}")
+         |> assign(pending_batch: nil)}
 
       {:error, :version_not_found} ->
-        {:noreply, put_flash(socket, :error, "That published version no longer exists.")}
+        {:noreply,
+         socket
+         |> put_flash(:error, "That published version no longer exists.")
+         |> assign(pending_batch: nil)}
+
+      _error ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "Could not start the batch.")
+         |> assign(pending_batch: nil)}
     end
   end
 
@@ -218,6 +260,10 @@ defmodule FluxWeb.ConsoleLive.FluxBatches do
      )}
   end
 
+  defp format_tokens(n) when n >= 1_000_000, do: "#{Float.round(n / 1_000_000, 1)}M"
+  defp format_tokens(n) when n >= 1_000, do: "#{Float.round(n / 1_000, 1)}k"
+  defp format_tokens(n), do: "#{n}"
+
   defp start_variables(workflow) do
     workflow.graph["nodes"]
     |> List.wrap()
@@ -285,6 +331,44 @@ defmodule FluxWeb.ConsoleLive.FluxBatches do
         <p :for={err <- upload_errors(@uploads.csv)} class="text-sm text-error">
           {inspect(err)}
         </p>
+
+        <div
+          :if={@pending_batch}
+          class="rounded-box border border-warning/40 bg-warning/10 p-4 space-y-2"
+          id="batch-confirm"
+        >
+          <p class="text-sm font-semibold">
+            Ready: {@pending_batch.filename} — {length(@pending_batch.rows)} rows
+            <span :if={@pending_batch.version}>against v{@pending_batch.version}</span>
+            <span :if={@pending_batch.concurrency > 1}>
+              · {@pending_batch.concurrency} parallel
+            </span>
+          </p>
+          <p :if={@pending_batch.averages.sample > 0} class="text-sm" id="batch-projection">
+            Projected from the last {@pending_batch.averages.sample} run(s):
+            ≈
+            <span class="font-mono">
+              {format_tokens(length(@pending_batch.rows) * @pending_batch.averages.avg_tokens)}
+            </span>
+            tokens
+            <span :if={@pending_batch.averages.avg_cost > 0}>
+              · ~${:erlang.float_to_binary(
+                length(@pending_batch.rows) * @pending_batch.averages.avg_cost,
+                decimals: 2
+              )} estimated
+            </span>
+            ({format_tokens(@pending_batch.averages.avg_tokens)} tokens/row average)
+          </p>
+          <p :if={@pending_batch.averages.sample == 0} class="text-sm opacity-70">
+            No completed runs to estimate from — the first rows will set the baseline.
+          </p>
+          <div class="flex gap-2">
+            <button class="btn btn-primary btn-sm" phx-click="confirm_batch" id="confirm-batch">
+              Start the batch
+            </button>
+            <button class="btn btn-ghost btn-sm" phx-click="cancel_pending_batch">Cancel</button>
+          </div>
+        </div>
       </div>
 
       <div class="card border border-base-200 p-6 space-y-3" id="batch-list-card">
