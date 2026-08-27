@@ -101,7 +101,9 @@ defmodule Flux.MCP.Client do
         json: payload,
         headers: Map.to_list(request_headers),
         receive_timeout: @receive_timeout,
-        retry: false
+        retry: false,
+        # user-registered MCP server URL: verified below, no redirects.
+        redirect: false
       ]
       |> Keyword.merge(Application.get_env(:flux, :mcp_req_options, []))
 

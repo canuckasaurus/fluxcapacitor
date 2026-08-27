@@ -30,7 +30,13 @@ defmodule Flux.Plugins.SSE do
   their options through this and guard with `Flux.SSRF.verify_url/1`.
   """
   def req_options(opts) do
-    Keyword.merge(opts, Application.get_env(:flux_plugin_runtime, :req_options, []))
+    # redirect: false by default — every caller here targets a
+    # workspace-configured base_url that was SSRF-verified, and a 302 to
+    # an internal address would defeat that guard. The test req_options
+    # override still wins via Keyword.merge.
+    [redirect: false]
+    |> Keyword.merge(opts)
+    |> Keyword.merge(Application.get_env(:flux_plugin_runtime, :req_options, []))
   end
 
   defp do_stream_request(req_opts, acc, handle_data) do

@@ -44,11 +44,20 @@ defmodule Flux.WebPush do
         "keys" => %{"p256dh" => p256dh, "auth" => auth}
       })
       when is_binary(endpoint) and is_binary(p256dh) and is_binary(auth) do
-    %Subscription{account_id: account.id, endpoint: endpoint, p256dh: p256dh, auth: auth}
-    |> Repo.insert(
-      on_conflict: {:replace, [:p256dh, :auth]},
-      conflict_target: [:account_id, :endpoint]
-    )
+    # The endpoint is browser-supplied and the server later POSTs to it,
+    # so SSRF-guard it at store time — an internal address never becomes
+    # a stored subscription.
+    case Flux.SSRF.verify_url(endpoint) do
+      :ok ->
+        %Subscription{account_id: account.id, endpoint: endpoint, p256dh: p256dh, auth: auth}
+        |> Repo.insert(
+          on_conflict: {:replace, [:p256dh, :auth]},
+          conflict_target: [:account_id, :endpoint]
+        )
+
+      {:error, _reason} ->
+        {:error, :invalid_subscription}
+    end
   end
 
   def subscribe(_account, _params), do: {:error, :invalid_subscription}
@@ -121,14 +130,26 @@ defmodule Flux.WebPush do
       {"urgency", "normal"}
     ]
 
+    # Re-verify at send time (endpoints could predate the store-time
+    # guard) and never follow a redirect — a 302 to an internal address
+    # would defeat the check.
     options =
-      [url: subscription.endpoint, headers: headers, body: body, retry: false] ++
-        Application.get_env(:flux, :webpush_req_options, [])
+      [
+        url: subscription.endpoint,
+        headers: headers,
+        body: body,
+        retry: false,
+        redirect: false
+      ] ++ Application.get_env(:flux, :webpush_req_options, [])
 
-    case Req.post(options) do
-      {:ok, %Req.Response{status: status}} when status in 200..299 -> :ok
-      {:ok, %Req.Response{status: status}} when status in [404, 410] -> {:error, :gone}
-      {:ok, %Req.Response{status: status}} -> {:error, {:status, status}}
+    with :ok <- Flux.SSRF.verify_url(subscription.endpoint),
+         {:ok, %Req.Response{} = response} <- Req.post(options) do
+      case response.status do
+        s when s in 200..299 -> :ok
+        s when s in [404, 410] -> {:error, :gone}
+        s -> {:error, {:status, s}}
+      end
+    else
       {:error, reason} -> {:error, reason}
     end
   end

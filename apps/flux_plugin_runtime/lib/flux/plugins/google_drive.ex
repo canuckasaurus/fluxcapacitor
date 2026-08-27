@@ -193,13 +193,17 @@ defmodule Flux.Plugins.GoogleDrive do
          {:ok, assertion} <- build_assertion(account) do
       options =
         SSE.req_options(
-          url: account["token_uri"] || "https://oauth2.googleapis.com/token",
+          # Pinned to Google's token endpoint, not account["token_uri"]:
+          # the service-account JSON is user-pasted, so honoring its
+          # token_uri would send the signed JWT assertion to any host.
+          url: "https://oauth2.googleapis.com/token",
           form: [
             grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
             assertion: assertion
           ],
           max_retries: 1,
-          receive_timeout: 30_000
+          receive_timeout: 30_000,
+          redirect: false
         )
 
       case Req.post(options) do

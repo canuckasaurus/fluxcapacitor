@@ -20,7 +20,10 @@ defmodule Flux.ExAwsHttpClient do
              url: url,
              headers: headers,
              decode_body: false,
-             retry: false
+             retry: false,
+             # S3-plugin endpoints are SSRF-verified once (s3.ex) but
+             # ExAws re-issues per request; never follow a redirect.
+             redirect: false
            ] ++ body_opts ++ opts
          ) do
       {:ok, %Req.Response{status: status, headers: resp_headers, body: resp_body}} ->

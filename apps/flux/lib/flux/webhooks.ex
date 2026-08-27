@@ -59,6 +59,7 @@ defmodule Flux.Webhooks do
                  {"x-flux-signature", signature}
                ],
                retry: false,
+               redirect: false,
                receive_timeout: 10_000
              ] ++ Application.get_env(:flux, :alert_req_options, [])
            ) do

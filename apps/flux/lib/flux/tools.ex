@@ -67,7 +67,7 @@ defmodule Flux.Tools do
   defp fetch_spec(url) do
     with :ok <- Flux.SSRF.verify_url(url),
          {:ok, %{status: 200, body: body}} <-
-           Req.get(url: url, decode_body: false, retry: false, max_redirects: 2),
+           Req.get(url: url, decode_body: false, retry: false, redirect: false),
          body = to_string(body),
          :ok <-
            (byte_size(body) <= @max_spec_bytes && :ok) ||
@@ -465,7 +465,10 @@ defmodule Flux.Tools do
         params: query,
         headers: headers,
         receive_timeout: @receive_timeout,
-        retry: false
+        retry: false,
+        # The base_url came from a user-supplied spec and was
+        # SSRF-verified; don't let a 302 bounce it internal.
+        redirect: false
       ]
       |> then(fn options -> if body == %{}, do: options, else: options ++ [json: body] end)
       |> Keyword.merge(Application.get_env(:flux, :tools_req_options, []))

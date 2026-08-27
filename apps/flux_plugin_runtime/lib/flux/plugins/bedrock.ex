@@ -186,6 +186,11 @@ defmodule Flux.Plugins.Bedrock do
       to_string(credentials["region"] || "") == "" ->
         {:error, "Region is required."}
 
+      not Regex.match?(~r/\A[a-z]{2}(-[a-z]+)+-\d\z/, region(credentials)) ->
+        # The region is interpolated straight into the Bedrock host, so
+        # an unvalidated value ("0@169.254.169.254/") is an SSRF sink.
+        {:error, "Region must look like us-east-1."}
+
       true ->
         :ok
     end

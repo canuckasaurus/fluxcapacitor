@@ -17,12 +17,22 @@ defmodule Flux.Workflows.AlertWorker do
           _json -> Jason.encode!(payload)
         end
 
+      # A stable idempotency key (the delivery id) lets receivers dedupe
+      # a redelivery — this worker retries up to 5×, and a receiver that
+      # acts then returns 500 would otherwise process the alert twice.
+      idempotency =
+        case args["delivery_id"] do
+          id when is_binary(id) -> [{"x-flux-idempotency-key", id}]
+          _none -> []
+        end
+
       headers =
-        [{"content-type", "application/json"}] ++ signature_headers(args["secret"], body)
+        [{"content-type", "application/json"}] ++
+          idempotency ++ signature_headers(args["secret"], body)
 
       result =
         Req.post(
-          [url: url, body: body, headers: headers, receive_timeout: 10_000] ++
+          [url: url, body: body, headers: headers, receive_timeout: 10_000, redirect: false] ++
             Application.get_env(:flux, :alert_req_options, [])
         )
 
