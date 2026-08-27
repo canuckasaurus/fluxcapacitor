@@ -68,8 +68,15 @@ defmodule FluxWeb.FluxBatchesLiveTest do
       ])
 
     render_upload(upload, "cases.csv")
-    html = lv |> form("#batch-upload-form") |> render_submit()
 
+    # Submitting parses the CSV and shows the confirm step (with the
+    # cost projection) — nothing runs yet.
+    html = lv |> form("#batch-upload-form") |> render_submit()
+    assert html =~ "batch-confirm"
+    assert html =~ "2 rows"
+    assert Workflows.list_batches(scope, workflow.id) == []
+
+    html = lv |> element("#confirm-batch") |> render_click()
     assert html =~ "Batch started — 2 rows."
     assert html =~ "cases.csv"
 
