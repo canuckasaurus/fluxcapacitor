@@ -55,7 +55,7 @@ defmodule FluxWeb.V1.AppResourceController do
     })
   end
 
-  def messages(conn, %{"conversation_id" => conversation_id}) do
+  def messages(conn, %{"conversation_id" => conversation_id} = params) do
     scope = conn.assigns.service_scope
 
     case Chat.get_conversation(scope, conversation_id) do
@@ -64,7 +64,8 @@ defmodule FluxWeb.V1.AppResourceController do
 
       conversation ->
         if conversation.app_id == conn.assigns.service_app.id do
-          messages = Chat.list_messages(scope, conversation.id)
+          messages =
+            Chat.list_messages(scope, conversation.id, limit: parse_limit(params["limit"]))
 
           json(conn, %{
             data:
@@ -109,9 +110,15 @@ defmodule FluxWeb.V1.AppResourceController do
   end
 
   def stop(conn, %{"id" => message_id}) do
-    case Chat.stop_generation(conn.assigns.service_scope, message_id) do
-      {:ok, _message} -> json(conn, %{result: "success"})
+    scope = conn.assigns.service_scope
+
+    with %Flux.Chat.Message{} = message <- Chat.get_message(scope, message_id),
+         true <- message_in_app?(scope, message, conn.assigns.service_app),
+         {:ok, _message} <- Chat.stop_generation(scope, message_id) do
+      json(conn, %{result: "success"})
+    else
       {:error, :not_streaming} -> error(conn, 400, "not_streaming", "Nothing to stop")
+      _not_found -> error(conn, 404, "not_found", "Message not found")
     end
   end
 
@@ -124,10 +131,19 @@ defmodule FluxWeb.V1.AppResourceController do
       end
 
     case Chat.set_feedback(conn.assigns.service_scope, message_id, rating,
-           comment: params["content"]
+           comment: params["content"],
+           app_id: conn.assigns.service_app.id
          ) do
       {:ok, _message} -> json(conn, %{result: "success"})
       {:error, :not_found} -> error(conn, 404, "not_found", "Message not found")
+    end
+  end
+
+  # A message reached through an app token must belong to that app.
+  defp message_in_app?(scope, message, app) do
+    case Chat.get_conversation(scope, message.conversation_id) do
+      %{app_id: app_id} -> app != nil and app_id == app.id
+      _missing -> false
     end
   end
 
@@ -137,25 +153,46 @@ defmodule FluxWeb.V1.AppResourceController do
 
   def rename_conversation(conn, %{"id" => id} = params) do
     name = to_string(params["name"] || "")
+    scope = conn.assigns.service_scope
 
-    with true <- name != "",
-         {:ok, conversation} <-
-           Chat.rename_conversation(conn.assigns.service_scope, id, name) do
-      json(conn, %{
-        id: conversation.id,
-        name: conversation.title,
-        created_at: DateTime.to_unix(conversation.inserted_at)
-      })
-    else
-      false -> error(conn, 400, "invalid_param", "name is required")
-      {:error, :not_found} -> error(conn, 404, "not_found", "Conversation not found")
+    cond do
+      name == "" ->
+        error(conn, 400, "invalid_param", "name is required")
+
+      not conversation_in_app?(scope, id, conn.assigns.service_app) ->
+        error(conn, 404, "not_found", "Conversation not found")
+
+      true ->
+        case Chat.rename_conversation(scope, id, name) do
+          {:ok, conversation} ->
+            json(conn, %{
+              id: conversation.id,
+              name: conversation.title,
+              created_at: DateTime.to_unix(conversation.inserted_at)
+            })
+
+          _error ->
+            error(conn, 404, "not_found", "Conversation not found")
+        end
     end
   end
 
   def delete_conversation(conn, %{"id" => id}) do
-    case Chat.delete_conversation(conn.assigns.service_scope, id) do
-      {:ok, _conversation} -> json(conn, %{result: "success"})
-      {:error, :not_found} -> error(conn, 404, "not_found", "Conversation not found")
+    scope = conn.assigns.service_scope
+
+    with true <- conversation_in_app?(scope, id, conn.assigns.service_app),
+         {:ok, _conversation} <- Chat.delete_conversation(scope, id) do
+      json(conn, %{result: "success"})
+    else
+      _not_found -> error(conn, 404, "not_found", "Conversation not found")
+    end
+  end
+
+  # A conversation reached through an app token must belong to that app.
+  defp conversation_in_app?(scope, conversation_id, app) do
+    case Chat.get_conversation(scope, conversation_id) do
+      %{app_id: app_id} -> app != nil and app_id == app.id
+      _missing -> false
     end
   end
 

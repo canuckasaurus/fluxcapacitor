@@ -274,8 +274,7 @@ defmodule FluxWeb.V1.DatasetController do
   defp fetch_dataset_document(scope, dataset_id, document_id) do
     with dataset when not is_tuple(dataset) <- RAG.get_dataset(scope, dataset_id),
          %{} = document <-
-           Enum.find(RAG.list_documents(scope, dataset.id), &(&1.id == document_id)) ||
-             {:error, :not_found} do
+           RAG.get_document(scope, dataset.id, document_id) || {:error, :not_found} do
       {:ok, document}
     end
   end

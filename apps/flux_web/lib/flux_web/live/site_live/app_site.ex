@@ -126,6 +126,11 @@ defmodule FluxWeb.SiteLive.AppSite do
   defp csat_star(%{csat_score: rated}, score) when is_integer(rated) and score <= rated, do: "★"
   defp csat_star(_conversation, _score), do: "☆"
 
+  # Render-time backstop for owner CSS: strip every "<" so no tag can
+  # break out of the <style> block, regardless of what got stored
+  # (legacy rows predate the save-time strip).
+  defp safe_css(css), do: String.replace(to_string(css), "<", "")
+
   defp resume_conversation(%App{mode: mode} = app, scope, end_user_ref)
        when mode in [:chat, :advanced_chat] do
     case Chat.latest_conversation(scope, app.id, end_user_ref) do
@@ -306,7 +311,9 @@ defmodule FluxWeb.SiteLive.AppSite do
     current = Enum.find(socket.assigns.messages, &(&1.id == message_id))
     new_rating = if current && current.feedback == rating, do: nil, else: rating
 
-    case Chat.set_feedback(scope, message_id, new_rating) do
+    # :app_id confines the write to this site's app — a visitor can't
+    # rate a message belonging to another app in the same workspace.
+    case Chat.set_feedback(scope, message_id, new_rating, app_id: socket.assigns.app.id) do
       {:ok, updated} ->
         messages =
           Enum.map(socket.assigns.messages, fn message ->
@@ -589,7 +596,7 @@ defmodule FluxWeb.SiteLive.AppSite do
   def render(assigns) do
     ~H"""
     <style :if={@app.site_theme["custom_css"]}>
-      <%= raw(@app.site_theme["custom_css"]) %>
+      <%= raw(safe_css(@app.site_theme["custom_css"])) %>
     </style>
     <style :if={valid_accent(@app.site_theme["accent"])}>
       .btn-primary, .chat-bubble-primary {

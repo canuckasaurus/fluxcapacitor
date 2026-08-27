@@ -223,7 +223,13 @@ defmodule Flux.Chat do
   def embed_frame_ancestors("site_" <> _rest = token) do
     case Repo.get_by(App, [site_token: token], skip_workspace_guard: true) do
       %App{embed_origins: origins} when is_binary(origins) ->
-        case String.split(origins, ~r/\s+/, trim: true) do
+        # This list is joined into the site's `frame-ancestors` CSP
+        # header, so each token MUST be a bare origin — anything with a
+        # ";" (or other CSP-breaking chars) would inject a whole new
+        # directive. Malformed tokens are dropped, not passed through.
+        case origins
+             |> String.split(~r/\s+/, trim: true)
+             |> Enum.filter(&valid_frame_origin?/1) do
           [] -> nil
           list -> list
         end
@@ -234,6 +240,9 @@ defmodule Flux.Chat do
   end
 
   def embed_frame_ancestors(_other), do: nil
+
+  @frame_origin ~r{^(\*|'self'|'none'|https?://[A-Za-z0-9.\-*]+(:\d+)?)$}
+  defp valid_frame_origin?(origin), do: Regex.match?(@frame_origin, origin)
 
   @business_days ~w(mon tue wed thu fri sat sun)
 
@@ -363,12 +372,14 @@ defmodule Flux.Chat do
       |> Enum.uniq()
       |> Enum.take(10)
 
-    case get_conversation(scope, conversation_id) do
-      %Conversation{} = conversation ->
-        conversation |> Ecto.Changeset.change(labels: labels) |> Repo.update()
+    with :ok <- RBAC.authorize(scope, :app_monitor) do
+      case get_conversation(scope, conversation_id) do
+        %Conversation{} = conversation ->
+          conversation |> Ecto.Changeset.change(labels: labels) |> Repo.update()
 
-      error ->
-        error
+        error ->
+          error
+      end
     end
   end
 
@@ -490,7 +501,8 @@ defmodule Flux.Chat do
 
   def human_reply(%Scope{} = scope, conversation_id, content, opts)
       when is_binary(content) and content != "" do
-    with %Conversation{} = conversation <- get_conversation(scope, conversation_id) do
+    with :ok <- RBAC.authorize(scope, :app_monitor),
+         %Conversation{} = conversation <- get_conversation(scope, conversation_id) do
       maybe_mail_away_visitor(conversation, content)
 
       message =
@@ -1329,28 +1341,49 @@ defmodule Flux.Chat do
         {:error, :not_found}
 
       message ->
-        comment =
-          case {rating, Keyword.get(opts, :comment)} do
-            {nil, _cleared} -> nil
-            {_rating, text} when is_binary(text) -> presence_slice(text, 1_000)
-            {_rating, _unchanged} -> message.feedback_comment
-          end
-
-        with {:ok, updated} <-
-               message
-               |> Ecto.Changeset.change(feedback: rating, feedback_comment: comment)
-               |> Repo.update() do
-          if rating != nil do
-            Flux.Webhooks.dispatch(updated.workspace_id, "feedback.created", %{
-              "message_id" => updated.id,
-              "conversation_id" => updated.conversation_id,
-              "feedback" => to_string(rating),
-              "comment" => updated.feedback_comment
-            })
-          end
-
-          {:ok, updated}
+        # App-scoped callers (site visitor, app token) pass :app_id so a
+        # shared workspace can't be used to reach another app's messages.
+        if app_scoped_ok?(message, Keyword.get(opts, :app_id)) do
+          do_set_feedback(message, rating, opts)
+        else
+          {:error, :not_found}
         end
+    end
+  end
+
+  # No app id → workspace-scoped caller (console), already fine. With
+  # one, the message's conversation must belong to that app.
+  defp app_scoped_ok?(_message, nil), do: true
+
+  defp app_scoped_ok?(message, app_id) do
+    case Repo.get(Conversation, message.conversation_id, skip_workspace_guard: true) do
+      %Conversation{app_id: ^app_id} -> true
+      _other -> false
+    end
+  end
+
+  defp do_set_feedback(message, rating, opts) do
+    comment =
+      case {rating, Keyword.get(opts, :comment)} do
+        {nil, _cleared} -> nil
+        {_rating, text} when is_binary(text) -> presence_slice(text, 1_000)
+        {_rating, _unchanged} -> message.feedback_comment
+      end
+
+    with {:ok, updated} <-
+           message
+           |> Ecto.Changeset.change(feedback: rating, feedback_comment: comment)
+           |> Repo.update() do
+      if rating != nil do
+        Flux.Webhooks.dispatch(updated.workspace_id, "feedback.created", %{
+          "message_id" => updated.id,
+          "conversation_id" => updated.conversation_id,
+          "feedback" => to_string(rating),
+          "comment" => updated.feedback_comment
+        })
+      end
+
+      {:ok, updated}
     end
   end
 
@@ -1456,12 +1489,29 @@ defmodule Flux.Chat do
     end
   end
 
-  def list_messages(%Scope{} = scope, conversation_id) do
-    Message
-    |> Repo.scoped(scope)
-    |> where([m], m.conversation_id == ^conversation_id)
-    |> order_by([m], asc: m.seq)
-    |> Repo.all()
+  @doc """
+  A conversation's messages in order. `:limit` (default nil = all, for
+  console history) returns the most recent N; API callers pass a clamp
+  so a long conversation can't return an unbounded payload.
+  """
+  def list_messages(%Scope{} = scope, conversation_id, opts \\ []) do
+    base =
+      Message
+      |> Repo.scoped(scope)
+      |> where([m], m.conversation_id == ^conversation_id)
+
+    case Keyword.get(opts, :limit) do
+      nil ->
+        base |> order_by([m], asc: m.seq) |> Repo.all()
+
+      limit when is_integer(limit) and limit > 0 ->
+        # Most recent `limit`, returned oldest-first for display.
+        base
+        |> order_by([m], desc: m.seq)
+        |> limit(^limit)
+        |> Repo.all()
+        |> Enum.reverse()
+    end
   end
 
   @doc """
@@ -2502,12 +2552,14 @@ defmodule Flux.Chat do
 
   @doc "Flips a message's pin. Pinned messages surface in the console strip."
   def toggle_pin_message(%Scope{} = scope, message_id) do
-    case Repo.one(Repo.scoped(where(Message, id: ^message_id), scope)) do
-      nil ->
-        {:error, :not_found}
+    with :ok <- RBAC.authorize(scope, :app_monitor) do
+      case Repo.one(Repo.scoped(where(Message, id: ^message_id), scope)) do
+        nil ->
+          {:error, :not_found}
 
-      message ->
-        message |> Ecto.Changeset.change(pinned: not message.pinned) |> Repo.update()
+        message ->
+          message |> Ecto.Changeset.change(pinned: not message.pinned) |> Repo.update()
+      end
     end
   end
 
@@ -2757,19 +2809,17 @@ defmodule Flux.Chat do
   end
 
   def revoke_api_token(%Scope{} = scope, token_id) do
-    case Repo.one(Repo.scoped(where(ApiToken, id: ^token_id), scope)) do
-      nil ->
-        {:error, :not_found}
+    with :ok <- RBAC.authorize(scope, :app_create_and_management),
+         %ApiToken{} = token <-
+           Repo.one(Repo.scoped(where(ApiToken, id: ^token_id), scope)) || {:error, :not_found} do
+      with {:ok, deleted} <- Repo.delete(token) do
+        Flux.Audit.record(scope, "api_token.revoke",
+          resource: token,
+          metadata: %{"prefix" => token.prefix}
+        )
 
-      token ->
-        with {:ok, deleted} <- Repo.delete(token) do
-          Flux.Audit.record(scope, "api_token.revoke",
-            resource: token,
-            metadata: %{"prefix" => token.prefix}
-          )
-
-          {:ok, deleted}
-        end
+        {:ok, deleted}
+      end
     end
   end
 
@@ -3802,6 +3852,35 @@ defmodule Flux.Chat do
 
     Phoenix.PubSub.broadcast(Flux.PubSub, topic(assistant_message.id), {:error, message})
     {:error, error}
+  end
+
+  @doc """
+  Reaps messages wedged at `:streaming` — a generation task that
+  crashed (or a node that restarted mid-stream) never reaches finalize,
+  leaving the row streaming forever, which disables the site composer
+  and blocks the next turn. Marks anything older than 10 minutes
+  `:error` and broadcasts so open tabs unwedge. Run each minute.
+  """
+  def reap_stuck_streams(now \\ DateTime.utc_now(:second)) do
+    cutoff = DateTime.add(now, -10, :minute)
+
+    stuck =
+      Message
+      |> where([m], m.status == :streaming and m.updated_at < ^cutoff)
+      |> Repo.all(skip_workspace_guard: true)
+
+    for message <- stuck do
+      Flux.StreamBuffers.delete(message.id)
+
+      {:ok, updated} =
+        message
+        |> Ecto.Changeset.change(status: :error, error: "generation interrupted")
+        |> Repo.update()
+
+      Phoenix.PubSub.broadcast(Flux.PubSub, topic(updated.id), {:error, updated})
+    end
+
+    :ok
   end
 
   defp finalize(message, status, content, usage, citations \\ []) do

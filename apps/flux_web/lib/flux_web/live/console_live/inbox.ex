@@ -14,6 +14,17 @@ defmodule FluxWeb.ConsoleLive.Inbox do
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
 
+    if Flux.RBAC.can?(scope, :app_monitor) do
+      mount_inbox(scope, socket)
+    else
+      {:ok,
+       socket
+       |> put_flash(:error, "You don't have permission to view the inbox.")
+       |> push_navigate(to: ~p"/console")}
+    end
+  end
+
+  defp mount_inbox(scope, socket) do
     handoff_queues =
       for app <- Chat.list_apps(scope),
           queue = Chat.handoff_queue(scope, app.id),

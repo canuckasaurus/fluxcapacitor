@@ -799,6 +799,14 @@ defmodule Flux.RAG do
     |> Repo.all()
   end
 
+  @doc "One document by id, scoped to its dataset — no whole-dataset load."
+  def get_document(%Scope{} = scope, dataset_id, document_id) do
+    Document
+    |> Repo.scoped(scope)
+    |> where([d], d.id == ^document_id and d.dataset_id == ^dataset_id)
+    |> Repo.one()
+  end
+
   @doc """
   Replaces a document's content by id and re-indexes — the API's
   update-by-text. The outgoing content is kept as a revision, same as

@@ -1048,7 +1048,8 @@ defmodule Flux.Workflows do
         {:error, {:too_many_rows, @max_batch_rows}}
 
       true ->
-        with {:ok, graph_map, target} <-
+        with :ok <- RBAC.authorize(scope, :app_test_and_run),
+             {:ok, graph_map, target} <-
                resolve_batch_target(scope, workflow, Keyword.get(opts, :version)),
              {:ok, _graph} <- validate_batch_graph(graph_map) do
           concurrency =
@@ -1929,19 +1930,17 @@ defmodule Flux.Workflows do
   end
 
   def revoke_api_token(%Scope{} = scope, token_id) do
-    case Repo.one(Repo.scoped(where(ApiToken, id: ^token_id), scope)) do
-      nil ->
-        {:error, :not_found}
+    with :ok <- RBAC.authorize(scope, :app_create_and_management),
+         %ApiToken{} = token <-
+           Repo.one(Repo.scoped(where(ApiToken, id: ^token_id), scope)) || {:error, :not_found} do
+      with {:ok, deleted} <- Repo.delete(token) do
+        Flux.Audit.record(scope, "api_token.revoke",
+          resource: token,
+          metadata: %{"prefix" => token.prefix}
+        )
 
-      token ->
-        with {:ok, deleted} <- Repo.delete(token) do
-          Flux.Audit.record(scope, "api_token.revoke",
-            resource: token,
-            metadata: %{"prefix" => token.prefix}
-          )
-
-          {:ok, deleted}
-        end
+        {:ok, deleted}
+      end
     end
   end
 
@@ -1984,7 +1983,8 @@ defmodule Flux.Workflows do
   — replay is built for draft/API/batch debugging.
   """
   def replay_run(%Scope{} = scope, run_id, from_node_id) do
-    with %WorkflowRun{} = source <-
+    with :ok <- RBAC.authorize(scope, :app_test_and_run),
+         %WorkflowRun{} = source <-
            Repo.one(Repo.scoped(where(WorkflowRun, id: ^run_id), scope)) ||
              {:error, :not_found},
          true <- source.status in [:succeeded, :failed] || {:error, :not_finished},
@@ -2285,6 +2285,10 @@ defmodule Flux.Workflows do
          %WorkflowRun{status: :paused, snapshot: %{} = snapshot} = run <-
            Repo.one(Repo.scoped(where(WorkflowRun, id: ^run_id), scope)) ||
              {:error, :not_found},
+         # Tool-approval resumes are a privileged decision — a run-and-test
+         # permission is required. Human-input / interview resumes stay
+         # open (they run on public flux sites with no membership).
+         :ok <- authorize_resume(scope, snapshot),
          %Workflow{} = workflow <-
            Repo.get_by(Workflow, [id: run.workflow_id], skip_workspace_guard: true) ||
              {:error, :not_found},
@@ -2338,6 +2342,13 @@ defmodule Flux.Workflows do
   end
 
   defp approval?(_other), do: false
+
+  # Tool-approval resumes gate on :app_test_and_run; every other pause
+  # kind (human input, interview) is publicly resumable by design.
+  defp authorize_resume(scope, %{"prompt" => %{"type" => "tool_approval"}}),
+    do: RBAC.authorize(scope, :app_test_and_run)
+
+  defp authorize_resume(_scope, _snapshot), do: :ok
 
   # A paused draft run resumes against the current draft; a versioned run
   # resumes against its recorded version.
@@ -2864,7 +2875,14 @@ defmodule Flux.Workflows do
     with :ok <- Flux.SSRF.verify_url(url),
          {:ok, method} <- cast_method(method) do
       options =
-        [method: method, url: url, headers: headers, receive_timeout: :timer.seconds(60)]
+        [
+          method: method,
+          url: url,
+          headers: headers,
+          receive_timeout: :timer.seconds(60),
+          # SSRF-verified above; a redirect would sidestep the check.
+          redirect: false
+        ]
         |> then(fn options -> if body == "", do: options, else: options ++ [body: body] end)
         |> Keyword.merge(Application.get_env(:flux, :tools_req_options, []))
 
