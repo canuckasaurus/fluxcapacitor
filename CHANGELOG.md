@@ -7,6 +7,25 @@ at `docs/PARITY-PLAN.md`.
 
 ## Unreleased
 
+### Batch 45
+- Assignee notifications: being assigned a conversation emails and
+  browser-pushes *that member* directly (self-claims stay quiet);
+  auto-assignment notifies the routed member too.
+- Workspace-wide conversation search: one box on the Apps page
+  searches titles and message bodies across every app, with excerpts
+  and deep links into the right monitor.
+- Per-app webhook filtering: a webhook endpoint can bind to one app —
+  only that app's chat events deliver, and non-app events skip it.
+- Batch cost preview: launching a CSV batch now shows a confirm step
+  projecting rows × the flux's recent average tokens and cost before
+  anything runs.
+- Hardening sweep: the model allowlist can no longer be dodged by
+  updating only the model field; paused runs refuse to resume in a
+  suspended workspace; AI reply drafting requires the monitor
+  permission; the provider throttle sweeps stale counters instead of
+  leaking ETS entries; URL spec imports cap at 5 MB; and the inbound
+  channel webhooks sit behind a per-IP rate limit.
+
 ### Batch 44
 - Workspace model allowlist: owners restrict which provider/model
   pairs members can pick — pickers filter and app saves refuse the

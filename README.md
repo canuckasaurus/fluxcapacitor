@@ -50,7 +50,9 @@ orchestrator, no queue infrastructure beyond Postgres.
   latest published version unattended (drift detection between releases).
   **Batch runs** execute the draft *or a pinned published version* over a
   CSV of inputs with live counters, a results export, one-click hand-off
-  of completed rows to labeling, and a **Repeat button** that saves the
+  of completed rows to labeling, a **cost-preview confirm step**
+  (rows × the flux's recent average tokens and USD, shown before
+  anything runs), and a **Repeat button** that saves the
   row set as a recurring cron batch. Every run
   records **token usage and an estimated cost** (per-model breakdown;
   dashboard rollups and a workspace-wide **runs page** with filters,
@@ -576,7 +578,7 @@ scratch drive, and a labeling project wired to the Model trainer flux
 ## Testing
 
 ```bash
-mix test                             # full umbrella suite (~1135 tests), hermetic
+mix test                             # full umbrella suite (~1149 tests), hermetic
 ```
 
 The suite runs with no network: providers stub through `Req.Test` or the

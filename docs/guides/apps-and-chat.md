@@ -88,7 +88,8 @@ the handoff queue. From there:
   member; *mine / unassigned* filters keep two humans off one
   visitor. Opt-in **auto-assignment** round-robins new handoffs
   across members marked **Available** (the toggle in the monitor
-  header).
+  header). Being assigned **notifies that member directly** (email +
+  browser push) — self-claims stay quiet.
 - **Reply as a human** — the visitor sees it live; replies can carry
   **file attachments** (the visitor gets a download chip), insert
   one-click **saved replies** shared by the workspace, or start from
@@ -111,7 +112,10 @@ operations, and revocable **share links** — read-only transcript
 pages for a single conversation. The **Inbox** page
 (`/console/inbox`) gathers everything waiting on a human across the
 workspace: paused runs with what they're asking, each app's handoff
-queue, and the labeling backlog.
+queue, and the labeling backlog. And the Apps page carries a
+**workspace-wide conversation search** — titles and message bodies
+across every app, with excerpts, deep-linking into the right
+monitor.
 
 **Per-app guardrail scope.** Workspace guardrails apply to every app
 by default; an app can **opt out of the pattern checks** (moderation

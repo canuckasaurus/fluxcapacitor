@@ -94,7 +94,11 @@ button fires a `webhook.test` event so you can verify a receiver
 before anything real depends on it. An endpoint that fails fifteen
 deliveries in a row **disables itself** with a `webhook_disabled`
 notification (one success resets the counter) — re-enable it in
-settings once the receiver is fixed.
+settings once the receiver is fixed. An endpoint can also **bind to
+one app**: only that app's chat events (`conversation.started`,
+`message.completed`, `handoff.requested`) deliver there, and non-app
+events skip it — the support bot's CRM sync stops hearing about every
+other app.
 
 ## Observability
 

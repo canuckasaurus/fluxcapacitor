@@ -1709,3 +1709,38 @@ caught it — `sed -i 's/\r$//'` on the flagged list fixed it; avoid
 stash on this checkout. 1135 tests. Bench: custom domains, Japanese
 locale, require-2FA, member suspension, visitor blocklist, trusted
 2FA devices, SSO-only login, sign-in-as.
+
+**69. Batch 45 — four features and a hardening sweep.** **Assignee
+notifications** (assign_handoff and maybe_auto_assign call a shared
+notify_assignee — direct email via the branded notifier + WebPush
+fan_out to exactly that account; self-claims and releases stay
+silent). **Workspace-wide conversation search**
+(Chat.search_conversations_global: title ILIKE or message-body
+subquery across apps, each hit carrying app name + first matching
+excerpt; a search box on the Apps page deep-links into the right
+monitor via the existing ?conversation= param). **Per-app webhook
+filtering** (webhook_endpoints.app_id; dispatch adds an app_match?
+gate — bound endpoints receive only payloads carrying their app_id,
+and non-app events skip them entirely; message.completed learned to
+carry app_id from the conversation lookup finalize already did).
+**Batch cost preview** (the one-shot upload became a real confirm
+step: run_batch now parses and stashes pending_batch with
+Workflows.run_averages — mean tokens/cost over the last 50 succeeded
+runs, honest zero-sample message — and confirm_batch/cancel actually
+launch or discard; the existing batch test was updated for the
+two-click flow). **Hardening sweep**, each with a regression test
+where testable: model-allowlist bypass via partial update closed
+(check_model_allowed merges the app's current provider/model);
+resume_run refuses in suspended workspaces (start was guarded, resume
+wasn't); draft_reply now requires :app_monitor (it was
+scope-confined but unauthorized); ProviderThrottle gained a 10-minute
+ETS sweep (the opportunistic previous-minute delete leaked counters
+for providers that went quiet); toolset URL fetches cap at 5 MB; and
+/channels/* sits behind a 120/min per-IP rate-limit pipeline (wired
+like every other limiter; disabled in test env, so covered by
+plumbing assertions only). Note: the spec-size cap has no automated
+test — Tools' Req calls have no test-adapter seam; flagged for a
+future req_options plumbing pass. One migration (one column). 1149
+tests. Bench unchanged: custom domains, Japanese locale, require-2FA,
+member suspension, visitor blocklist, trusted 2FA devices, SSO-only
+login, sign-in-as.
