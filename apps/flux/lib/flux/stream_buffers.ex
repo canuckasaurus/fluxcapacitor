@@ -26,6 +26,11 @@ defmodule Flux.StreamBuffers do
     end
 
     :ok
+  rescue
+    # The table dies with the GenServer; during its restart window a
+    # streamed delta must degrade to a no-op, not crash the generation
+    # task (which would wedge the message at :streaming).
+    ArgumentError -> :ok
   end
 
   @doc "The content streamed so far for `id` (\"\" when none)."
@@ -34,10 +39,14 @@ defmodule Flux.StreamBuffers do
       [{^id, accumulated}] -> accumulated
       [] -> ""
     end
+  rescue
+    ArgumentError -> ""
   end
 
   def delete(id) do
     :ets.delete(@table, id)
     :ok
+  rescue
+    ArgumentError -> :ok
   end
 end

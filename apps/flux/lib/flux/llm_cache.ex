@@ -17,10 +17,28 @@ defmodule Flux.LLMCache do
 
   def start_link(_opts), do: GenServer.start_link(__MODULE__, [], name: __MODULE__)
 
+  @sweep_ms :timer.minutes(10)
+
   @impl true
   def init(_opts) do
     :ets.new(@table, [:named_table, :set, :public, read_concurrency: true])
+    Process.send_after(self(), :sweep, @sweep_ms)
     {:ok, %{}}
+  end
+
+  # Expiry is otherwise lazy (only on a repeat lookup), so an entry never
+  # looked up again lives forever — with SHA-keyed unique requests the
+  # table grows monotonically. This sweep drops everything expired.
+  @impl true
+  def handle_info(:sweep, state) do
+    now = System.system_time(:second)
+
+    :ets.select_delete(@table, [
+      {{:_, :_, :"$1"}, [{:is_integer, :"$1"}, {:<, :"$1", now}], [true]}
+    ])
+
+    Process.send_after(self(), :sweep, @sweep_ms)
+    {:noreply, state}
   end
 
   @doc "Cache key for a request (workspace-scoped, order-stable)."

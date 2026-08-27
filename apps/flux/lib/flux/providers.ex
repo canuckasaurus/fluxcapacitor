@@ -530,8 +530,11 @@ defmodule Flux.Providers do
       end
 
     for credential <- candidates,
-        {:ok, json} <- [Crypto.decrypt(workspace_id, credential.encrypted_config)] do
-      Jason.decode!(json)
+        {:ok, json} <- [Crypto.decrypt(workspace_id, credential.encrypted_config)],
+        # decode, not decode! — a malformed/legacy blob skips instead of
+        # crashing every path that resolves credentials.
+        {:ok, config} <- [Jason.decode(json)] do
+      config
     end
   end
 
@@ -623,7 +626,8 @@ defmodule Flux.Providers do
            Repo.one(Repo.scoped(where(ProviderCredential, id: ^credential_id), scope)) ||
              {:error, :not_found},
          {:ok, json} <- Crypto.decrypt(workspace_id, credential.encrypted_config),
-         :ok <- validate_with_plugin(credential.plugin_id, Jason.decode!(json)) do
+         {:ok, config} <- Jason.decode(json),
+         :ok <- validate_with_plugin(credential.plugin_id, config) do
       credential
       |> Ecto.Changeset.change(validated_at: DateTime.utc_now(:second))
       |> Repo.update()
@@ -658,11 +662,24 @@ defmodule Flux.Providers do
              {:ok, config} -> config
              _not_configured -> %{}
            end),
-        {:ok, models} = runtime().models(manifest.id, config),
+        # `<-` (not `=`) so a provider whose models/1 errors or raises
+        # contributes nothing instead of crashing every model-picker page.
+        {:ok, models} <- [safe_models(manifest.id, config)],
         model <- models,
         allowed_by?(allowlist, manifest.id, model.name) do
       %{plugin_id: manifest.id, plugin_name: manifest.name, model: model}
     end
+  end
+
+  # A misconfigured or unreachable provider must never take down the
+  # workspace's model listing — degrade it to an empty catalog.
+  defp safe_models(plugin_id, config) do
+    case runtime().models(plugin_id, config) do
+      {:ok, models} when is_list(models) -> {:ok, models}
+      _error -> {:ok, []}
+    end
+  rescue
+    _exception -> {:ok, []}
   end
 
   @doc """

@@ -58,6 +58,7 @@ defmodule Flux.Workflows.ScheduleWorker do
     Flux.Chat.check_app_budget_alerts(now)
     Flux.Chat.check_handoff_sla(now)
     Flux.Chat.auto_resolve_idle(now)
+    Flux.Chat.reap_stuck_streams(now)
 
     # Remembered URL sources re-fetch nightly (runtime-resolved — flux
     # never compile-depends on flux_rag).

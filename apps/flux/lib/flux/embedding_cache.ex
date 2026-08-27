@@ -14,10 +14,27 @@ defmodule Flux.EmbeddingCache do
 
   def start_link(_opts), do: GenServer.start_link(__MODULE__, [], name: __MODULE__)
 
+  @sweep_ms :timer.minutes(30)
+
   @impl true
   def init(_opts) do
     :ets.new(@table, [:named_table, :set, :public, read_concurrency: true])
+    Process.send_after(self(), :sweep, @sweep_ms)
     {:ok, %{}}
+  end
+
+  # Lazy expiry alone leaks: a vector never re-embedded stays forever,
+  # and each row is a full float vector. Sweep the expired.
+  @impl true
+  def handle_info(:sweep, state) do
+    now = System.system_time(:second)
+
+    :ets.select_delete(@table, [
+      {{:_, :_, :"$1"}, [{:is_integer, :"$1"}, {:<, :"$1", now}], [true]}
+    ])
+
+    Process.send_after(self(), :sweep, @sweep_ms)
+    {:noreply, state}
   end
 
   def key(plugin_id, model, text) do
