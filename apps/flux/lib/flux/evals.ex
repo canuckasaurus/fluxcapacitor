@@ -528,9 +528,11 @@ defmodule Flux.Evals do
   end
 
   defp grade(%EvalRun{grader: "regex"}, eval_case, output, _error) do
-    case Regex.compile(to_string(eval_case.expected), "s") do
+    case Flux.SafeRegex.compile(to_string(eval_case.expected), "s") do
       {:ok, regex} ->
-        if Regex.match?(regex, to_string(output)) do
+        # Bounded backtracking: a catastrophic grader pattern can't wedge
+        # the eval worker on a large model output.
+        if Flux.SafeRegex.match?(regex, to_string(output)) do
           {1.0, "output matches the expected pattern"}
         else
           {0.0, "output does not match the expected pattern"}

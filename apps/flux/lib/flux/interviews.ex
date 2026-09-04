@@ -194,10 +194,10 @@ defmodule Flux.Interviews do
         {:ok, text}
 
       pattern ->
-        case Regex.compile(pattern) do
+        case Flux.SafeRegex.compile(pattern, "") do
           {:ok, regex} ->
             cond do
-              Regex.match?(regex, text) ->
+              Flux.SafeRegex.match?(regex, text) ->
                 {:ok, text}
 
               to_string(question["pattern_hint"] || "") != "" ->

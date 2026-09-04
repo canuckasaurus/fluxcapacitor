@@ -12,6 +12,7 @@ defmodule Flux.Guardrails do
   alias Flux.Accounts.Scope
   alias Flux.Accounts.Workspace
   alias Flux.Repo
+  alias Flux.SafeRegex
 
   @doc "The workspace's guardrail config: `%{patterns: [...], action: \"block\"|\"flag\"}`."
   def config(workspace_id) do
@@ -227,8 +228,8 @@ defmodule Flux.Guardrails do
 
       %{patterns: patterns} ->
         Enum.find(patterns, fn pattern ->
-          case Regex.compile(pattern, "i") do
-            {:ok, regex} -> Regex.match?(regex, text)
+          case SafeRegex.compile(pattern) do
+            {:ok, regex} -> SafeRegex.match?(regex, text)
             {:error, _reason} -> false
           end
         end)
@@ -282,8 +283,8 @@ defmodule Flux.Guardrails do
     |> Enum.map(&String.trim/1)
     |> Enum.reject(&(&1 == ""))
     |> Enum.find(fn pattern ->
-      case Regex.compile(pattern, "i") do
-        {:ok, regex} -> Regex.match?(regex, text)
+      case SafeRegex.compile(pattern) do
+        {:ok, regex} -> SafeRegex.match?(regex, text)
         {:error, _reason} -> false
       end
     end)
@@ -328,8 +329,8 @@ defmodule Flux.Guardrails do
 
       %{patterns: patterns} ->
         Enum.reduce(patterns, text, fn pattern, acc ->
-          case Regex.compile(pattern, "i") do
-            {:ok, regex} -> Regex.replace(regex, acc, "•••")
+          case SafeRegex.compile(pattern) do
+            {:ok, regex} -> SafeRegex.replace(regex, acc, "•••")
             {:error, _reason} -> acc
           end
         end)
