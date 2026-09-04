@@ -20,7 +20,7 @@ defmodule FluxWeb.AccountSessionController do
 
         conn
         |> put_flash(:info, info)
-        |> AccountAuth.log_in_account(account, account_params)
+        |> AccountAuth.log_in_or_challenge_totp(account, account_params)
 
       _ ->
         conn

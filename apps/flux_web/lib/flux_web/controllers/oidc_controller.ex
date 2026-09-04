@@ -29,7 +29,7 @@ defmodule FluxWeb.OIDCController do
          {:ok, account} <- Accounts.get_or_register_sso_account(email) do
       # Workspaces with a claim->role mapping get roles synced per login.
       Accounts.apply_oidc_roles(account, claims)
-      AccountAuth.log_in_account(conn, account)
+      AccountAuth.log_in_or_challenge_totp(conn, account)
     else
       {:error, message} when is_binary(message) -> fail(conn, message)
       {:error, _changeset} -> fail(conn, "could not provision an account for that email")

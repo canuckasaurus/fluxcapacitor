@@ -45,6 +45,29 @@ defmodule FluxWeb.AccountAuth do
   end
 
   @doc """
+  Completes the login — unless the account has TOTP enabled, in which
+  case the login is parked in the session and the browser is challenged
+  for a code first (`/accounts/totp`).
+
+  Every login front door (password, magic link, OIDC, SAML) routes
+  through here so the second factor can't be skipped by choosing a
+  different entry point: before this, only the password path enforced
+  TOTP, so a 2FA account was reachable with email possession alone.
+  """
+  def log_in_or_challenge_totp(conn, account, params \\ %{}) do
+    if Accounts.totp_enabled?(account) do
+      conn
+      |> put_session(:totp_pending, %{
+        "account_id" => account.id,
+        "remember_me" => params["remember_me"]
+      })
+      |> redirect(to: ~p"/accounts/totp")
+    else
+      log_in_account(conn, account, params)
+    end
+  end
+
+  @doc """
   Logs the account out.
 
   It clears all session data for safety. See renew_session.

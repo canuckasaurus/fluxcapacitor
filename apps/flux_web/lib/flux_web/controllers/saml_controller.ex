@@ -16,7 +16,7 @@ defmodule FluxWeb.SamlController do
       # Workspaces with an SSO role mapping get roles synced from the
       # assertion's attributes — same config the OIDC flow reads.
       Accounts.apply_oidc_roles(account, assertion.attributes || %{})
-      AccountAuth.log_in_account(conn, account)
+      AccountAuth.log_in_or_challenge_totp(conn, account)
     else
       nil ->
         fail(conn, "No SAML session found — start again from the login page.")
