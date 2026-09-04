@@ -435,10 +435,22 @@ defmodule Flux.Workflows.DSL do
     {template, variables}
   end
 
+  @max_dsl_bytes 2_000_000
+
+  defp decode(yaml) when byte_size(yaml) > @max_dsl_bytes,
+    do: {:error, "The DSL document is too large (max 2 MB)."}
+
   defp decode(yaml) do
-    case YamlElixir.read_from_string(yaml) do
-      {:ok, doc} when is_map(doc) -> {:ok, doc}
-      _invalid -> {:error, "Not valid YAML (expected a portable app DSL document)."}
+    # Reject YAML anchor/alias expansion bombs (yamerl is unbounded); a
+    # portable DSL never needs them.
+    if Regex.match?(~r/(^|\s)&[A-Za-z0-9_]+/, yaml) and
+         Regex.match?(~r/(^|\s)\*[A-Za-z0-9_]+/, yaml) do
+      {:error, "YAML anchors/aliases are not supported in DSL documents."}
+    else
+      case YamlElixir.read_from_string(yaml) do
+        {:ok, doc} when is_map(doc) -> {:ok, doc}
+        _invalid -> {:error, "Not valid YAML (expected a portable app DSL document)."}
+      end
     end
   end
 

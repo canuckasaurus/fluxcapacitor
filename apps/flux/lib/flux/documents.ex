@@ -130,12 +130,43 @@ defmodule Flux.Documents do
     end
   end
 
+  # A .docx is a zip; `:zip.unzip` inflates the whole archive into memory
+  # with no ratio cap, so a small upload can expand to gigabytes (zip
+  # bomb) before the text-slice limits apply. Check the declared
+  # uncompressed total from the central directory first and refuse to
+  # inflate past the budget.
+  @max_unzip_bytes 100_000_000
+
   defp unzip_docx(binary) do
-    case :zip.unzip(binary, [:memory]) do
-      {:ok, entries} -> {:ok, entries}
+    with :ok <- zip_within_budget(binary),
+         {:ok, entries} <- :zip.unzip(binary, [:memory]) do
+      {:ok, entries}
+    else
+      {:error, :zip_too_large} = too_large -> too_large
       _error -> {:error, :bad_zip}
     end
   end
+
+  defp zip_within_budget(binary) do
+    case :zip.list_dir(binary) do
+      {:ok, entries} ->
+        total = Enum.reduce(entries, 0, fn entry, acc -> acc + zip_entry_size(entry) end)
+        if total > @max_unzip_bytes, do: {:error, :zip_too_large}, else: :ok
+
+      _error ->
+        {:error, :bad_zip}
+    end
+  end
+
+  defp zip_entry_size({:zip_file, _name, info, _comment, _offset, _comp})
+       when is_tuple(info) and tuple_size(info) > 1 do
+    case elem(info, 1) do
+      size when is_integer(size) and size > 0 -> size
+      _unknown -> 0
+    end
+  end
+
+  defp zip_entry_size(_other), do: 0
 
   defp xml_unescape(text) do
     text

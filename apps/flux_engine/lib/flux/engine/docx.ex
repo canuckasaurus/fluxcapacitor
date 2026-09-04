@@ -74,19 +74,47 @@ defmodule Flux.Engine.Docx do
 
   ## Zip plumbing
 
+  # Refuse to inflate a zip bomb: check the declared uncompressed total
+  # before `:zip.unzip` materializes every entry in memory.
+  @max_unzip_bytes 100_000_000
+
   defp unzip(binary) do
-    case :zip.unzip(binary, [:memory]) do
-      {:ok, [_entry | _rest] = entries} ->
-        if List.keyfind(entries, ~c"word/document.xml", 0) do
-          {:ok, entries}
-        else
-          {:error, "not a Word document (no word/document.xml inside)"}
-        end
+    with :ok <- zip_within_budget(binary),
+         {:ok, [_entry | _rest] = entries} <- :zip.unzip(binary, [:memory]) do
+      if List.keyfind(entries, ~c"word/document.xml", 0) do
+        {:ok, entries}
+      else
+        {:error, "not a Word document (no word/document.xml inside)"}
+      end
+    else
+      {:error, :zip_too_large} ->
+        {:error, "the document archive is too large to process"}
 
       _error ->
         {:error, "not a .docx file (could not read the zip archive)"}
     end
   end
+
+  defp zip_within_budget(binary) do
+    case :zip.list_dir(binary) do
+      {:ok, entries} ->
+        total = Enum.reduce(entries, 0, fn entry, acc -> acc + zip_entry_size(entry) end)
+        if total > @max_unzip_bytes, do: {:error, :zip_too_large}, else: :ok
+
+      _error ->
+        {:error, :bad_zip}
+    end
+  end
+
+  defp zip_entry_size({:zip_file, _name, info, _comment, _offset, _comp})
+       when is_tuple(info) and tuple_size(info) > 1 do
+    case elem(info, 1) do
+      size when is_integer(size) and size > 0 -> size
+      _unknown -> 0
+    end
+  end
+
+  defp zip_entry_size(_other), do: 0
 
   defp rezip(entries) do
     case :zip.create(~c"filled.docx", entries, [:memory]) do

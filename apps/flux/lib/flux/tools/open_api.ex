@@ -12,6 +12,7 @@ defmodule Flux.Tools.OpenAPI do
 
   @methods ~w(get post put patch delete)
   @ref_depth 5
+  @max_spec_bytes 2_000_000
 
   @doc """
   Returns `{:ok, %{title, description, base_url, operations}}` or
@@ -40,17 +41,33 @@ defmodule Flux.Tools.OpenAPI do
     end
   end
 
+  defp decode(text) when byte_size(text) > @max_spec_bytes,
+    do: {:error, "The spec is too large (max 2 MB)."}
+
   defp decode(text) do
     case Jason.decode(text) do
-      {:ok, doc} when is_map(doc) ->
-        {:ok, doc}
-
-      _not_json ->
-        case YamlElixir.read_from_string(text) do
-          {:ok, doc} when is_map(doc) -> {:ok, doc}
-          _not_yaml -> {:error, "The spec is neither valid JSON nor valid YAML."}
-        end
+      {:ok, doc} when is_map(doc) -> {:ok, doc}
+      _not_json -> decode_yaml(text)
     end
+  end
+
+  defp decode_yaml(text) do
+    # The YAML billion-laughs bomb needs both anchor definitions (`&x`)
+    # and alias references (`*x`); OpenAPI specs never use them, and
+    # yamerl has no expansion limit, so reject rather than expand.
+    if yaml_anchor_bomb?(text) do
+      {:error, "YAML anchors/aliases are not supported in specs."}
+    else
+      case YamlElixir.read_from_string(text) do
+        {:ok, doc} when is_map(doc) -> {:ok, doc}
+        _not_yaml -> {:error, "The spec is neither valid JSON nor valid YAML."}
+      end
+    end
+  end
+
+  defp yaml_anchor_bomb?(text) do
+    Regex.match?(~r/(^|\s)&[A-Za-z0-9_]+/, text) and
+      Regex.match?(~r/(^|\s)\*[A-Za-z0-9_]+/, text)
   end
 
   defp validate(doc) do
