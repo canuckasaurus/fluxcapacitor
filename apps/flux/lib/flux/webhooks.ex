@@ -187,9 +187,12 @@ defmodule Flux.Webhooks do
           payload: payload
         })
 
+      # The signing secret is resolved from `endpoint_id` at delivery
+      # time, never persisted into the Oban args (which land as plaintext
+      # JSONB in oban_jobs and defeat the schema's `redact: true`).
       %{
         "url" => endpoint.url,
-        "secret" => endpoint.secret,
+        "endpoint_id" => endpoint.id,
         "payload" => payload,
         "format" => endpoint.format,
         "delivery_id" => delivery.id
@@ -199,6 +202,22 @@ defmodule Flux.Webhooks do
     end
 
     :ok
+  end
+
+  @doc "An endpoint's signing secret, loaded at delivery time (worker-safe)."
+  def endpoint_secret(endpoint_id) do
+    case Repo.get(Endpoint, endpoint_id, skip_workspace_guard: true) do
+      %Endpoint{secret: secret} -> secret
+      _gone -> nil
+    end
+  end
+
+  @doc "A workspace's run-alert signing secret, loaded at delivery time."
+  def alert_secret(workspace_id) do
+    case Repo.get(Flux.Accounts.Workspace, workspace_id) do
+      %{custom_config: %{"alert_secret" => secret}} -> secret
+      _none -> nil
+    end
   end
 
   # An app-bound endpoint receives only that app's events; events that
@@ -228,7 +247,7 @@ defmodule Flux.Webhooks do
       {:ok, _job} =
         %{
           "url" => endpoint.url,
-          "secret" => endpoint.secret,
+          "endpoint_id" => endpoint.id,
           "payload" => delivery.payload,
           "format" => endpoint.format,
           "delivery_id" => delivery.id

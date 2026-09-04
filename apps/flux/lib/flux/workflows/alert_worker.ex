@@ -28,7 +28,7 @@ defmodule Flux.Workflows.AlertWorker do
 
       headers =
         [{"content-type", "application/json"}] ++
-          idempotency ++ signature_headers(args["secret"], body)
+          idempotency ++ signature_headers(resolve_secret(args), body)
 
       result =
         Req.post(
@@ -80,6 +80,18 @@ defmodule Flux.Workflows.AlertWorker do
           end
     }
   end
+
+  # The secret is resolved here, at delivery time, from a reference in the
+  # args — never carried in the persisted Oban args. Older in-flight jobs
+  # that still embed "secret" keep working via the final clause.
+  defp resolve_secret(%{"endpoint_id" => id}) when is_binary(id),
+    do: Flux.Webhooks.endpoint_secret(id)
+
+  defp resolve_secret(%{"workspace_id" => id}) when is_binary(id),
+    do: Flux.Webhooks.alert_secret(id)
+
+  defp resolve_secret(%{"secret" => secret}), do: secret
+  defp resolve_secret(_args), do: nil
 
   defp signature_headers(secret, body) when is_binary(secret) and secret != "" do
     signature = Base.encode16(:crypto.mac(:hmac, :sha256, secret, body), case: :lower)

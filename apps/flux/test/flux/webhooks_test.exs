@@ -193,7 +193,10 @@ defmodule Flux.WebhooksTest do
     [job] = Enum.filter(jobs, &(&1.args["url"] == "https://hooks.example.com/ok"))
     assert job.args["payload"]["event"] == "run.succeeded"
     assert job.args["payload"]["total_tokens"] == 15
-    assert String.starts_with?(job.args["secret"], "whsec_")
+    # The signing secret is never persisted into the job args; the worker
+    # resolves it from the endpoint reference at delivery time.
+    refute Map.has_key?(job.args, "secret")
+    assert String.starts_with?(Webhooks.endpoint_secret(job.args["endpoint_id"]), "whsec_")
   end
 
   test "batch, eval, and feedback events fan out too", %{scope: scope} do
