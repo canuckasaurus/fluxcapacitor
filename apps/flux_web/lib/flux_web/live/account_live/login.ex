@@ -151,22 +151,31 @@ defmodule FluxWeb.AccountLive.Login do
   end
 
   def handle_event("submit_magic", %{"account" => %{"email" => email}}, socket) do
-    if account = Accounts.get_account_by_email(email) do
-      Accounts.deliver_login_instructions(
-        account,
-        &url(~p"/accounts/log-in/#{&1}")
-      )
+    if FluxWeb.LiveRateLimit.allow?(socket, "magic_link", 5) do
+      if account = Accounts.get_account_by_email(email) do
+        Accounts.deliver_login_instructions(
+          account,
+          &url(~p"/accounts/log-in/#{&1}")
+        )
+      end
+
+      info =
+        gettext(
+          "If your email is in our system, you will receive instructions for logging in shortly."
+        )
+
+      {:noreply,
+       socket
+       |> put_flash(:info, info)
+       |> push_navigate(to: ~p"/accounts/log-in")}
+    else
+      {:noreply,
+       put_flash(
+         socket,
+         :error,
+         gettext("Too many attempts — please wait a minute and try again.")
+       )}
     end
-
-    info =
-      gettext(
-        "If your email is in our system, you will receive instructions for logging in shortly."
-      )
-
-    {:noreply,
-     socket
-     |> put_flash(:info, info)
-     |> push_navigate(to: ~p"/accounts/log-in")}
   end
 
   defp local_mail_adapter? do

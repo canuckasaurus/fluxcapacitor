@@ -35,6 +35,30 @@ defmodule FluxWeb.Router do
       methods: ["POST"]
   end
 
+  # Public token-authorized endpoints that each kick off expensive work
+  # (a full workflow run, a published-flux invocation) carry no per-token
+  # cap of their own, so a per-IP ceiling stops one caller from hammering
+  # unbounded runs / model spend with a leaked trigger or ws- token.
+  pipeline :trigger_rate_limit do
+    plug FluxWeb.Plugs.RateLimit, name: "triggers", by: :ip, limit: 60, scale_ms: 60_000
+  end
+
+  pipeline :mcp_rate_limit do
+    plug FluxWeb.Plugs.RateLimit, name: "mcp", by: :ip, limit: 120, scale_ms: 60_000
+  end
+
+  # Throttles only the passcode POSTs in the /site scope (LiveView mounts
+  # are websockets, the transcript is a GET) — an unlimited passcode form
+  # is an offline-speed brute force of a published site's passcode.
+  pipeline :passcode_rate_limit do
+    plug FluxWeb.Plugs.RateLimit,
+      name: "passcode",
+      by: :ip,
+      limit: 10,
+      scale_ms: 60_000,
+      methods: ["POST"]
+  end
+
   ## Service API (FluxCapacitor service API, Bearer app-… tokens)
 
   scope "/v1", FluxWeb.V1 do
@@ -182,7 +206,7 @@ defmodule FluxWeb.Router do
   ## Public published app sites (token in path is the authorization)
 
   scope "/site", FluxWeb do
-    pipe_through [:browser, :allow_embedding, :ensure_site_visitor]
+    pipe_through [:browser, :allow_embedding, :ensure_site_visitor, :passcode_rate_limit]
 
     live_session :public_site, on_mount: [FluxWeb.Plugs.Locale] do
       live "/flux/:token", SiteLive.FluxSite, :show
@@ -197,7 +221,7 @@ defmodule FluxWeb.Router do
   # FluxCapacitor as an MCP server: published fluxes are callable tools.
   # A workspace `ws-` key in the Authorization header names the workspace.
   scope "/mcp", FluxWeb do
-    pipe_through :api
+    pipe_through [:api, :mcp_rate_limit]
 
     post "/", McpController, :handle
   end
@@ -205,7 +229,7 @@ defmodule FluxWeb.Router do
   ## Public workflow triggers (token in path is the authorization)
 
   scope "/triggers", FluxWeb do
-    pipe_through :api
+    pipe_through [:api, :trigger_rate_limit]
 
     post "/webhook/:token", TriggerController, :webhook
     post "/email/:token", TriggerController, :email

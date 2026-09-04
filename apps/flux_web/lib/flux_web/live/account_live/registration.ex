@@ -61,6 +61,24 @@ defmodule FluxWeb.AccountLive.Registration do
 
   @impl true
   def handle_event("save", %{"account" => account_params}, socket) do
+    if FluxWeb.LiveRateLimit.allow?(socket, "register", 5) do
+      register(socket, account_params)
+    else
+      {:noreply,
+       put_flash(
+         socket,
+         :error,
+         gettext("Too many attempts — please wait a minute and try again.")
+       )}
+    end
+  end
+
+  def handle_event("validate", %{"account" => account_params}, socket) do
+    changeset = Accounts.change_account_email(%Account{}, account_params, validate_unique: false)
+    {:noreply, assign_form(socket, Map.put(changeset, :action, :validate))}
+  end
+
+  defp register(socket, account_params) do
     case Accounts.register_account(account_params) do
       {:ok, account} ->
         {:ok, _} =
@@ -82,11 +100,6 @@ defmodule FluxWeb.AccountLive.Registration do
       {:error, %Ecto.Changeset{} = changeset} ->
         {:noreply, assign_form(socket, changeset)}
     end
-  end
-
-  def handle_event("validate", %{"account" => account_params}, socket) do
-    changeset = Accounts.change_account_email(%Account{}, account_params, validate_unique: false)
-    {:noreply, assign_form(socket, Map.put(changeset, :action, :validate))}
   end
 
   defp assign_form(socket, %Ecto.Changeset{} = changeset) do
