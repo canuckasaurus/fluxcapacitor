@@ -26,6 +26,8 @@ defmodule Flux.RAG do
   alias Flux.RBAC
   alias Flux.Repo
 
+  @max_import_documents 500
+
   ## Datasets
 
   def list_datasets(%Scope{} = scope) do
@@ -604,8 +606,12 @@ defmodule Flux.RAG do
       })
 
     with {:ok, dataset} <- create_dataset(scope, attrs) do
+      # Cap documents per import: each one enqueues an embedding job, so
+      # an unbounded archive is a queue-flood / provider-spend amplifier
+      # from a single request.
       documents =
-        for %{"name" => name, "content" => content} = document <- archive["documents"] || [],
+        for %{"name" => name, "content" => content} = document <-
+              Enum.take(archive["documents"] || [], @max_import_documents),
             is_binary(content) and content != "" do
           {:ok, created} = add_document(scope, dataset, %{name: name, content: content})
 
@@ -862,7 +868,12 @@ defmodule Flux.RAG do
          %Document{} = document <-
            Repo.one(Repo.scoped(where(Document, id: ^document_id), scope)) ||
              {:error, :not_found} do
-      Repo.delete(document)
+      # Hold the same per-document lock index_document takes, so a delete
+      # can't cascade-drop segments while an in-flight re-index is
+      # inserting fresh ones (FK violations on entity mentions).
+      :global.trans({{:index_document, document_id}, self()}, fn ->
+        Repo.delete(document)
+      end)
     end
   end
 
@@ -1010,11 +1021,25 @@ defmodule Flux.RAG do
   @doc "Deletes several documents at once (segments cascade)."
   def delete_documents(%Scope{} = scope, document_ids) when is_list(document_ids) do
     with :ok <- RBAC.authorize(scope, :dataset_edit) do
-      {count, _} =
+      scoped_ids =
         Document
         |> Repo.scoped(scope)
         |> where([d], d.id in ^document_ids)
-        |> Repo.delete_all()
+        |> select([d], d.id)
+        |> Repo.all()
+
+      # Delete each under its per-document index lock (see delete_document)
+      # rather than one racy bulk delete_all.
+      count =
+        Enum.reduce(scoped_ids, 0, fn id, acc ->
+          :global.trans({{:index_document, id}, self()}, fn ->
+            {n, _} =
+              from(d in Document, where: d.id == ^id)
+              |> Repo.delete_all(skip_workspace_guard: true)
+
+            acc + n
+          end)
+        end)
 
       {:ok, count}
     end

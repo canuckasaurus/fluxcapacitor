@@ -6,7 +6,16 @@ defmodule Flux.Workflows.ScheduleWorker do
   due `:plugin` triggers; every event a trigger plugin returns becomes
   one run with the event merged into the start inputs.
   """
-  use Oban.Worker, queue: :triggers, max_attempts: 1
+  # `unique` stops a slow tick from overlapping the next minute's tick:
+  # if the previous job is still executing (or queued), the cron insert
+  # is skipped rather than running the whole serial pipeline twice
+  # concurrently (which would double-fire scheduled batches, publishes,
+  # and alerts). Each sub-task also claims its work atomically as defence
+  # in depth.
+  use Oban.Worker,
+    queue: :triggers,
+    max_attempts: 1,
+    unique: [period: 55, states: [:available, :scheduled, :executing, :retryable, :suspended]]
 
   import Ecto.Query
 

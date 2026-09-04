@@ -118,7 +118,15 @@ defmodule Flux.Labeling do
   and claims it for the caller, so two labelers never see the same task
   (claims expire after #{@claim_seconds}s).
   """
-  def next_task(%Scope{} = scope, project_id) do
+  def next_task(%Scope{} = scope, project_id), do: next_task(scope, project_id, 3)
+
+  # A few attempts absorb the claim race below: if a concurrent labeler
+  # claims the candidate between our select and our guarded update, we
+  # re-select rather than hand the same task out twice (or return nil
+  # while other tasks are free).
+  defp next_task(_scope, _project_id, 0), do: nil
+
+  defp next_task(%Scope{} = scope, project_id, attempts_left) do
     cutoff = DateTime.add(DateTime.utc_now(:second), -@claim_seconds, :second)
     account_id = scope.account && scope.account.id
 
@@ -149,12 +157,27 @@ defmodule Flux.Labeling do
         task
 
       task ->
-        task
-        |> Ecto.Changeset.change(
-          assigned_to_id: account_id,
-          claimed_at: DateTime.utc_now(:second)
-        )
-        |> Repo.update!()
+        # Claim atomically: the guarded UPDATE only matches while the task
+        # is still free (or already ours), so exactly one of two racing
+        # labelers wins it; the loser re-selects.
+        now = DateTime.utc_now(:second)
+
+        {claimed, _} =
+          from(t in Task,
+            where:
+              t.id == ^task.id and
+                (is_nil(t.claimed_at) or t.claimed_at < ^cutoff or
+                   t.assigned_to_id == ^account_id)
+          )
+          |> Repo.update_all([set: [assigned_to_id: account_id, claimed_at: now]],
+            skip_workspace_guard: true
+          )
+
+        if claimed == 1 do
+          Repo.get!(Task, task.id, skip_workspace_guard: true)
+        else
+          next_task(scope, project_id, attempts_left - 1)
+        end
     end
   end
 

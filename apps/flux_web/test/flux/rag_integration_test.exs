@@ -848,4 +848,35 @@ defmodule FluxWeb.RAGIntegrationTest do
     assert {:error, :unauthorized} =
              RAG.add_document(viewer_scope, dataset, %{name: "n", content: "c"})
   end
+
+  test "dataset import caps documents per request", %{scope: scope} do
+    documents =
+      for n <- 1..520 do
+        %{"name" => "doc-#{n}.md", "content" => "content number #{n}"}
+      end
+
+    archive = %{
+      "format" => "flux-dataset/v1",
+      "name" => "Imported",
+      "settings" => %{"embedding_plugin_id" => "echo", "embedding_model" => "echo-embed"},
+      "documents" => documents
+    }
+
+    assert {:ok, imported, summary} = RAG.import_dataset(scope, archive)
+    # One embedding job is enqueued per document, so the import is capped
+    # rather than letting one request flood the queue with 520 jobs.
+    assert summary.documents == 500
+    assert length(RAG.list_documents(scope, imported.id)) == 500
+  end
+
+  test "deleting a document holds the per-document index lock", %{scope: scope, dataset: dataset} do
+    document = ingest!(scope, dataset, "temp.md", "Temporary content to remove.")
+    assert document.status == :ready
+
+    # The delete now runs inside :global.trans({{:index_document, id}, _});
+    # it must still succeed and remove the row (and cascade its segments).
+    assert {:ok, _deleted} = RAG.delete_document(scope, document.id)
+    assert RAG.list_documents(scope, dataset.id) == []
+    assert RAG.list_segments(scope, document.id) == []
+  end
 end

@@ -329,10 +329,7 @@ defmodule Flux.Workflows do
       |> where([w], not is_nil(w.publish_at) and w.publish_at <= ^now and is_nil(w.deleted_at))
       |> Repo.all(skip_workspace_guard: true)
 
-    for workflow <- due do
-      from(w in Workflow, where: w.id == ^workflow.id)
-      |> Repo.update_all([set: [publish_at: nil]], skip_workspace_guard: true)
-
+    for workflow <- due, claim_scheduled_publish(workflow.id, now) do
       scope = %Scope{
         account: nil,
         workspace: %Flux.Accounts.Workspace{id: workflow.workspace_id},
@@ -359,6 +356,19 @@ defmodule Flux.Workflows do
     end
 
     :ok
+  end
+
+  # Atomically claim a due publish: the guarded UPDATE only matches while
+  # publish_at is still set, so a second (overlapping) tick that already
+  # saw the same row can't publish a duplicate version.
+  defp claim_scheduled_publish(workflow_id, now) do
+    {claimed, _} =
+      from(w in Workflow,
+        where: w.id == ^workflow_id and not is_nil(w.publish_at) and w.publish_at <= ^now
+      )
+      |> Repo.update_all([set: [publish_at: nil]], skip_workspace_guard: true)
+
+    claimed == 1
   end
 
   @doc """
@@ -1215,12 +1225,8 @@ defmodule Flux.Workflows do
 
     for schedule <- schedules,
         batch_cron_due?(schedule.cron, now),
-        schedule.last_run_at == nil or
-          DateTime.compare(schedule.last_run_at, minute_start) == :lt do
+        claim_batch_schedule(schedule.id, minute_start, now) do
       scope = batch_worker_scope(schedule.workspace_id)
-
-      {:ok, _updated} =
-        schedule |> Ecto.Changeset.change(last_run_at: now) |> Repo.update()
 
       with %Workflow{} = workflow <- get_workflow(scope, schedule.workflow_id),
            {:ok, batch} <-
@@ -1234,6 +1240,22 @@ defmodule Flux.Workflows do
       end
     end
     |> Enum.filter(& &1)
+  end
+
+  # Atomically claim the minute's run: the conditional UPDATE matches for
+  # exactly one caller (it stamps last_run_at = now, so a concurrent tick's
+  # `last_run_at < minute_start` guard then fails). Returns true when this
+  # caller won the claim — only then does the (paid) batch actually start.
+  defp claim_batch_schedule(schedule_id, minute_start, now) do
+    {claimed, _} =
+      from(s in Flux.Workflows.BatchSchedule,
+        where:
+          s.id == ^schedule_id and
+            (is_nil(s.last_run_at) or s.last_run_at < ^minute_start)
+      )
+      |> Repo.update_all([set: [last_run_at: now]], skip_workspace_guard: true)
+
+    claimed == 1
   end
 
   defp batch_cron_due?(cron, now) do
@@ -2412,7 +2434,7 @@ defmodule Flux.Workflows do
 
       %{
         "url" => url,
-        "secret" => workspace.custom_config["alert_secret"],
+        "workspace_id" => run.workspace_id,
         "payload" => %{
           "event" => "run.failed",
           "run_id" => run.id,
