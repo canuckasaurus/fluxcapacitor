@@ -1710,6 +1710,68 @@ stash on this checkout. 1135 tests. Bench: custom domains, Japanese
 locale, require-2FA, member suspension, visitor blocklist, trusted
 2FA devices, SSO-only login, sign-in-as.
 
+**71. Second hardening pass — auth, DoS, sandbox, concurrency.** Four
+fresh read-only audits over surfaces batch 70 didn't reach:
+auth/session/crypto, DoS/ReDoS/exhaustion, engine/sandbox/
+deserialization, concurrency/data-integrity. Verified each finding,
+fixed the confirmed high/medium ones. **2FA bypass (the serious
+one)**: a TOTP-enrolled account was reachable via magic-link (email
+possession) or OIDC/SAML — those front doors called log_in_account
+directly, skipping the TOTP gate that only guarded the password path.
+Added AccountAuth.log_in_or_challenge_totp and routed all four entry
+points through it. **ReDoS**: user-authored guardrail patterns
+(violation/app_violation/redact — the hot path on every chat/run
+input), the eval regex grader, and interview validators ran via
+Regex.match?/replace with no backtracking bound — a `(a+)+$` deny
+pattern would pin a scheduler workspace-wide. New Flux.SafeRegex runs
+via :re with match_limit/match_limit_recursion (caps PCRE steps
+regardless of pattern) and clamps the subject; wired into all three.
+**Rate-limit gaps**: /triggers/* and /mcp (each starts a full
+workflow/published-flux run) had no limiter — added per-IP pipelines;
+site-passcode POSTs were an offline-speed brute force — capped
+10/min/IP; the magic-link and register LiveView events send email over
+the websocket (never hit :auth_rate_limit) — new FluxWeb.LiveRateLimit
+throttles both by connect IP. **Secret leak**: the webhook signing
+secret (whsec_) and workspace alert secret were persisted in
+AlertWorker's Oban args (plaintext JSONB, defeating redact:true) —
+args now carry endpoint_id/workspace_id and the worker resolves the
+secret at delivery time (legacy "secret" arg still honored for
+in-flight jobs). **Schedule double-fire**: ScheduleWorker (minutely
+cron, no unique) could overlap the next tick if it overran 60s,
+double-firing scheduled batches (double LLM spend) and publishes;
+added unique:[period:55, incomplete states] plus atomic conditional
+claims (claim_batch_schedule / claim_scheduled_publish — the guarded
+UPDATE matches for exactly one caller). **Index-lock bypass**:
+delete_document/delete_documents did a bare Repo.delete outside the
+:global.trans lock index_document holds, racing an in-flight re-index
+into FK violations — both now take the per-document lock. **Claim
+TOCTOU**: labeling next_task selected then unconditionally update!'d,
+so two labelers could claim one task; now a guarded conditional UPDATE
+(count-then-reload) with bounded re-select. **Expansion bombs**: docx
+extraction (Documents + engine/docx) inflated the whole zip in memory
+with no ratio cap — check the declared uncompressed total (via
+:zip.list_dir) against a 100MB budget before unzip; the OpenAPI/DSL
+YAML loaders had no anchor-expansion limit (billion-laughs) — reject
+docs using both `&anchor` and `*alias` (OpenAPI never needs them) plus
+a 2MB pre-parse byte cap; dataset import fanned one request into
+unbounded IndexWorker/embedding jobs — capped at 500 docs/import.
+Deferred (noted, not fixed): the custom_config lost-update refactor
+(~20 read-modify-write helpers on one JSON column, no lock_version —
+needs jsonb_set-per-key or optimistic lock + retry across all sites);
+conversation find-or-create race (needs unique index + on_conflict);
+idempotency-key reservation (insert-before-work); at-rest hashing of
+capability tokens (emch_/slch_/site_/file_/convshare_ — hashing breaks
+live URLs without a migration path); `{{env.SECRET}}` renders in
+templates (documented feature — a flux author with edit but not
+credential_manage can surface a secret; wants an is_secret-aware pool
+split); template `{% for %}` output budget; TOTP replay window +
+passkey clone-count; DNS-rebinding (Finch peer-IP pinning); uniform
+/v1 list pagination (the 8 unbounded lists are shared with exports/
+gates/MCP that need every row — wants a proper limit/cursor pass, not
+a shared hard cap). No migration. Credo unchanged at 80/31; git stash
+still avoided (CRLF hazard). 1180 tests (13 new hardening regressions).
+Bench unchanged.
+
 **70. Hardening exercise — four parallel audits, fixed the confirmed.**
 Ran four read-only subagent audits (SSRF/outbound HTTP, tenancy/
 authz, injection/egress, crash-paths), verified each finding against

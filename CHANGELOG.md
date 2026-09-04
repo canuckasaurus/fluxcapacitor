@@ -7,6 +7,36 @@ at `docs/PARITY-PLAN.md`.
 
 ## Unreleased
 
+### Hardening pass — second round
+
+A second audit over auth, denial-of-service, the engine sandbox, and
+concurrency, and the fixes it surfaced.
+
+- **2FA bypass (high)**: a TOTP-enrolled account was fully reachable
+  via magic-link login or OIDC/SAML, which skipped the second-factor
+  gate that only guarded the password path. Every login front door now
+  routes through a shared challenge step.
+- **ReDoS**: user-authored guardrail patterns (checked on every chat
+  and run input), the eval regex grader, and interview validators now
+  run with a bounded PCRE backtracking budget (`Flux.SafeRegex`), so a
+  catastrophic pattern can't pin a scheduler.
+- **Rate limits**: the trigger and MCP endpoints (each starts a full
+  workflow run), the site-passcode form (brute force), and the
+  magic-link/registration LiveView events (email flooding) all gained
+  per-IP throttles.
+- **Secret leak**: webhook signing secrets are no longer written into
+  Oban job args — the worker resolves them from an endpoint reference
+  at delivery time.
+- **Double-fire**: the minutely scheduler can't overlap itself on a
+  slow tick, and scheduled batches/publishes are claimed atomically —
+  no more double LLM spend or duplicate versions.
+- **Data races**: document deletes now take the same per-document lock
+  the indexer holds (was racing into FK violations), and the labeling
+  queue hands each task to exactly one labeler under contention.
+- **Expansion bombs**: docx extraction refuses to inflate a zip bomb,
+  the OpenAPI/DSL YAML loaders reject anchor/alias expansion bombs
+  (plus a size cap), and dataset import caps documents per request.
+
 ### Hardening pass
 
 A full-system audit (SSRF, tenancy/authorization, injection, crash

@@ -142,7 +142,7 @@ lands in the dev mailbox at `/dev/mailbox`).
 
 ## Testing
 
-`mix test` at the umbrella root runs everything (~1167 tests) with no
+`mix test` at the umbrella root runs everything (~1180 tests) with no
 network — fake providers, injected converters, temp-dir storage. To run
 a single app's tests, `cd` into the app first; `mix test apps/flux`
 from the root silently runs nothing. Golden replay fixtures, `/v1`
