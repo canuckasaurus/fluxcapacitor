@@ -36,6 +36,9 @@ concurrency, and the fixes it surfaced.
 - **Expansion bombs**: docx extraction refuses to inflate a zip bomb,
   the OpenAPI/DSL YAML loaders reject anchor/alias expansion bombs
   (plus a size cap), and dataset import caps documents per request.
+- **Boot resilience**: OpenTelemetry instrumentation setup is now
+  best-effort — a tracing hiccup at startup logs a warning and the app
+  boots without traces instead of crashing.
 
 ### Hardening pass
 

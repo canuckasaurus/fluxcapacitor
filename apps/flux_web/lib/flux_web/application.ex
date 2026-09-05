@@ -5,13 +5,11 @@ defmodule FluxWeb.Application do
 
   use Application
 
+  require Logger
+
   @impl true
   def start(_type, _args) do
-    # Trace instrumentation is always attached; whether spans go anywhere
-    # is decided by the exporter config (:none unless OTLP is configured).
-    OpentelemetryBandit.setup()
-    OpentelemetryPhoenix.setup(adapter: :bandit)
-    OpentelemetryEcto.setup([:flux, :repo])
+    setup_tracing()
 
     children =
       [
@@ -30,6 +28,34 @@ defmodule FluxWeb.Application do
     # for other strategies and supported options
     opts = [strategy: :one_for_one, name: FluxWeb.Supervisor]
     Supervisor.start_link(children, opts)
+  end
+
+  # Trace instrumentation is always attached; whether spans go anywhere
+  # is decided by the exporter config (:none unless OTLP is configured).
+  # Tracing must never be load-bearing for boot: if the OpenTelemetry SDK
+  # is mid-initialization (or a host quirk makes a semantic-conventions /
+  # tracer ETS table absent), a raising setup call would otherwise crash
+  # the whole application at startup. Attach best-effort and carry on
+  # without traces rather than refuse to boot.
+  defp setup_tracing do
+    Enum.each(
+      [
+        fn -> OpentelemetryBandit.setup() end,
+        fn -> OpentelemetryPhoenix.setup(adapter: :bandit) end,
+        fn -> OpentelemetryEcto.setup([:flux, :repo]) end
+      ],
+      fn setup ->
+        try do
+          setup.()
+        rescue
+          error ->
+            Logger.warning("""
+            OpenTelemetry instrumentation setup failed; continuing without \
+            tracing. #{Exception.message(error)}\
+            """)
+        end
+      end
+    )
   end
 
   # Samly only starts when an IdP is configured (SAML_IDP_METADATA_FILE).
