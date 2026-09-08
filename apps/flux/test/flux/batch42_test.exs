@@ -176,6 +176,36 @@ defmodule Flux.Batch42Test do
       assert disabled.slack_channel_token == nil
       assert disabled.slack_bot_token == nil
     end
+
+    test "concurrent inbound messages from a brand-new channel+user don't fork the thread", %{
+      scope: scope
+    } do
+      app = echo_app(scope)
+      {:ok, app} = Chat.enable_slack_channel(scope, app, "xoxb-test-token")
+
+      test_pid = self()
+
+      Application.put_env(:flux, :slack_client, fn bot_token, payload ->
+        send(test_pid, {:slack_post, bot_token, payload})
+        :ok
+      end)
+
+      on_exit(fn -> Application.delete_env(:flux, :slack_client) end)
+
+      results =
+        1..6
+        |> Enum.map(fn _ ->
+          Task.async(fn -> Chat.slack_inbound(app, "C999", "U999", "gigawatts?!") end)
+        end)
+        |> Enum.map(&Task.await(&1, 5_000))
+
+      conversation_ids = Enum.map(results, fn {:ok, id} -> id end)
+      assert conversation_ids |> Enum.uniq() |> length() == 1
+
+      site_scope = Chat.site_scope(app)
+      threads = Chat.visitor_conversations(site_scope, app.id, "slack:C999:U999")
+      assert length(threads) == 1
+    end
   end
 
   describe "webhook auto-disable" do

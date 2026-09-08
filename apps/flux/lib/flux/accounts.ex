@@ -748,18 +748,14 @@ defmodule Flux.Accounts do
   """
   def enable_scim(%Scope{} = scope) do
     with :ok <- Flux.Features.authorize(scope, :scim),
-         :ok <- Flux.RBAC.authorize(scope, :workspace_member_manage),
-         %Workspace{} = workspace <- Repo.get(Workspace, Scope.workspace_id(scope)) do
+         :ok <- Flux.RBAC.authorize(scope, :workspace_member_manage) do
       raw = "scim_" <> Base.url_encode64(:crypto.strong_rand_bytes(24), padding: false)
 
-      custom_config =
-        Map.put(workspace.custom_config || %{}, "scim_token_hash", scim_hash(raw))
-
       with {:ok, _updated} <-
-             workspace |> Ecto.Changeset.change(custom_config: custom_config) |> Repo.update() do
+             patch_custom_config(scope, %{"scim_token_hash" => scim_hash(raw)}) do
         Flux.Audit.record(scope, "workspace.scim_enable",
           resource_type: "workspace",
-          resource_id: workspace.id
+          resource_id: Scope.workspace_id(scope)
         )
 
         {:ok, raw}
@@ -769,16 +765,10 @@ defmodule Flux.Accounts do
 
   def disable_scim(%Scope{} = scope) do
     with :ok <- Flux.RBAC.authorize(scope, :workspace_member_manage),
-         %Workspace{} = workspace <- Repo.get(Workspace, Scope.workspace_id(scope)),
-         {:ok, _updated} <-
-           workspace
-           |> Ecto.Changeset.change(
-             custom_config: Map.delete(workspace.custom_config || %{}, "scim_token_hash")
-           )
-           |> Repo.update() do
+         {:ok, _updated} <- patch_custom_config(scope, %{"scim_token_hash" => nil}) do
       Flux.Audit.record(scope, "workspace.scim_disable",
         resource_type: "workspace",
-        resource_id: workspace.id
+        resource_id: Scope.workspace_id(scope)
       )
 
       :ok
@@ -921,24 +911,14 @@ defmodule Flux.Accounts do
   @doc "Sets the run/message retention window in days (nil = keep forever)."
   def set_retention_days(%Scope{} = scope, days) when is_nil(days) or days in 1..3650 do
     with :ok <- Flux.RBAC.authorize(scope, :customization_manage),
-         %Workspace{} = workspace <- Repo.get(Workspace, Scope.workspace_id(scope)) do
-      custom_config =
-        if days do
-          Map.put(workspace.custom_config || %{}, "retention_days", days)
-        else
-          Map.delete(workspace.custom_config || %{}, "retention_days")
-        end
+         {:ok, updated} <- patch_custom_config(scope, %{"retention_days" => days}) do
+      Flux.Audit.record(scope, "workspace.retention_set",
+        resource_type: "workspace",
+        resource_id: Scope.workspace_id(scope),
+        metadata: %{"days" => days}
+      )
 
-      with {:ok, updated} <-
-             workspace |> Ecto.Changeset.change(custom_config: custom_config) |> Repo.update() do
-        Flux.Audit.record(scope, "workspace.retention_set",
-          resource_type: "workspace",
-          resource_id: workspace.id,
-          metadata: %{"days" => days}
-        )
-
-        {:ok, updated}
-      end
+      {:ok, updated}
     end
   end
 
@@ -948,22 +928,11 @@ defmodule Flux.Accounts do
   boilerplate, tone rules) so apps stop repeating it by hand.
   """
   def set_workspace_system_prompt(%Scope{} = scope, prompt) do
-    with :ok <- Flux.RBAC.authorize(scope, :customization_manage),
-         %Workspace{} = workspace <- Repo.get(Workspace, Scope.workspace_id(scope)) do
+    with :ok <- Flux.RBAC.authorize(scope, :customization_manage) do
       trimmed = String.trim(to_string(prompt || ""))
 
-      custom_config =
-        if trimmed == "" do
-          Map.delete(workspace.custom_config || %{}, "system_prompt")
-        else
-          Map.put(
-            workspace.custom_config || %{},
-            "system_prompt",
-            String.slice(trimmed, 0, 4_000)
-          )
-        end
-
-      workspace |> Ecto.Changeset.change(custom_config: custom_config) |> Repo.update()
+      value = (trimmed != "" && String.slice(trimmed, 0, 4_000)) || nil
+      patch_custom_config(scope, %{"system_prompt" => value})
     end
   end
 
@@ -1012,16 +981,8 @@ defmodule Flux.Accounts do
     cron = String.trim(to_string(cron || ""))
 
     with :ok <- Flux.RBAC.authorize(scope, :customization_manage),
-         :ok <- validate_export_cron(cron),
-         %Workspace{} = workspace <- Repo.get(Workspace, Scope.workspace_id(scope)) do
-      custom_config =
-        if cron == "" do
-          Map.delete(workspace.custom_config || %{}, "export_schedule")
-        else
-          Map.put(workspace.custom_config || %{}, "export_schedule", cron)
-        end
-
-      workspace |> Ecto.Changeset.change(custom_config: custom_config) |> Repo.update()
+         :ok <- validate_export_cron(cron) do
+      patch_custom_config(scope, %{"export_schedule" => (cron != "" && cron) || nil})
     end
   end
 
@@ -1404,8 +1365,11 @@ defmodule Flux.Accounts do
     claim = ((claim || "") |> String.trim() != "" && String.trim(claim)) || nil
     mapping = (is_map(mapping) and map_size(mapping) > 0 && mapping) || nil
 
-    with {:ok, _workspace} <- update_custom_config(scope, "oidc_role_claim", claim) do
-      update_custom_config(scope, "oidc_role_map", (claim && mapping) || nil)
+    with :ok <- Flux.RBAC.authorize(scope, :customization_manage) do
+      patch_custom_config(scope, %{
+        "oidc_role_claim" => claim,
+        "oidc_role_map" => (claim && mapping) || nil
+      })
     end
   end
 
@@ -1473,16 +1437,48 @@ defmodule Flux.Accounts do
   end
 
   defp update_custom_config(scope, key, value) do
-    with :ok <- Flux.RBAC.authorize(scope, :customization_manage),
-         %Workspace{} = workspace <- Repo.get(Workspace, Scope.workspace_id(scope)) do
-      custom_config =
-        if value == nil do
-          Map.delete(workspace.custom_config || %{}, key)
-        else
-          Map.put(workspace.custom_config || %{}, key, value)
-        end
+    with :ok <- Flux.RBAC.authorize(scope, :customization_manage) do
+      patch_custom_config(scope, %{key => value})
+    end
+  end
 
-      workspace |> Ecto.Changeset.change(custom_config: custom_config) |> Repo.update()
+  @doc false
+  # Atomically merges `patch` into `custom_config` (nil-valued keys are
+  # deleted) in a single Postgres UPDATE keyed off the row's live value.
+  # custom_config is one JSONB column shared by ~20 independent settings
+  # helpers; the old pattern (Repo.get, mutate the map in Elixir, write
+  # the whole column back) let two concurrent settings changes silently
+  # clobber each other — whichever write landed second won. Patching via
+  # jsonb operators inside the UPDATE itself means every writer merges
+  # into whatever is *currently* stored, not a stale in-memory copy, so
+  # concurrent changes to different keys can no longer race.
+  def patch_custom_config(%Scope{} = scope, patch),
+    do: patch_custom_config(Scope.workspace_id(scope), patch)
+
+  def patch_custom_config(workspace_id, patch) when is_binary(workspace_id) and is_map(patch) do
+    {deletes, sets} = Enum.split_with(patch, fn {_key, value} -> value == nil end)
+    delete_keys = Enum.map(deletes, fn {key, _value} -> key end)
+    set_map = Map.new(sets)
+
+    query =
+      from(w in Workspace,
+        where: w.id == ^workspace_id,
+        update: [
+          set: [
+            custom_config:
+              fragment(
+                "(coalesce(?, '{}'::jsonb) || ?::jsonb) - ?::text[]",
+                w.custom_config,
+                ^set_map,
+                ^delete_keys
+              )
+          ]
+        ]
+      )
+
+    case Repo.update_all(query, []) do
+      {1, _} -> {:ok, Repo.get!(Workspace, workspace_id)}
+      {0, _} -> {:error, :not_found}
     end
   end
 
@@ -1491,30 +1487,62 @@ defmodule Flux.Accounts do
     url = url && String.trim(url)
 
     with :ok <- Flux.RBAC.authorize(scope, :customization_manage),
-         :ok <- (url in [nil, ""] && :ok) || Flux.SSRF.verify_url(url),
-         %Workspace{} = workspace <- Repo.get(Workspace, Scope.workspace_id(scope)) do
-      custom_config =
+         :ok <- (url in [nil, ""] && :ok) || Flux.SSRF.verify_url(url) do
+      result =
         if url in [nil, ""] do
-          Map.delete(workspace.custom_config || %{}, "alert_url")
+          patch_custom_config(scope, %{"alert_url" => nil})
         else
-          # A signing secret is minted with the first URL so receivers can
-          # verify the x-flux-signature header on every alert.
-          (workspace.custom_config || %{})
-          |> Map.put("alert_url", url)
-          |> Map.put_new_lazy("alert_secret", fn ->
-            "whsec_" <> Base.url_encode64(:crypto.strong_rand_bytes(24), padding: false)
-          end)
+          patch_alert_url(scope, url)
         end
 
-      with {:ok, updated} <-
-             workspace |> Ecto.Changeset.change(custom_config: custom_config) |> Repo.update() do
+      with {:ok, updated} <- result do
         Flux.Audit.record(scope, "workspace.alert_url_set",
           resource_type: "workspace",
-          resource_id: workspace.id
+          resource_id: Scope.workspace_id(scope)
         )
 
         {:ok, updated}
       end
+    end
+  end
+
+  # Sets alert_url and, only if no secret exists yet, mints one — a
+  # signing secret is minted with the first URL so receivers can verify
+  # the x-flux-signature header on every alert. The "keep if present"
+  # check reads custom_config->'alert_secret' from the same row inside
+  # the same UPDATE (via jsonb_set/coalesce), so it can't race with a
+  # concurrent first-time enable either.
+  defp patch_alert_url(%Scope{} = scope, url) do
+    workspace_id = Scope.workspace_id(scope)
+    new_secret = "whsec_" <> Base.url_encode64(:crypto.strong_rand_bytes(24), padding: false)
+
+    query =
+      from(w in Workspace,
+        where: w.id == ^workspace_id,
+        update: [
+          set: [
+            custom_config:
+              fragment(
+                """
+                jsonb_set(
+                  coalesce(?, '{}'::jsonb) || jsonb_build_object('alert_url', ?::text),
+                  '{alert_secret}',
+                  coalesce(?->'alert_secret', to_jsonb(?::text)),
+                  true
+                )
+                """,
+                w.custom_config,
+                ^url,
+                w.custom_config,
+                ^new_secret
+              )
+          ]
+        ]
+      )
+
+    case Repo.update_all(query, []) do
+      {1, _} -> {:ok, Repo.get!(Workspace, workspace_id)}
+      {0, _} -> {:error, :not_found}
     end
   end
 

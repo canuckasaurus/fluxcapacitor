@@ -974,7 +974,7 @@ defmodule Flux.Workflows do
   # (once per month).
   defp check_token_budget(workspace_id) do
     case Repo.get(Flux.Accounts.Workspace, workspace_id) do
-      %{custom_config: %{"monthly_token_budget" => budget} = config} = workspace
+      %{custom_config: %{"monthly_token_budget" => budget} = config}
       when is_integer(budget) ->
         spent = Flux.Usage.month_tokens(workspace_id)
         month = Calendar.strftime(Date.utc_today(), "%Y-%m")
@@ -991,9 +991,7 @@ defmodule Flux.Workflows do
               "/console/runs"
             )
 
-            workspace
-            |> Ecto.Changeset.change(custom_config: Map.put(config, "budget_warned", month))
-            |> Repo.update()
+            Flux.Accounts.patch_custom_config(workspace_id, %{"budget_warned" => month})
 
             :ok
 

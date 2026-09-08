@@ -323,6 +323,55 @@ defmodule Flux.Chat do
 
   def latest_conversation(%Scope{}, _app_id, _end_user_ref), do: nil
 
+  # One thread per correspondent for channels where that's the documented
+  # guarantee (email/slack inbound — see `email_inbound/4`,
+  # `slack_inbound/5`): `latest_conversation || create_conversation`
+  # let two concurrent webhook deliveries for a brand-new correspondent
+  # both miss the lookup and both create a conversation, fracturing the
+  # thread. This inserts unconditionally and lets a partial unique index
+  # (`conversations_channel_thread_index`, scoped to "email:"/"slack:"
+  # refs so it can't collide with the intentional multi-thread-per-visitor
+  # design on public sites) reject the loser; either way we re-read the
+  # single surviving row.
+  defp find_or_create_channel_conversation(%Scope{} = scope, %App{} = app, ref)
+       when is_binary(ref) and ref != "" do
+    now = DateTime.utc_now(:second)
+
+    {count, _} =
+      Repo.insert_all(
+        Conversation,
+        [
+          %{
+            id: UUIDv7.generate(),
+            workspace_id: Scope.workspace_id(scope),
+            app_id: app.id,
+            end_user_ref: ref,
+            inserted_at: now,
+            updated_at: now
+          }
+        ],
+        on_conflict: :nothing,
+        conflict_target:
+          {:unsafe_fragment,
+           "(app_id, end_user_ref) WHERE deleted_at IS NULL AND (end_user_ref LIKE 'email:%' OR end_user_ref LIKE 'slack:%')"}
+      )
+
+    conversation = latest_conversation(scope, app.id, ref)
+    created? = count == 1
+
+    if created? do
+      notify_monitor(app.id, conversation.id)
+
+      Flux.Webhooks.dispatch(conversation.workspace_id, "conversation.started", %{
+        "conversation_id" => conversation.id,
+        "app_id" => app.id,
+        "end_user_ref" => conversation.end_user_ref
+      })
+    end
+
+    {conversation, created?}
+  end
+
   @doc "All of a visitor's conversations with an app, newest first."
   def visitor_conversations(scope, app_id, end_user_ref, limit \\ 10)
 
@@ -2968,14 +3017,15 @@ defmodule Flux.Chat do
     ref = "email:" <> String.downcase(String.trim(from))
 
     conversation =
-      case latest_conversation(scope, app.id, ref) do
-        nil ->
-          created = create_conversation(scope, app, %{end_user_ref: ref})
-          {:ok, with_identity} = set_visitor_identity(scope, created.id, nil, String.trim(from))
+      case find_or_create_channel_conversation(scope, app, ref) do
+        {conversation, true = _created?} ->
+          {:ok, with_identity} =
+            set_visitor_identity(scope, conversation.id, nil, String.trim(from))
+
           with_identity
 
-        existing ->
-          existing
+        {conversation, false} ->
+          conversation
       end
 
     content =
@@ -3061,9 +3111,7 @@ defmodule Flux.Chat do
     scope = site_scope(app)
     ref = "slack:#{channel}:#{user}"
 
-    conversation =
-      latest_conversation(scope, app.id, ref) ||
-        create_conversation(scope, app, %{end_user_ref: ref})
+    {conversation, _created?} = find_or_create_channel_conversation(scope, app, ref)
 
     with {:ok, _user_message, assistant} <- send_message(scope, app, conversation, text) do
       {:ok, _pid} =

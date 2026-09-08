@@ -66,16 +66,8 @@ defmodule Flux.Guardrails do
   defp update(scope, value), do: update_key(scope, "guardrails", value)
 
   defp update_key(scope, key, value) do
-    with :ok <- Flux.RBAC.authorize(scope, :customization_manage),
-         %Workspace{} = workspace <- Repo.get(Workspace, Scope.workspace_id(scope)) do
-      custom_config =
-        if value == nil do
-          Map.delete(workspace.custom_config || %{}, key)
-        else
-          Map.put(workspace.custom_config || %{}, key, value)
-        end
-
-      workspace |> Ecto.Changeset.change(custom_config: custom_config) |> Repo.update()
+    with :ok <- Flux.RBAC.authorize(scope, :customization_manage) do
+      Flux.Accounts.patch_custom_config(scope, %{key => value})
     end
   end
 
