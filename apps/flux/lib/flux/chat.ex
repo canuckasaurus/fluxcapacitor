@@ -11,6 +11,7 @@ defmodule Flux.Chat do
   import Ecto.Query
 
   alias Flux.Accounts.Scope
+  alias Flux.CapabilityToken
   alias Flux.Chat.{ApiToken, App, Conversation, Message}
   alias Flux.Providers
   alias Flux.RBAC
@@ -149,7 +150,11 @@ defmodule Flux.Chat do
 
       with {:ok, updated} <-
              app
-             |> Ecto.Changeset.change(site_token: token, site_enabled: true)
+             |> Ecto.Changeset.change(
+               site_token: token,
+               site_token_hash: CapabilityToken.hash(token),
+               site_enabled: true
+             )
              |> Repo.update() do
         Flux.Audit.record(scope, "app.site_enable", resource: app)
         {:ok, updated}
@@ -204,7 +209,9 @@ defmodule Flux.Chat do
 
   @doc "Resolves a public site token to its app; the token is the authorization."
   def get_app_by_site_token("site_" <> _rest = token) do
-    case Repo.get_by(App, [site_token: token], skip_workspace_guard: true) do
+    case Repo.get_by(App, [site_token_hash: CapabilityToken.hash(token)],
+           skip_workspace_guard: true
+         ) do
       %App{site_enabled: true, deleted_at: nil} = app -> {:ok, app}
       # Disabled (not trashed) shows a friendly maintenance page instead
       # of hard-404ing visitors mid-conversation.
@@ -221,7 +228,9 @@ defmodule Flux.Chat do
   flux sites and unknown tokens get).
   """
   def embed_frame_ancestors("site_" <> _rest = token) do
-    case Repo.get_by(App, [site_token: token], skip_workspace_guard: true) do
+    case Repo.get_by(App, [site_token_hash: CapabilityToken.hash(token)],
+           skip_workspace_guard: true
+         ) do
       %App{embed_origins: origins} when is_binary(origins) ->
         # This list is joined into the site's `frame-ancestors` CSP
         # header, so each token MUST be a bare origin — anything with a
@@ -863,7 +872,13 @@ defmodule Flux.Chat do
       case conversation.share_token do
         nil ->
           token = "convshare_" <> Base.url_encode64(:crypto.strong_rand_bytes(18), padding: false)
-          conversation |> Ecto.Changeset.change(share_token: token) |> Repo.update()
+
+          conversation
+          |> Ecto.Changeset.change(
+            share_token: token,
+            share_token_hash: CapabilityToken.hash(token)
+          )
+          |> Repo.update()
 
         _already_shared ->
           {:ok, conversation}
@@ -877,13 +892,17 @@ defmodule Flux.Chat do
          %Conversation{} = conversation <-
            Repo.one(Repo.scoped(where(Conversation, id: ^conversation_id), scope)) ||
              {:error, :not_found} do
-      conversation |> Ecto.Changeset.change(share_token: nil) |> Repo.update()
+      conversation
+      |> Ecto.Changeset.change(share_token: nil, share_token_hash: nil)
+      |> Repo.update()
     end
   end
 
   @doc "Resolves a share token to `{conversation, app, messages}` for the public page."
   def get_shared_conversation("convshare_" <> _rest = token) do
-    case Repo.get_by(Conversation, [share_token: token], skip_workspace_guard: true) do
+    case Repo.get_by(Conversation, [share_token_hash: CapabilityToken.hash(token)],
+           skip_workspace_guard: true
+         ) do
       %Conversation{deleted_at: nil} = conversation ->
         app = Repo.get(App, conversation.app_id, skip_workspace_guard: true)
         messages = list_messages(site_scope(app), conversation.id)
@@ -1986,6 +2005,12 @@ defmodule Flux.Chat do
       safe_name = filename |> Path.basename() |> String.replace(~r/[^\w\.\-]/, "_")
       key = "uploads/#{Scope.workspace_id(scope)}/#{Ecto.UUID.generate()}-#{safe_name}"
 
+      # Agent attachments get a /files/:token URL so the visitor can
+      # download what the human sent back.
+      download_token =
+        Map.get(upload, :downloadable) &&
+          "file_" <> Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
+
       with :ok <- Flux.Storage.put(key, binary) do
         {:ok,
          Repo.insert!(%Flux.Chat.UploadedFile{
@@ -1996,12 +2021,8 @@ defmodule Flux.Chat do
            size: byte_size(binary),
            content_type: Map.get(upload, :content_type),
            end_user_ref: Map.get(upload, :end_user_ref),
-           # Agent attachments get a /files/:token URL so the visitor
-           # can download what the human sent back.
-           download_token:
-             (Map.get(upload, :downloadable) &&
-                "file_" <> Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)) ||
-               nil,
+           download_token: download_token || nil,
+           download_token_hash: download_token && CapabilityToken.hash(download_token),
            extracted_text: extract_document_text(filename, Map.get(upload, :content_type), binary)
          })}
       end
@@ -2985,18 +3006,28 @@ defmodule Flux.Chat do
   def enable_email_channel(%Scope{} = scope, %App{} = app) do
     with :ok <- RBAC.authorize(scope, :app_edit) do
       token = "emch_" <> Base.url_encode64(:crypto.strong_rand_bytes(18), padding: false)
-      app |> Ecto.Changeset.change(email_channel_token: token) |> Repo.update()
+
+      app
+      |> Ecto.Changeset.change(
+        email_channel_token: token,
+        email_channel_token_hash: CapabilityToken.hash(token)
+      )
+      |> Repo.update()
     end
   end
 
   def disable_email_channel(%Scope{} = scope, %App{} = app) do
     with :ok <- RBAC.authorize(scope, :app_edit) do
-      app |> Ecto.Changeset.change(email_channel_token: nil) |> Repo.update()
+      app
+      |> Ecto.Changeset.change(email_channel_token: nil, email_channel_token_hash: nil)
+      |> Repo.update()
     end
   end
 
   def get_app_by_email_channel_token("emch_" <> _rest = token) do
-    case Repo.get_by(App, [email_channel_token: token], skip_workspace_guard: true) do
+    case Repo.get_by(App, [email_channel_token_hash: CapabilityToken.hash(token)],
+           skip_workspace_guard: true
+         ) do
       %App{deleted_at: nil} = app -> {:ok, app}
       _missing -> {:error, :not_found}
     end
@@ -3078,7 +3109,11 @@ defmodule Flux.Chat do
       token = "slch_" <> Base.url_encode64(:crypto.strong_rand_bytes(18), padding: false)
 
       app
-      |> Ecto.Changeset.change(slack_channel_token: token, slack_bot_token: encrypted)
+      |> Ecto.Changeset.change(
+        slack_channel_token: token,
+        slack_channel_token_hash: CapabilityToken.hash(token),
+        slack_bot_token: encrypted
+      )
       |> Repo.update()
     end
   end
@@ -3086,13 +3121,19 @@ defmodule Flux.Chat do
   def disable_slack_channel(%Scope{} = scope, %App{} = app) do
     with :ok <- RBAC.authorize(scope, :app_edit) do
       app
-      |> Ecto.Changeset.change(slack_channel_token: nil, slack_bot_token: nil)
+      |> Ecto.Changeset.change(
+        slack_channel_token: nil,
+        slack_channel_token_hash: nil,
+        slack_bot_token: nil
+      )
       |> Repo.update()
     end
   end
 
   def get_app_by_slack_channel_token("slch_" <> _rest = token) do
-    case Repo.get_by(App, [slack_channel_token: token], skip_workspace_guard: true) do
+    case Repo.get_by(App, [slack_channel_token_hash: CapabilityToken.hash(token)],
+           skip_workspace_guard: true
+         ) do
       %App{deleted_at: nil} = app -> {:ok, app}
       _missing -> {:error, :not_found}
     end

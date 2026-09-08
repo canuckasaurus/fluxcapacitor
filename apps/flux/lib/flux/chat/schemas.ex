@@ -46,9 +46,11 @@ defmodule Flux.Chat.App do
     field :tags, {:array, :string}, default: []
     # Inbound-email webhook token (emch_…); nil = channel off.
     field :email_channel_token, :string
+    field :email_channel_token_hash, :binary, redact: true
     # Slack channel: inbound events token (slch_…) + the bot token
     # replies post with (DEK-encrypted, set via enable_slack_channel).
     field :slack_channel_token, :string
+    field :slack_channel_token_hash, :binary, redact: true
     field :slack_bot_token, :string, redact: true
     # Monthly estimated-USD cap; past it the app answers like a spent
     # daily limit. nil = uncapped.
@@ -70,6 +72,7 @@ defmodule Flux.Chat.App do
     field :guardrail_patterns, :string
     field :site_theme, :map, default: %{}
     field :site_token, :string
+    field :site_token_hash, :binary, redact: true
     field :site_enabled, :boolean, default: false
     # Optional gate on the public site: visitors enter the passcode once
     # per session. Set via Chat.set_site_passcode/3, never cast.
@@ -164,6 +167,7 @@ defmodule Flux.Chat.Conversation do
     field :csat_comment, :string
     # Read-only public transcript link; nil = not shared.
     field :share_token, :string
+    field :share_token_hash, :binary, redact: true
     # Set when a site visitor asks for a human; cleared on console reply.
     field :handoff_requested_at, :utc_datetime
     # Set once the overdue-handoff SLA warning fired for this request.
@@ -315,6 +319,7 @@ defmodule Flux.Chat.UploadedFile do
     field :content_type, :string
     field :end_user_ref, :string
     field :download_token, :string
+    field :download_token_hash, :binary, redact: true
     # Text pulled out of document uploads at store time (Tika / native),
     # so chat turns can carry the file's content without re-extracting.
     field :extracted_text, :string
