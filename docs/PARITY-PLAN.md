@@ -1710,6 +1710,58 @@ stash on this checkout. 1135 tests. Bench: custom domains, Japanese
 locale, require-2FA, member suspension, visitor blocklist, trusted
 2FA devices, SSO-only login, sign-in-as.
 
+**72. Third hardening pass — the concurrency deferrals from #71.**
+Batch 71 named five races/leaks it verified but didn't fix; this pass
+closes the top three and re-scopes the other two. **custom_config
+lost-update**: ~20 settings helpers (SCIM, retention, system prompt,
+export schedule, alert URL/secret, guardrails, moderation, IP
+allowlist, model pricing overrides, provider instance labels/rate
+caps, default model, budget-warned flag, OIDC role mapping, ...) each
+did `Repo.get` the workspace, mutated `custom_config` as an Elixir
+map, and wrote the *whole column* back — two concurrent settings
+changes to different keys silently clobbered each other, last write
+wins. Replaced every read-modify-write with `Flux.Accounts.
+patch_custom_config/2`, a single Postgres `UPDATE ... SET
+custom_config = (custom_config || patch) - delete_keys` keyed off the
+row's live value — concurrent writers to different keys can no longer
+race, and no lock_version/retry loop was needed. (Hit a real Postgrex
+footgun en route: binding a *pre-`Jason.encode!`'d* string as a
+`::jsonb` fragment param double-encodes it — Postgrex's jsonb codec
+serializes whatever term it's given, so a string becomes a JSON
+string scalar, and `object || scalar` in Postgres jsonb concatenation
+silently wraps into a two-element array instead of erroring. Fix:
+bind the raw map/term, not a pre-encoded string.) **Conversation
+find-or-create race**: `email_inbound`/`slack_inbound` (webhook-driven
+"one thread per correspondent" channels — providers routinely
+double-deliver webhooks) did `latest_conversation || create_conversation`;
+two concurrent first-contacts from the same correspondent could both
+miss the lookup and fork the thread. Fixed with a partial unique index
+(`conversations_channel_thread_index`, scoped to `end_user_ref LIKE
+'email:%' OR 'slack:%'` so it can't collide with the *intentional*
+multi-thread-per-visitor design on public chat sites, which also
+reuses `end_user_ref`) plus an unconditional `insert_all` +
+`on_conflict: :nothing` that re-reads whichever row won. **Idempotency
+reservation**: `FluxWeb.Plugs.Idempotency` looked up the key, ran the
+request, and recorded the response on send — two concurrent
+first-requests with the same key both missed the lookup and both ran
+the work. `Flux.Idempotency.reserve/2` now inserts a placeholder row
+*before* the work runs (unique on workspace_id+key); the loser gets a
+409 `idempotency_in_progress` instead of re-executing. A reservation
+that never completes (SSE stream, error response, crashed connection)
+is either released explicitly or swept by `prune/1`'s new 2-minute
+stale-reservation pass (the existing 24h pass still covers completed
+keys), so a dropped connection can't wedge a key indefinitely.
+Re-scoped rather than fixed: **capability-token at-rest hashing**
+(emch_/slch_/site_/file_/convshare_) still needs the dual-read
+migration path — untouched, genuinely needs its own PR. **`{{env.SECRET}}`
+template leak** — untouched; still wants the is_secret-aware pool
+split. One migration (idempotency_keys columns nullable +
+conversations partial unique index, with a dedupe-before-index step
+for any rows a prior race already forked). 1013 tests (5 new
+concurrency regressions, incl. `Task.async` races against the shared
+sandbox connection). Credo unchanged at 80/31; git stash still
+avoided.
+
 **71. Second hardening pass — auth, DoS, sandbox, concurrency.** Four
 fresh read-only audits over surfaces batch 70 didn't reach:
 auth/session/crypto, DoS/ReDoS/exhaustion, engine/sandbox/

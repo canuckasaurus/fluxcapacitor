@@ -37,22 +37,59 @@ defmodule Flux.Batch39Test do
   end
 
   describe "idempotency store" do
-    test "record, replay, prune", %{workspace: workspace} do
+    test "reserve, complete, replay, prune", %{workspace: workspace} do
       assert Flux.Idempotency.lookup(workspace.id, "key-1") == nil
 
-      :ok = Flux.Idempotency.record(workspace.id, "key-1", 200, ~s({"ok":true}))
+      assert {:reserved, id} = Flux.Idempotency.reserve(workspace.id, "key-1")
+
+      # A concurrent reservation attempt while the work is in flight
+      # (response_status still nil) is refused rather than let through.
+      assert Flux.Idempotency.reserve(workspace.id, "key-1") == :in_progress
+
+      :ok = Flux.Idempotency.complete(id, 200, ~s({"ok":true}))
       stored = Flux.Idempotency.lookup(workspace.id, "key-1")
       assert stored.response_status == 200
       assert stored.response_body =~ "ok"
 
-      # A duplicate write quietly loses.
-      :ok = Flux.Idempotency.record(workspace.id, "key-1", 500, "other")
-      assert Flux.Idempotency.lookup(workspace.id, "key-1").response_status == 200
+      # Once completed, a fresh reservation attempt replays it instead.
+      assert Flux.Idempotency.reserve(workspace.id, "key-1") ==
+               {:completed, 200, ~s({"ok":true})}
 
       # Old keys prune; fresh ones survive.
       tomorrow = DateTime.add(DateTime.utc_now(:second), 2, :day)
       :ok = Flux.Idempotency.prune(tomorrow)
       assert Flux.Idempotency.lookup(workspace.id, "key-1") == nil
+    end
+
+    test "release lets a retry reserve again", %{workspace: workspace} do
+      assert {:reserved, id} = Flux.Idempotency.reserve(workspace.id, "key-2")
+      :ok = Flux.Idempotency.release(id)
+
+      assert {:reserved, _new_id} = Flux.Idempotency.reserve(workspace.id, "key-2")
+    end
+
+    test "concurrent first-requests: exactly one reserves", %{workspace: workspace} do
+      results =
+        1..8
+        |> Enum.map(fn _ ->
+          Task.async(fn -> Flux.Idempotency.reserve(workspace.id, "race-key") end)
+        end)
+        |> Enum.map(&Task.await/1)
+
+      reserved = Enum.count(results, &match?({:reserved, _id}, &1))
+      in_progress = Enum.count(results, &(&1 == :in_progress))
+
+      assert reserved == 1
+      assert in_progress == 7
+    end
+
+    test "stuck reservations (no complete/release) prune quickly", %{workspace: workspace} do
+      assert {:reserved, _id} = Flux.Idempotency.reserve(workspace.id, "stuck-key")
+
+      soon = DateTime.add(DateTime.utc_now(:second), 3, :minute)
+      :ok = Flux.Idempotency.prune(soon)
+
+      assert Flux.Idempotency.lookup(workspace.id, "stuck-key") == nil
     end
   end
 
@@ -89,6 +126,29 @@ defmodule Flux.Batch39Test do
 
       {:ok, disabled} = Chat.disable_email_channel(scope, app)
       assert disabled.email_channel_token == nil
+    end
+
+    test "concurrent inbound mail from a brand-new correspondent doesn't fork the thread", %{
+      scope: scope
+    } do
+      app = echo_app(scope)
+      {:ok, app} = Chat.enable_email_channel(scope, app)
+
+      results =
+        1..6
+        |> Enum.map(fn _ ->
+          Task.async(fn ->
+            Chat.email_inbound(app, "doc@example.com", "Help", "1.21 gigawatts?!")
+          end)
+        end)
+        |> Enum.map(&Task.await(&1, 5_000))
+
+      conversation_ids = Enum.map(results, fn {:ok, id} -> id end)
+      assert conversation_ids |> Enum.uniq() |> length() == 1
+
+      site_scope = Chat.site_scope(app)
+      threads = Chat.visitor_conversations(site_scope, app.id, "email:doc@example.com")
+      assert length(threads) == 1
     end
   end
 

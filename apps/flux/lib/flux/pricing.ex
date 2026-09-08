@@ -138,17 +138,8 @@ defmodule Flux.Pricing do
   end
 
   defp put_overrides(scope, value) do
-    with :ok <- Flux.RBAC.authorize(scope, :customization_manage),
-         %Flux.Accounts.Workspace{} = workspace <-
-           Flux.Repo.get(Flux.Accounts.Workspace, Flux.Accounts.Scope.workspace_id(scope)) do
-      custom_config =
-        if value == nil do
-          Map.delete(workspace.custom_config || %{}, "model_pricing")
-        else
-          Map.put(workspace.custom_config || %{}, "model_pricing", value)
-        end
-
-      workspace |> Ecto.Changeset.change(custom_config: custom_config) |> Flux.Repo.update()
+    with :ok <- Flux.RBAC.authorize(scope, :customization_manage) do
+      Flux.Accounts.patch_custom_config(scope, %{"model_pricing" => value})
     end
   end
 

@@ -40,16 +40,10 @@ defmodule Flux.IPAllowlist do
 
     case Enum.find(entries, &(parse(&1) == :error)) do
       nil ->
-        with :ok <- Flux.RBAC.authorize(scope, :customization_manage),
-             %Workspace{} = workspace <- Repo.get(Workspace, Scope.workspace_id(scope)) do
-          custom_config =
-            if entries == [] do
-              Map.delete(workspace.custom_config || %{}, "ip_allowlist")
-            else
-              Map.put(workspace.custom_config || %{}, "ip_allowlist", entries)
-            end
-
-          workspace |> Ecto.Changeset.change(custom_config: custom_config) |> Repo.update()
+        with :ok <- Flux.RBAC.authorize(scope, :customization_manage) do
+          Flux.Accounts.patch_custom_config(scope, %{
+            "ip_allowlist" => (entries != [] && entries) || nil
+          })
         end
 
       invalid ->

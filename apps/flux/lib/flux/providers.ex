@@ -280,31 +280,29 @@ defmodule Flux.Providers do
 
   @doc "The instance's display label (falls back to a humanized slug)."
   def instance_label(workspace_id, instance_id) do
-    labels =
-      case Repo.get(Flux.Accounts.Workspace, workspace_id) do
-        %{custom_config: %{"provider_instance_labels" => %{} = labels}} -> labels
-        _none -> %{}
-      end
+    labels = provider_instance_labels(workspace_id)
 
     labels[instance_id] ||
       instance_id |> String.split("@") |> List.last() |> String.replace("-", " ")
   end
 
   defp set_instance_label(scope, instance_id, label) do
-    workspace = Repo.get(Flux.Accounts.Workspace, Scope.workspace_id(scope))
-    labels = (workspace.custom_config || %{})["provider_instance_labels"] || %{}
+    workspace_id = Scope.workspace_id(scope)
+    labels = provider_instance_labels(workspace_id)
 
     labels =
       if label, do: Map.put(labels, instance_id, label), else: Map.delete(labels, instance_id)
 
-    custom_config =
-      if labels == %{} do
-        Map.delete(workspace.custom_config || %{}, "provider_instance_labels")
-      else
-        Map.put(workspace.custom_config || %{}, "provider_instance_labels", labels)
-      end
+    Flux.Accounts.patch_custom_config(workspace_id, %{
+      "provider_instance_labels" => (labels != %{} && labels) || nil
+    })
+  end
 
-    workspace |> Ecto.Changeset.change(custom_config: custom_config) |> Repo.update()
+  defp provider_instance_labels(workspace_id) do
+    case Repo.get(Flux.Accounts.Workspace, workspace_id) do
+      %{custom_config: %{"provider_instance_labels" => %{} = labels}} -> labels
+      _none -> %{}
+    end
   end
 
   @doc """
@@ -700,22 +698,13 @@ defmodule Flux.Providers do
   def set_provider_rate_cap(%Scope{} = scope, plugin_id, cap)
       when is_nil(cap) or (is_integer(cap) and cap > 0 and cap <= 100_000) do
     with :ok <- RBAC.authorize(scope, :plugin_model_config) do
-      workspace = Repo.get(Flux.Accounts.Workspace, Scope.workspace_id(scope))
+      workspace_id = Scope.workspace_id(scope)
+      caps = provider_rate_caps(workspace_id)
+      caps = if cap, do: Map.put(caps, plugin_id, cap), else: Map.delete(caps, plugin_id)
 
-      workspace
-      |> Ecto.Changeset.change(custom_config: caps_config(workspace, plugin_id, cap))
-      |> Repo.update()
-    end
-  end
-
-  defp caps_config(workspace, plugin_id, cap) do
-    caps = (workspace.custom_config || %{})["provider_rate_caps"] || %{}
-    caps = if cap, do: Map.put(caps, plugin_id, cap), else: Map.delete(caps, plugin_id)
-
-    if caps == %{} do
-      Map.delete(workspace.custom_config || %{}, "provider_rate_caps")
-    else
-      Map.put(workspace.custom_config || %{}, "provider_rate_caps", caps)
+      Flux.Accounts.patch_custom_config(workspace_id, %{
+        "provider_rate_caps" => (caps != %{} && caps) || nil
+      })
     end
   end
 
@@ -806,8 +795,6 @@ defmodule Flux.Providers do
   """
   def set_default_model(%Scope{} = scope, plugin_id, model) do
     with :ok <- RBAC.authorize(scope, :plugin_model_config) do
-      workspace = Repo.get!(Flux.Accounts.Workspace, Scope.workspace_id(scope))
-
       default =
         if plugin_id in [nil, ""] or model in [nil, ""] do
           nil
@@ -815,20 +802,11 @@ defmodule Flux.Providers do
           %{"provider_plugin_id" => plugin_id, "model" => model}
         end
 
-      custom_config =
-        if default do
-          Map.put(workspace.custom_config || %{}, "default_model", default)
-        else
-          Map.delete(workspace.custom_config || %{}, "default_model")
-        end
-
       with {:ok, updated} <-
-             workspace
-             |> Ecto.Changeset.change(custom_config: custom_config)
-             |> Repo.update() do
+             Flux.Accounts.patch_custom_config(scope, %{"default_model" => default}) do
         Flux.Audit.record(scope, "provider.default_model_set",
           resource_type: "workspace",
-          resource_id: workspace.id,
+          resource_id: Scope.workspace_id(scope),
           metadata: default || %{"cleared" => true}
         )
 
