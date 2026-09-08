@@ -2143,6 +2143,8 @@ defmodule Flux.Workflows do
   defp do_execute(run, graph, inputs, workspace_id, run_opts) do
     {:ok, usage_acc} = Agent.start_link(fn -> %{models: %{}, nodes: %{}} end)
 
+    {public_env, secret_env} = Flux.WorkspaceEnv.resolve(workspace_id)
+
     host =
       workspace_id
       |> build_host(
@@ -2153,8 +2155,9 @@ defmodule Flux.Workflows do
         run.id
       )
       |> track_llm_usage(usage_acc)
+      |> Map.put(:secret_env, secret_env)
 
-    run_opts = Keyword.put_new(run_opts, :env, Flux.WorkspaceEnv.resolve(workspace_id))
+    run_opts = Keyword.put_new(run_opts, :env, public_env)
     result = Engine.run(graph, inputs, host, run_opts)
     usage = collect_usage(run, usage_acc)
 
@@ -2666,13 +2669,12 @@ defmodule Flux.Workflows do
              resolve_subflux_version(scope, workflow.id, request[:version]) ||
                {:error, subflux_version_error(request[:version])},
            {:ok, graph} <- Engine.build(version.graph) do
+        {public_env, secret_env} = Flux.WorkspaceEnv.resolve(workspace_id)
         sub_host = build_host(workspace_id, fn _event -> :ok end, depth + 1)
+        sub_host = %{sub_host | secret_env: secret_env}
         {inputs, sys} = subflux_run_inputs(request)
 
-        case Engine.run(graph, inputs, sub_host,
-               sys: sys,
-               env: Flux.WorkspaceEnv.resolve(workspace_id)
-             ) do
+        case Engine.run(graph, inputs, sub_host, sys: sys, env: public_env) do
           {:ok, result} -> {:ok, result.outputs}
           {:paused, _paused} -> {:error, "sub-fluxes cannot pause for human input"}
           {:error, failure} -> {:error, failure.error}

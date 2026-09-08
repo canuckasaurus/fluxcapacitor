@@ -28,18 +28,19 @@ defmodule Flux.Batch24Test do
       # Secrets are write-only in the UI listing…
       assert %{value: nil, is_secret: true} = Enum.find(rows, &(&1.name == "API_KEY"))
 
-      # …but resolve decrypted for runs.
-      assert WorkspaceEnv.resolve(workspace.id) == %{
-               "API_BASE" => "https://api.example.com",
-               "API_KEY" => "sk-secret"
-             }
+      # …but resolve decrypts for runs, split {public, secret} so callers
+      # can't accidentally hand a secret to an author-controlled template.
+      assert {%{"API_BASE" => "https://api.example.com"}, %{"API_KEY" => "sk-secret"}} =
+               WorkspaceEnv.resolve(workspace.id)
 
       # Upsert replaces in place.
       assert :ok = WorkspaceEnv.put(scope, "API_BASE", "https://api2.example.com")
-      assert WorkspaceEnv.resolve(workspace.id)["API_BASE"] == "https://api2.example.com"
+      {public, _secret} = WorkspaceEnv.resolve(workspace.id)
+      assert public["API_BASE"] == "https://api2.example.com"
 
       assert :ok = WorkspaceEnv.delete(scope, "API_KEY")
-      refute Map.has_key?(WorkspaceEnv.resolve(workspace.id), "API_KEY")
+      {_public, secret} = WorkspaceEnv.resolve(workspace.id)
+      refute Map.has_key?(secret, "API_KEY")
     end
 
     test "bad names and blank values are refused", %{scope: scope} do

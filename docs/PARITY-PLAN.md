@@ -1710,6 +1710,47 @@ stash on this checkout. 1135 tests. Bench: custom domains, Japanese
 locale, require-2FA, member suspension, visitor blocklist, trusted
 2FA devices, SSO-only login, sign-in-as.
 
+**74. `{{env.SECRET}}` pool split — the second of #72's two re-scoped
+deferrals** (ships after #73's capability-token hashing, which landed on main first). `Flux.
+WorkspaceEnv.resolve/1` decrypted every workspace env var — including
+`is_secret: true` ones — into one flat map that `Engine.Runner` merged
+straight into the run's template pool under `"env"`. Every node's
+`Template.render/2` call gets that same pool with no filtering, so a
+flux author with edit but not `credential_manage` could put
+`{{env.SECRET_NAME}}` in *any* node's config (a Template node, a prompt,
+an End-node output mapping — not just the http_request node that
+legitimately needs it for auth headers) and the secret would render
+into run outputs/node_executions, which broadcast over PubSub to the
+console run monitor and persist to the `workflow_runs` row. **Fix**:
+`resolve/1` now returns `{public, secret}` instead of one map. Only
+`public` reaches `pool["env"]` (`Flux.Engine.Runner.run/4`) — so
+Template/Jinja rendering across every node type is secret-blind by
+construction, not by a check someone could forget to add at a new call
+site. `secret` travels a second, narrower path: a new `Host.secret_env`
+field (plain data, like `default_llm`, not a capability closure) that
+only `Nodes.HttpRequest.run/3` reads, and only to build a header-only
+render pool (`Map.merge(pool["env"], host.secret_env)`) — `url` and
+`body` still render against the secret-blind `pool`, because both get
+echoed back into the node's own outputs (`url` also lands in run
+traces), while headers don't. Regression test in
+`flux_engine/test/flux/engine_test.exs` wires an http_request node and
+a template node to the same `{{env.API_KEY}}` reference against a host
+with `secret_env: %{"API_KEY" => ...}`: the header renders the secret,
+the template output and the http node's own url/body come back blank.
+No migration (no schema change — `is_secret` already existed on
+`workspace_env_vars`; it just wasn't read past the settings-UI listing
+before this). 1109 tests across flux/flux_engine/flux_web (counts
+differ from #73's because this branch forked before that PR merged).
+Re-scoped rather than fixed here: nothing — this was the last of #72's
+two deferrals. Still open going forward: `{{env.SECRET}}` remains
+available to *any* node type an author points at `env.SECRET_NAME`
+inside a header-shaped string the http_request node happens to
+template — the boundary is "which node type", not "who is allowed to
+know this secret exists"; a future pass could gate secret-key
+references behind `credential_manage` at save time instead of (or in
+addition to) the render-time pool split, if that's judged worth the
+extra friction on flux authors who legitimately need it.
+
 **73. Capability-token at-rest hashing — the first of #72's two
 re-scoped deferrals.** `apps.email_channel_token/slack_channel_token/
 site_token`, `workflows.site_token`, `conversations.share_token`, and
@@ -1748,7 +1789,7 @@ normalized to CRLF by hand (`sed -i 's/\r$//' file; sed -i 's/$/\r/'
 file`) before credo's consistency check would have flagged the mix —
 same tooling scar as #71, cheaper to preempt than rediscover.
 Re-scoped rather than fixed here: the `{{env.SECRET}}` template pool
-leak (#72's other deferral) is its own PR — different subsystem (the
+leak (#72's other deferral) shipped as #74 — different subsystem (the
 engine's template pool, not Ecto lookups), no reason to couple them.
 
 **72. Third hardening pass — the concurrency deferrals from #71.**

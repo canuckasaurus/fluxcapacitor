@@ -101,12 +101,27 @@ defmodule Flux.WorkspaceEnv do
     end
   end
 
-  @doc "The decrypted map for runs (worker-safe: takes a workspace id)."
+  @doc """
+  The decrypted vars for runs (worker-safe: takes a workspace id), split
+  `{public, secret}` by `is_secret` — callers must keep the two apart:
+  `public` is safe to hand to `Template.render` (author-controlled node
+  configs, so anything in there can end up in run outputs/logs); `secret`
+  must only reach trusted sinks that never echo it back (see
+  `Flux.Engine.Host.secret_env` and the http_request node, the one place
+  today that substitutes it into outbound request headers).
+  """
   def resolve(workspace_id) do
-    EnvVar
-    |> where([v], v.workspace_id == ^workspace_id)
-    |> Repo.all(skip_workspace_guard: true)
-    |> Map.new(fn var -> {var.name, decrypt_value(workspace_id, var) || ""} end)
+    {public, secret} =
+      EnvVar
+      |> where([v], v.workspace_id == ^workspace_id)
+      |> Repo.all(skip_workspace_guard: true)
+      |> Enum.split_with(&(not &1.is_secret))
+
+    {to_value_map(workspace_id, public), to_value_map(workspace_id, secret)}
+  end
+
+  defp to_value_map(workspace_id, vars) do
+    Map.new(vars, fn var -> {var.name, decrypt_value(workspace_id, var) || ""} end)
   end
 
   defp decrypt_value(workspace_id, var) do

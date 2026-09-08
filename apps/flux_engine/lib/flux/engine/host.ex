@@ -6,6 +6,13 @@ defmodule Flux.Engine.Host do
   model provider directly. `Flux.Workflows` builds a host whose `invoke_llm`
   closes over the workspace's credentials and whose `emit` broadcasts engine
   events to subscribers.
+
+  `secret_env` (workspace env vars flagged `is_secret`) is data, not a
+  capability closure, and deliberately never reaches the run's template
+  pool — only capabilities that read `host.secret_env` directly can use
+  it (today: the http_request node, for auth headers only), so an
+  author-controlled `{{...}}` template can't render a secret it wasn't
+  explicitly given.
   """
 
   defstruct emit: nil,
@@ -23,7 +30,8 @@ defmodule Flux.Engine.Host do
             store_file: nil,
             fetch_interview: nil,
             queue_label_task: nil,
-            default_llm: nil
+            default_llm: nil,
+            secret_env: %{}
 
   @typedoc """
   `invoke_llm` receives `%{provider_plugin_id, model, messages, params}`
@@ -48,7 +56,8 @@ defmodule Flux.Engine.Host do
           store_file: (map() -> {:ok, map()} | {:error, term()}) | nil,
           fetch_interview: (String.t() -> {:ok, map()} | {:error, term()}) | nil,
           queue_label_task: (map() -> {:ok, String.t()} | {:error, term()}) | nil,
-          default_llm: %{optional(String.t()) => String.t()} | nil
+          default_llm: %{optional(String.t()) => String.t()} | nil,
+          secret_env: %{optional(String.t()) => String.t()}
         }
 
   @doc """

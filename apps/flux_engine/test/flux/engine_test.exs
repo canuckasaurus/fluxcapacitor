@@ -569,6 +569,53 @@ defmodule Flux.EngineTest do
       assert {:ok, %{outputs: %{"code" => "201"}}} = Engine.run(built, %{"query" => "abc"}, host)
     end
 
+    test "host.secret_env reaches http_request headers but never the template pool" do
+      graph = %{
+        "nodes" => [
+          start_node([]),
+          node!("template_1", "template", %{"template" => "{{env.API_KEY}}"}),
+          node!("http_1", "http_request", %{
+            "method" => "get",
+            "url" => "https://api.example.com/?key={{env.API_KEY}}",
+            "headers" => [%{"key" => "Authorization", "value" => "Bearer {{env.API_KEY}}"}],
+            "body" => "key={{env.API_KEY}}"
+          }),
+          node!("end_1", "end", %{
+            "outputs" => [
+              %{"key" => "leaked", "value" => "{{template_1.output}}"},
+              %{"key" => "code", "value" => "{{http_1.status_code}}"}
+            ]
+          })
+        ],
+        "edges" => [
+          edge!("start", "template_1"),
+          edge!("template_1", "http_1"),
+          edge!("http_1", "end_1")
+        ]
+      }
+
+      host = %Host{
+        emit: fn _e -> :ok end,
+        secret_env: %{"API_KEY" => "sk-secret"},
+        http_request: fn spec ->
+          # The secret never rendered into the URL or body...
+          assert spec.url == "https://api.example.com/?key="
+          assert spec.body == "key="
+          # ...only into the header, the one sanctioned sink.
+          assert spec.headers == [{"Authorization", "Bearer sk-secret"}]
+          {:ok, %{status: 200, body: "", text: ""}}
+        end
+      }
+
+      {:ok, built} = Engine.build(graph)
+
+      assert {:ok, %{outputs: outputs}} = Engine.run(built, %{}, host)
+      # The template node (and, by the same path, any prompt/body/answer
+      # node) never saw the secret — the reference resolves blank.
+      assert outputs["leaked"] == ""
+      assert outputs["code"] == "200"
+    end
+
     test "code node renders inputs and maps result + stdout to outputs" do
       graph = %{
         "nodes" => [
