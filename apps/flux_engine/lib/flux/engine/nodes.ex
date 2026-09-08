@@ -544,6 +544,13 @@ defmodule Flux.Engine.Nodes.HttpRequest do
   client). Config: `method`, `url` (template), `headers` ([{key, value}]
   with template values), `body` (template, sent raw; JSON content-type when
   it parses as JSON). Outputs `%{"status_code", "body", "text"}`.
+
+  Header values are the one place `{{env.SECRET_NAME}}` still works for a
+  workspace secret (e.g. `Authorization: Bearer {{env.API_KEY}}`) — they
+  render against `pool` plus `host.secret_env`. `url` and `body` render
+  against `pool` alone: both get logged/echoed (the URL in run traces, the
+  body in the node's own `"body"`/`"text"` outputs), so a secret placed
+  there would leak through channels this node doesn't control.
   """
   @behaviour Flux.Engine.Node
 
@@ -555,11 +562,13 @@ defmodule Flux.Engine.Nodes.HttpRequest do
 
     with :ok <- require_config(url != ""),
          {:ok, request} <- fetch_requester(host) do
+      header_pool = Map.put(pool, "env", Map.merge(pool["env"] || %{}, host.secret_env))
+
       headers =
         node.config["headers"]
         |> List.wrap()
         |> Enum.map(fn header ->
-          {to_string(header["key"] || ""), Template.render(header["value"], pool)}
+          {to_string(header["key"] || ""), Template.render(header["value"], header_pool)}
         end)
         |> Enum.reject(fn {key, _value} -> key == "" end)
 
