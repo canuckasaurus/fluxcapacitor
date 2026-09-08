@@ -11,6 +11,7 @@ defmodule Flux.Workflows do
   import Ecto.Query
 
   alias Flux.Accounts.Scope
+  alias Flux.CapabilityToken
   alias Flux.Chat.ApiToken
   alias Flux.Engine
   alias Flux.Engine.Host
@@ -1601,7 +1602,11 @@ defmodule Flux.Workflows do
 
       with {:ok, updated} <-
              workflow
-             |> Ecto.Changeset.change(site_token: token, site_enabled: true)
+             |> Ecto.Changeset.change(
+               site_token: token,
+               site_token_hash: CapabilityToken.hash(token),
+               site_enabled: true
+             )
              |> Repo.update() do
         Flux.Audit.record(scope, "workflow.site_enable", resource: workflow)
         {:ok, updated}
@@ -1712,7 +1717,9 @@ defmodule Flux.Workflows do
 
   @doc "Resolves a public site token to its flux; the token is the authorization."
   def get_workflow_by_site_token("site_" <> _rest = token) do
-    case Repo.get_by(Workflow, [site_token: token], skip_workspace_guard: true) do
+    case Repo.get_by(Workflow, [site_token_hash: CapabilityToken.hash(token)],
+           skip_workspace_guard: true
+         ) do
       %Workflow{site_enabled: true, deleted_at: nil} = workflow -> {:ok, workflow}
       _disabled_trashed_or_missing -> {:error, :not_found}
     end
@@ -2533,7 +2540,8 @@ defmodule Flux.Workflows do
           key: key,
           size: byte_size(binary),
           content_type: content_type_for(name),
-          download_token: token
+          download_token: token,
+          download_token_hash: CapabilityToken.hash(token)
         })
 
       {:ok,
@@ -2579,7 +2587,7 @@ defmodule Flux.Workflows do
   """
   def fetch_file_by_token("file_" <> _rest = token) do
     with %Flux.Chat.UploadedFile{} = file <-
-           Repo.get_by(Flux.Chat.UploadedFile, [download_token: token],
+           Repo.get_by(Flux.Chat.UploadedFile, [download_token_hash: CapabilityToken.hash(token)],
              skip_workspace_guard: true
            ),
          {:ok, binary} <- Flux.Storage.get(file.key) do
