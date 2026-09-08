@@ -30,6 +30,7 @@ defmodule Flux.Workflows.Workflow do
     # clears it. Gate evals still apply.
     field :publish_at, :utc_datetime
     field :site_token, :string
+    field :site_token_hash, :binary, redact: true
     field :site_enabled, :boolean, default: false
     field :site_theme, :map, default: %{}
     # Optional per-session passcode gate, same contract as app sites.

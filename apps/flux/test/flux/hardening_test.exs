@@ -293,4 +293,92 @@ defmodule Flux.HardeningTest do
       assert :ets.lookup(:flux_llm_cache, key) == []
     end
   end
+
+  describe "capability-token at-rest hashing" do
+    test "app/conversation/file tokens resolve by hash after the plaintext column is wiped",
+         %{scope: scope} do
+      app = echo_app(scope)
+
+      {:ok, app} = Chat.enable_site(scope, app)
+      site_token = app.site_token
+
+      {:ok, app} = Chat.enable_email_channel(scope, app)
+      email_token = app.email_channel_token
+
+      {:ok, app} = Chat.enable_slack_channel(scope, app, "xoxb-test")
+      slack_token = app.slack_channel_token
+
+      conversation = Chat.create_conversation(scope, app, %{end_user_ref: "web_hash_test"})
+      {:ok, conversation} = Chat.enable_conversation_share(scope, conversation.id)
+      share_token = conversation.share_token
+
+      path = Path.join(System.tmp_dir!(), "hash-#{System.unique_integer([:positive])}.txt")
+      File.write!(path, "body")
+      on_exit(fn -> File.rm(path) end)
+
+      {:ok, file} =
+        Chat.create_upload(scope, app, %{path: path, filename: "f.txt", downloadable: true})
+
+      download_token = file.download_token
+
+      # Every mint populated the hash column alongside the plaintext one.
+      assert app.site_token_hash
+      assert app.email_channel_token_hash
+      assert app.slack_channel_token_hash
+      assert conversation.share_token_hash
+      assert file.download_token_hash
+
+      # Wipe the plaintext columns directly (simulating a fully-migrated
+      # row) — lookup with the still-known raw token must keep working
+      # from the hash column alone.
+      Flux.Repo.update_all(
+        Ecto.Query.from(a in Flux.Chat.App, where: a.id == ^app.id),
+        [set: [site_token: nil, email_channel_token: nil, slack_channel_token: nil]],
+        skip_workspace_guard: true
+      )
+
+      Flux.Repo.update_all(
+        Ecto.Query.from(c in Flux.Chat.Conversation, where: c.id == ^conversation.id),
+        [set: [share_token: nil]],
+        skip_workspace_guard: true
+      )
+
+      Flux.Repo.update_all(
+        Ecto.Query.from(f in Flux.Chat.UploadedFile, where: f.id == ^file.id),
+        [set: [download_token: nil]],
+        skip_workspace_guard: true
+      )
+
+      assert {:ok, %Flux.Chat.App{id: id}} = Chat.get_app_by_site_token(site_token)
+      assert id == app.id
+      assert {:ok, %Flux.Chat.App{}} = Chat.get_app_by_email_channel_token(email_token)
+      assert {:ok, %Flux.Chat.App{}} = Chat.get_app_by_slack_channel_token(slack_token)
+
+      assert {:ok, %Flux.Chat.Conversation{}, _app, _messages} =
+               Chat.get_shared_conversation(share_token)
+
+      assert {:ok, %{name: "f.txt"}} = Flux.Workflows.fetch_file_by_token(download_token)
+
+      # An unknown or tampered token still resolves to nothing.
+      assert {:error, :not_found} = Chat.get_app_by_site_token("site_" <> "nope")
+    end
+
+    test "a flux's site token resolves by hash after the plaintext column is wiped", %{
+      scope: scope
+    } do
+      {:ok, workflow} = Flux.Workflows.create_workflow(scope, %{"name" => "Hash WF"})
+      {:ok, workflow} = Flux.Workflows.enable_site(scope, workflow)
+      token = workflow.site_token
+
+      assert workflow.site_token_hash
+
+      Flux.Repo.update_all(
+        Ecto.Query.from(w in Flux.Workflows.Workflow, where: w.id == ^workflow.id),
+        [set: [site_token: nil]],
+        skip_workspace_guard: true
+      )
+
+      assert {:ok, %Flux.Workflows.Workflow{}} = Flux.Workflows.get_workflow_by_site_token(token)
+    end
+  end
 end

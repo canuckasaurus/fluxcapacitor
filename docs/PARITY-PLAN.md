@@ -1710,6 +1710,47 @@ stash on this checkout. 1135 tests. Bench: custom domains, Japanese
 locale, require-2FA, member suspension, visitor blocklist, trusted
 2FA devices, SSO-only login, sign-in-as.
 
+**73. Capability-token at-rest hashing — the first of #72's two
+re-scoped deferrals.** `apps.email_channel_token/slack_channel_token/
+site_token`, `workflows.site_token`, `conversations.share_token`, and
+`uploaded_files.download_token` were looked up by direct plaintext
+equality (`Repo.get_by(App, [site_token: token], ...)`); a DB read
+(backup, replica, injection) handed over live, replayable webhook/site/
+share/download tokens same as reading the row today does for `ApiToken`/
+`Invitation` before their `token_hash` columns existed. Added a
+`*_token_hash :binary` column per token (unique partial index, `WHERE
+... IS NOT NULL`) via one migration that backfills existing rows'
+hashes in Elixir (not SQL `digest()` — no pgcrypto dependency, and the
+hash is guaranteed to match what `:crypto.hash(:sha256, ...)` computes
+at lookup time). `Flux.CapabilityToken.hash/1` is the one-line shared
+helper; every mint/rotate site now writes the hash alongside the
+plaintext, and all seven lookup sites
+(`get_app_by_{site,email_channel,slack_channel}_token`,
+`embed_frame_ancestors`, `get_shared_conversation`,
+`get_workflow_by_site_token`, `fetch_file_by_token`) resolve by hashing
+the presented token and querying the hash column, never the plaintext
+one. **Deliberately not the full fix**: the plaintext column stays —
+the console re-displays these as live URLs on demand (site embed
+snippets, webhook URLs, share links, download links), unlike `ApiToken`,
+which shows its raw value once at mint and never again. Dropping
+plaintext needs a reveal-once-then-regenerate UI change across five
+console pages; still deferred (untouched this pass). What this PR does
+buy: a DB read alone no longer *is* the authorization path (hash
+lookup, not plaintext lookup), and the follow-up UI project won't need
+to touch any lookup code again — just stop populating the plaintext
+column and null the existing values once. Regression tests mint every
+token type, wipe the plaintext column directly in the test, and assert
+the lookup still resolves from the hash column alone. One migration
+(6 hash columns + backfill + 6 unique indexes), no new deps. 1015 tests
+(490 flux + 525 flux_web). Credo unchanged (80 refactor/31
+readability); the new file and the two touched schema files got
+normalized to CRLF by hand (`sed -i 's/\r$//' file; sed -i 's/$/\r/'
+file`) before credo's consistency check would have flagged the mix —
+same tooling scar as #71, cheaper to preempt than rediscover.
+Re-scoped rather than fixed here: the `{{env.SECRET}}` template pool
+leak (#72's other deferral) is its own PR — different subsystem (the
+engine's template pool, not Ecto lookups), no reason to couple them.
+
 **72. Third hardening pass — the concurrency deferrals from #71.**
 Batch 71 named five races/leaks it verified but didn't fix; this pass
 closes the top three and re-scopes the other two. **custom_config
