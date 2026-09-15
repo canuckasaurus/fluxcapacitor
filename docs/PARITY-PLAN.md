@@ -1710,6 +1710,72 @@ stash on this checkout. 1135 tests. Bench: custom domains, Japanese
 locale, require-2FA, member suspension, visitor blocklist, trusted
 2FA devices, SSO-only login, sign-in-as.
 
+**75. DNS-rebinding defense — Finch peer-IP pinning, the last #71
+deferral.** `Flux.SSRF.verify_url/1` checks a URL's host at call time,
+but Finch/Req resolve the host again at connect time — a hostname
+that answered a public address at the check could rebind to a private
+one (attacker-controlled DNS with a near-zero TTL, or just unlucky
+timing on a round-robin record) by the time the TCP connection opens,
+sailing straight past the guard. `redirect: false` (already set on
+every guarded sink since #70) closes the sibling 302-to-internal
+class but does nothing for this one — pinning was the piece #71 named
+and deferred. **Fix**: `Flux.SSRF.pin/1` resolves the host once,
+verifies every candidate address with the existing `blocked?/1` rules
+(same all-addresses-must-clear semantics `verify_url/1` already had —
+a hostname resolving to one public and one private address is still
+rejected outright, not routed around), and returns Req options that
+connect directly to the checked IP literal (bracketed for IPv6) while
+preserving the original `Host` header and TLS SNI
+(`connect_options: [transport_opts: [server_name_indication: ...]]`)
+— no second resolution happens between check and connect because
+there's no longer a hostname left to re-resolve. `Flux.SSRF.merge_pin/2`
+folds those options into an existing Req option keyword list (handles
+both list- and map-shaped `:headers`, merges `:connect_options` instead
+of clobbering a caller's own transport opts, and unconditionally forces
+`redirect: false` regardless of what the caller passed) — one call
+replaces each sink's `verify_url` + manual `redirect: false`. When SSRF
+checks are disabled (test env) or the host is allowlisted, `pin/1`
+returns the URL unpinned (still `redirect: false`) so local/dev flows
+and the existing allowlist tests keep working unchanged.
+Wired into every SSRF-guarded outbound sink: the http_request workflow
+node, `Flux.Tools` (spec fetch + toolset dispatch), `Flux.Webhooks`
+send_test, `Flux.WebPush` send, `Flux.MCP.Client`, `Flux.Workflows.
+AlertWorker`, `Flux.Guardrails`'s custom moderation endpoint, the flux
+DSL URL import, and RAG's three URL sinks (`add_document_from_url`,
+`crawl_from_url`, external-dataset retrieval). Provider/datasource
+plugins route through one shared choke point instead of each sink
+individually: `Flux.Plugins.SSE.req_options/1` (used by nearly every
+plugin — OpenAI, Azure, Ollama, Gemini, OpenAI-compatible, RSS,
+LlamaIndex, Notion, Google Drive, Bedrock, Anthropic) now pins inline
+and became fallible (`{:ok, opts} | {:error, message}`), so every
+caller through that helper — including three fixed-host providers
+(Notion, Anthropic, Bedrock) that had no `verify_url` call at all
+before, since a hardcoded API host was never considered "user-directed"
+— picked up pinning for free. `ex_aws`-backed S3 (a different HTTP
+client, no Finch connect_options to hook) is left on `verify_url`
+alone, noted rather than forced. Tests: `pin/1`/`merge_pin/2` reject
+the same blocked literals and private resolutions `verify_url/1`
+does; a public hostname (`example.com`, real DNS — no injectable
+resolver added, matching the existing "production default on
+`:inet.getaddrs`" design) pins to a resolved peer IP with `Host`
+header and SNI set; a public IP literal and an allowlisted host both
+pin through unchanged; `merge_pin/2` folds into both list- and
+map-shaped headers without dropping the caller's own headers, and
+always forces `redirect: false` even if the caller passed
+`redirect: true`. Documented rather than end-to-end-exercised: an
+actual "redirect to internal" or "rebind mid-request" would need a
+live DNS server or an endpoint that changes its own resolved address
+between check and connect, which isn't practical to fake in a unit
+test — `redirect: false` is the redirect defense (already covered by
+#70's tests), pinning is the separate TOCTOU defense (covered here by
+asserting the connected address is always the one that was verified).
+No migration. 1198 tests across the workspace (flux_engine 96 + flux
+500 + flux_plugin_runtime 63 + flux_rag 14 + flux_web 525), 0
+failures — `ssrf_test.exs` alone grew from 6 to 16 with the new
+`pin/1`/`merge_pin/2` coverage. Credo unchanged at ~80/31 (81
+refactor/31 readability this run); git stash still avoided (CRLF
+hazard).
+
 **74. `{{env.SECRET}}` pool split — the second of #72's two re-scoped
 deferrals** (ships after #73's capability-token hashing, which landed on main first). `Flux.
 WorkspaceEnv.resolve/1` decrypted every workspace env var — including

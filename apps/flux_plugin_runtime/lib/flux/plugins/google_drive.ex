@@ -155,34 +155,33 @@ defmodule Flux.Plugins.GoogleDrive do
   end
 
   defp request(token, url) do
-    options =
-      SSE.req_options(
-        url: url,
-        headers: [{"authorization", "Bearer " <> token}],
-        redirect: false,
-        max_retries: 1,
-        receive_timeout: 30_000
-      )
+    with {:ok, options} <-
+           SSE.req_options(
+             url: url,
+             headers: [{"authorization", "Bearer " <> token}],
+             max_retries: 1,
+             receive_timeout: 30_000
+           ) do
+      case Req.get(options) do
+        {:ok, %{status: status, body: body}} when status in 200..299 ->
+          if is_binary(body) and byte_size(body) > @max_body_bytes do
+            {:error, "response too large"}
+          else
+            {:ok, body}
+          end
 
-    case Req.get(options) do
-      {:ok, %{status: status, body: body}} when status in 200..299 ->
-        if is_binary(body) and byte_size(body) > @max_body_bytes do
-          {:error, "response too large"}
-        else
-          {:ok, body}
-        end
+        {:ok, %{status: 401}} ->
+          {:error, "Drive rejected the token (401) — check the service-account key"}
 
-      {:ok, %{status: 401}} ->
-        {:error, "Drive rejected the token (401) — check the service-account key"}
+        {:ok, %{status: 403}} ->
+          {:error, "access denied (403) — is the folder shared with the service account?"}
 
-      {:ok, %{status: 403}} ->
-        {:error, "access denied (403) — is the folder shared with the service account?"}
+        {:ok, %{status: status}} ->
+          {:error, "Drive returned HTTP #{status}"}
 
-      {:ok, %{status: status}} ->
-        {:error, "Drive returned HTTP #{status}"}
-
-      {:error, reason} ->
-        {:error, "Drive request failed: #{inspect(reason)}"}
+        {:error, reason} ->
+          {:error, "Drive request failed: #{inspect(reason)}"}
+      end
     end
   end
 
@@ -190,22 +189,20 @@ defmodule Flux.Plugins.GoogleDrive do
 
   defp access_token(credentials) do
     with {:ok, account} <- decode_account(credentials),
-         {:ok, assertion} <- build_assertion(account) do
-      options =
-        SSE.req_options(
-          # Pinned to Google's token endpoint, not account["token_uri"]:
-          # the service-account JSON is user-pasted, so honoring its
-          # token_uri would send the signed JWT assertion to any host.
-          url: "https://oauth2.googleapis.com/token",
-          form: [
-            grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-            assertion: assertion
-          ],
-          max_retries: 1,
-          receive_timeout: 30_000,
-          redirect: false
-        )
-
+         {:ok, assertion} <- build_assertion(account),
+         {:ok, options} <-
+           SSE.req_options(
+             # Pinned to Google's token endpoint, not account["token_uri"]:
+             # the service-account JSON is user-pasted, so honoring its
+             # token_uri would send the signed JWT assertion to any host.
+             url: "https://oauth2.googleapis.com/token",
+             form: [
+               grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+               assertion: assertion
+             ],
+             max_retries: 1,
+             receive_timeout: 30_000
+           ) do
       case Req.post(options) do
         {:ok, %{status: 200, body: %{"access_token" => token}}} ->
           {:ok, token}

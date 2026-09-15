@@ -220,39 +220,28 @@ defmodule Flux.Plugins.LlamaIndex do
   end
 
   defp get(credentials, path) do
-    request(credentials, path, fn url ->
-      Req.get(
-        SSE.req_options(
-          url: url,
-          headers: headers(credentials),
-          redirect: false,
-          max_retries: 1,
-          receive_timeout: 30_000
-        )
-      )
-    end)
+    request(
+      credentials,
+      path,
+      [headers: headers(credentials), max_retries: 1, receive_timeout: 30_000],
+      &Req.get/1
+    )
   end
 
   defp post(credentials, path, payload) do
-    request(credentials, path, fn url ->
-      Req.post(
-        SSE.req_options(
-          url: url,
-          json: payload,
-          headers: headers(credentials),
-          redirect: false,
-          max_retries: 1,
-          receive_timeout: 120_000
-        )
-      )
-    end)
+    request(
+      credentials,
+      path,
+      [json: payload, headers: headers(credentials), max_retries: 1, receive_timeout: 120_000],
+      &Req.post/1
+    )
   end
 
-  defp request(credentials, path, fun) do
+  defp request(credentials, path, opts, req_fun) do
     url = base_url(credentials) <> path
 
-    with :ok <- Flux.SSRF.verify_url(url),
-         {:ok, %{status: status, body: body}} when status in 200..299 <- fun.(url),
+    with {:ok, options} <- SSE.req_options(Keyword.put(opts, :url, url)),
+         {:ok, %{status: status, body: body}} when status in 200..299 <- req_fun.(options),
          :ok <- size_check(body) do
       {:ok, body}
     else

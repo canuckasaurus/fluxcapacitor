@@ -40,7 +40,11 @@ defmodule Flux.Plugins.Anthropic do
 
   @impl Flux.Plugin.ModelProvider
   def validate_credentials(credentials) do
-    case Req.get(SSE.req_options(url: @base_url <> "/models", headers: auth(credentials))) do
+    with {:ok, options} <-
+           SSE.req_options(url: @base_url <> "/models", headers: auth(credentials)) do
+      Req.get(options)
+    end
+    |> case do
       {:ok, %{status: 200}} -> :ok
       {:ok, %{status: 401}} -> {:error, "Invalid API key."}
       {:ok, %{status: status}} -> {:error, "Anthropic returned HTTP #{status}."}

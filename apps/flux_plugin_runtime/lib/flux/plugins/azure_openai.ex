@@ -85,8 +85,8 @@ defmodule Flux.Plugins.AzureOpenAI do
   defp probe(credentials) do
     url = "#{endpoint(credentials)}/openai/models?api-version=#{api_version(credentials)}"
 
-    with :ok <- Flux.SSRF.verify_url(url) do
-      case Req.get(SSE.req_options(url: url, headers: auth(credentials))) do
+    with {:ok, options} <- SSE.req_options(url: url, headers: auth(credentials)) do
+      case Req.get(options) do
         {:ok, %{status: status}} when status in [200, 404, 405] -> :ok
         {:ok, %{status: status}} when status in [401, 403] -> {:error, "Invalid API key."}
         {:ok, %{status: status}} -> {:error, "Azure returned HTTP #{status}."}

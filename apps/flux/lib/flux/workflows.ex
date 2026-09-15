@@ -2902,27 +2902,28 @@ defmodule Flux.Workflows do
 
   # Host capability for the http_request node: SSRF-guarded raw request.
   defp node_http_request(%{method: method, url: url, headers: headers, body: body}) do
-    with :ok <- Flux.SSRF.verify_url(url),
-         {:ok, method} <- cast_method(method) do
+    with {:ok, method} <- cast_method(method) do
       options =
         [
           method: method,
           url: url,
           headers: headers,
-          receive_timeout: :timer.seconds(60),
-          # SSRF-verified above; a redirect would sidestep the check.
-          redirect: false
+          receive_timeout: :timer.seconds(60)
         ]
         |> then(fn options -> if body == "", do: options, else: options ++ [body: body] end)
         |> Keyword.merge(Application.get_env(:flux, :tools_req_options, []))
 
-      case Req.request(options) do
-        {:ok, %{status: status, body: response}} ->
-          text = if is_binary(response), do: response, else: Jason.encode!(response)
-          {:ok, %{status: status, body: response, text: text}}
+      # Pinned to the checked peer IP — a redirect or a DNS rebind at
+      # connect time would otherwise sidestep the SSRF check.
+      with {:ok, options} <- Flux.SSRF.merge_pin(options, url) do
+        case Req.request(options) do
+          {:ok, %{status: status, body: response}} ->
+            text = if is_binary(response), do: response, else: Jason.encode!(response)
+            {:ok, %{status: status, body: response, text: text}}
 
-        {:error, reason} ->
-          {:error, "HTTP request failed: #{inspect(reason)}"}
+          {:error, reason} ->
+            {:error, "HTTP request failed: #{inspect(reason)}"}
+        end
       end
     end
   end

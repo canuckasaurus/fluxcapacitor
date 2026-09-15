@@ -61,15 +61,9 @@ defmodule Flux.Plugins.OpenAI do
   shared with the Azure plugin, whose endpoints differ only in routing.
   """
   def embeddings_request(url, headers, model, texts) do
-    with :ok <- Flux.SSRF.verify_url(url),
-         {:ok, %{status: 200, body: body}} <-
-           Req.post(
-             SSE.req_options(
-               url: url,
-               json: %{model: model, input: texts},
-               headers: headers
-             )
-           ) do
+    with {:ok, options} <-
+           SSE.req_options(url: url, json: %{model: model, input: texts}, headers: headers),
+         {:ok, %{status: 200, body: body}} <- Req.post(options) do
       vectors =
         body["data"]
         |> List.wrap()
@@ -91,8 +85,8 @@ defmodule Flux.Plugins.OpenAI do
   def validate_credentials(credentials) do
     url = base_url(credentials) <> "/models"
 
-    with :ok <- Flux.SSRF.verify_url(url) do
-      Req.get(SSE.req_options(url: url, headers: auth(credentials)))
+    with {:ok, options} <- SSE.req_options(url: url, headers: auth(credentials)) do
+      Req.get(options)
     end
     |> case do
       {:ok, %{status: 200}} -> :ok
@@ -135,16 +129,13 @@ defmodule Flux.Plugins.OpenAI do
       ]
       |> IO.iodata_to_binary()
 
-    with :ok <- Flux.SSRF.verify_url(url),
-         {:ok, %{status: 200, body: response}} <-
-           Req.post(
-             SSE.req_options(
-               url: url,
-               headers:
-                 headers ++ [{"content-type", "multipart/form-data; boundary=#{boundary}"}],
-               body: body
-             )
-           ) do
+    with {:ok, options} <-
+           SSE.req_options(
+             url: url,
+             headers: headers ++ [{"content-type", "multipart/form-data; boundary=#{boundary}"}],
+             body: body
+           ),
+         {:ok, %{status: 200, body: response}} <- Req.post(options) do
       {:ok, %{text: response["text"] || ""}}
     else
       {:ok, %{status: status, body: response}} -> {:error, {:http_error, status, response}}
@@ -159,19 +150,17 @@ defmodule Flux.Plugins.OpenAI do
 
   @doc "One OpenAI-shaped text-to-speech call — shared with the compatible plugin."
   def speech_request(url, headers, text, opts) do
-    with :ok <- Flux.SSRF.verify_url(url),
-         {:ok, %{status: 200, body: audio}} when is_binary(audio) <-
-           Req.post(
-             SSE.req_options(
-               url: url,
-               headers: headers,
-               json: %{
-                 model: opts[:model] || "gpt-4o-mini-tts",
-                 voice: opts[:voice] || "alloy",
-                 input: String.slice(text, 0, 4_000)
-               }
-             )
-           ) do
+    with {:ok, options} <-
+           SSE.req_options(
+             url: url,
+             headers: headers,
+             json: %{
+               model: opts[:model] || "gpt-4o-mini-tts",
+               voice: opts[:voice] || "alloy",
+               input: String.slice(text, 0, 4_000)
+             }
+           ),
+         {:ok, %{status: 200, body: audio}} when is_binary(audio) <- Req.post(options) do
       {:ok, %{audio: audio, content_type: "audio/mpeg"}}
     else
       {:ok, %{status: status, body: body}} -> {:error, {:http_error, status, body}}
@@ -186,20 +175,19 @@ defmodule Flux.Plugins.OpenAI do
 
   @doc "One OpenAI-shaped text-to-image call — shared with the compatible plugin."
   def image_request(url, headers, prompt, opts) do
-    with :ok <- Flux.SSRF.verify_url(url),
-         {:ok, %{status: 200, body: %{"data" => [%{"b64_json" => b64} | _rest]}}} <-
-           Req.post(
-             SSE.req_options(
-               url: url,
-               headers: headers,
-               json: %{
-                 model: opts[:model] || "gpt-image-1",
-                 prompt: String.slice(prompt, 0, 4_000),
-                 size: opts[:size] || "1024x1024"
-               },
-               receive_timeout: 120_000
-             )
+    with {:ok, options} <-
+           SSE.req_options(
+             url: url,
+             headers: headers,
+             json: %{
+               model: opts[:model] || "gpt-image-1",
+               prompt: String.slice(prompt, 0, 4_000),
+               size: opts[:size] || "1024x1024"
+             },
+             receive_timeout: 120_000
            ),
+         {:ok, %{status: 200, body: %{"data" => [%{"b64_json" => b64} | _rest]}}} <-
+           Req.post(options),
          {:ok, image} <- Base.decode64(b64) do
       {:ok, %{image: image, content_type: "image/png"}}
     else

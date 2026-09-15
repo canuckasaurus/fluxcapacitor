@@ -10,31 +10,31 @@ defmodule Flux.Workflows.AlertWorker do
 
   @impl Oban.Worker
   def perform(%Oban.Job{attempt: attempt, args: %{"url" => url, "payload" => payload} = args}) do
-    with :ok <- Flux.SSRF.verify_url(url) do
-      body =
-        case args["format"] do
-          "slack" -> Jason.encode!(slack_payload(payload))
-          _json -> Jason.encode!(payload)
-        end
+    body =
+      case args["format"] do
+        "slack" -> Jason.encode!(slack_payload(payload))
+        _json -> Jason.encode!(payload)
+      end
 
-      # A stable idempotency key (the delivery id) lets receivers dedupe
-      # a redelivery — this worker retries up to 5×, and a receiver that
-      # acts then returns 500 would otherwise process the alert twice.
-      idempotency =
-        case args["delivery_id"] do
-          id when is_binary(id) -> [{"x-flux-idempotency-key", id}]
-          _none -> []
-        end
+    # A stable idempotency key (the delivery id) lets receivers dedupe
+    # a redelivery — this worker retries up to 5×, and a receiver that
+    # acts then returns 500 would otherwise process the alert twice.
+    idempotency =
+      case args["delivery_id"] do
+        id when is_binary(id) -> [{"x-flux-idempotency-key", id}]
+        _none -> []
+      end
 
-      headers =
-        [{"content-type", "application/json"}] ++
-          idempotency ++ signature_headers(resolve_secret(args), body)
+    headers =
+      [{"content-type", "application/json"}] ++
+        idempotency ++ signature_headers(resolve_secret(args), body)
 
-      result =
-        Req.post(
-          [url: url, body: body, headers: headers, receive_timeout: 10_000, redirect: false] ++
-            Application.get_env(:flux, :alert_req_options, [])
-        )
+    options =
+      [url: url, body: body, headers: headers, receive_timeout: 10_000] ++
+        Application.get_env(:flux, :alert_req_options, [])
+
+    with {:ok, options} <- Flux.SSRF.merge_pin(options, url) do
+      result = Req.post(options)
 
       # Endpoint deliveries keep a log row; run-failure alerts don't.
       case result do

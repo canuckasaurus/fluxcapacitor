@@ -55,9 +55,8 @@ defmodule Flux.Plugins.Gemini do
         end
     }
 
-    with :ok <- Flux.SSRF.verify_url(url),
-         {:ok, %{status: 200, body: response}} <-
-           Req.post(SSE.req_options(url: url, json: body, headers: auth(credentials))) do
+    with {:ok, options} <- SSE.req_options(url: url, json: body, headers: auth(credentials)),
+         {:ok, %{status: 200, body: response}} <- Req.post(options) do
       vectors = response["embeddings"] |> List.wrap() |> Enum.map(& &1["values"])
       {:ok, %{vectors: vectors, usage: %{input_tokens: 0}}}
     else
@@ -68,7 +67,11 @@ defmodule Flux.Plugins.Gemini do
 
   @impl Flux.Plugin.ModelProvider
   def validate_credentials(credentials) do
-    case Req.get(SSE.req_options(url: @base_url <> "/models", headers: auth(credentials))) do
+    with {:ok, options} <-
+           SSE.req_options(url: @base_url <> "/models", headers: auth(credentials)) do
+      Req.get(options)
+    end
+    |> case do
       {:ok, %{status: 200}} -> :ok
       {:ok, %{status: status}} when status in [400, 401, 403] -> {:error, "Invalid API key."}
       {:ok, %{status: status}} -> {:error, "Google returned HTTP #{status}."}

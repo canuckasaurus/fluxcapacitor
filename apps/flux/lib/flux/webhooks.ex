@@ -37,8 +37,7 @@ defmodule Flux.Webhooks do
     with :ok <- RBAC.authorize(scope, :api_extension_manage),
          %Endpoint{} = endpoint <-
            Repo.one(Repo.scoped(where(Endpoint, id: ^endpoint_id), scope)) ||
-             {:error, :not_found},
-         :ok <- Flux.SSRF.verify_url(endpoint.url) do
+             {:error, :not_found} do
       body =
         Jason.encode!(%{
           event: "webhook.test",
@@ -50,21 +49,23 @@ defmodule Flux.Webhooks do
         "sha256=" <>
           (:crypto.mac(:hmac, :sha256, endpoint.secret, body) |> Base.encode16(case: :lower))
 
-      case Req.post(
-             [
-               url: endpoint.url,
-               body: body,
-               headers: [
-                 {"content-type", "application/json"},
-                 {"x-flux-signature", signature}
-               ],
-               retry: false,
-               redirect: false,
-               receive_timeout: 10_000
-             ] ++ Application.get_env(:flux, :alert_req_options, [])
-           ) do
-        {:ok, %{status: status}} -> {:ok, status}
-        {:error, exception} -> {:error, Exception.message(exception)}
+      options =
+        [
+          url: endpoint.url,
+          body: body,
+          headers: [
+            {"content-type", "application/json"},
+            {"x-flux-signature", signature}
+          ],
+          retry: false,
+          receive_timeout: 10_000
+        ] ++ Application.get_env(:flux, :alert_req_options, [])
+
+      with {:ok, options} <- Flux.SSRF.merge_pin(options, endpoint.url) do
+        case Req.post(options) do
+          {:ok, %{status: status}} -> {:ok, status}
+          {:error, exception} -> {:error, Exception.message(exception)}
+        end
       end
     end
   end

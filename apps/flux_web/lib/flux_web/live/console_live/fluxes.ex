@@ -77,9 +77,11 @@ defmodule FluxWeb.ConsoleLive.Fluxes do
   end
 
   def handle_event("import_url", %{"url" => url}, socket) do
-    with :ok <- Flux.SSRF.verify_url(String.trim(url)),
-         {:ok, %{status: 200, body: body}} <-
-           Req.get(url: String.trim(url), decode_body: false, retry: false, redirect: false),
+    url = String.trim(url)
+
+    with {:ok, options} <-
+           Flux.SSRF.merge_pin([url: url, decode_body: false, retry: false], url),
+         {:ok, %{status: 200, body: body}} <- Req.get(options),
          {:ok, _workflow} <-
            Workflows.import_dsl(socket.assigns.current_scope, body) do
       {:noreply,

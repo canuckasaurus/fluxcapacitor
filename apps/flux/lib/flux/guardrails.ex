@@ -196,15 +196,12 @@ defmodule Flux.Guardrails do
   end
 
   defp default_api_client(url, payload) do
-    with :ok <- Flux.SSRF.verify_url(url),
-         {:ok, %{status: 200, body: %{} = body}} <-
-           Req.post(
-             url: url,
-             json: payload,
-             redirect: false,
-             max_retries: 0,
-             receive_timeout: 5_000
-           ) do
+    with {:ok, options} <-
+           Flux.SSRF.merge_pin(
+             [url: url, json: payload, max_retries: 0, receive_timeout: 5_000],
+             url
+           ),
+         {:ok, %{status: 200, body: %{} = body}} <- Req.post(options) do
       {:ok, body}
     else
       {:ok, %{status: status}} -> {:error, "HTTP #{status}"}

@@ -65,9 +65,9 @@ defmodule Flux.Tools do
   @max_spec_bytes 5_000_000
 
   defp fetch_spec(url) do
-    with :ok <- Flux.SSRF.verify_url(url),
-         {:ok, %{status: 200, body: body}} <-
-           Req.get(url: url, decode_body: false, retry: false, redirect: false),
+    with {:ok, options} <-
+           Flux.SSRF.merge_pin([url: url, decode_body: false, retry: false], url),
+         {:ok, %{status: 200, body: body}} <- Req.get(options),
          body = to_string(body),
          :ok <-
            (byte_size(body) <= @max_spec_bytes && :ok) ||
@@ -452,9 +452,7 @@ defmodule Flux.Tools do
     {url, query, headers, body} = build_request(toolset, operation, args)
     {query, headers} = apply_auth(auth, query, headers)
 
-    with :ok <- Flux.SSRF.verify_url(url) do
-      dispatch(operation, url, query, headers, body)
-    end
+    dispatch(operation, url, query, headers, body)
   end
 
   defp dispatch(operation, url, query, headers, body) do
@@ -465,20 +463,22 @@ defmodule Flux.Tools do
         params: query,
         headers: headers,
         receive_timeout: @receive_timeout,
-        retry: false,
-        # The base_url came from a user-supplied spec and was
-        # SSRF-verified; don't let a 302 bounce it internal.
-        redirect: false
+        retry: false
       ]
       |> then(fn options -> if body == %{}, do: options, else: options ++ [json: body] end)
       |> Keyword.merge(Application.get_env(:flux, :tools_req_options, []))
 
-    case Req.request(options) do
-      {:ok, %{status: status, body: response}} ->
-        {:ok, %{status: status, body: response, text: as_text(response)}}
+    # The base_url came from a user-supplied spec: pinned to the checked
+    # peer IP so neither a 302 nor a DNS rebind at connect time can bounce
+    # it internal.
+    with {:ok, options} <- Flux.SSRF.merge_pin(options, url) do
+      case Req.request(options) do
+        {:ok, %{status: status, body: response}} ->
+          {:ok, %{status: status, body: response, text: as_text(response)}}
 
-      {:error, reason} ->
-        {:error, "API call failed: #{inspect(reason)}"}
+        {:error, reason} ->
+          {:error, "API call failed: #{inspect(reason)}"}
+      end
     end
   end
 

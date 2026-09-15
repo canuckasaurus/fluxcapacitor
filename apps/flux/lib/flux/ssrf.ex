@@ -6,6 +6,15 @@ defmodule Flux.SSRF do
   either IP family. Cloud metadata endpoints (169.254.0.0/16) fall under
   link-local.
 
+  `verify_url/1` is a check-time guard: it answers "is this URL safe to
+  fetch right now?" but Finch/Req resolve the host again at connect time,
+  so a hostname that was public when checked can rebind to a private
+  address by the time the TCP connection opens (DNS rebinding). `pin/1`
+  (and `merge_pin/2`, for folding into an existing Req option list) close
+  that gap: they resolve once, verify every candidate address, and return
+  options that connect directly to the checked peer IP while preserving
+  the original Host header and TLS SNI.
+
   Configuration (`config :flux, Flux.SSRF`):
 
     * `enabled: boolean` — `false` skips address checks (test env only)
@@ -20,41 +29,125 @@ defmodule Flux.SSRF do
   @doc "Returns `:ok` or `{:error, message}` for an outbound URL."
   @spec verify_url(String.t() | nil) :: :ok | {:error, String.t()}
   def verify_url(url) when is_binary(url) do
-    uri = URI.parse(url)
-
-    cond do
-      uri.scheme not in ["http", "https"] ->
-        {:error, "Only http(s) URLs are allowed."}
-
-      uri.host in [nil, ""] ->
-        {:error, "The URL has no host."}
-
-      not enabled?() ->
-        :ok
-
-      uri.host in allowlist() ->
-        :ok
-
-      true ->
-        verify_host(uri.host)
+    with {:ok, uri} <- validate(url) do
+      cond do
+        not enabled?() -> :ok
+        uri.host in allowlist() -> :ok
+        true -> with {:ok, _address} <- pick_address(uri.host), do: :ok
+      end
     end
   end
 
   def verify_url(_other), do: {:error, "The URL has no host."}
 
-  defp verify_host(host) do
+  @doc """
+  Resolves `url`'s host once, verifies every resolved address, and picks a
+  single allowed peer IP. Returns Req/Finch options that connect to that
+  IP literal while preserving the original Host header and TLS SNI —
+  closing the check-time/connect-time TOCTOU gap that `verify_url/1` alone
+  leaves open.
+
+  When SSRF checks are disabled or the host is allowlisted, returns
+  passthrough options (unpinned `:url`, still `redirect: false`) so
+  local/dev flows keep working.
+  """
+  @spec pin(String.t() | nil) :: {:ok, keyword()} | {:error, String.t()}
+  def pin(url) when is_binary(url) do
+    with {:ok, uri} <- validate(url) do
+      cond do
+        not enabled?() ->
+          {:ok, [url: url, redirect: false]}
+
+        uri.host in allowlist() ->
+          {:ok, [url: url, redirect: false]}
+
+        true ->
+          with {:ok, address} <- pick_address(uri.host), do: {:ok, pinned_options(uri, address)}
+      end
+    end
+  end
+
+  def pin(_other), do: {:error, "The URL has no host."}
+
+  @doc """
+  Merges `pin/1`'s options into an existing Req option list: swaps in the
+  pinned `:url`, folds the Host header into `:headers` (list- or
+  map-shaped), merges `:connect_options` (SNI), and forces
+  `redirect: false`. Returns `{:ok, options}` or `{:error, message}`.
+  """
+  @spec merge_pin(keyword(), String.t() | nil) :: {:ok, keyword()} | {:error, String.t()}
+  def merge_pin(options, url) do
+    with {:ok, pin_opts} <- pin(url) do
+      {:ok, do_merge(options, pin_opts)}
+    end
+  end
+
+  defp do_merge(options, pin_opts) do
+    options
+    |> Keyword.put(:url, pin_opts[:url])
+    |> Keyword.put(:redirect, false)
+    |> merge_headers(pin_opts[:headers])
+    |> merge_connect_options(pin_opts[:connect_options])
+  end
+
+  defp merge_headers(options, nil), do: options
+
+  defp merge_headers(options, extra) do
+    Keyword.update(options, :headers, extra, fn
+      existing when is_map(existing) -> Enum.into(extra, existing)
+      existing when is_list(existing) -> existing ++ extra
+    end)
+  end
+
+  defp merge_connect_options(options, nil), do: options
+
+  defp merge_connect_options(options, extra) do
+    Keyword.update(options, :connect_options, extra, fn existing ->
+      Keyword.merge(existing, extra, fn
+        :transport_opts, e, n -> Keyword.merge(e, n)
+        _key, _e, n -> n
+      end)
+    end)
+  end
+
+  defp validate(url) do
+    uri = URI.parse(url)
+
+    cond do
+      uri.scheme not in ["http", "https"] -> {:error, "Only http(s) URLs are allowed."}
+      uri.host in [nil, ""] -> {:error, "The URL has no host."}
+      true -> {:ok, uri}
+    end
+  end
+
+  defp pinned_options(uri, address) do
+    ip = address |> :inet.ntoa() |> to_string()
+
+    [
+      url: URI.to_string(%{uri | host: ip}),
+      headers: [{"host", uri.host}],
+      connect_options: [transport_opts: [server_name_indication: String.to_charlist(uri.host)]],
+      redirect: false
+    ]
+  end
+
+  defp pick_address(host) do
     charlist = String.to_charlist(host)
 
     case :inet.parse_address(charlist) do
       {:ok, address} ->
-        check_address(address, host)
+        if blocked?(address) do
+          {:error, "Host #{host} resolves to a blocked address (#{:inet.ntoa(address)})."}
+        else
+          {:ok, address}
+        end
 
       {:error, _not_literal} ->
-        resolve_and_check(charlist, host)
+        resolve_and_pick(charlist, host)
     end
   end
 
-  defp resolve_and_check(charlist, host) do
+  defp resolve_and_pick(charlist, host) do
     addresses =
       case :inet.getaddrs(charlist, :inet) do
         {:ok, v4} -> v4
@@ -65,23 +158,15 @@ defmodule Flux.SSRF do
           {:error, _reason} -> []
         end
 
-    if addresses == [] do
-      {:error, "Could not resolve host #{host}."}
-    else
-      Enum.find_value(addresses, :ok, fn address ->
-        case check_address(address, host) do
-          :ok -> nil
-          {:error, _message} = error -> error
-        end
-      end)
-    end
-  end
+    cond do
+      addresses == [] ->
+        {:error, "Could not resolve host #{host}."}
 
-  defp check_address(address, host) do
-    if blocked?(address) do
-      {:error, "Host #{host} resolves to a blocked address (#{:inet.ntoa(address)})."}
-    else
-      :ok
+      blocked = Enum.find(addresses, &blocked?/1) ->
+        {:error, "Host #{host} resolves to a blocked address (#{:inet.ntoa(blocked)})."}
+
+      true ->
+        {:ok, hd(addresses)}
     end
   end
 
