@@ -142,8 +142,8 @@ defmodule Flux.Plugins.Notion do
     if token == "" do
       {:error, "api_token is required"}
     else
-      options =
-        SSE.req_options(
+      base_options =
+        [
           method: method,
           url: @base <> path,
           headers: [
@@ -152,25 +152,26 @@ defmodule Flux.Plugins.Notion do
           ],
           receive_timeout: 30_000,
           retry: false
-        )
+        ]
+        |> then(fn options -> if body, do: Keyword.put(options, :json, body), else: options end)
 
-      options = if body, do: Keyword.put(options, :json, body), else: options
+      with {:ok, options} <- SSE.req_options(base_options) do
+        case Req.request(options) do
+          {:ok, %{status: status, body: %{} = decoded}} when status in 200..299 ->
+            {:ok, decoded}
 
-      case Req.request(options) do
-        {:ok, %{status: status, body: %{} = decoded}} when status in 200..299 ->
-          {:ok, decoded}
+          {:ok, %{status: 401}} ->
+            {:error, "Notion rejected the token (401) — check the integration token"}
 
-        {:ok, %{status: 401}} ->
-          {:error, "Notion rejected the token (401) — check the integration token"}
+          {:ok, %{status: 404}} ->
+            {:error, "not found — is the page shared with the integration?"}
 
-        {:ok, %{status: 404}} ->
-          {:error, "not found — is the page shared with the integration?"}
+          {:ok, %{status: status, body: body}} ->
+            {:error, "Notion returned HTTP #{status}: #{extract_message(body)}"}
 
-        {:ok, %{status: status, body: body}} ->
-          {:error, "Notion returned HTTP #{status}: #{extract_message(body)}"}
-
-        {:error, reason} ->
-          {:error, "Notion request failed: #{inspect(reason)}"}
+          {:error, reason} ->
+            {:error, "Notion request failed: #{inspect(reason)}"}
+        end
       end
     end
   end

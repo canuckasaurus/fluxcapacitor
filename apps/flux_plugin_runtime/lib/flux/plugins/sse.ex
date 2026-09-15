@@ -18,25 +18,27 @@ defmodule Flux.Plugins.SSE do
   `{:ok, final_acc}` or `{:error, reason}`.
   """
   def stream_request(req_opts, acc, handle_data) do
-    with :ok <- Flux.SSRF.verify_url(req_opts[:url]) do
-      do_stream_request(req_opts, acc, handle_data)
+    with {:ok, options} <- req_options(req_opts) do
+      do_stream_request(options, acc, handle_data)
     end
   end
 
   @doc """
-  Request options with the environment's extra Req options merged in
-  (`config :flux_plugin_runtime, :req_options` — used by tests to stub HTTP).
-  Callers making non-streaming calls (credential validation) should build
-  their options through this and guard with `Flux.SSRF.verify_url/1`.
+  Request options with the target peer IP pinned (`Flux.SSRF.merge_pin/2` —
+  closes the DNS-rebinding TOCTOU gap between check time and connect time)
+  and the environment's extra Req options merged in
+  (`config :flux_plugin_runtime, :req_options` — used by tests to stub
+  HTTP). Callers making non-streaming calls should build their options
+  through this. Returns `{:ok, options}` or `{:error, message}`.
   """
   def req_options(opts) do
-    # redirect: false by default — every caller here targets a
+    # redirect: false (forced by merge_pin) — every caller here targets a
     # workspace-configured base_url that was SSRF-verified, and a 302 to
     # an internal address would defeat that guard. The test req_options
     # override still wins via Keyword.merge.
-    [redirect: false]
-    |> Keyword.merge(opts)
-    |> Keyword.merge(Application.get_env(:flux_plugin_runtime, :req_options, []))
+    with {:ok, options} <- Flux.SSRF.merge_pin(opts, opts[:url]) do
+      {:ok, Keyword.merge(options, Application.get_env(:flux_plugin_runtime, :req_options, []))}
+    end
   end
 
   defp do_stream_request(req_opts, acc, handle_data) do
@@ -45,7 +47,7 @@ defmodule Flux.Plugins.SSE do
 
     result =
       Req.post(
-        req_options(req_opts) ++
+        req_opts ++
           [
             receive_timeout: :timer.minutes(5),
             retry: false,

@@ -41,9 +41,8 @@ defmodule Flux.Plugins.Ollama do
   def models(credentials) do
     url = base_url(credentials) <> "/api/tags"
 
-    with :ok <- Flux.SSRF.verify_url(url),
-         {:ok, %{status: 200, body: %{"models" => models}}} <-
-           Req.get(SSE.req_options(url: url)) do
+    with {:ok, options} <- SSE.req_options(url: url),
+         {:ok, %{status: 200, body: %{"models" => models}}} <- Req.get(options) do
       for %{"name" => name} <- models do
         %Spec{name: name, label: name}
       end
@@ -56,8 +55,8 @@ defmodule Flux.Plugins.Ollama do
   def validate_credentials(credentials) do
     url = base_url(credentials) <> "/api/tags"
 
-    with :ok <- Flux.SSRF.verify_url(url) do
-      case Req.get(SSE.req_options(url: url)) do
+    with {:ok, options} <- SSE.req_options(url: url) do
+      case Req.get(options) do
         {:ok, %{status: 200, body: %{"models" => models}}} when models != [] ->
           :ok
 

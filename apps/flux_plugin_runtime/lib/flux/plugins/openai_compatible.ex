@@ -84,8 +84,8 @@ defmodule Flux.Plugins.OpenAICompatible do
   defp probe(base_url, credentials) do
     url = String.trim_trailing(base_url, "/") <> "/models"
 
-    with :ok <- Flux.SSRF.verify_url(url) do
-      case Req.get(SSE.req_options(url: url, headers: auth(credentials))) do
+    with {:ok, options} <- SSE.req_options(url: url, headers: auth(credentials)) do
+      case Req.get(options) do
         {:ok, %{status: status}} when status in [200, 404, 405] -> :ok
         {:ok, %{status: status}} when status in [401, 403] -> {:error, "Invalid API key."}
         {:ok, %{status: status}} -> {:error, "Endpoint returned HTTP #{status}."}

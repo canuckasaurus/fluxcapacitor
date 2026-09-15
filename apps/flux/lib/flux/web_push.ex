@@ -130,19 +130,19 @@ defmodule Flux.WebPush do
       {"urgency", "normal"}
     ]
 
-    # Re-verify at send time (endpoints could predate the store-time
-    # guard) and never follow a redirect — a 302 to an internal address
-    # would defeat the check.
+    # Re-verify and re-pin at send time (endpoints could predate the
+    # store-time guard, and the peer IP checked here is the one actually
+    # connected to) — never follow a redirect, and never resolve again at
+    # connect time, since either would defeat the check.
     options =
       [
         url: subscription.endpoint,
         headers: headers,
         body: body,
-        retry: false,
-        redirect: false
+        retry: false
       ] ++ Application.get_env(:flux, :webpush_req_options, [])
 
-    with :ok <- Flux.SSRF.verify_url(subscription.endpoint),
+    with {:ok, options} <- Flux.SSRF.merge_pin(options, subscription.endpoint),
          {:ok, %Req.Response{} = response} <- Req.post(options) do
       case response.status do
         s when s in 200..299 -> :ok

@@ -94,11 +94,13 @@ defmodule Flux.Plugins.Bedrock do
 
       headers = sign(credentials, "GET", host, "/foundation-models", "")
 
-      case Req.get(SSE.req_options(url: url, headers: headers)) do
-        {:ok, %{status: 200}} -> :ok
-        {:ok, %{status: 403}} -> {:error, "Access denied — check the keys and IAM policy."}
-        {:ok, %{status: status}} -> {:error, "Bedrock returned HTTP #{status}."}
-        {:error, reason} -> {:error, "Could not reach Bedrock: #{inspect(reason)}"}
+      with {:ok, options} <- SSE.req_options(url: url, headers: headers) do
+        case Req.get(options) do
+          {:ok, %{status: 200}} -> :ok
+          {:ok, %{status: 403}} -> {:error, "Access denied — check the keys and IAM policy."}
+          {:ok, %{status: status}} -> {:error, "Bedrock returned HTTP #{status}."}
+          {:error, reason} -> {:error, "Could not reach Bedrock: #{inspect(reason)}"}
+        end
       end
     end
   end
@@ -126,19 +128,19 @@ defmodule Flux.Plugins.Bedrock do
       path = "/model/#{URI.encode(request.model, &URI.char_unreserved?/1)}/invoke"
       headers = sign(credentials, "POST", host, path, body)
 
-      req_opts =
-        SSE.req_options(
-          url: "https://#{host}#{path}",
-          body: body,
-          headers: headers,
-          receive_timeout: :timer.minutes(5),
-          retry: false
-        )
-
-      case Req.post(req_opts) do
-        {:ok, %{status: 200, body: reply}} -> decode_reply(reply, emit)
-        {:ok, %{status: status, body: reply}} -> {:error, {:http_error, status, reply}}
-        {:error, reason} -> {:error, reason}
+      with {:ok, req_opts} <-
+             SSE.req_options(
+               url: "https://#{host}#{path}",
+               body: body,
+               headers: headers,
+               receive_timeout: :timer.minutes(5),
+               retry: false
+             ) do
+        case Req.post(req_opts) do
+          {:ok, %{status: 200, body: reply}} -> decode_reply(reply, emit)
+          {:ok, %{status: status, body: reply}} -> {:error, {:http_error, status, reply}}
+          {:error, reason} -> {:error, reason}
+        end
       end
     end
   end

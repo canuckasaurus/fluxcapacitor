@@ -179,17 +179,14 @@ defmodule Flux.Plugins.RSS do
   end
 
   defp get(url) do
-    with :ok <- Flux.SSRF.verify_url(url),
-         {:ok, %{status: 200, body: body}} <-
-           Req.get(
-             SSE.req_options(
-               url: url,
-               redirect: false,
-               max_retries: 1,
-               receive_timeout: 15_000,
-               decode_body: false
-             )
+    with {:ok, options} <-
+           SSE.req_options(
+             url: url,
+             max_retries: 1,
+             receive_timeout: 15_000,
+             decode_body: false
            ),
+         {:ok, %{status: 200, body: body}} <- Req.get(options),
          body = to_string(body),
          :ok <- (byte_size(body) <= @max_body_bytes && :ok) || {:error, "response too large"} do
       {:ok, body}

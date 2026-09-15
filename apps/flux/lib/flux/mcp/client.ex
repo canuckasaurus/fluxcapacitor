@@ -101,13 +101,13 @@ defmodule Flux.MCP.Client do
         json: payload,
         headers: Map.to_list(request_headers),
         receive_timeout: @receive_timeout,
-        retry: false,
-        # user-registered MCP server URL: verified below, no redirects.
-        redirect: false
+        retry: false
       ]
       |> Keyword.merge(Application.get_env(:flux, :mcp_req_options, []))
 
-    with :ok <- Flux.SSRF.verify_url(url) do
+    # user-registered MCP server URL: pinned to the checked peer IP, no
+    # redirects.
+    with {:ok, options} <- Flux.SSRF.merge_pin(options, url) do
       case Req.request(options) do
         {:ok, %{status: status} = response} when status in [200, 202] ->
           session = response_session(response) || session

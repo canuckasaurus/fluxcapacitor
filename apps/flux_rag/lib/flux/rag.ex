@@ -401,17 +401,17 @@ defmodule Flux.RAG do
   """
   def add_document_from_url(%Scope{} = scope, %Dataset{} = dataset, url) when is_binary(url) do
     with :ok <- RBAC.authorize(scope, :dataset_edit),
-         :ok <- Flux.SSRF.verify_url(url),
-         {:ok, %{status: 200, body: body}} <-
-           Req.get(
+         {:ok, options} <-
+           Flux.SSRF.merge_pin(
              [
                url: url,
-               redirect: false,
                max_retries: 1,
                receive_timeout: 15_000,
                decode_body: false
-             ] ++ Application.get_env(:flux_rag, :req_options, [])
+             ] ++ Application.get_env(:flux_rag, :req_options, []),
+             url
            ),
+         {:ok, %{status: 200, body: body}} <- Req.get(options),
          body = to_string(body),
          :ok <- (byte_size(body) <= @max_fetch_bytes && :ok) || {:error, :too_large} do
       content =
@@ -451,17 +451,17 @@ defmodule Flux.RAG do
     max_pages = max_pages |> max(1) |> min(25)
 
     with :ok <- RBAC.authorize(scope, :dataset_edit),
-         :ok <- Flux.SSRF.verify_url(url),
-         {:ok, %{status: 200, body: body}} <-
-           Req.get(
+         {:ok, options} <-
+           Flux.SSRF.merge_pin(
              [
                url: url,
-               redirect: false,
                max_retries: 1,
                receive_timeout: 15_000,
                decode_body: false
-             ] ++ Application.get_env(:flux_rag, :req_options, [])
-           ) do
+             ] ++ Application.get_env(:flux_rag, :req_options, []),
+             url
+           ),
+         {:ok, %{status: 200, body: body}} <- Req.get(options) do
       links = same_host_links(url, to_string(body)) |> Enum.take(max_pages - 1)
 
       results =
@@ -1716,18 +1716,19 @@ defmodule Flux.RAG do
         api_key -> [{"authorization", "Bearer " <> api_key}]
       end
 
-    with :ok <- Flux.SSRF.verify_url(dataset.external_endpoint),
-         {:ok, %{status: 200, body: %{"records" => records}}} when is_list(records) <-
-           Req.post(
+    with {:ok, options} <-
+           Flux.SSRF.merge_pin(
              [
                url: dataset.external_endpoint,
                json: payload,
                headers: headers,
-               redirect: false,
                max_retries: 1,
                receive_timeout: 15_000
-             ] ++ Application.get_env(:flux_rag, :req_options, [])
-           ) do
+             ] ++ Application.get_env(:flux_rag, :req_options, []),
+             dataset.external_endpoint
+           ),
+         {:ok, %{status: 200, body: %{"records" => records}}} when is_list(records) <-
+           Req.post(options) do
       hits =
         records
         |> Enum.take(top_k)
