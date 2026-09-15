@@ -118,11 +118,14 @@ defmodule Flux.SSRFTest do
       assert options[:redirect] == false
       assert {"authorization", "Bearer t"} in options[:headers]
       assert {"host", "example.com"} in options[:headers]
+
       assert [transport_opts: [server_name_indication: ~c"example.com"]] =
                options[:connect_options]
 
       refute options[:url] == "https://example.com/x"
-      assert {:ok, _address} = :inet.parse_address(String.to_charlist(URI.parse(options[:url]).host))
+
+      assert {:ok, _address} =
+               :inet.parse_address(String.to_charlist(URI.parse(options[:url]).host))
     end
 
     test "folds into a map-shaped headers option too" do

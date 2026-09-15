@@ -55,9 +55,14 @@ defmodule Flux.SSRF do
   def pin(url) when is_binary(url) do
     with {:ok, uri} <- validate(url) do
       cond do
-        not enabled?() -> {:ok, [url: url, redirect: false]}
-        uri.host in allowlist() -> {:ok, [url: url, redirect: false]}
-        true -> with {:ok, address} <- pick_address(uri.host), do: {:ok, pinned_options(uri, address)}
+        not enabled?() ->
+          {:ok, [url: url, redirect: false]}
+
+        uri.host in allowlist() ->
+          {:ok, [url: url, redirect: false]}
+
+        true ->
+          with {:ok, address} <- pick_address(uri.host), do: {:ok, pinned_options(uri, address)}
       end
     end
   end
